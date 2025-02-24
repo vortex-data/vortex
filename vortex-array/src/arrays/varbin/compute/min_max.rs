@@ -3,10 +3,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
-use crate::Array;
 
 impl MinMaxFn<&VarBinArray> for VarBinEncoding {
     fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
@@ -45,7 +45,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::VarBinArray;
-    use crate::compute::{min_max, MinMaxResult};
+    use crate::compute::{MinMaxResult, min_max};
     use crate::stats::{Stat, Statistics};
 
     #[test]

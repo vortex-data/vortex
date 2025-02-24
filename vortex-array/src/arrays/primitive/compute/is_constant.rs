@@ -1,4 +1,4 @@
-use vortex_dtype::{match_each_native_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::IsConstantFn;

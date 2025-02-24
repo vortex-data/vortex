@@ -3,10 +3,10 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait};
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
-use crate::compute::{try_cast, ToArrowFn};
+use crate::compute::{ToArrowFn, try_cast};
 use crate::{Array, ToCanonical};
 
 impl ToArrowFn<&VarBinArray> for VarBinEncoding {

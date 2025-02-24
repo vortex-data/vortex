@@ -126,8 +126,8 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
-    use crate::stats::Precision;
     use crate::IntoArray;
+    use crate::stats::Precision;
 
     #[test]
     fn compute_statistics() {

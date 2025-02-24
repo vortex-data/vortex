@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::serde::ArrayParts;

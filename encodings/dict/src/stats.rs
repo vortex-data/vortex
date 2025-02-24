@@ -1,6 +1,6 @@
+use vortex_array::Array;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};

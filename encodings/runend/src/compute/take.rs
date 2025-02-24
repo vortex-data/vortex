@@ -1,9 +1,9 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{take, TakeFn};
+use vortex_array::compute::{TakeFn, take};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{RunEndArray, RunEndEncoding};
 

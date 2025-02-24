@@ -1,12 +1,12 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::ContextRef;
+use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_dtype::{DType, FieldName, StructDType};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_expr::transform::partition::{partition, PartitionedExpr};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
+use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;

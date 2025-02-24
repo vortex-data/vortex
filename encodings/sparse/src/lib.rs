@@ -8,11 +8,11 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Encoding, EncodingId, RkyvMetadata, ToCanonical,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, EncodingId,
+    RkyvMetadata, ToCanonical, encoding_ids, try_from_array_ref,
 };
-use vortex_dtype::{match_each_integer_ptype, DType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -224,9 +224,9 @@ impl StatisticsVTable<&SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
@@ -345,7 +345,9 @@ mod test {
                 .to_boolean_buffer()
                 .iter()
                 .collect_vec(),
-            [false, false, true, false, false, true, false, false, true, false]
+            [
+                false, false, true, false, false, true, false, false, true, false
+            ]
         );
     }
 

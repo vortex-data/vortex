@@ -1,4 +1,4 @@
-use vortex_array::compute::{mask, MaskFn};
+use vortex_array::compute::{MaskFn, mask};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -22,9 +22,9 @@ impl MaskFn<&ALPRDArray> for ALPRDEncoding {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::Array;
 
     use crate::{ALPRDFloat, RDEncoder};
 

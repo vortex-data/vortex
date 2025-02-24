@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{fill_null, FillNullFn};
+use crate::compute::{FillNullFn, fill_null};
 use crate::{Array, ArrayRef};
 
 impl FillNullFn<&ChunkedArray> for ChunkedEncoding {

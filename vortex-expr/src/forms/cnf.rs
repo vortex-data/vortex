@@ -3,7 +3,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use super::nnf::nnf;
 use crate::traversal::{Node as _, NodeVisitor, TraversalOrder};
-use crate::{lit, or, BinaryExpr, ExprRef, Operator};
+use crate::{BinaryExpr, ExprRef, Operator, lit, or};
 
 /// Return an equivalent expression in Conjunctive Normal Form (CNF).
 ///

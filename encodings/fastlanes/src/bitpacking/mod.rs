@@ -11,13 +11,13 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
-    RkyvMetadata,
+    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, encoding_ids,
+    try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;

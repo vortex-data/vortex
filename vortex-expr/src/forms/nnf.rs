@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
-use crate::{not, BinaryExpr, ExprRef, Not, Operator};
+use crate::{BinaryExpr, ExprRef, Not, Operator, not};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
 ///

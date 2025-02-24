@@ -6,11 +6,11 @@ use vortex_array::arrays::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::EncoderMetadata;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ChunkedCompressor {
@@ -169,7 +169,9 @@ fn like_into_parts(
                 *ratio >= 1.0f32,
                 "When there's no compressor tree compression ratio must be greater than 1"
             );
-            log::debug!("Last compressed child of chunked array has compression ration of {ratio} and no compressor");
+            log::debug!(
+                "Last compressed child of chunked array has compression ration of {ratio} and no compressor"
+            );
             Ok(None)
         }
     }

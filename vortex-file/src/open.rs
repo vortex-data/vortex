@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use flatbuffers::root;
 use futures::stream::FuturesUnordered;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
-use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
+use vortex_array::stats::StatsSet;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd, footer as fb};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
@@ -22,8 +22,8 @@ use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
 use crate::{
-    GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE,
-    VERSION,
+    EOF_SIZE, GenericVortexFile, InMemoryVortexFile, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION,
+    VortexFile,
 };
 
 pub trait FileType: Sized {

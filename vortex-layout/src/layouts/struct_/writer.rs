@@ -1,15 +1,15 @@
 use itertools::Itertools;
-use vortex_array::iter::ArrayIteratorArrayExt;
 use vortex_array::ArrayRef;
+use vortex_array::iter::ArrayIteratorArrayExt;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
+use crate::LayoutVTableRef;
 use crate::data::Layout;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
-use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {

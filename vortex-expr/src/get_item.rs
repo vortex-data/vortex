@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldName};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ident, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr, ident};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -95,8 +95,8 @@ impl PartialEq for GetItem {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::StructArray;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::PType::I32;

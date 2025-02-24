@@ -5,7 +5,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+    VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};

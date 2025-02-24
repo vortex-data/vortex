@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use pyo3::{pyclass, pymethods, Bound, PyRef, PyResult};
+use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
 use vortex::arrays::ChunkedEncoding;
 
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};

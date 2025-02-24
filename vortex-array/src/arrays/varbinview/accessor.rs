@@ -2,10 +2,10 @@ use std::iter;
 
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::validity::Validity;
-use crate::ToCanonical;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(

@@ -6,7 +6,7 @@ use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_scalar::PrimitiveScalar;
 
 use crate::DateTimePartsArray;
@@ -105,8 +105,8 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 
-    use crate::canonical::decode_to_temporal;
     use crate::DateTimePartsArray;
+    use crate::canonical::decode_to_temporal;
 
     #[rstest]
     #[case(Validity::NonNullable)]

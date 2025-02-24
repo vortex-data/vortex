@@ -90,8 +90,8 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::segments::test::TestSegments;
     use crate::segments::AsyncSegmentReader;
+    use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 

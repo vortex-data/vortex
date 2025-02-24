@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
 use datafusion_physical_plan::Metric;
+use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
 use vortex::aliases::hash_map::HashMap;
 
 pub trait MetricsSetExt {

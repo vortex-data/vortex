@@ -51,7 +51,7 @@ pub trait SegmentWriter {
 #[cfg(test)]
 pub mod test {
     use vortex_buffer::ByteBufferMut;
-    use vortex_error::{vortex_err, VortexExpect};
+    use vortex_error::{VortexExpect, vortex_err};
 
     use super::*;
 

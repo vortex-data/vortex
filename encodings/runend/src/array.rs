@@ -3,19 +3,19 @@ use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
-    scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
+    SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
-    IntoArray, SerdeMetadata, ToCanonical,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, IntoArray, SerdeMetadata, ToCanonical,
+    encoding_ids, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};

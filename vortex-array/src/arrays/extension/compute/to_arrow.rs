@@ -6,14 +6,14 @@ use arrow_array::{
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_schema::DataType;
-use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
+use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
+use crate::Array;
 use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
 use crate::canonical::ToCanonical;
-use crate::compute::{to_arrow, try_cast, ToArrowFn};
-use crate::Array;
+use crate::compute::{ToArrowFn, to_arrow, try_cast};
 
 impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
     fn to_arrow(

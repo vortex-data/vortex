@@ -1,8 +1,8 @@
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::{Stat, STATS_TO_WRITE};
+use vortex_array::stats::{STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
@@ -98,17 +98,17 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::Array;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
+    use crate::RowMask;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::RowMask;
 
     #[test]
     fn flat_stats() {
@@ -129,10 +129,12 @@ mod tests {
                 .unwrap();
 
             assert!(result.statistics().get_stat(Stat::BitWidthFreq).is_none());
-            assert!(result
-                .statistics()
-                .get_stat(Stat::TrailingZeroFreq)
-                .is_none());
+            assert!(
+                result
+                    .statistics()
+                    .get_stat(Stat::TrailingZeroFreq)
+                    .is_none()
+            );
         })
     }
 }

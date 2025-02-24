@@ -1,13 +1,13 @@
 use core::fmt::Formatter;
 use std::fmt::Display;
 
-use rand::rngs::StdRng;
 use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ChunkedArray, ConstantEncoding};
 use vortex_array::compress::{
-    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged,
-    CompressionStrategy,
+    CompressionStrategy, check_dtype_unchanged, check_statistics_unchanged,
+    check_validity_unchanged,
 };
 use vortex_array::compute::slice;
 use vortex_array::nbytes::NBytes;
@@ -18,7 +18,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use super::compressors::struct_::StructCompressor;
-use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
+use super::{CompressConfig, DEFAULT_COMPRESSORS, Objective};
 use crate::compressors::constant::ConstantCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
@@ -377,8 +377,8 @@ pub(crate) fn find_best_compression<'a>(
 #[cfg(test)]
 mod tests {
     use vortex_alp::ALPRDEncoding;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::Encoding;
+    use vortex_array::arrays::PrimitiveArray;
 
     use crate::SamplingCompressor;
 

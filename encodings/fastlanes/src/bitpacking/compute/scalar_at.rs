@@ -1,9 +1,9 @@
-use vortex_array::compute::ScalarAtFn;
 use vortex_array::Array;
+use vortex_array::compute::ScalarAtFn;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{unpack_single, BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedEncoding, unpack_single};
 
 impl ScalarAtFn<&BitPackedArray> for BitPackedEncoding {
     fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
@@ -23,7 +23,7 @@ mod test {
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
-    use vortex_buffer::{buffer, Alignment, Buffer, ByteBuffer};
+    use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 

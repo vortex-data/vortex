@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ArrayRef;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 

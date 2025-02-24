@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 

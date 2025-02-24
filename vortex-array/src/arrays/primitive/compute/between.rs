@@ -1,5 +1,5 @@
 use arrow_buffer::BooleanBuffer;
-use vortex_dtype::{match_each_native_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};

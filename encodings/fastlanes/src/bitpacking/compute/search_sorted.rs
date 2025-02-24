@@ -4,17 +4,17 @@ use std::cmp::Ordering::{Greater, Less};
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use vortex_array::Array;
 use vortex_array::compute::{
     IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
     SearchSortedUsizeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::Array;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
+use vortex_dtype::{DType, NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedEncoding, unpack_single_primitive};
 
 impl SearchSortedFn<&BitPackedArray> for BitPackedEncoding {
     fn search_sorted(
@@ -204,7 +204,7 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{
-        search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
+        SearchResult, SearchSortedSide, search_sorted, search_sorted_many, slice,
     };
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};

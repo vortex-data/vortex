@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
 use crate::{Array, ArrayRef, ContextRef, Encoding};

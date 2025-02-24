@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use flexbuffers::FlexbufferSerializer;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 pub trait SerializeMetadata {
     fn serialize(&self) -> Option<Vec<u8>>;
@@ -67,12 +67,12 @@ pub struct RkyvMetadata<M>(pub M);
 impl<M> SerializeMetadata for RkyvMetadata<M>
 where
     M: for<'a> rkyv::Serialize<
-        rkyv::api::high::HighSerializer<
-            rkyv::util::AlignedVec,
-            rkyv::ser::allocator::ArenaHandle<'a>,
-            VortexError,
+            rkyv::api::high::HighSerializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                VortexError,
+            >,
         >,
-    >,
 {
     fn serialize(&self) -> Option<Vec<u8>> {
         let buf = rkyv::to_bytes::<VortexError>(&self.0)

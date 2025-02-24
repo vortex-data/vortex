@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
-use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
-use bench_vortex::tpch::load_datasets;
 use bench_vortex::Format;
+use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
+use bench_vortex::tpch::load_datasets;
 use clap::Parser;
 use tokio::runtime::Builder;
 use url::Url;
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 static FLATC_BIN: &str = "flatc";
 

@@ -1,9 +1,9 @@
+use crate::Array;
 use crate::compute::{
     BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
     FilterFn, InvertFn, IsConstantFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
 };
-use crate::Array;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {

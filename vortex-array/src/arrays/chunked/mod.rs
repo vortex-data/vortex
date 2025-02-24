@@ -9,7 +9,7 @@ use futures_util::stream;
 use itertools::Itertools;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::ArrayValidityImpl;
@@ -21,8 +21,8 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
-    EncodingId, IntoArray,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId,
+    IntoArray, encoding_ids,
 };
 
 mod canonical;
@@ -267,7 +267,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
+    use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

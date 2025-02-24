@@ -4,17 +4,17 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::stream::FuturesUnordered;
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{FileLayout, Segment};
-use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
+use crate::segments::channel::SegmentChannel;
 use crate::{FileType, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.

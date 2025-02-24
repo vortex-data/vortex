@@ -1,10 +1,10 @@
+use crate::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
     BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn,
     ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::Array;
 
 mod between;
 mod cast;

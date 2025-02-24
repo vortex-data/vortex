@@ -91,7 +91,7 @@ impl AsRef<[u8]> for ArrowWrapper {
 mod test {
     use arrow_buffer::{Buffer as ArrowBuffer, ScalarBuffer};
 
-    use crate::{buffer, Alignment, Buffer};
+    use crate::{Alignment, Buffer, buffer};
 
     #[test]
     fn into_arrow_buffer() {

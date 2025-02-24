@@ -76,13 +76,13 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::{gt, lit, Identity};
+    use vortex_expr::{Identity, gt, lit};
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
-    use crate::segments::test::TestSegments;
     use crate::segments::AsyncSegmentReader;
+    use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout, RowMask};
 

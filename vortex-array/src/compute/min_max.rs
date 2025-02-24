@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat};
@@ -112,7 +112,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
-    use crate::compute::{min_max, MinMaxResult};
+    use crate::compute::{MinMaxResult, min_max};
     use crate::validity::Validity;
 
     #[test]

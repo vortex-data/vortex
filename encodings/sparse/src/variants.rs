@@ -4,7 +4,7 @@ use vortex_array::variants::{
 };
 use vortex_array::{Array, ArrayVariants, ArrayVariantsImpl};
 use vortex_dtype::FieldName;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::StructScalar;
 
 use crate::{ArrayRef, SparseArray};

@@ -6,29 +6,29 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
-pub use between::{between, BetweenFn, BetweenOptions, StrictComparison};
+pub use between::{BetweenFn, BetweenOptions, StrictComparison, between};
 pub use binary_numeric::{
-    add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub, sub_scalar,
-    BinaryNumericFn,
+    BinaryNumericFn, add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub,
+    sub_scalar,
 };
 pub use boolean::{
-    and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
+    BinaryBooleanFn, BinaryOperator, and, and_kleene, binary_boolean, or, or_kleene,
 };
-pub use cast::{try_cast, CastFn};
-pub use compare::{compare, compare_lengths_to_empty, scalar_cmp, CompareFn, Operator};
-pub use fill_forward::{fill_forward, FillForwardFn};
-pub use fill_null::{fill_null, FillNullFn};
-pub use filter::{filter, FilterFn};
-pub use invert::{invert, InvertFn};
+pub use cast::{CastFn, try_cast};
+pub use compare::{CompareFn, Operator, compare, compare_lengths_to_empty, scalar_cmp};
+pub use fill_forward::{FillForwardFn, fill_forward};
+pub use fill_null::{FillNullFn, fill_null};
+pub use filter::{FilterFn, filter};
+pub use invert::{InvertFn, invert};
 pub use is_constant::*;
-pub use like::{like, LikeFn, LikeOptions};
-pub use mask::{mask, MaskFn};
-pub use min_max::{min_max, MinMaxFn, MinMaxResult};
-pub use scalar_at::{scalar_at, ScalarAtFn};
+pub use like::{LikeFn, LikeOptions, like};
+pub use mask::{MaskFn, mask};
+pub use min_max::{MinMaxFn, MinMaxResult, min_max};
+pub use scalar_at::{ScalarAtFn, scalar_at};
 pub use search_sorted::*;
-pub use slice::{slice, SliceFn};
+pub use slice::{SliceFn, slice};
 pub use sum::*;
-pub use take::{take, take_into, TakeFn};
+pub use take::{TakeFn, take, take_into};
 pub use to_arrow::*;
 
 mod between;

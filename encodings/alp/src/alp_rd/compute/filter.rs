@@ -1,4 +1,4 @@
-use vortex_array::compute::{filter, FilterFn};
+use vortex_array::compute::{FilterFn, filter};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -28,10 +28,10 @@ impl FilterFn<&ALPRDArray> for ALPRDEncoding {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 

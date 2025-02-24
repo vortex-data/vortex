@@ -5,7 +5,7 @@ use std::sync::Arc;
 use datafusion_common::ScalarValue;
 use vortex_buffer::ByteBuffer;
 use vortex_datetime_dtype::arrow::make_temporal_ext_dtype;
-use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
+use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexError;

@@ -5,7 +5,7 @@ use datafusion::datasource::physical_plan::FileScanConfig;
 use datafusion_common::{Constraints, Statistics};
 use datafusion_physical_expr::LexOrdering;
 use vortex_dtype::FieldName;
-use vortex_expr::{ident, select, VortexExpr};
+use vortex_expr::{VortexExpr, ident, select};
 
 /// Vortex specific methods for [`FileScanConfig`]
 pub trait FileScanConfigExt {

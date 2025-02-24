@@ -1,14 +1,14 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
-use crate::compute::{fill_null, TakeFn};
+use crate::compute::{TakeFn, fill_null};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
@@ -76,8 +76,8 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};

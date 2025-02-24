@@ -2,11 +2,11 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use crate::{Array, ArrayRef, Canonical};
 
 pub struct ExtensionBuilder {

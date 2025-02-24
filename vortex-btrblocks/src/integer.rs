@@ -16,19 +16,19 @@ use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_fastlanes::{bitpack_encode, find_best_bit_width, for_compress, FoRArray};
+use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width, for_compress};
 use vortex_mask::{AllOr, Mask};
-use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
+use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
-use vortex_zigzag::{zigzag_encode, ZigZagArray};
+use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
 use crate::{
-    estimate_compression_ratio_with_sampling, Compressor, CompressorStats, GenerateStatsOptions,
-    Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling,
 };
 
 pub struct IntCompressor;
@@ -748,11 +748,11 @@ mod tests {
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{buffer_mut, BufferMut};
+    use vortex_buffer::{BufferMut, buffer_mut};
     use vortex_sampling_compressor::SamplingCompressor;
 
-    use crate::integer::IntCompressor;
     use crate::Compressor;
+    use crate::integer::IntCompressor;
 
     #[test]
     fn test_dict_encodable() {

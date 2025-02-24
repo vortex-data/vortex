@@ -1,10 +1,10 @@
 use vortex_dtype::PType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat};
-use crate::Array;
 
 pub trait SumFn<A> {
     /// # Preconditions

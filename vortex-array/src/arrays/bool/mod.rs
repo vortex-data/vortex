@@ -55,13 +55,13 @@ mod tests {
     use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
     use vortex_buffer::buffer;
 
+    use crate::ToCanonical;
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::ToCanonical;
 
     #[test]
     fn bool_array() {

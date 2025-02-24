@@ -4,7 +4,7 @@ use vortex_array::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{ZigZagArray, ZigZagEncoding};
 

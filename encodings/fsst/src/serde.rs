@@ -8,7 +8,7 @@ use vortex_array::{
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::array::{SYMBOLS_DTYPE, SYMBOL_LENS_DTYPE};
+use crate::array::{SYMBOL_LENS_DTYPE, SYMBOLS_DTYPE};
 use crate::{FSSTArray, FSSTEncoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,8 +74,8 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::SerdeMetadata;
+    use vortex_array::test_harness::check_metadata;
     use vortex_dtype::{Nullability, PType};
 
     use crate::serde::FSSTMetadata;

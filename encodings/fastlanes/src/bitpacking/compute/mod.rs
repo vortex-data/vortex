@@ -1,5 +1,5 @@
 use vortex_array::compute::{
-    between, BetweenFn, BetweenOptions, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn,
+    BetweenFn, BetweenOptions, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, between,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};

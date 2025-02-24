@@ -86,7 +86,7 @@ impl AsRef<[u8]> for BufferString {
 
 #[cfg(test)]
 mod test {
-    use crate::{buffer, Alignment, BufferString};
+    use crate::{Alignment, BufferString, buffer};
 
     #[test]
     fn buffer_string() {

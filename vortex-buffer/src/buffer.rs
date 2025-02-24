@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
@@ -514,7 +514,7 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{buffer, Alignment, ByteBuffer};
+    use crate::{Alignment, ByteBuffer, buffer};
 
     #[test]
     fn align() {

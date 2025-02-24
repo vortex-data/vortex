@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 
+use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::compute_varbin_statistics;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::arrays::VarBinViewEncoding;
 use crate::stats::{Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 

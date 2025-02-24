@@ -1,4 +1,4 @@
-use vortex_array::compute::{scalar_at, ScalarAtFn};
+use vortex_array::compute::{ScalarAtFn, scalar_at};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -12,9 +12,9 @@ impl ScalarAtFn<&RunEndArray> for RunEndEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::scalar_at;
-    use vortex_array::Array;
 
     use crate::RunEndArray;
 

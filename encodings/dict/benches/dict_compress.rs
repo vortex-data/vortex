@@ -2,8 +2,8 @@
 
 use divan::Bencher;
 use rand::distr::{Distribution, StandardUniform};
-use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::Array;
+use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};
 use vortex_dtype::NativePType;

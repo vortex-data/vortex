@@ -1,5 +1,5 @@
 use arrow_array::BooleanArray;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -120,9 +120,9 @@ fn mask_impl(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
 pub mod test_harness {
     use vortex_mask::Mask;
 
+    use crate::Array;
     use crate::arrays::BoolArray;
     use crate::compute::{mask, scalar_at};
-    use crate::Array;
 
     pub fn test_mask(array: &dyn Array) {
         assert_eq!(array.len(), 5);

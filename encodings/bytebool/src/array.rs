@@ -8,12 +8,13 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, encoding_ids,
+    try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 #[derive(Clone, Debug)]

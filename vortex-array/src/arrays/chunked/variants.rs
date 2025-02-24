@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldName};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::arrays::chunked::ChunkedArray;
 use crate::variants::{

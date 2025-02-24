@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
+use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_layout::scan::ScanBuilder;
 use vortex_metrics::VortexMetrics;

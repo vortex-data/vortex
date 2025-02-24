@@ -13,7 +13,7 @@ use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{
-    Layout, LayoutVTableRef, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID,
 };
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]

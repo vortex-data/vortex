@@ -1,13 +1,13 @@
-use bench_vortex::compress::bench::{benchmark_compress, CompressMeasurements};
+use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
+use bench_vortex::datasets::BenchmarkDataset;
 use bench_vortex::datasets::public_bi_data::PBIDataset::{
     AirlineSentiment, Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags,
 };
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::datasets::BenchmarkDataset;
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
-use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;

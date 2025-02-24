@@ -2,7 +2,7 @@ use std::ops::BitAnd;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, ConstantArray};

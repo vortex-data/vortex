@@ -8,14 +8,14 @@ use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical, encoding_ids,
 };
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
-    DType, PType,
+    DType, PType, match_each_integer_ptype, match_each_native_simd_ptype,
+    match_each_unsigned_integer_ptype,
 };
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 use crate::compress::dict_decode_typed_primitive;
@@ -229,7 +229,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
-    use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
     use crate::DictArray;

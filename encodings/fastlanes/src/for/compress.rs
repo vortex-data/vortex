@@ -4,8 +4,8 @@ use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::FoRArray;
@@ -74,9 +74,9 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::ToCanonical;
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use super::*;

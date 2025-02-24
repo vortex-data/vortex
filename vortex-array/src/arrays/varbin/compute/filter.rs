@@ -1,12 +1,12 @@
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskIter};
 
-use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -184,12 +184,12 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
+    use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
     };
-    use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::BoolArray;
     use crate::compute::scalar_at;
     use crate::validity::Validity;
 

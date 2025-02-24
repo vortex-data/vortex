@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::{Scalar, ScalarValue};
 

@@ -4,7 +4,7 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -15,15 +15,15 @@ use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
-use vortex_buffer::{buffer, Buffer, ByteBufferMut};
+use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::{
-    InMemoryVortexFile, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE,
-    VERSION,
+    InMemoryVortexFile, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions,
+    VortexWriteOptions,
 };
 
 #[test]
@@ -224,13 +224,15 @@ async fn unequal_batches() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::in_memory(buf)
-        .open()
-        .await
-        .unwrap()
-        .scan()
-        .into_array_stream()
-        .unwrap());
+    let mut stream = pin!(
+        VortexOpenOptions::in_memory(buf)
+            .open()
+            .await
+            .unwrap()
+            .scan()
+            .into_array_stream()
+            .unwrap()
+    );
 
     let mut item_count = 0;
 
@@ -285,13 +287,15 @@ async fn write_chunked() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::in_memory(buf)
-        .open()
-        .await
-        .unwrap()
-        .scan()
-        .into_array_stream()
-        .unwrap());
+    let mut stream = pin!(
+        VortexOpenOptions::in_memory(buf)
+            .open()
+            .await
+            .unwrap()
+            .scan()
+            .into_array_stream()
+            .unwrap()
+    );
     let mut array_len: usize = 0;
     while let Some(array) = stream.next().await {
         array_len += array.unwrap().len();

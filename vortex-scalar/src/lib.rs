@@ -34,7 +34,7 @@ pub use pvalue::*;
 pub use scalarvalue::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///

@@ -3,7 +3,7 @@
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
     BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
@@ -257,11 +257,13 @@ mod test {
             .cloned()
             .unwrap();
 
-        assert!(arrow_struct
-            .column(0)
-            .as_any()
-            .downcast_ref::<ArrowPrimitiveArray<UInt64Type>>()
-            .is_some());
+        assert!(
+            arrow_struct
+                .column(0)
+                .as_any()
+                .downcast_ref::<ArrowPrimitiveArray<UInt64Type>>()
+                .is_some()
+        );
 
         let inner_struct = arrow_struct
             .column(1)

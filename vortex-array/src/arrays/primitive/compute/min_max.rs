@@ -1,13 +1,13 @@
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
-use crate::Array;
 
 impl MinMaxFn<&PrimitiveArray> for PrimitiveEncoding {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {

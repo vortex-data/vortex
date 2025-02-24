@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
 
 use crate::flatbuffers::ViewedDType;
 use crate::{DType, FieldName, FieldNames};
@@ -282,11 +282,13 @@ mod test {
 
     #[test]
     fn nullability() {
-        assert!(!DType::Struct(
-            StructDType::new(vec![].into(), Vec::new()).into(),
-            Nullability::NonNullable
-        )
-        .is_nullable());
+        assert!(
+            !DType::Struct(
+                StructDType::new(vec![].into(), Vec::new()).into(),
+                Nullability::NonNullable
+            )
+            .is_nullable()
+        );
 
         let primitive = DType::Primitive(PType::U8, Nullability::Nullable);
         assert!(primitive.is_nullable());

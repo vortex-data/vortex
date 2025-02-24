@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -214,14 +214,14 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
+    use crate::ArrayExt;
     use crate::array::Array;
+    use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::ArrayExt;
 
     #[test]
     fn test_project() {

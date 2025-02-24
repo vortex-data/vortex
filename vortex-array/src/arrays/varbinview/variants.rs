@@ -1,6 +1,6 @@
+use crate::ArrayVariantsImpl;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use crate::ArrayVariantsImpl;
 
 impl ArrayVariantsImpl for VarBinViewArray {
     fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {

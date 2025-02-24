@@ -1,4 +1,4 @@
-use vortex_array::compute::{take, TakeFn};
+use vortex_array::compute::{TakeFn, take};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 

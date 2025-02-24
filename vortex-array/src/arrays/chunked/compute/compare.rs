@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::builders::{ArrayBuilder, BoolBuilder};
-use crate::compute::{compare, slice, CompareFn, Operator};
+use crate::compute::{CompareFn, Operator, compare, slice};
 use crate::{Array, ArrayRef};
 
 impl CompareFn<&ChunkedArray> for ChunkedEncoding {

@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{is_constant, scalar_at, IsConstantFn};
+use crate::compute::{IsConstantFn, is_constant, scalar_at};
 
 impl IsConstantFn<&ChunkedArray> for ChunkedEncoding {
     fn is_constant(&self, array: &ChunkedArray) -> VortexResult<Option<bool>> {
