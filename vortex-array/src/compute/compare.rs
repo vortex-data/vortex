@@ -22,7 +22,7 @@ pub enum Operator {
     Lte,
 }
 
-pub trait OperatorImpl<T> {
+pub trait OperatorFn<T> {
     const FN_: fn(&T, &T) -> bool;
 }
 
@@ -33,20 +33,20 @@ pub struct Gte;
 pub struct Lt;
 pub struct Lte;
 
-macro_rules! impl_operator_impl {
+macro_rules! impl_operator_fn {
     ($name:ident, $fn_:expr) => {
-        impl<T: PartialOrd> OperatorImpl<T> for $name {
+        impl<T: PartialOrd> OperatorFn<T> for $name {
             const FN_: fn(&T, &T) -> bool = $fn_;
         }
     };
 }
 
-impl_operator_impl!(Lt, PartialOrd::lt);
-impl_operator_impl!(Lte, PartialOrd::le);
-impl_operator_impl!(Gt, PartialOrd::gt);
-impl_operator_impl!(Gte, PartialOrd::ge);
-impl_operator_impl!(Eq, PartialEq::eq);
-impl_operator_impl!(NotEq, PartialEq::ne);
+impl_operator_fn!(Lt, PartialOrd::lt);
+impl_operator_fn!(Lte, PartialOrd::le);
+impl_operator_fn!(Gt, PartialOrd::gt);
+impl_operator_fn!(Gte, PartialOrd::ge);
+impl_operator_fn!(Eq, PartialEq::eq);
+impl_operator_fn!(NotEq, PartialEq::ne);
 
 impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

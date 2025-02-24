@@ -16,7 +16,7 @@ pub use boolean::{
 };
 pub use cast::{try_cast, CastFn};
 pub use compare::{
-    compare, compare_lengths_to_empty, scalar_cmp, CompareFn, Lt, Lte, Operator, OperatorImpl,
+    compare, compare_lengths_to_empty, scalar_cmp, CompareFn, Lt, Lte, Operator, OperatorFn,
 };
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use fill_null::{fill_null, FillNullFn};

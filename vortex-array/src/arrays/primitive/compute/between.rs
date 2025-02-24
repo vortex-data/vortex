@@ -3,7 +3,7 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{BetweenFn, BetweenOptions, Lt, Lte, OperatorImpl, StrictComparison};
+use crate::compute::{BetweenFn, BetweenOptions, Lt, Lte, OperatorFn, StrictComparison};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};
 
@@ -50,8 +50,8 @@ fn between_impl<T: NativePType + Copy>(
 fn between_impl_<Lower, Upper, T>(arr: &PrimitiveArray, lower: T, upper: T) -> ArrayRef
 where
     T: NativePType + Copy,
-    Lower: OperatorImpl<T>,
-    Upper: OperatorImpl<T>,
+    Lower: OperatorFn<T>,
+    Upper: OperatorFn<T>,
 {
     let slice = arr.as_slice::<T>();
     BoolArray::new(
