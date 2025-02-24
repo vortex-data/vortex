@@ -13,10 +13,22 @@ use crate::stats::precision::Precision::{Exact, Inexact};
 /// This is statistic specific, for max this will be an upper bound. Meaning that the actual max
 /// in an array is guaranteed to be less than or equal to the inexact value, but equal to the exact
 /// value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Precision<T> {
     Exact(T),
     Inexact(T),
+}
+
+impl<T> Clone for Precision<T>
+where
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::Exact(e) => Self::Exact(e.clone()),
+            Self::Inexact(ie) => Self::Inexact(ie.clone()),
+        }
+    }
 }
 
 impl<T> Precision<Option<T>> {
@@ -30,12 +42,14 @@ impl<T> Precision<Option<T>> {
     }
 }
 
-impl<T: Clone> Precision<T> {
-    // Coverts an exact to an inexact bound.
-    pub fn into_inexact(self) -> Self {
+impl<T> Precision<T>
+where
+    T: Copy,
+{
+    pub fn to_inexact(&self) -> Self {
         match self {
-            Exact(val) => Inexact(val),
-            Inexact(_) => self,
+            Exact(v) => Exact(*v),
+            Inexact(v) => Inexact(*v),
         }
     }
 }
@@ -59,8 +73,16 @@ impl<T> Precision<T> {
         }
     }
 
+    /// Converts `self` into an inexact bound
+    pub fn into_inexact(self) -> Self {
+        match self {
+            Exact(val) => Inexact(val),
+            Inexact(_) => self,
+        }
+    }
+
     /// Returns the exact value from the bound, if that value is inexact, otherwise `None`.
-    pub fn some_exact(self) -> Option<T> {
+    pub fn as_exact(self) -> Option<T> {
         match self {
             Exact(val) => Some(val),
             _ => None,
@@ -68,7 +90,7 @@ impl<T> Precision<T> {
     }
 
     /// Returns the exact value from the bound, if that value is inexact, otherwise `None`.
-    pub fn some_inexact(self) -> Option<T> {
+    pub fn as_inexact(self) -> Option<T> {
         match self {
             Inexact(val) => Some(val),
             _ => None,

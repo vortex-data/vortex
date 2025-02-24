@@ -439,7 +439,7 @@ impl StatsSet {
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) = m1.zip(m2).some_exact().and_then(|(s1, s2)| {
+                if let Some(scalar_value) = m1.zip(m2).as_exact().and_then(|(s1, s2)| {
                     s1.as_primitive()
                         .checked_add(&s2.as_primitive())
                         .map(|pscalar| {

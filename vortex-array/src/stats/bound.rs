@@ -105,8 +105,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
         })
     }
 
-    fn as_exact(&self) -> Option<&T> {
-        self.0.as_exact()
+    fn to_exact(&self) -> Option<&T> {
+        self.0.to_exact()
     }
 }
 
@@ -214,8 +214,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
         })
     }
 
-    fn as_exact(&self) -> Option<&T> {
-        self.0.as_exact()
+    fn to_exact(&self) -> Option<&T> {
+        self.0.to_exact()
     }
 }
 

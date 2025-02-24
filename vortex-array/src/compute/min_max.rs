@@ -43,11 +43,11 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
     let min = array
         .statistics()
         .get_scalar(Stat::Min, array.dtype())
-        .and_then(Precision::some_exact);
+        .and_then(Precision::as_exact);
     let max = array
         .statistics()
         .get_scalar(Stat::Max, array.dtype())
-        .and_then(Precision::some_exact);
+        .and_then(Precision::as_exact);
 
     if let Some((min, max)) = min.zip(max) {
         return Ok(Some(MinMaxResult { min, max }));

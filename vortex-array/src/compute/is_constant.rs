@@ -68,11 +68,11 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
     let min = array
         .statistics()
         .get_scalar(Stat::Min, array.dtype())
-        .and_then(|p| p.some_exact());
+        .and_then(|p| p.as_exact());
     let max = array
         .statistics()
         .get_scalar(Stat::Max, array.dtype())
-        .and_then(|p| p.some_exact());
+        .and_then(|p| p.as_exact());
 
     if let Some((min, max)) = min.zip(max) {
         if min == max {

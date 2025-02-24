@@ -91,7 +91,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
                 for (stat, value) in stats_set.into_iter() {
                     w.set(stat, value);
                 }
-                w.get(stat).and_then(|p| p.some_exact())
+                w.get(stat).and_then(|p| p.as_exact())
             }
         })
     }
