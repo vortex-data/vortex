@@ -33,6 +33,7 @@ fn between_impl<T: NativePType + Copy>(
 ) -> ArrayRef {
     match (options.lower_strict, options.upper_strict) {
         (StrictComparison::Strict, StrictComparison::Strict) => {
+            // Note: these comparisons are explicitly passed in to allow function impl inlining
             between_impl_(arr, lower, upper, PartialOrd::lt, PartialOrd::lt)
         }
         (StrictComparison::Strict, StrictComparison::NonStrict) => {
