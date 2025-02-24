@@ -9,7 +9,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -18,32 +18,32 @@ use vortex_scalar::{Scalar, ScalarType};
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
-    fn between_fn(&self) -> Option<&dyn BetweenFn<Array>> {
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<ALPArray> for ALPEncoding {
+impl ScalarAtFn<&ALPArray> for ALPEncoding {
     fn scalar_at(&self, array: &ALPArray, index: usize) -> VortexResult<Scalar> {
         if !array.encoded().is_valid(index)? {
             return Ok(Scalar::null(array.dtype().clone()));
@@ -67,8 +67,8 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
     }
 }
 
-impl TakeFn<ALPArray> for ALPEncoding {
-    fn take(&self, array: &ALPArray, indices: &Array) -> VortexResult<Array> {
+impl TakeFn<&ALPArray> for ALPEncoding {
+    fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array
             .patches()
@@ -87,8 +87,8 @@ impl TakeFn<ALPArray> for ALPEncoding {
     }
 }
 
-impl SliceFn<ALPArray> for ALPEncoding {
-    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<Array> {
+impl SliceFn<&ALPArray> for ALPEncoding {
+    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<ArrayRef> {
         Ok(ALPArray::try_new(
             slice(array.encoded(), start, end)?,
             array.exponents(),
@@ -102,8 +102,8 @@ impl SliceFn<ALPArray> for ALPEncoding {
     }
 }
 
-impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<Array> {
+impl FilterFn<&ALPArray> for ALPEncoding {
+    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))
@@ -111,20 +111,20 @@ impl FilterFn<ALPArray> for ALPEncoding {
             .flatten();
 
         Ok(
-            ALPArray::try_new(filter(&array.encoded(), mask)?, array.exponents(), patches)?
+            ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
                 .into_array(),
         )
     }
 }
 
-impl BetweenFn<ALPArray> for ALPEncoding {
+impl BetweenFn<&ALPArray> for ALPEncoding {
     fn between(
         &self,
         array: &ALPArray,
-        lower: &Array,
-        upper: &Array,
+        lower: &dyn Array,
+        upper: &dyn Array,
         options: &BetweenOptions,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
         };
@@ -145,7 +145,7 @@ fn between_impl<T: NativePType + ALPFloat>(
     lower: T,
     upper: T,
     options: &BetweenOptions,
-) -> VortexResult<Array>
+) -> VortexResult<ArrayRef>
 where
     Scalar: From<T::ALPInt>,
     <T as ALPFloat>::ALPInt: ScalarType + Debug,
@@ -174,8 +174,8 @@ where
 
     between(
         array.encoded(),
-        ConstantArray::new(lower_enc, array.len()),
-        ConstantArray::new(upper_enc, array.len()),
+        &ConstantArray::new(lower_enc, array.len()),
+        &ConstantArray::new(upper_enc, array.len()),
         &options,
     )
 }
@@ -185,7 +185,7 @@ mod tests {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
 
     use crate::alp::compute::between_impl;
     use crate::ALPArray;
@@ -193,7 +193,7 @@ mod tests {
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, options)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .iter()
@@ -210,11 +210,7 @@ mod tests {
         let encoded = crate::alp::compress::alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![605; 1]
         );
 

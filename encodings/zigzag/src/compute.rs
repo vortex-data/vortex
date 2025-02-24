@@ -3,7 +3,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -13,31 +13,31 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<Array> {
-        let encoded = filter(&array.encoded(), mask)?;
+impl FilterFn<&ZigZagArray> for ZigZagEncoding {
+    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
+        let encoded = filter(array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
 
-impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
+impl ScalarAtFn<&ZigZagArray> for ZigZagEncoding {
     fn scalar_at(&self, array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = scalar_at(array.encoded(), index)?;
         if scalar.is_null() {
@@ -60,14 +60,14 @@ impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
     }
 }
 
-impl SliceFn<ZigZagArray> for ZigZagEncoding {
-    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<Array> {
+impl SliceFn<&ZigZagArray> for ZigZagEncoding {
+    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 
-impl TakeFn<ZigZagArray> for ZigZagEncoding {
-    fn take(&self, array: &ZigZagArray, indices: &Array) -> VortexResult<Array> {
+impl TakeFn<&ZigZagArray> for ZigZagEncoding {
+    fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
@@ -100,7 +100,7 @@ mod tests {
         filter, scalar_at, search_sorted, take, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
@@ -109,9 +109,7 @@ mod tests {
 
     #[test]
     pub fn search_sorted_uncompressed() {
-        let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array())
-            .unwrap()
-            .into_array();
+        let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         assert_eq!(
             search_sorted(&zigzag, -169, SearchSortedSide::Right).unwrap(),
             SearchResult::NotFound(1)
@@ -120,9 +118,10 @@ mod tests {
 
     #[test]
     pub fn nullable_scalar_at() {
-        let zigzag = ZigZagArray::encode(
-            &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).into_array(),
-        )
+        let zigzag = ZigZagArray::encode(&PrimitiveArray::new(
+            buffer![-189, -160, 1],
+            Validity::AllValid,
+        ))
         .unwrap();
         assert_eq!(
             scalar_at(&zigzag, 1).unwrap(),
@@ -134,26 +133,26 @@ mod tests {
     fn take_zigzag() {
         let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         let indices = buffer![0, 2].into_array();
-        let actual = take(zigzag, indices).unwrap().into_primitive().unwrap();
+        let actual = take(&zigzag, &indices).unwrap().to_primitive().unwrap();
         let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
-        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
+        assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
     }
 
     #[test]
     fn filter_zigzag() {
         let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
-        let actual = filter(&zigzag.into_array(), &filter_mask)
+        let actual = filter(&zigzag, &filter_mask)
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
-        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
+        assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
     }
 }

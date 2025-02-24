@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::mask;
-use vortex_array::IntoArray;
+use vortex_array::Array;
 use vortex_dict::DictArray;
 use vortex_mask::Mask;
 
@@ -15,7 +15,7 @@ fn main() {
 
 fn filter_mask(len: usize, fraction_masked: f64, rng: &mut StdRng) -> Mask {
     let indices = (0..len)
-        .filter(|_| rng.gen_bool(fraction_masked))
+        .filter(|_| rng.random_bool(fraction_masked))
         .collect::<Vec<usize>>();
     Mask::from_indices(len, indices)
 }
@@ -43,7 +43,7 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
 
     let len = 65_535;
     let codes = PrimitiveArray::from_iter((0..len).map(|_| {
-        if rng.gen_bool(fraction_valid) {
+        if rng.random_bool(fraction_valid) {
             1u64
         } else {
             0u64

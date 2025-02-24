@@ -15,7 +15,7 @@ use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::Array;
+use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;
@@ -40,12 +40,12 @@ impl VortexMemTable {
     /// # Panics
     ///
     /// Creation will panic if the provided array is not of `DType::Struct` type.
-    pub fn new(array: Array) -> Self {
+    pub fn new(array: ArrayRef) -> Self {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
-        let array = match ChunkedArray::try_from(array.clone()) {
-            Ok(a) => a,
+        let array = match array.maybe_as::<ChunkedArray>() {
+            Some(a) => a.clone(),
             _ => {
                 let dtype = array.dtype().clone();
                 ChunkedArray::try_new(vec![array], dtype)
@@ -163,13 +163,16 @@ fn make_filter_then_take_plan(
     output_projection: Vec<usize>,
     _session_state: &dyn Session,
 ) -> DFResult<Arc<dyn ExecutionPlan>> {
-    let row_selector_op = Arc::new(RowSelectorExec::try_new(filter_expr, &chunked_array)?);
+    let row_selector_op = Arc::new(RowSelectorExec::try_new(
+        filter_expr,
+        chunked_array.clone(),
+    )?);
 
     Ok(Arc::new(TakeRowsExec::new(
         schema,
         &output_projection,
         row_selector_op,
-        &chunked_array,
+        chunked_array,
     )))
 }
 
@@ -183,11 +186,11 @@ mod test {
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArrayRef};
 
     use crate::{can_be_pushed_down, SessionContextExt as _};
 
-    fn presidents_array() -> Array {
+    fn presidents_array() -> ArrayRef {
         let names = VarBinViewArray::from_iter_str([
             "Washington",
             "Adams",

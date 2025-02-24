@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -125,10 +125,10 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("Not a struct array"))?;
         match &self.fields {
             SelectField::Include(f) => st.project(f),
@@ -188,7 +188,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
-    use vortex_array::IntoArray;
+    use vortex_array::{ArrayVariants, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
@@ -206,8 +206,8 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap();
-        let selected_names = selected.as_struct_array().unwrap().names().clone();
+        let selected = select.evaluate(&st).unwrap();
+        let selected_names = selected.as_struct_typed().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
 
@@ -215,8 +215,8 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap();
-        let selected_names = selected.as_struct_array().unwrap().names().clone();
+        let selected = select.evaluate(&st).unwrap();
+        let selected_names = selected.as_struct_typed().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }
 

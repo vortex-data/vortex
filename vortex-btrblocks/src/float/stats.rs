@@ -5,7 +5,7 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
@@ -92,7 +92,7 @@ impl CompressorStats for FloatStats {
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self {
         let sampled = sample(self.src.clone(), sample_size, sample_count)
-            .into_primitive()
+            .to_primitive()
             .vortex_expect("primitive");
 
         Self::generate_opts(&sampled, opts)
@@ -164,7 +164,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
     use crate::float::stats::FloatStats;
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        let floats = floats.into_primitive().unwrap();
+        let floats = floats.to_primitive().unwrap();
 
         let stats = FloatStats::generate(&floats);
 

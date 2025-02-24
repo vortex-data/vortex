@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_error::VortexResult;
 use vortex_sparse::{SparseArray, SparseEncoding};
 
@@ -18,25 +18,24 @@ impl EncodingCompressor for SparseCompressor {
         constants::SPARSE_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(SparseEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         _: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let sparse_array = SparseArray::try_from(array.clone())?;
+        let sparse_array = SparseArray::try_from(array.to_array())?;
         let compressed_patches = ctx
             .auxiliary("patches")
-            .compress_patches(sparse_array.patches())?;
+            .compress_patches(sparse_array.patches().clone())?;
         Ok(CompressedArray::compressed(
             SparseArray::try_new_from_patches(
                 compressed_patches,
-                sparse_array.len(),
-                sparse_array.fill_scalar(),
+                sparse_array.fill_scalar().clone(),
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![])),

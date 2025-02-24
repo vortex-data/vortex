@@ -4,7 +4,7 @@ use divan::Bencher;
 use itertools::repeat_n;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{IntoArray, IntoCanonical};
+use vortex_array::Array;
 use vortex_buffer::Buffer;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
@@ -52,6 +52,6 @@ fn decompress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
     bencher
-        .with_inputs(|| runend_array.clone())
-        .bench_values(|array| array.into_canonical().unwrap());
+        .with_inputs(|| runend_array.to_array())
+        .bench_values(|array| array.to_canonical().unwrap());
 }

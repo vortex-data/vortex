@@ -28,7 +28,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{ContextRef, IntoArray};
+use vortex::{Array, ContextRef, Encoding};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 pub mod bench_run;
@@ -62,7 +62,7 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         (*(ALL_ENCODINGS_CONTEXT.clone()))
             .clone()
-            .with_encoding(DeltaEncoding::vtable()),
+            .with_encoding(DeltaEncoding.vtable()),
     )
 });
 
@@ -291,7 +291,7 @@ pub fn generate_struct_of_list_of_ints_array(
             let fields = (0u32..num_columns)
                 .map(|_| {
                     let elements = PrimitiveArray::from_iter(
-                        (0u32..chunk_row_count).map(|_| rng.gen::<i64>()),
+                        (0u32..chunk_row_count).map(|_| rng.random::<i64>()),
                     );
                     let offsets = PrimitiveArray::from_iter(0u32..=chunk_row_count);
                     ListArray::try_new(

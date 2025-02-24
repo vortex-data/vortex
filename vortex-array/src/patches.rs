@@ -19,7 +19,7 @@ use crate::compute::{
     try_cast, SearchResult, SearchSortedSide,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[derive(
     Copy,
@@ -79,12 +79,12 @@ impl PatchesMetadata {
 pub struct Patches {
     array_len: usize,
     offset: usize,
-    indices: Array,
-    values: Array,
+    indices: ArrayRef,
+    values: ArrayRef,
 }
 
 impl Patches {
-    pub fn new(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub fn new(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
         assert_eq!(
             indices.len(),
             values.len(),
@@ -122,7 +122,12 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub fn new_unchecked(
+        array_len: usize,
+        offset: usize,
+        indices: ArrayRef,
+        values: ArrayRef,
+    ) -> Self {
         Self {
             array_len,
             offset,
@@ -131,7 +136,8 @@ impl Patches {
         }
     }
 
-    pub fn into_parts(self) -> (usize, usize, Array, Array) {
+    // TODO(ngates): remove this...
+    pub fn into_parts(self) -> (usize, usize, ArrayRef, ArrayRef) {
         (self.array_len, self.offset, self.indices, self.values)
     }
 
@@ -147,19 +153,19 @@ impl Patches {
         self.values.dtype()
     }
 
-    pub fn indices(&self) -> &Array {
+    pub fn indices(&self) -> &ArrayRef {
         &self.indices
     }
 
-    pub fn into_indices(self) -> Array {
+    pub fn into_indices(self) -> ArrayRef {
         self.indices
     }
 
-    pub fn values(&self) -> &Array {
+    pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
-    pub fn into_values(self) -> Array {
+    pub fn into_values(self) -> ArrayRef {
         self.values
     }
 
@@ -198,7 +204,7 @@ impl Patches {
             self.array_len,
             self.offset,
             self.indices,
-            try_cast(self.values, values_dtype)?,
+            try_cast(&self.values, values_dtype)?,
         ))
     }
 
@@ -256,7 +262,7 @@ impl Patches {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
-                let flat_indices = self.indices().clone().into_primitive()?;
+                let flat_indices = self.indices().to_primitive()?;
                 match_each_integer_ptype!(flat_indices.ptype(), |$I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<$I>(),
@@ -299,11 +305,11 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
-    pub fn take(&self, take_indices: &Array) -> VortexResult<Option<Self>> {
+    pub fn take(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
-        let take_indices = take_indices.clone().into_primitive()?;
+        let take_indices = take_indices.to_primitive()?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices)
         } else {
@@ -324,12 +330,12 @@ impl Patches {
             new_length,
             0,
             new_indices,
-            take(self.values(), values_indices)?,
+            take(self.values(), &values_indices)?,
         )))
     }
 
     pub fn take_map(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
-        let indices = self.indices.clone().into_primitive()?;
+        let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
         let Some((new_sparse_indices, value_indices)) = match_each_integer_ptype!(self.indices_ptype(), |$INDICES| {
@@ -344,13 +350,13 @@ impl Patches {
             new_length,
             0,
             new_sparse_indices,
-            take(self.values(), value_indices)?,
+            take(self.values(), &value_indices)?,
         )))
     }
 
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
-        F: FnOnce(Array) -> VortexResult<Array>,
+        F: FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
     {
         let values = f(self.values)?;
         if self.indices.len() != values.len() {
@@ -365,10 +371,10 @@ impl Patches {
 }
 
 fn take_search<T: NativePType + TryFrom<usize>>(
-    indices: &Array,
+    indices: &dyn Array,
     take_indices: PrimitiveArray,
     indices_offset: usize,
-) -> VortexResult<Option<(Array, Array)>>
+) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
     VortexError: From<<usize as TryFrom<T>>::Error>,
@@ -411,7 +417,7 @@ fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices_offset: usize,
     min_index: usize,
     max_index: usize,
-) -> VortexResult<Option<(Array, Array)>>
+) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
     VortexError: From<<I as TryFrom<usize>>::Error>,
@@ -466,7 +472,7 @@ where
 fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
     patch_indices: &[T],
     offset: usize,
-    patch_values: &Array,
+    patch_values: &dyn Array,
     mask_indices: &[usize],
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();
@@ -557,11 +563,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_filter() {
@@ -577,8 +584,8 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let indices = filtered.indices().clone().into_primitive().unwrap();
-        let values = filtered.values().clone().into_primitive().unwrap();
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[0, 1]);
         assert_eq!(values.as_slice::<i32>(), &[100, 200]);
     }
@@ -654,7 +661,7 @@ mod test {
             )
             .unwrap()
             .unwrap();
-        let primitive_values = taken.values().clone().into_primitive().unwrap();
+        let primitive_values = taken.values().to_primitive().unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44]);
         assert_eq!(

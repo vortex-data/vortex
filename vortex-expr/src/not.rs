@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::invert;
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -39,7 +39,7 @@ impl VortexExpr for Not {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let child_result = self.child.evaluate(batch)?;
         invert(&child_result)
     }
@@ -71,7 +71,7 @@ pub fn not(operand: ExprRef) -> ExprRef {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::BoolArray;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
     use crate::{col, ident, not, test_harness};
@@ -82,9 +82,9 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(bools.as_ref())
+                .evaluate(&bools)
                 .unwrap()
-                .into_bool()
+                .to_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

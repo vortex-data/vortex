@@ -6,11 +6,12 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
+use crate::Array;
 
-impl MinMaxFn<BoolArray> for BoolEncoding {
+impl MinMaxFn<&BoolArray> for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let x = match array.validity_mask()? {
-            Mask::AllTrue(_) => array.boolean_buffer(),
+            Mask::AllTrue(_) => array.boolean_buffer().clone(),
             Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => array.boolean_buffer().bitand(v.boolean_buffer()),
         };

@@ -1,29 +1,30 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
 use crate::{DictArray, DictEncoding};
 
-impl BinaryNumericFn<DictArray> for DictEncoding {
+impl BinaryNumericFn<&DictArray> for DictEncoding {
     fn binary_numeric(
         &self,
         array: &DictArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
-        DictArray::try_new(
-            array.codes(),
-            binary_numeric(&array.values(), &rhs_const_array, op)?,
-        )
-        .map(IntoArray::into_array)
-        .map(Some)
+        Ok(Some(
+            DictArray::try_new(
+                array.codes().clone(),
+                binary_numeric(array.values(), &rhs_const_array, op)?,
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -32,11 +33,11 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
     use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::Array;
+    use vortex_array::ArrayRef;
 
     use crate::builders::dict_encode;
 
-    fn sliced_dict_array() -> Array {
+    fn sliced_dict_array() -> ArrayRef {
         let reference = PrimitiveArray::from_option_iter([
             Some(42),
             Some(-9),
@@ -45,8 +46,8 @@ mod tests {
             Some(1),
             Some(5),
         ]);
-        let dict = dict_encode(reference.as_ref()).unwrap();
-        slice(dict, 1, 4).unwrap()
+        let dict = dict_encode(&reference).unwrap();
+        slice(&dict, 1, 4).unwrap()
     }
 
     #[test]

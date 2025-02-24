@@ -7,7 +7,7 @@ use vortex_array::compute::{
     scalar_at, slice, CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
@@ -18,35 +18,40 @@ use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
     // TODO(joe): implement `between_fn` this is used at lot.
 }
 
-impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn slice(&self, array: &DateTimePartsArray, start: usize, stop: usize) -> VortexResult<Array> {
+impl SliceFn<&DateTimePartsArray> for DateTimePartsEncoding {
+    fn slice(
+        &self,
+        array: &DateTimePartsArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
             slice(array.days(), start, stop)?,
@@ -57,7 +62,7 @@ impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
     }
 }
 
-impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
+impl ScalarAtFn<&DateTimePartsArray> for DateTimePartsEncoding {
     fn scalar_at(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_bail!(

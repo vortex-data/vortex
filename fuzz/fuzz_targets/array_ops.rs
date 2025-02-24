@@ -9,18 +9,18 @@ use vortex_array::arrays::{
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
-use vortex_array::{Array, Encoding, IntoCanonical};
+use vortex_array::{Array, ArrayRef, Encoding};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;
-    let mut current_array = array.clone();
+    let mut current_array = array.to_array();
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(c) => {
-                match fuzz_compress(&current_array.into_canonical().unwrap().into(), &c) {
+                match fuzz_compress(current_array.to_canonical().unwrap().as_ref(), &c) {
                     Some(compressed_array) => {
                         assert_array_eq(&expected.array(), &compressed_array, i);
                         current_array = compressed_array;
@@ -66,7 +66,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     Corpus::Keep
 });
 
-fn fuzz_compress(array: &Array, compressor: &SamplingCompressor) -> Option<Array> {
+fn fuzz_compress(array: &dyn Array, compressor: &SamplingCompressor) -> Option<ArrayRef> {
     let compressed_array = compressor.compress(array, None).unwrap();
 
     compressed_array
@@ -76,7 +76,7 @@ fn fuzz_compress(array: &Array, compressor: &SamplingCompressor) -> Option<Array
 }
 
 fn assert_search_sorted(
-    array: Array,
+    array: ArrayRef,
     s: Scalar,
     side: SearchSortedSide,
     expected: SearchResult,
@@ -93,7 +93,7 @@ fn assert_search_sorted(
 }
 
 // TODO(ngates): this is horrific... we should have an array_equals compute function?
-fn assert_array_eq(lhs: &Array, rhs: &Array, step: usize) {
+fn assert_array_eq(lhs: &dyn Array, rhs: &dyn Array, step: usize) {
     assert_eq!(
         lhs.len(),
         rhs.len(),

@@ -2,7 +2,7 @@
 
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
-use vortex_array::{Array, Encoding, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, Encoding, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
@@ -15,19 +15,16 @@ macro_rules! assert_nth_scalar {
 }
 
 // this function is VERY slow on miri, so we only want to run it once
-fn build_fsst_array() -> Array {
+fn build_fsst_array() -> ArrayRef {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
     input_array.append_value(b"Nothing in present history can contradict them");
-    let input_array = input_array
-        .finish(DType::Utf8(Nullability::NonNullable))
-        .into_array();
+    let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
     let compressor = fsst_train_compressor(&input_array).unwrap();
-
     fsst_compress(&input_array, &compressor)
         .unwrap()
         .into_array()
@@ -95,8 +92,8 @@ fn test_fsst_array_ops() {
         "They said it existed and that whoever dared to exceed it was mercilessly struck down"
     );
 
-    // test into_canonical
-    let canonical_array = fsst_array.clone().into_varbinview().unwrap().into_array();
+    // test to_canonical
+    let canonical_array = fsst_array.to_varbinview().unwrap().into_array();
 
     assert_eq!(canonical_array.len(), fsst_array.len());
 

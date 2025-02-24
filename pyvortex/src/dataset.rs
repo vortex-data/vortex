@@ -15,7 +15,7 @@ use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;
@@ -38,8 +38,8 @@ pub async fn read_array_from_reader<F: FileType>(
     vortex_file: &VortexFile<F>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    indices: Option<Array>,
-) -> VortexResult<Array> {
+    indices: Option<ArrayRef>,
+) -> VortexResult<ArrayRef> {
     let mut scan = vortex_file.scan().with_projection(projection);
 
     if let Some(filter) = filter {
@@ -47,7 +47,7 @@ pub async fn read_array_from_reader<F: FileType>(
     }
 
     if let Some(indices) = indices {
-        let indices = indices.into_primitive()?.into_buffer();
+        let indices = indices.to_primitive()?.into_buffer();
         scan = scan.with_row_indices(indices);
     }
 
@@ -111,7 +111,7 @@ impl TokioFileDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<Array> {
+    ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -134,7 +134,7 @@ impl TokioFileDataset {
             .with_some_filter(filter_from_python(row_filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
-            let indices = indices.into_primitive()?.into_buffer();
+            let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
@@ -201,7 +201,7 @@ impl ObjectStoreUrlDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<Array> {
+    ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -224,7 +224,7 @@ impl ObjectStoreUrlDataset {
             .with_some_filter(filter_from_python(filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
-            let indices = indices.into_primitive()?.into_buffer();
+            let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 

@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng as _};
 use vortex_alp::{alp_encode, ALPFloat, ALPRDFloat, RDEncoder};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::IntoCanonical;
+use vortex_array::Array;
 use vortex_buffer::buffer;
 use vortex_dtype::NativePType;
 
@@ -43,13 +43,13 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
     if fraction_patch > 0.0 {
         for index in 0..values.len() {
-            if rng.gen_bool(fraction_patch) {
+            if rng.random_bool(fraction_patch) {
                 values[index] = T::from(1000.0).unwrap()
             }
         }
     }
     let validity = if fraction_valid < 1.0 {
-        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };
@@ -69,13 +69,13 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
     if fraction_patch > 0.0 {
         for index in 0..values.len() {
-            if rng.gen_bool(fraction_patch) {
+            if rng.random_bool(fraction_patch) {
                 values[index] = T::from(1000.0).unwrap()
             }
         }
     }
     let validity = if fraction_valid < 1.0 {
-        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };
@@ -83,7 +83,7 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let array = alp_encode(&PrimitiveArray::new(values, validity)).unwrap();
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| array.into_canonical().unwrap());
+        .bench_values(|array| array.to_canonical().unwrap());
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]
@@ -101,5 +101,5 @@ fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
 
     bencher
         .with_inputs(move || encoded.clone())
-        .bench_values(|encoded| encoded.into_canonical().unwrap());
+        .bench_values(|encoded| encoded.to_canonical().unwrap());
 }

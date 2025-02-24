@@ -5,7 +5,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{fill_forward, slice};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;
@@ -14,7 +14,7 @@ use crate::DeltaArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     // Fill forward nulls
-    let filled = fill_forward(array.as_ref())?.into_primitive()?;
+    let filled = fill_forward(array)?.to_primitive()?;
 
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {
@@ -98,17 +98,17 @@ where
     (bases.freeze(), deltas.freeze())
 }
 
-pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
-    let bases = array.bases().into_primitive()?;
-    let deltas = array.deltas().into_primitive()?;
+pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
+    let bases = array.bases().to_primitive()?;
+    let deltas = array.deltas().to_primitive()?;
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |$T| {
         PrimitiveArray::new(
             decompress_primitive::<$T>(bases.as_slice(), deltas.as_slice()),
-            array.validity()
+            array.validity().clone()
         )
     });
 
-    slice(decoded, array.offset(), array.offset() + array.len())?.into_primitive()
+    slice(&decoded, array.offset(), array.offset() + array.len())?.to_primitive()
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the
@@ -187,7 +187,7 @@ mod test {
     fn do_roundtrip_test<T: NativePType>(input: Vec<T>) {
         let delta = DeltaArray::try_from_vec(input.clone()).unwrap();
         assert_eq!(delta.len(), input.len());
-        let decompressed = delta_decompress(delta).unwrap();
+        let decompressed = delta_decompress(&delta).unwrap();
         let decompressed_slice = decompressed.as_slice::<T>();
         assert_eq!(decompressed_slice.len(), input.len());
         for (actual, expected) in decompressed_slice.iter().zip(input) {

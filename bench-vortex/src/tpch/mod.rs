@@ -25,7 +25,7 @@ use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex::{Array, IntoArray};
+use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
@@ -325,8 +325,11 @@ async fn register_vortex_file(
             let array_stream = ArrayStreamAdapter::new(
                 // TODO(ngates): or should we use the provided schema?
                 DType::from_arrow(record_batches.schema()),
-                record_batches
-                    .map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
+                record_batches.map(|batch| {
+                    batch
+                        .map_err(VortexError::from)
+                        .and_then(|b| b.try_into_array())
+                }),
             );
 
             if vtx_file.scheme() == "file" {
@@ -380,10 +383,10 @@ async fn register_vortex(
         .await?;
 
     // Create a ChunkedArray from the set of chunks.
-    let chunks: Vec<Array> = record_batches
+    let chunks: Vec<ArrayRef> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| Array::from_arrow(&struct_array, false))
+        .map(|struct_array| ArrayRef::from_arrow(&struct_array, false))
         .collect();
 
     let dtype = chunks[0].dtype().clone();
@@ -395,7 +398,7 @@ async fn register_vortex(
 }
 
 /// Load a table as an uncompressed Vortex array.
-pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> Array {
+pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayRef {
     // Create a local session to load the CSV file from the path.
     let path = data_dir.as_ref().join(name).with_extension("tbl");
     let record_batches = SessionContext::new()
@@ -415,7 +418,7 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
 
     let chunks = record_batches
         .into_iter()
-        .map(|batch| Array::try_from(batch).unwrap());
+        .map(|batch| batch.try_into_array().unwrap());
 
     ChunkedArray::from_iter(chunks).into_array()
 }

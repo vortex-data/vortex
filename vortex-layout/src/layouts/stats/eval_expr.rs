@@ -2,7 +2,7 @@ use std::ops::{BitAnd, Sub};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
@@ -12,7 +12,11 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayRef> {
         self.child().evaluate_expr(row_mask, expr).await
     }
 
@@ -68,7 +72,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -126,7 +130,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(result.len(), 9);

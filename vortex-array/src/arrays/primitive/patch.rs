@@ -6,18 +6,21 @@ use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::IntoArrayVariant;
+use crate::{Array, ToCanonical};
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
-    pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, offset, patch_indices, patch_values) = patches.into_parts();
-        let patch_indices = patch_indices.into_primitive()?;
-        let patch_values = patch_values.into_primitive()?;
+    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+        let (_, offset, patch_indices, patch_values) = patches.clone().into_parts();
+        let patch_indices = patch_indices.to_primitive()?;
+        let patch_values = patch_values.to_primitive()?;
 
-        let patched_validity =
-            self.validity()
-                .patch(self.len(), offset, &patch_indices, patch_values.validity())?;
+        let patched_validity = self.validity().clone().patch(
+            self.len(),
+            offset,
+            &patch_indices,
+            patch_values.validity(),
+        )?;
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
                 self.patch_typed::<$T, $I>(patch_indices, offset, patch_values, patched_validity)
@@ -54,15 +57,12 @@ mod tests {
     use super::*;
     use crate::compute::slice;
     use crate::validity::Validity;
-    use crate::IntoArrayVariant;
+    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
-        let sliced = slice(input, 2, 8).unwrap();
-        assert_eq!(
-            sliced.into_primitive().unwrap().as_slice::<u32>(),
-            &[2u32; 6]
-        );
+        let sliced = slice(&input, 2, 8).unwrap();
+        assert_eq!(sliced.to_primitive().unwrap().as_slice::<u32>(), &[2u32; 6]);
     }
 }

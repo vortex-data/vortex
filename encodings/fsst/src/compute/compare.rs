@@ -1,21 +1,22 @@
 use fsst::Symbol;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operator};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl CompareFn<FSSTArray> for FSSTEncoding {
+impl CompareFn<&FSSTArray> for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
             Some(constant) => {
                 compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
@@ -31,7 +32,7 @@ fn compare_fsst_constant(
     left: &FSSTArray,
     right: &ConstantArray,
     operator: Operator,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let rhs_scalar = right.scalar();
     let is_rhs_empty = match rhs_scalar.dtype() {
         DType::Binary(_) => rhs_scalar
@@ -51,10 +52,7 @@ fn compare_fsst_constant(
             // No value is lt ""
             Operator::Lt => BooleanBuffer::new_unset(left.len()),
             _ => {
-                let uncompressed_lengths = left
-                    .uncompressed_lengths()
-                    .into_canonical()?
-                    .into_primitive()?;
+                let uncompressed_lengths = left.uncompressed_lengths().to_primitive()?;
                 match_each_native_ptype!(uncompressed_lengths.ptype(), |$P| {
                     compare_lengths_to_empty(uncompressed_lengths.as_slice::<$P>().iter().copied(), operator)
                 })
@@ -62,7 +60,7 @@ fn compare_fsst_constant(
         };
 
         return Ok(Some(
-            BoolArray::try_new(buffer, left.validity())?.into_array(),
+            BoolArray::new(buffer, Validity::copy_from_array(left)?).into_array(),
         ));
     }
 
@@ -71,10 +69,10 @@ fn compare_fsst_constant(
         return Ok(None);
     }
 
-    let symbols = left.symbols().into_primitive()?;
+    let symbols = left.symbols().to_primitive()?;
     let symbols_u64 = symbols.as_slice::<u64>();
 
-    let symbol_lens = left.symbol_lengths().into_primitive()?;
+    let symbol_lens = left.symbol_lengths().to_primitive()?;
     let symbol_lens_u8 = symbol_lens.as_slice::<u8>();
 
     let mut compressor = fsst::CompressorBuilder::new();
@@ -104,14 +102,14 @@ fn compare_fsst_constant(
     };
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
-    compare(left.codes(), rhs, operator).map(Some)
+    compare(left.codes(), &rhs, operator).map(Some)
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{Array, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -129,17 +127,16 @@ mod tests {
                 Some("this is a very long string"),
             ],
             DType::Utf8(Nullability::Nullable),
-        )
-        .into_array();
+        );
         let compressor = fsst_train_compressor(&lhs).unwrap();
         let lhs = fsst_compress(&lhs, &compressor).unwrap();
 
-        let rhs = ConstantArray::new("world", lhs.len()).into_array();
+        let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals: Vec<bool> = compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()
@@ -150,7 +147,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals: Vec<bool> = compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()
@@ -161,12 +158,12 @@ mod tests {
         // Ensure null constants are handled correctly.
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
-        let equals_null = compare(&lhs, null_rhs.as_ref(), Operator::Eq).unwrap();
+        let equals_null = compare(&lhs, &null_rhs, Operator::Eq).unwrap();
         for idx in 0..lhs.len() {
             assert!(scalar_at(&equals_null, idx).unwrap().is_null());
         }
 
-        let noteq_null = compare(&lhs, null_rhs.as_ref(), Operator::NotEq).unwrap();
+        let noteq_null = compare(&lhs, &null_rhs, Operator::NotEq).unwrap();
         for idx in 0..lhs.len() {
             assert!(scalar_at(&noteq_null, idx).unwrap().is_null());
         }

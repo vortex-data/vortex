@@ -5,6 +5,7 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::Array;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
@@ -14,7 +15,7 @@ use crate::compute::{
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 
-impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
+impl SearchSortedFn<&PrimitiveArray> for PrimitiveEncoding {
     fn search_sorted(
         &self,
         array: &PrimitiveArray,
@@ -37,7 +38,7 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
+impl SearchSortedUsizeFn<&PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn search_sorted_usize(
         &self,
@@ -101,7 +102,7 @@ impl<'a, T: NativePType> SearchSortedNullsFirst<'a, T> {
     pub fn new(array: &'a PrimitiveArray) -> Self {
         Self {
             values: SearchSortedPrimitive::new(array),
-            validity: array.validity(),
+            validity: array.validity().clone(),
         }
     }
 }
@@ -131,7 +132,6 @@ impl<T> Len for SearchSortedNullsFirst<'_, T> {
 mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
     use super::*;
     use crate::arrays::BoolArray;
@@ -167,12 +167,11 @@ mod test {
             Validity::Array(
                 BoolArray::new(
                     BooleanBuffer::collect_bool(3, |idx| idx != 0),
-                    Nullability::NonNullable,
+                    Validity::NonNullable,
                 )
                 .into_array(),
             ),
-        )
-        .into_array();
+        );
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
@@ -194,7 +193,7 @@ mod test {
 
     #[test]
     fn search_sorted_all_nulls() {
-        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid).into_array();
+        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid);
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),

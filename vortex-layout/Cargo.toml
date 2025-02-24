@@ -23,9 +23,11 @@ exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
+getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = ["sync"], optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -34,7 +36,6 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-tokio = { workspace = true, features = ["sync"], optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }

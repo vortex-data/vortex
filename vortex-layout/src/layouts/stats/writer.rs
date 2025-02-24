@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
@@ -68,7 +68,11 @@ impl StatsLayoutWriter {
 }
 
 impl LayoutWriter for StatsLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         if chunk.len() > self.options.block_size {
             vortex_bail!("Chunks passed to StatsLayoutWriter must be block_size in length, except the final block. Use RepartitionWriter to split chunks into blocks.");
         }

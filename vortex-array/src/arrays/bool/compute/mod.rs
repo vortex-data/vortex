@@ -20,7 +20,7 @@ mod take;
 mod to_arrow;
 
 impl ComputeVTable for BoolEncoding {
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<Array>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
         // We only implement this when other is a constant value, otherwise we fall back to the
         // default implementation that canonicalizes to Arrow.
         // TODO(ngates): implement this for constants.
@@ -28,47 +28,47 @@ impl ComputeVTable for BoolEncoding {
         None
     }
 
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
