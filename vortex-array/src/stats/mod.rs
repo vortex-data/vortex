@@ -61,28 +61,28 @@ pub const STATS_TO_WRITE: &[Stat] = &[
 #[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
-    BitWidthFreq,
+    BitWidthFreq = 0,
     /// Frequency of each trailing zero (nulls are treated as 0)
-    TrailingZeroFreq,
+    TrailingZeroFreq = 1,
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
-    IsConstant,
+    IsConstant = 2,
     /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
-    IsSorted,
+    IsSorted = 3,
     /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
-    IsStrictSorted,
+    IsStrictSorted = 4,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
-    Max,
+    Max = 5,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
-    Min,
+    Min = 6,
     /// The number of runs in the array (ignoring nulls)
-    RunCount,
+    RunCount = 7,
     /// The sum of the non-null values of the array.
-    Sum,
+    Sum = 8,
     /// The number of null values in the array
-    NullCount,
+    NullCount = 9,
     /// The uncompressed size of the array in bytes
-    UncompressedSizeInBytes,
+    UncompressedSizeInBytes = 10,
 }
 
 /// These structs allow the extraction of the bound from the `Precision` value.
