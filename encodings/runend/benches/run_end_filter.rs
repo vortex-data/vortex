@@ -2,7 +2,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_runend::RunEndArray;

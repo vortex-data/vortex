@@ -1,53 +1,48 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
+use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
-use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{Stat, Statistics, StatsSet};
+use vortex_array::patches::Patches;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{encoding_ids, impl_encoding, Array, IntoArray, IntoArrayVariant, RkyvMetadata};
-use vortex_dtype::match_each_integer_ptype;
+use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::{
+    encoding_ids, try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, Encoding, EncodingId, RkyvMetadata, ToCanonical,
+};
+use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
+
+use crate::serde::SparseMetadata;
 
 mod canonical;
 mod compute;
+mod serde;
 mod variants;
 
-impl_encoding!(
-    "vortex.sparse",
-    encoding_ids::SPARSE,
-    Sparse,
-    RkyvMetadata<SparseMetadata>
-);
-
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct SparseMetadata {
-    patches: PatchesMetadata,
+#[derive(Clone, Debug)]
+pub struct SparseArray {
+    patches: Patches,
+    fill_value: Scalar,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
-impl Display for SparseMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
+try_from_array_ref!(SparseArray);
+
+pub struct SparseEncoding;
+impl Encoding for SparseEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.sparse", encoding_ids::SPARSE);
+    type Array = SparseArray;
+    type Metadata = RkyvMetadata<SparseMetadata>;
 }
 
 impl SparseArray {
     pub fn try_new(
-        indices: Array,
-        values: Array,
+        indices: ArrayRef,
+        values: ArrayRef,
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
@@ -55,8 +50,8 @@ impl SparseArray {
     }
 
     pub(crate) fn try_new_with_offset(
-        indices: Array,
-        values: Array,
+        indices: ArrayRef,
+        values: ArrayRef,
         len: usize,
         indices_offset: usize,
         fill_value: Scalar,
@@ -79,14 +74,10 @@ impl SparseArray {
 
         let patches = Patches::new(len, indices_offset, indices, values);
 
-        Self::try_new_from_patches(patches, len, fill_value)
+        Self::try_new_from_patches(patches, fill_value)
     }
 
-    pub fn try_new_from_patches(
-        patches: Patches,
-        len: usize,
-        fill_value: Scalar,
-    ) -> VortexResult<Self> {
+    pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         if fill_value.dtype() != patches.values().dtype() {
             vortex_bail!(
                 "fill value, {:?}, should be instance of values dtype, {}",
@@ -94,129 +85,90 @@ impl SparseArray {
                 patches.values().dtype(),
             );
         }
-
-        let patches_metadata = patches.to_metadata(len, patches.dtype())?;
-
-        let fill_value_buffer = fill_value.into_value().to_flexbytes();
-
-        Self::try_from_parts(
-            patches.dtype().clone(),
-            len,
-            RkyvMetadata(SparseMetadata {
-                patches: patches_metadata,
-            }),
-            [fill_value_buffer.into_inner()].into(),
-            [patches.indices().clone(), patches.values().clone()].into(),
-            StatsSet::default(),
-        )
+        Ok(Self {
+            patches,
+            fill_value,
+            stats_set: Default::default(),
+        })
     }
 
     #[inline]
-    pub fn patches(&self) -> Patches {
-        let patches = self.metadata().patches;
-        let indices = self
-            .as_ref()
-            .child(0, &patches.indices_dtype(), patches.len())
-            .vortex_expect("Missing indices array in SparseArray");
-        let values = self
-            .as_ref()
-            .child(1, self.dtype(), self.metadata().patches.len())
-            .vortex_expect("Missing values array in SparseArray");
-        Patches::new(self.len(), patches.offset(), indices, values)
+    pub fn patches(&self) -> &Patches {
+        &self.patches
     }
 
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let (len, offset, indices, values) = self.patches().into_parts();
+        let (len, offset, indices, values) = self.patches().clone().into_parts();
         let indices_offset = Scalar::from(offset).cast(indices.dtype())?;
-        let indices = sub_scalar(indices, indices_offset)?;
+        let indices = sub_scalar(&indices, indices_offset)?;
         Ok(Patches::new(len, 0, indices, values))
     }
 
     #[inline]
-    pub fn fill_scalar(&self) -> Scalar {
-        let sv = ScalarValue::from_flexbytes(
-            self.as_ref()
-                .byte_buffer(0)
-                .vortex_expect("Missing fill value buffer"),
-        )
-        .vortex_expect("Failed to deserialize fill value");
-        Scalar::new(self.dtype().clone(), sv)
+    pub fn fill_scalar(&self) -> &Scalar {
+        &self.fill_value
     }
 }
 
-impl ValidateVTable<SparseArray> for SparseEncoding {}
+impl ArrayImpl for SparseArray {
+    type Encoding = SparseEncoding;
 
-impl VisitorVTable<SparseArray> for SparseEncoding {
-    fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(
-            array
-                .byte_buffer(0)
-                .vortex_expect("missing fill value buffer"),
-        )?;
-        visitor.visit_patches(&array.patches())
+    fn _len(&self) -> usize {
+        self.patches.array_len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        self.fill_value.dtype()
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&SparseEncoding)
     }
 }
 
-impl StatisticsVTable<SparseArray> for SparseEncoding {
-    fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
-        let values = array.patches().into_values();
-        let stats = values.compute_all(&[stat])?;
-        if array.len() == values.len() {
-            return Ok(stats);
-        }
-
-        let fill_len = array.len() - values.len();
-        let fill_stats = if array.fill_scalar().is_null() {
-            StatsSet::nulls(fill_len, array.dtype())
-        } else {
-            StatsSet::constant(array.fill_scalar(), fill_len)
-        };
-
-        if values.is_empty() {
-            return Ok(fill_stats);
-        }
-
-        Ok(stats.merge_unordered(&fill_stats, array.dtype()))
+impl ArrayStatisticsImpl for SparseArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 
-impl ValidityVTable<SparseArray> for SparseEncoding {
-    fn is_valid(&self, array: &SparseArray, index: usize) -> VortexResult<bool> {
-        Ok(match array.patches().get_patched(index)? {
-            None => array.fill_scalar().is_valid(),
+impl ArrayValidityImpl for SparseArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        Ok(match self.patches().get_patched(index)? {
+            None => self.fill_scalar().is_valid(),
             Some(patch_value) => patch_value.is_valid(),
         })
     }
 
-    fn all_valid(&self, array: &SparseArray) -> VortexResult<bool> {
-        if array.fill_scalar().is_null() {
+    fn _all_valid(&self) -> VortexResult<bool> {
+        if self.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be valid
-            return Ok(array.patches().values().len() == array.len()
-                && array.patches().values().all_valid()?);
+            return Ok(self.patches().values().len() == self.len()
+                && self.patches().values().all_valid()?);
         }
 
-        array.patches().values().all_valid()
+        self.patches().values().all_valid()
     }
 
-    fn all_invalid(&self, array: &SparseArray) -> VortexResult<bool> {
-        if !array.fill_scalar().is_null() {
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        if !self.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be invalid
-            return Ok(array.patches().values().len() == array.len()
-                && array.patches().values().all_invalid()?);
+            return Ok(self.patches().values().len() == self.len()
+                && self.patches().values().all_invalid()?);
         }
 
-        array.patches().values().all_invalid()
+        self.patches().values().all_invalid()
     }
 
-    fn validity_mask(&self, array: &SparseArray) -> VortexResult<Mask> {
-        let indices = array.patches().indices().clone().into_primitive()?;
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        let indices = self.patches().indices().to_primitive()?;
 
-        if array.fill_scalar().is_null() {
+        if self.fill_scalar().is_null() {
             // If we have a null fill value, then we set each patch value to true.
-            let mut buffer = BooleanBufferBuilder::new(array.len());
+            let mut buffer = BooleanBufferBuilder::new(self.len());
             // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
-            buffer.append_n(array.len(), false);
+            buffer.append_n(self.len(), false);
 
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 indices.as_slice::<$I>().into_iter().for_each(|&index| {
@@ -229,10 +181,10 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
 
         // If the fill_value is non-null, then the validity is based on the validity of the
         // patch values.
-        let mut buffer = BooleanBufferBuilder::new(array.len());
-        buffer.append_n(array.len(), true);
+        let mut buffer = BooleanBufferBuilder::new(self.len());
+        buffer.append_n(self.len(), true);
 
-        let values_validity = array.patches().values().validity_mask()?;
+        let values_validity = self.patches().values().validity_mask()?;
         match_each_integer_ptype!(indices.ptype(), |$I| {
             indices.as_slice::<$I>()
                 .into_iter()
@@ -246,11 +198,35 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
     }
 }
 
+impl StatisticsVTable<&SparseArray> for SparseEncoding {
+    fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
+        let values = array.patches().clone().into_values();
+        let stats = values.statistics().compute_all(&[stat])?;
+        if array.len() == values.len() {
+            return Ok(stats);
+        }
+
+        let fill_len = array.len() - values.len();
+        let fill_stats = if array.fill_scalar().is_null() {
+            StatsSet::nulls(fill_len, array.dtype())
+        } else {
+            StatsSet::constant(array.fill_scalar().clone(), fill_len)
+        };
+
+        if values.is_empty() {
+            return Ok(fill_stats);
+        }
+
+        Ok(stats.merge_unordered(&fill_stats, array.dtype()))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
@@ -267,7 +243,7 @@ mod test {
         Scalar::from(42i32)
     }
 
-    fn sparse_array(fill_value: Scalar) -> Array {
+    fn sparse_array(fill_value: Scalar) -> ArrayRef {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
         let mut values = buffer![100i32, 200, 300].into_array();
         values = try_cast(&values, fill_value.dtype()).unwrap();
@@ -316,7 +292,7 @@ mod test {
 
     #[test]
     pub fn scalar_at_sliced() {
-        let sliced = slice(sparse_array(nullable_fill()), 2, 7).unwrap();
+        let sliced = slice(&sparse_array(nullable_fill()), 2, 7).unwrap();
         assert_eq!(
             usize::try_from(&scalar_at(&sliced, 0).unwrap()).unwrap(),
             100
@@ -332,7 +308,7 @@ mod test {
 
     #[test]
     pub fn scalar_at_sliced_twice() {
-        let sliced_once = slice(sparse_array(nullable_fill()), 1, 8).unwrap();
+        let sliced_once = slice(&sparse_array(nullable_fill()), 1, 8).unwrap();
         assert_eq!(
             usize::try_from(&scalar_at(&sliced_once, 1).unwrap()).unwrap(),
             100

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
@@ -50,7 +50,7 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -72,7 +72,7 @@ impl VortexExpr for Merge {
             }
 
             let struct_array = value_array
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("merge expects struct input");
 
             for (i, field_name) in struct_array.names().iter().enumerate() {
@@ -90,13 +90,13 @@ impl VortexExpr for Merge {
             }
         }
 
-        StructArray::try_new(
+        Ok(StructArray::try_new(
             FieldNames::from(field_names),
             arrays,
             len,
             Validity::NonNullable,
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -143,13 +143,13 @@ impl VortexExpr for Merge {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 
-    fn primitive_field(array: &Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -157,17 +157,17 @@ mod tests {
         };
 
         let mut array = array
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("expected a struct"))?
             .maybe_null_field_by_name(field)?;
 
         for field in field_path {
             array = array
-                .as_struct_array()
+                .as_struct_typed()
                 .ok_or_else(|| vortex_err!("expected a struct"))?
                 .maybe_null_field_by_name(field)?;
         }
-        Ok(array.into_primitive().unwrap())
+        Ok(array.to_primitive().unwrap())
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()].into()
         );
 
@@ -257,7 +257,7 @@ mod tests {
             .into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.as_struct_array().unwrap().nfields(), 0);
+        assert_eq!(actual_array.as_struct_typed().unwrap().nfields(), 0);
     }
 
     #[test]
@@ -302,11 +302,11 @@ mod tests {
 
         assert_eq!(
             actual_array
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .maybe_null_field_by_name("a")
                 .unwrap()
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .names()
                 .iter()
@@ -348,7 +348,7 @@ mod tests {
         let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &["a".into(), "c".into(), "b".into(), "d".into()].into()
         );
     }

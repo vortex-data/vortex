@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::arrays::{varbinview_as_arrow, VarBinViewArray, VarBinViewEncoding};
 use crate::compute::ToArrowFn;
 
-impl ToArrowFn<VarBinViewArray> for VarBinViewEncoding {
+impl ToArrowFn<&VarBinViewArray> for VarBinViewEncoding {
     fn to_arrow(
         &self,
         array: &VarBinViewArray,

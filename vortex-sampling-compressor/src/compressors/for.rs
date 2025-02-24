@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::trailing_zeros;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_fastlanes::{for_compress, FoRArray, FoREncoding};
@@ -22,9 +22,9 @@ impl EncodingCompressor for FoRCompressor {
         constants::FOR_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array)?;
+        let parray = array.maybe_as::<PrimitiveArray>()?;
 
         // Only supports integers
         if !parray.ptype().is_int() {
@@ -50,19 +50,22 @@ impl EncodingCompressor for FoRCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let compressed = for_compress(array.clone().into_primitive()?)?;
+        let compressed = for_compress(array.to_primitive()?)?;
 
-        let compressed_child = ctx.named("for_encoded").excluding(self).compress(
-            &compressed.encoded(),
-            like.as_ref().and_then(|l| l.child(0)),
-        )?;
+        let compressed_child = ctx
+            .named("for_encoded")
+            .excluding(self)
+            .compress(compressed.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
         Ok(CompressedArray::compressed(
-            FoRArray::try_new(compressed_child.array, compressed.reference_scalar())
-                .map(|a| a.into_array())?,
+            FoRArray::try_new(
+                compressed_child.array,
+                compressed.reference_scalar().clone(),
+            )
+            .map(|a| a.into_array())?,
             Some(CompressionTree::new(self, vec![compressed_child.path])),
             array,
         ))

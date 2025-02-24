@@ -61,9 +61,8 @@ impl Scalar {
         &self.dtype
     }
 
-    /// Only the scalar crate should access the ScalarValue directly.
     #[inline]
-    pub(crate) fn value(&self) -> &ScalarValue {
+    pub fn value(&self) -> &ScalarValue {
         &self.value
     }
 

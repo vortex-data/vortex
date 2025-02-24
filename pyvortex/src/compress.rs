@@ -48,6 +48,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
     let compressor = SamplingCompressor::default();
-    let inner = compressor.compress(&array.borrow(), None)?.into_array();
+    let inner = compressor
+        .compress(array.borrow().as_ref(), None)?
+        .into_array();
     PyArray::init(array.py(), inner)
 }

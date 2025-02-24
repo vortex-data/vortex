@@ -4,7 +4,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
@@ -12,6 +12,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 mod tests {
     use jiff::Span;
     use vortex_array::arrays::BooleanBuffer;
+    use vortex_array::Array;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
@@ -26,7 +27,7 @@ mod tests {
             CompressConfig::default(),
         );
 
-        let def: &[(&str, Array)] = &[
+        let def: &[(&str, ArrayRef)] = &[
             ("prim_col", make_primitive_column(65536)),
             ("bool_col", make_bool_column(65536)),
             ("varbin_col", make_string_column(65536)),
@@ -34,7 +35,7 @@ mod tests {
             ("timestamp_col", make_timestamp_column(65536)),
         ];
 
-        let fields: Vec<Array> = def.iter().map(|(_, arr)| arr.clone()).collect();
+        let fields: Vec<ArrayRef> = def.iter().map(|(_, arr)| arr.clone()).collect();
         let field_names: FieldNames = FieldNames::from(
             def.iter()
                 .map(|(name, _)| FieldName::from(*name))
@@ -42,11 +43,14 @@ mod tests {
         );
 
         // Create new struct array
-        let to_compress = StructArray::try_new(field_names, fields, 65536, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+        let to_compress =
+            StructArray::try_new(field_names, fields, 65536, Validity::NonNullable).unwrap();
 
-        println!("uncompressed: {}", to_compress.tree_display());
+        println!(
+            "uncompressed: {}",
+            // TODO(ngates): should we as_ref()?
+            (&to_compress as &dyn Array).tree_display()
+        );
         let compressed = compressor
             .compress(&to_compress, None)
             .unwrap()
@@ -56,19 +60,19 @@ mod tests {
         assert_eq!(compressed.dtype(), to_compress.dtype());
     }
 
-    fn make_primitive_column(count: usize) -> Array {
+    fn make_primitive_column(count: usize) -> ArrayRef {
         Buffer::from_iter(0..count as i64).into_array()
     }
 
-    fn make_bool_column(count: usize) -> Array {
+    fn make_bool_column(count: usize) -> ArrayRef {
         BoolArray::new(
             BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         )
         .into_array()
     }
 
-    fn make_string_column(count: usize) -> Array {
+    fn make_string_column(count: usize) -> ArrayRef {
         let values = ["zzzz", "bbbbbb", "cccccc", "ddddd"];
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         for i in 0..count {
@@ -80,7 +84,7 @@ mod tests {
             .into_array()
     }
 
-    fn make_binary_column(count: usize) -> Array {
+    fn make_binary_column(count: usize) -> ArrayRef {
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         let random: Vec<u8> = (0..count).map(|_| rand::random::<u8>()).collect();
         for i in 1..=count {
@@ -92,7 +96,7 @@ mod tests {
             .into_array()
     }
 
-    fn make_timestamp_column(count: usize) -> Array {
+    fn make_timestamp_column(count: usize) -> ArrayRef {
         // Make new timestamps in incrementing order from EPOCH.
         let t0 = jiff::Timestamp::now();
 
@@ -101,6 +105,6 @@ mod tests {
         )
         .into_array();
 
-        Array::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
+        ArrayRef::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
     }
 }

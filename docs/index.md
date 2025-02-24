@@ -1,7 +1,9 @@
-# Vortex: the columnar data toolkit
+# Vortex
 
-Vortex is a general purpose toolkit for working with columnar data built around the latest research from the
-database community.
+Vortex is an extensible, state-of-the-art format for columnar data. It includes
+specifications & tools for manipulating possibly-compressed arrays in-memory,
+on-disk (file format), and over-the-wire (IPC format). Vortex is built around the
+latest research from the database community.
 
 ## In-memory
 
@@ -22,9 +24,9 @@ Vortex ships with an extensible file format supporting:
 
 * Zero-allocation reads, deferring both deserialization and decompression.
 * Zero-copy reads from memory-mapped files.
-* FlatBuffer metadata to support ultra-wide schemas (>>100k columns).
-* Fully customizable layouts and encodings (row-groups, column-groups, writer decides).
-* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels.
+* FlatBuffer metadata to support ultra-wide schemas (>>100k columns) with O(1) column access.
+* Fully customizable layouts and encodings (row-groups, column-groups -- the writer decides).
+* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels for new encodings.
 
 ## Over-the-wire
 
@@ -45,11 +47,11 @@ Please reach out to us if you'd like to extend Vortex with your own encodings, l
 
 ## Concepts
 
-Vortex is more like an ecosystem of building blocks than it is a specific format or specification. Almost everything
-in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing, and niche
+It can be useful to view Vortex as an ecosystem of building blocks rather than a singular specific format. Almost
+everything in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing, and niche
 embedded use-cases where specific encodings and performance characteristics are required.
 
-This section of the documentation covers the core concepts of Vortex and how they piece together.
+This section of the documentation covers the core concepts of Vortex and how they fit together.
 
 ```{toctree}
 ---
@@ -64,26 +66,56 @@ Data Types <concepts/dtypes>
 Compute <concepts/compute>
 ```
 
-## User Guides
+## Quickstarts
 
-Vortex is currently available for both Python and Rust. The user guides for each language provide a comprehensive
-overview of the Vortex API and how to use it.
+Vortex is currently available for both Python and Rust. To get started, we recommend the language-specific quickstarts.
 
 ```{toctree}
 ---
-maxdepth: 3
+maxdepth: 1
 includehidden:
-caption: User Guide
+caption: Quickstarts
 ---
 
-Python <python/index>
-Rust <rust/index>
+Python <quickstart/python>
+Rust <quickstart/rust>
+```
+
+## API Documentation
+
+Vortex is primarily written in Rust, and the Rust API is the most complete API for Vortex.
+The Vortex Python bindings provide a more usable Python interface to the Vortex Rust library.
+
+```{toctree}
+---
+maxdepth: 2
+caption: API Documentation
+---
+
+Python API <api/python/index>
+Rust API <https://docs.rs/vortex>
+```
+
+## User Guides
+
+These user guides provide end-to-end overviews of how to use or extend Vortex
+in your own projects. We intend to extend this collection of guides to cover more
+use-cases in the future.
+
+```{toctree}
+---
+maxdepth: 1
+caption: User Guides
+---
+
+guides/python-integrations
+guides/writing-an-encoding
 ```
 
 ## Specifications
 
 Vortex currently defines two serialization formats: a file format and an IPC format. The file format is designed for
-random access to [Vortex Layouts](/concepts/layouts) on disk, while the IPC format is designed to efficiently send
+efficient access to [Vortex Layouts](/concepts/layouts) on disk, while the IPC format is designed to send
 possibly compressed [Vortex Arrays](/concepts/arrays) over the wire.
 
 ```{toctree}

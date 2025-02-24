@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -47,19 +47,19 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 
         match self.operator {
-            Operator::Eq => compare(lhs, rhs, ArrayOperator::Eq),
-            Operator::NotEq => compare(lhs, rhs, ArrayOperator::NotEq),
-            Operator::Lt => compare(lhs, rhs, ArrayOperator::Lt),
-            Operator::Lte => compare(lhs, rhs, ArrayOperator::Lte),
-            Operator::Gt => compare(lhs, rhs, ArrayOperator::Gt),
-            Operator::Gte => compare(lhs, rhs, ArrayOperator::Gte),
-            Operator::And => and_kleene(lhs, rhs),
-            Operator::Or => or_kleene(lhs, rhs),
+            Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
+            Operator::NotEq => compare(&lhs, &rhs, ArrayOperator::NotEq),
+            Operator::Lt => compare(&lhs, &rhs, ArrayOperator::Lt),
+            Operator::Lte => compare(&lhs, &rhs, ArrayOperator::Lte),
+            Operator::Gt => compare(&lhs, &rhs, ArrayOperator::Gt),
+            Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
+            Operator::And => and_kleene(&lhs, &rhs),
+            Operator::Or => or_kleene(&lhs, &rhs),
         }
     }
 
@@ -91,16 +91,16 @@ impl PartialEq for BinaryExpr {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{Array, IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{eq, ident, lit};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -114,16 +114,16 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, not_eq};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = not_eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -137,16 +137,16 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt_eq, ident, lit};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt_eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -160,16 +160,16 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt, ident, lit};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt(ident(), lit(2)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -183,16 +183,16 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt_eq};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt_eq(ident(), lit(2)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -206,16 +206,16 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt};
 ///
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -229,14 +229,14 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_expr::{ ident, lit, or};
 ///
-/// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
+/// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = or(ident(), lit(false)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -250,14 +250,14 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_expr::{and, ident, lit};
 ///
-/// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
+/// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = and(ident(), lit(true)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_bool().unwrap().boolean_buffer(),
+///     result.to_bool().unwrap().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```

@@ -26,7 +26,7 @@ pub fn stratified_slices(
                 stop - start >= size,
                 "Slices must be bigger than their sampled size"
             );
-            let random_start = rng.gen_range(start..=(stop - size));
+            let random_start = rng.random_range(start..=(stop - size));
             (random_start, random_start + size)
         })
         .collect()

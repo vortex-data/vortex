@@ -12,6 +12,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+mod serde;
 
 pub use array::*;
 pub use compress::*;

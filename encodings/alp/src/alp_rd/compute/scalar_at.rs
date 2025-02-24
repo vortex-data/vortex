@@ -1,11 +1,12 @@
 use vortex_array::compute::{scalar_at, ScalarAtFn};
+use vortex_array::Array;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::alp_rd::array::ALPRDArray;
 use crate::ALPRDEncoding;
 
-impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
+impl ScalarAtFn<&ALPRDArray> for ALPRDEncoding {
     fn scalar_at(&self, array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
@@ -18,7 +19,7 @@ impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
             Some(patched_value) => u16::try_from(patched_value)?,
             _ => {
                 let left_code: u16 = scalar_at(array.left_parts(), index)?.try_into()?;
-                array.left_parts_dict()[left_code as usize]
+                array.left_parts_dictionary()[left_code as usize]
             }
         };
 
@@ -60,11 +61,11 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        assert_eq!(scalar_at(encoded.as_ref(), 0).unwrap(), a.into());
-        assert_eq!(scalar_at(encoded.as_ref(), 1).unwrap(), b.into());
+        assert_eq!(scalar_at(&encoded, 0).unwrap(), a.into());
+        assert_eq!(scalar_at(&encoded, 1).unwrap(), b.into());
 
         // The right value hits the left_part_exceptions
-        assert_eq!(scalar_at(encoded.as_ref(), 2).unwrap(), outlier.into());
+        assert_eq!(scalar_at(&encoded, 2).unwrap(), outlier.into());
     }
 
     #[test]
@@ -80,17 +81,17 @@ mod test {
 
         // The first two values need no patching
         assert_eq!(
-            scalar_at(encoded.as_ref(), 0).unwrap(),
+            scalar_at(&encoded, 0).unwrap(),
             Scalar::primitive(a, Nullability::Nullable)
         );
         assert_eq!(
-            scalar_at(encoded.as_ref(), 1).unwrap(),
+            scalar_at(&encoded, 1).unwrap(),
             Scalar::primitive(b, Nullability::Nullable)
         );
 
         // The right value hits the left_part_exceptions
         assert_eq!(
-            scalar_at(encoded.as_ref(), 2).unwrap(),
+            scalar_at(&encoded, 2).unwrap(),
             Scalar::primitive(outlier, Nullability::Nullable)
         );
     }

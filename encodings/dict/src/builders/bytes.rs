@@ -6,7 +6,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, RandomState};
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -71,9 +71,9 @@ impl BytesDictBuilder {
 
     fn encode_bytes<A: ArrayAccessor<[u8]>>(
         &mut self,
-        accessor: A,
+        accessor: &A,
         len: usize,
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
@@ -116,7 +116,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode(&mut self, array: &Array) -> VortexResult<Array> {
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if &self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",
@@ -126,9 +126,9 @@ impl DictEncoder for BytesDictBuilder {
         }
 
         let len = array.len();
-        let codes = if let Some(varbinview) = VarBinViewArray::maybe_from(array) {
+        let codes = if let Some(varbinview) = array.maybe_as::<VarBinViewArray>() {
             self.encode_bytes(varbinview, len)?
-        } else if let Some(varbin) = VarBinArray::maybe_from(array) {
+        } else if let Some(varbin) = array.maybe_as::<VarBinArray>() {
             self.encode_bytes(varbin, len)?
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
@@ -137,7 +137,7 @@ impl DictEncoder for BytesDictBuilder {
         Ok(codes)
     }
 
-    fn values(&mut self) -> VortexResult<Array> {
+    fn values(&mut self) -> VortexResult<ArrayRef> {
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
@@ -154,20 +154,20 @@ mod test {
 
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
 
     use crate::builders::dict_encode;
 
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().into_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
             &[0, 1, 0, 2, 1]
         );
         dict.values()
-            .into_varbinview()
+            .to_varbinview()
             .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
@@ -194,13 +194,13 @@ mod test {
         ]
         .into_iter()
         .collect();
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().into_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
             &[0, 0, 1, 0, 0, 2, 1, 0]
         );
         dict.values()
-            .into_varbinview()
+            .to_varbinview()
             .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
@@ -215,9 +215,9 @@ mod test {
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
         dict.values()
-            .into_varbinview()
+            .to_varbinview()
             .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
@@ -229,7 +229,7 @@ mod test {
             })
             .unwrap();
         assert_eq!(
-            dict.codes().into_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
             &[0u64, 0, 1, 1, 0, 1, 0, 1]
         );
     }

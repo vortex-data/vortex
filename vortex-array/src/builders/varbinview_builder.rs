@@ -8,7 +8,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, Canonical, IntoArray};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
@@ -128,7 +128,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = if let Some(array) = VarBinViewArray::maybe_from(&array) {
             array
         } else {
-            let Ok(Canonical::VarBinView(array)) = array.clone().into_canonical() else {
+            let Ok(Canonical::VarBinView(array)) = array.to_canonical() else {
                 vortex_bail!("Expected Canonical::VarBinView, found {:?}", array);
             };
             array
@@ -152,7 +152,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> VortexResult<ArrayRef> {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 

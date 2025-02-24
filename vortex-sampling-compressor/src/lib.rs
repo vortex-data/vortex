@@ -13,7 +13,7 @@ use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::{Context, ContextRef};
+use vortex_array::{Context, ContextRef, Encoding};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -84,27 +84,27 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
-        ALPEncoding::vtable(),
-        ALPRDEncoding::vtable(),
-        BitPackedEncoding::vtable(),
-        BoolEncoding::vtable(),
-        ByteBoolEncoding::vtable(),
-        ChunkedEncoding::vtable(),
-        ConstantEncoding::vtable(),
-        DateTimePartsEncoding::vtable(),
-        DeltaEncoding::vtable(),
-        DictEncoding::vtable(),
-        FoREncoding::vtable(),
-        FSSTEncoding::vtable(),
-        ListEncoding::vtable(),
-        NullEncoding::vtable(),
-        PrimitiveEncoding::vtable(),
-        RunEndEncoding::vtable(),
-        SparseEncoding::vtable(),
-        StructEncoding::vtable(),
-        VarBinEncoding::vtable(),
-        VarBinViewEncoding::vtable(),
-        ZigZagEncoding::vtable(),
+        ALPEncoding.vtable(),
+        ALPRDEncoding.vtable(),
+        BitPackedEncoding.vtable(),
+        BoolEncoding.vtable(),
+        ByteBoolEncoding.vtable(),
+        ChunkedEncoding.vtable(),
+        ConstantEncoding.vtable(),
+        DateTimePartsEncoding.vtable(),
+        DeltaEncoding.vtable(),
+        DictEncoding.vtable(),
+        FoREncoding.vtable(),
+        FSSTEncoding.vtable(),
+        ListEncoding.vtable(),
+        NullEncoding.vtable(),
+        PrimitiveEncoding.vtable(),
+        RunEndEncoding.vtable(),
+        SparseEncoding.vtable(),
+        StructEncoding.vtable(),
+        VarBinEncoding.vtable(),
+        VarBinViewEncoding.vtable(),
+        ZigZagEncoding.vtable(),
     ]))
 });
 

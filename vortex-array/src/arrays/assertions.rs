@@ -1,8 +1,8 @@
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($expected:expr, $actual:expr) => {
-        let expected: $crate::Array = $expected.into_array();
-        let actual: $crate::Array = $actual.into_array();
+        let expected: $crate::ArrayRef = $expected.into_array();
+        let actual: $crate::ArrayRef = $actual.into_array();
         assert_eq!(expected.dtype(), actual.dtype());
 
         let expected_contents = (0..expected.len())

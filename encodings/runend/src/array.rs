@@ -1,42 +1,46 @@
 use std::fmt::Debug;
+use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
 };
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{
-    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
-};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, SerdeMetadata,
+    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+    IntoArray, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
+use crate::serde::RunEndMetadata;
 
-impl_encoding!(
-    "vortex.runend",
-    encoding_ids::RUN_END,
-    RunEnd,
-    SerdeMetadata<RunEndMetadata>
-);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunEndMetadata {
-    ends_ptype: PType,
-    num_runs: usize,
+#[derive(Clone, Debug)]
+pub struct RunEndArray {
+    ends: ArrayRef,
+    values: ArrayRef,
     offset: usize,
+    length: usize,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+try_from_array_ref!(RunEndArray);
+
+pub struct RunEndEncoding;
+impl Encoding for RunEndEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.runend", encoding_ids::RUN_END);
+    type Array = RunEndArray;
+    type Metadata = SerdeMetadata<RunEndMetadata>;
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
@@ -46,8 +50,8 @@ impl RunEndArray {
     }
 
     pub(crate) fn with_offset_and_length(
-        ends: Array,
-        values: Array,
+        ends: ArrayRef,
+        values: ArrayRef,
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
@@ -72,26 +76,18 @@ impl RunEndArray {
             vortex_bail!("Ends array must be strictly sorted");
         }
 
-        let dtype = values.dtype().clone();
-        let metadata = RunEndMetadata {
-            ends_ptype: PType::try_from(ends.dtype())?,
-            num_runs: ends.len(),
+        Ok(Self {
+            ends,
+            values,
             offset,
-        };
-
-        Self::try_from_parts(
-            dtype,
             length,
-            SerdeMetadata(metadata),
-            vec![].into(),
-            vec![ends, values].into(),
-            StatsSet::default(),
-        )
+            stats_set: Default::default(),
+        })
     }
 
     /// Convert the given logical index to an index into the `values` array
     pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        search_sorted_usize(&self.ends(), index + self.offset(), SearchSortedSide::Right)
+        search_sorted_usize(self.ends(), index + self.offset(), SearchSortedSide::Right)
             .map(|s| s.to_ends_index(self.ends().len()))
     }
 
@@ -100,16 +96,16 @@ impl RunEndArray {
     ///
     /// See: [find_physical_index][Self::find_physical_index].
     pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
-        search_sorted_usize_many(&self.ends(), indices, SearchSortedSide::Right).map(|results| {
+        search_sorted_usize_many(self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
-                .iter()
+                .into_iter()
                 .map(|result| result.to_ends_index(self.ends().len()) as u64)
                 .collect()
         })
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: Array) -> VortexResult<Self> {
+    pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             let (ends, values) = runend_encode(&parray)?;
             Self::try_new(ends.into_array(), values)
@@ -123,7 +119,7 @@ impl RunEndArray {
     /// This is generally zero for a "new" array, and non-zero after a slicing operation.
     #[inline]
     pub fn offset(&self) -> usize {
-        self.metadata().offset
+        self.offset
     }
 
     /// The encoded "ends" of value runs.
@@ -131,14 +127,8 @@ impl RunEndArray {
     /// The `i`-th element indicates that there is a run of the same value, beginning
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn ends(&self) -> Array {
-        self.as_ref()
-            .child(
-                0,
-                &DType::from(self.metadata().ends_ptype),
-                self.metadata().num_runs,
-            )
-            .vortex_expect("RunEndArray is missing its run ends")
+    pub fn ends(&self) -> &ArrayRef {
+        &self.ends
     }
 
     /// The scalar values.
@@ -146,25 +136,34 @@ impl RunEndArray {
     /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn values(&self) -> Array {
-        self.as_ref()
-            .child(1, self.dtype(), self.metadata().num_runs)
-            .vortex_expect("RunEndArray is missing its values")
+    pub fn values(&self) -> &ArrayRef {
+        &self.values
     }
 }
 
-impl ValidateVTable<RunEndArray> for RunEndEncoding {}
+impl ArrayImpl for RunEndArray {
+    type Encoding = RunEndEncoding;
 
-impl VariantsVTable<RunEndArray> for RunEndEncoding {
-    fn as_bool_array<'a>(&self, array: &'a RunEndArray) -> Option<&'a dyn BoolArrayTrait> {
-        Some(array)
+    fn _len(&self) -> usize {
+        self.length
     }
 
-    fn as_primitive_array<'a>(
-        &self,
-        array: &'a RunEndArray,
-    ) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+    fn _dtype(&self) -> &DType {
+        self.values.dtype()
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&RunEndEncoding)
+    }
+}
+
+impl ArrayVariantsImpl for RunEndArray {
+    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
+        Some(self)
+    }
+
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 }
 
@@ -172,52 +171,52 @@ impl PrimitiveArrayTrait for RunEndArray {}
 
 impl BoolArrayTrait for RunEndArray {}
 
-impl ValidityVTable<RunEndArray> for RunEndEncoding {
-    fn is_valid(&self, array: &RunEndArray, index: usize) -> VortexResult<bool> {
-        let physical_idx = array
+impl ArrayValidityImpl for RunEndArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        let physical_idx = self
             .find_physical_index(index)
             .vortex_expect("Invalid index");
-        array.values().is_valid(physical_idx)
+        self.values().is_valid(physical_idx)
     }
 
-    fn all_valid(&self, array: &RunEndArray) -> VortexResult<bool> {
-        array.values().all_valid()
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.values().all_valid()
     }
 
-    fn all_invalid(&self, array: &RunEndArray) -> VortexResult<bool> {
-        array.values().all_invalid()
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.values().all_invalid()
     }
 
-    fn validity_mask(&self, array: &RunEndArray) -> VortexResult<Mask> {
-        Ok(match array.values().validity_mask()? {
-            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
-            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        Ok(match self.values().validity_mask()? {
+            Mask::AllTrue(_) => Mask::AllTrue(self.len()),
+            Mask::AllFalse(_) => Mask::AllFalse(self.len()),
             Mask::Values(values) => {
                 let ree_validity = RunEndArray::with_offset_and_length(
-                    array.ends(),
+                    self.ends().clone(),
                     values.into_array(),
-                    array.offset(),
-                    array.len(),
+                    self.offset(),
+                    self.len(),
                 )
                 .vortex_expect("invalid array")
                 .into_array();
-                Mask::from_buffer(ree_validity.into_bool()?.boolean_buffer())
+                Mask::from_buffer(ree_validity.to_bool()?.boolean_buffer().clone())
             }
         })
     }
 }
 
-impl CanonicalVTable<RunEndArray> for RunEndEncoding {
-    fn into_canonical(&self, array: RunEndArray) -> VortexResult<Canonical> {
-        let pends = array.ends().into_primitive()?;
-        match array.dtype() {
+impl ArrayCanonicalImpl for RunEndArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        let pends = self.ends().to_primitive()?;
+        match self.dtype() {
             DType::Bool(_) => {
-                let bools = array.values().into_bool()?;
-                runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
+                let bools = self.values().to_bool()?;
+                runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {
-                let pvalues = array.values().into_primitive()?;
-                runend_decode_primitive(pends, pvalues, array.offset(), array.len())
+                let pvalues = self.values().to_primitive()?;
+                runend_decode_primitive(pends, pvalues, self.offset(), self.len())
                     .map(Canonical::Primitive)
             }
             _ => vortex_bail!("Only Primitive and Bool values are supported"),
@@ -225,35 +224,20 @@ impl CanonicalVTable<RunEndArray> for RunEndEncoding {
     }
 }
 
-impl VisitorVTable<RunEndArray> for RunEndEncoding {
-    fn accept(&self, array: &RunEndArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("ends", &array.ends())?;
-        visitor.visit_child("values", &array.values())
+impl ArrayStatisticsImpl for RunEndArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::scalar_at;
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArray, SerdeMetadata};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{RunEndArray, RunEndMetadata};
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_runend_metadata() {
-        check_metadata(
-            "runend.metadata",
-            SerdeMetadata(RunEndMetadata {
-                offset: usize::MAX,
-                ends_ptype: PType::U64,
-                num_runs: usize::MAX,
-            }),
-        );
-    }
+    use crate::RunEndArray;
 
     #[test]
     fn test_runend_constructor() {
@@ -271,9 +255,9 @@ mod tests {
         // 0, 1 => 1
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
-        assert_eq!(scalar_at(arr.as_ref(), 0).unwrap(), 1.into());
-        assert_eq!(scalar_at(arr.as_ref(), 2).unwrap(), 2.into());
-        assert_eq!(scalar_at(arr.as_ref(), 5).unwrap(), 3.into());
-        assert_eq!(scalar_at(arr.as_ref(), 9).unwrap(), 3.into());
+        assert_eq!(scalar_at(&arr, 0).unwrap(), 1.into());
+        assert_eq!(scalar_at(&arr, 2).unwrap(), 2.into());
+        assert_eq!(scalar_at(&arr, 5).unwrap(), 3.into());
+        assert_eq!(scalar_at(&arr, 9).unwrap(), 3.into());
     }
 }

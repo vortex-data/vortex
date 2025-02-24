@@ -1,7 +1,7 @@
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArray;
+use vortex_array::Array;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
@@ -10,7 +10,7 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::ZigZagArray;
 
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
-    let validity = parray.validity();
+    let validity = parray.validity().clone();
     let encoded = match parray.ptype() {
         PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
@@ -21,7 +21,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_new(encoded.into_array())
+    ZigZagArray::try_new(encoded.to_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
@@ -35,7 +35,7 @@ where
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let validity = parray.validity();
+    let validity = parray.validity().clone();
     let decoded = match parray.ptype() {
         PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
@@ -62,7 +62,7 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::vtable::EncodingVTable;
-    use vortex_array::IntoArrayVariant as _;
+    use vortex_array::ToCanonical;
 
     use super::*;
     use crate::ZigZagEncoding;
@@ -70,36 +70,36 @@ mod test {
     #[test]
     fn test_compress_i8() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
+        assert_eq!(compressed.encoding(), ZigZagEncoding.id());
         assert_eq!(
-            compressed.into_primitive().unwrap().as_slice::<i8>(),
+            compressed.to_primitive().unwrap().as_slice::<i8>(),
             (-100_i8..100).collect::<Vec<_>>()
         );
     }
     #[test]
     fn test_compress_i16() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
+        assert_eq!(compressed.encoding(), ZigZagEncoding.id());
         assert_eq!(
-            compressed.into_primitive().unwrap().as_slice::<i16>(),
+            compressed.to_primitive().unwrap().as_slice::<i16>(),
             (-100_i16..100).collect::<Vec<_>>()
         );
     }
     #[test]
     fn test_compress_i32() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
+        assert_eq!(compressed.encoding(), ZigZagEncoding.id());
         assert_eq!(
-            compressed.into_primitive().unwrap().as_slice::<i32>(),
+            compressed.to_primitive().unwrap().as_slice::<i32>(),
             (-100_i32..100).collect::<Vec<_>>()
         );
     }
     #[test]
     fn test_compress_i64() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
+        assert_eq!(compressed.encoding(), ZigZagEncoding.id());
         assert_eq!(
-            compressed.into_primitive().unwrap().as_slice::<i64>(),
+            compressed.to_primitive().unwrap().as_slice::<i64>(),
             (-100_i64..100).collect::<Vec<_>>()
         );
     }

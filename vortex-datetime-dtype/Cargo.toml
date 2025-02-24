@@ -21,6 +21,7 @@ serde = { workspace = true, features = ["derive"] }
 vortex-dtype = { workspace = true, features = ["serde"] }
 vortex-error = { workspace = true }
 
+
 [features]
 default = ["arrow"]
 arrow = ["dep:arrow-schema"]

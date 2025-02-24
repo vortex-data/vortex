@@ -6,7 +6,7 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::PValue;
@@ -141,7 +141,7 @@ impl CompressorStats for IntegerStats {
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self {
         let sampled = sample(self.src.clone(), sample_size, sample_count)
-            .into_primitive()
+            .to_primitive()
             .vortex_expect("primitive");
 
         Self::generate_opts(&sampled, opts)

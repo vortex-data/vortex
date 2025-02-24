@@ -1,17 +1,8 @@
-# Vortex Python
+# Python Integrations
 
-```{toctree}
----
-hidden:
----
+## Getting Started
 
-API <api/index>
-```
-
-The Vortex Python bindings provide a Python interface to the Vortex Rust library.
-See the parent documentation for details on the Vortex project itself or other language bindings.
-
-## Installation
+First, install if you haven't already:
 
 ````{tab} pip
 ```bash
@@ -24,8 +15,6 @@ pip install vortex-array
 uv add vortex-array
 ```
 ````
-
-## Guide
 
 Construct a Vortex array from lists of simple Python values:
 
@@ -69,7 +58,7 @@ struct({"age": int(64, nullable=True), "name": utf8(nullable=True)}, nullable=Tr
 [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': None}, {'age': None, 'name': 'Angela'}, {'age': 57, 'name': 'Mikhail'}, {'age': None, 'name': None}, {'age': None, 'name': None}]
 ```
 
-### Arrow
+## Arrow
 
 The {func}`~vortex.array` function constructs a Vortex array from an Arrow one without any
 copies:
@@ -115,7 +104,7 @@ age: [[25,31,33,57]]
 name: [["Joseph","Narendra","Angela","Mikhail"]]
 ```
 
-### Pandas
+## Pandas
 
 {meth}`.Array.to_pandas_df` converts a Vortex array into a Pandas DataFrame:
 
@@ -141,7 +130,7 @@ age: [[25,31,33,57]]
 name: [["Joseph","Narendra","Angela","Mikhail"]]
 ```
 
-### Query Engines
+## Query Engines
 
 {class}`~vortex.dataset.VortexDataset` implements the {class}`pyarrow.dataset.Dataset` API which
 enables many Python-based query engines to pushdown row filters and column projections on Vortex
@@ -157,7 +146,7 @@ files. All the query engine examples use the same Vortex file:
 >>> ... )
 ```
 
-#### Polars
+### Polars
 
 ```pycon
 >>> import polars as pl
@@ -177,7 +166,7 @@ shape: (3, 2)
 └────────────┴─────────────┘
 ```
 
-#### DuckDB
+### DuckDB
 
 ```pycon
 >>> import duckdb

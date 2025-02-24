@@ -21,6 +21,6 @@ impl PyConstantEncoding {
 
     /// Return the scalar value of the constant array.
     pub fn scalar(self_: PyRef<'_, Self>) -> PyResult<Bound<PyScalar>> {
-        PyScalar::init(self_.py(), self_.as_array_ref().scalar())
+        PyScalar::init(self_.py(), self_.as_array_ref().scalar().clone())
     }
 }

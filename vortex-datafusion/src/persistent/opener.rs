@@ -6,7 +6,7 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
-use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_array::{ContextRef, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -103,7 +103,7 @@ impl FileOpener for VortexFileOpener {
                 .with_task_executor(executor)
                 .into_array_stream()?
                 .map(move |array| {
-                    let st = array?.into_struct()?;
+                    let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
                 })
                 .boxed())

@@ -6,14 +6,18 @@ use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
+use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::stream::ArrayStreamArrayExt;
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
-fuzz_target!(|array_data: Array| -> Corpus {
+fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
+    let array_data = array_data.0;
+
     if !array_data.dtype().is_struct() {
         return Corpus::Reject;
     }
@@ -30,7 +34,7 @@ fuzz_target!(|array_data: Array| -> Corpus {
     runtime.block_on(async move {
         let buf = Vec::new();
         let full_buff = VortexWriteOptions::default()
-            .write(buf, array_data.clone().into_array_stream())
+            .write(buf, array_data.to_array_stream())
             .await
             .unwrap();
 
@@ -60,8 +64,8 @@ fuzz_target!(|array_data: Array| -> Corpus {
         if array_data.dtype().is_struct() {
             compare_struct(array_data, output);
         } else {
-            let r = compare(&array_data, output, Operator::Eq).unwrap();
-            let true_count = r.into_bool().unwrap().boolean_buffer().count_set_bits();
+            let r = compare(&array_data, &output, Operator::Eq).unwrap();
+            let true_count = r.to_bool().unwrap().boolean_buffer().count_set_bits();
             assert_eq!(true_count, array_data.len());
         }
     });
@@ -69,7 +73,7 @@ fuzz_target!(|array_data: Array| -> Corpus {
     Corpus::Keep
 });
 
-fn compare_struct(expected: Array, actual: Array) {
+fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
     assert_eq!(
         expected.dtype(),
         actual.dtype(),

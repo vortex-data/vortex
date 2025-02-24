@@ -1,6 +1,6 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult};
@@ -8,9 +8,9 @@ use vortex_error::{VortexError, VortexResult};
 use crate::{timestamp, DateTimePartsArray};
 
 pub struct TemporalParts {
-    pub days: Array,
-    pub seconds: Array,
-    pub subseconds: Array,
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
 }
 
 /// Compress a `TemporalArray` into day, second, and subseconds components.
@@ -18,15 +18,15 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
-    let temporal_values = array.temporal_values().into_primitive()?;
-    let validity = temporal_values.validity();
+    let temporal_values = array.temporal_values().to_primitive()?;
+    let validity = temporal_values.validity().clone();
 
     // After this operation, timestamps will be non-nullable PrimitiveArray<i64>
     let timestamps = try_cast(
         &temporal_values,
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
-    .into_primitive()?;
+    .to_primitive()?;
 
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
@@ -66,7 +66,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray as _, IntoArrayVariant as _};
+    use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 
@@ -94,14 +94,14 @@ mod tests {
             seconds,
             subseconds,
         } = split_temporal(temporal_array).unwrap();
-        assert_eq!(days.into_primitive().unwrap().validity(), validity);
+        assert_eq!(days.to_primitive().unwrap().validity(), &validity);
         assert_eq!(
-            seconds.into_primitive().unwrap().validity(),
-            Validity::NonNullable
+            seconds.to_primitive().unwrap().validity(),
+            &Validity::NonNullable
         );
         assert_eq!(
-            subseconds.into_primitive().unwrap().validity(),
-            Validity::NonNullable
+            subseconds.to_primitive().unwrap().validity(),
+            &Validity::NonNullable
         );
     }
 }

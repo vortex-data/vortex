@@ -3,11 +3,15 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> VortexResult<Array> {
+pub fn slice_canonical_array(
+    array: &dyn Array,
+    start: usize,
+    stop: usize,
+) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array.validity_mask()?.to_boolean_buffer();
 
@@ -18,18 +22,18 @@ pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> Vortex
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
-            BoolArray::try_new(sliced_bools, validity).map(|a| a.into_array())
+            Ok(BoolArray::new(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 Ok(PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
@@ -39,10 +43,11 @@ pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> Vortex
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let sliced_children = struct_array
                 .fields()
-                .map(|c| slice_canonical_array(&c, start, stop))
+                .iter()
+                .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new(
                 struct_array.names().clone(),
@@ -53,12 +58,12 @@ pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> Vortex
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.clone().into_list()?;
+            let list_array = array.to_list()?;
             let offsets =
-                slice_canonical_array(&list_array.offsets(), start, stop + 1)?.into_primitive()?;
+                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
 
             let elements = slice_canonical_array(
-                &list_array.elements(),
+                list_array.elements(),
                 offsets.get_as_cast::<u64>(0) as usize,
                 offsets.get_as_cast::<u64>(offsets.len() - 1) as usize,
             )?;

@@ -23,7 +23,8 @@ impl PyChunkedEncoding {
         self_
             .as_array_ref()
             .chunks()
-            .map(|chunk| PyArray::init(self_.py(), chunk))
+            .iter()
+            .map(|chunk| PyArray::init(self_.py(), chunk.clone()))
             .try_collect()
     }
 }

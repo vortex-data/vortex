@@ -1,13 +1,14 @@
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 
+use ::serde::{Deserialize, Serialize};
 use itertools::Itertools;
 use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
-use serde::{Deserialize, Serialize};
 
 mod array;
 mod compress;
 mod compute;
+mod serde;
 
 pub use array::*;
 pub use compress::*;

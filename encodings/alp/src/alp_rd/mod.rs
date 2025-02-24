@@ -7,6 +7,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 
 mod array;
 mod compute;
+mod serde;
 mod variants;
 
 use std::ops::{Shl, Shr};
@@ -15,7 +16,7 @@ use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::{IntoArray, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -205,7 +206,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::new(left_parts, array.validity().clone());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -242,7 +243,7 @@ impl RDEncoder {
         ALPRDArray::try_new(
             DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
             packed_left,
-            &self.codes,
+            Buffer::<u16>::copy_from(&self.codes),
             packed_right,
             self.right_bit_width,
             exceptions,
@@ -261,7 +262,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
-    left_parts_patches: Option<Patches>,
+    left_parts_patches: Option<&Patches>,
 ) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
@@ -276,8 +277,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().into_primitive()?;
-        let patch_values = patches.values().clone().into_primitive()?;
+        let indices = patches.indices().to_primitive()?;
+        let patch_values = patches.values().to_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |$T| {
             indices
                 .as_slice::<$T>()

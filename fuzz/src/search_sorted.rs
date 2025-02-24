@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::compute::{
     scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
 };
-use vortex_array::{Array, IntoArrayVariant};
+use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
@@ -50,13 +50,13 @@ impl<T> Len for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &Array,
+    array: &dyn Array,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             let validity = bool_array.validity_mask()?.to_boolean_buffer();
             let opt_values = bool_array
                 .boolean_buffer()
@@ -68,7 +68,7 @@ pub fn search_sorted_canonical_array(
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             let validity = primitive_array.validity_mask()?.to_boolean_buffer();
             match_each_native_ptype!(p, |$P| {
                 let opt_values = primitive_array
@@ -83,7 +83,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {

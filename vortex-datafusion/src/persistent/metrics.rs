@@ -1,17 +1,51 @@
+//! Vortex table provider metrics.
 use std::sync::Arc;
-use std::time::Duration;
 
 use datafusion_physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, Gauge, Label as DatafusionLabel,
-    MetricValue as DatafusionMetricValue, MetricsSet, Time,
+    MetricValue as DatafusionMetricValue, MetricsSet,
 };
-use datafusion_physical_plan::Metric as DatafusionMetric;
+use datafusion_physical_plan::{
+    accept, ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric,
+};
 use vortex_metrics::{DefaultTags, Metric, MetricId, Tags, VortexMetrics};
 
-pub static PARTITION_LABEL: &str = "partition";
+use super::execution::VortexExec;
+
+pub(crate) static PARTITION_LABEL: &str = "partition";
+
+/// Extracts datafusion metrics from all VortexExec instances in
+/// a given physical plan.
+#[derive(Default)]
+pub struct VortexMetricsFinder(Vec<MetricsSet>);
+
+impl VortexMetricsFinder {
+    /// find all metrics for VortexExec nodes.
+    pub fn find_all(plan: &dyn ExecutionPlan) -> Vec<MetricsSet> {
+        let mut finder = Self::default();
+        match accept(plan, &mut finder) {
+            Ok(()) => finder.0,
+            Err(_) => Vec::new(),
+        }
+    }
+}
+
+impl ExecutionPlanVisitor for VortexMetricsFinder {
+    type Error = std::convert::Infallible;
+    fn pre_visit(&mut self, plan: &dyn ExecutionPlan) -> Result<bool, Self::Error> {
+        if let Some(metrics) = plan
+            .as_any()
+            .downcast_ref::<VortexExec>()
+            .and_then(|exec| exec.metrics())
+        {
+            self.0.push(metrics);
+        }
+        Ok(true)
+    }
+}
 
 #[derive(Clone, Debug, Default)]
-pub struct VortexExecMetrics {
+pub(crate) struct VortexExecMetrics {
     pub vortex: VortexMetrics,
     pub execution_plan: ExecutionPlanMetricsSet,
 }
@@ -91,16 +125,17 @@ fn metric_value_to_datafusion(name: &str, metric: &Metric) -> Vec<DatafusionMetr
             }
             let snapshot = timer.snapshot();
             if let Ok(max) = snapshot.max().try_into() {
-                res.push(df_time(format!("{name}_max"), max));
+                // NOTE(os): unlike Time metrics, gauges allow custom aggregation
+                res.push(df_gauge(format!("{name}_max"), max));
             }
             if let Ok(min) = snapshot.min().try_into() {
-                res.push(df_time(format!("{name}_min"), min));
+                res.push(df_gauge(format!("{name}_min"), min));
             }
             if let Some(p95) = f_to_u(snapshot.value(0.95)) {
-                res.push(df_time(format!("{name}_p95"), p95 as u64));
+                res.push(df_gauge(format!("{name}_p95"), p95));
             }
             if let Some(p99) = f_to_u(snapshot.value(0.95)) {
-                res.push(df_time(format!("{name}_p99"), p99 as u64));
+                res.push(df_gauge(format!("{name}_p99"), p99));
             }
             res
         }
@@ -124,15 +159,6 @@ fn df_gauge(name: String, value: usize) -> DatafusionMetricValue {
     DatafusionMetricValue::Gauge {
         name: name.into(),
         gauge,
-    }
-}
-
-fn df_time(name: String, nanos: u64) -> DatafusionMetricValue {
-    let time = Time::new();
-    time.add_duration(Duration::from_nanos(nanos));
-    DatafusionMetricValue::Time {
-        name: name.into(),
-        time,
     }
 }
 

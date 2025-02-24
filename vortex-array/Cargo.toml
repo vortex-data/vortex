@@ -31,11 +31,11 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
-backtrace = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
 futures-util = { workspace = true }
+getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }
@@ -69,10 +69,6 @@ arbitrary = [
 ]
 test-harness = ["dep:goldenfile"]
 canonical_counter = []
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Enable the JS feature of getrandom (via rand) to supprt wasm32 target
-getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 divan = { workspace = true }
