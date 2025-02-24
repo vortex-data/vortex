@@ -47,7 +47,14 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
     if let Some(mut constant) = array.as_constant() {
         if constant.is_null() {
             // An all-null constant array has a sum of 0.
-            return Ok(Scalar::new(sum_dtype, 0.into()));
+            return if PType::try_from(&sum_dtype)
+                .vortex_expect("must be primitive")
+                .is_float()
+            {
+                Ok(Scalar::new(sum_dtype, 0.0.into()))
+            } else {
+                Ok(Scalar::new(sum_dtype, 0.into()))
+            };
         }
 
         // If it's an extension array, then unwrap it into the storage scalar.
@@ -158,10 +165,24 @@ mod test {
     }
 
     #[test]
+    fn sum_all_invalid_float() {
+        let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]);
+        let result = sum(&array).unwrap();
+        assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(0.0));
+    }
+
+    #[test]
     fn sum_constant() {
         let array = PrimitiveArray::from_iter([1, 1, 1, 1]);
         let result = sum(&array).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(4));
+    }
+
+    #[test]
+    fn sum_constant_float() {
+        let array = PrimitiveArray::from_iter([1., 1., 1., 1.]);
+        let result = sum(&array).unwrap();
+        assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(4.));
     }
 
     #[test]
