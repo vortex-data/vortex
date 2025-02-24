@@ -28,8 +28,6 @@ mod tests {
 
     use super::*;
 
-    const ENCODING: BoolEncoding = BoolEncoding;
-
     #[rstest]
     #[case(vec![true], Some(true))]
     #[case(vec![false; 65], Some(true))]
@@ -41,7 +39,7 @@ mod tests {
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: Option<bool>) {
         let array = BoolArray::from_iter(input);
 
-        let output = ENCODING.is_constant(&array).unwrap();
+        let output = BoolEncoding.is_constant(&array).unwrap();
         assert_eq!(output, expected);
     }
 }
