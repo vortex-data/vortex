@@ -246,7 +246,7 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.0;
 
-        if let Some(chunked_array) = vortex.maybe_as::<ChunkedArray>() {
+        if let Some(chunked_array) = vortex.as_opt::<ChunkedArray>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;

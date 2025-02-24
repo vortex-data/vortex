@@ -22,7 +22,7 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports ints
         if !parray.ptype().is_unsigned_int() {

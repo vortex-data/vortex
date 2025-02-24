@@ -246,19 +246,8 @@ pub trait ArrayExt: Array {
     }
 
     /// Returns the array downcast to the given `A`.
-    fn maybe_as<A: Array + 'static>(&self) -> Option<&A> {
+    fn as_opt<A: Array + 'static>(&self) -> Option<&A> {
         self.as_any().downcast_ref::<A>()
-    }
-
-    /// Returns the array downcast to the given `A`.
-    fn try_as<A: Array + 'static>(&self) -> VortexResult<&A> {
-        self.as_any().downcast_ref::<A>().ok_or_else(|| {
-            vortex_err!(
-                "Failed to downcast {} to {}",
-                self.encoding(),
-                type_name::<A>()
-            )
-        })
     }
 }
 

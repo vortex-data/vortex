@@ -126,9 +126,9 @@ impl DictEncoder for BytesDictBuilder {
         }
 
         let len = array.len();
-        let codes = if let Some(varbinview) = array.maybe_as::<VarBinViewArray>() {
+        let codes = if let Some(varbinview) = array.as_opt::<VarBinViewArray>() {
             self.encode_bytes(varbinview, len)?
-        } else if let Some(varbin) = array.maybe_as::<VarBinArray>() {
+        } else if let Some(varbin) = array.as_opt::<VarBinArray>() {
             self.encode_bytes(varbin, len)?
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
