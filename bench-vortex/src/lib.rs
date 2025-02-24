@@ -17,7 +17,6 @@ use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, Defau
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{collect, ExecutionPlan};
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
@@ -28,8 +27,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{Array, ContextRef, Encoding};
-use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
+use vortex::{ContextRef, IntoArray};
 
 pub mod bench_run;
 pub mod blob;
@@ -203,16 +201,12 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
 pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
-) -> VortexResult<(Vec<RecordBatch>, Vec<MetricsSet>)> {
+) -> VortexResult<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
-    Ok((
-        result,
-        // TODO(os): return physical plan, get spans and metrics downstream
-        VortexMetricsFinder::find_all(physical_plan.as_ref()),
-    ))
+    Ok((result, physical_plan))
 }
 
 pub async fn execute_physical_plan(

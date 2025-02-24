@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::ExecutionPlan;
 
 use crate::execute_query;
 
@@ -7,7 +9,7 @@ pub async fn run_tpch_query(
     ctx: &SessionContext,
     queries: &[String],
     idx: usize,
-) -> (usize, Vec<MetricsSet>) {
+) -> (usize, Arc<dyn ExecutionPlan>) {
     if idx == 15 {
         let mut result = None;
         for (i, q) in queries.iter().enumerate() {

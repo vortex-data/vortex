@@ -10,6 +10,8 @@ use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
+use crate::GIT_COMMIT_ID;
+
 pub trait MetricsSetExt {
     fn merge_all_with_label(&mut self, other: MetricsSet, labels: &[Label]);
     fn aggregate(&self) -> Self;
@@ -76,6 +78,15 @@ pub fn otlp_trace_exporter() -> anyhow::Result<impl SpanExporter> {
     Ok(OtlpSpanExporter::builder().with_http().build()?)
 }
 
+pub fn benchmark_scope(bench_name: &'static str, query_idx: usize) -> InstrumentationScope {
+    InstrumentationScope::builder(bench_name)
+        .with_attributes([
+            KeyValue::new("query_idx", query_idx as i64),
+            KeyValue::new("commit", GIT_COMMIT_ID.as_str()),
+        ])
+        .build()
+}
+
 pub struct OtlpTraceCreator {
     completed_spans: Vec<SpanData>,
     trace_id: TraceId,
@@ -110,7 +121,7 @@ impl OtlpTraceCreator {
         let (own_start, own_end) = timestamps(plan);
         let attributes = plan
             .metrics()
-            .map(|m| m.iter().flat_map(|metric| to_key_value(metric)).collect())
+            .map(|m| m.iter().flat_map(to_key_value).collect())
             .unwrap_or_default();
         SpanData {
             span_context: SpanContext::new(
@@ -194,8 +205,8 @@ impl ExecutionPlanVisitor for OtlpTraceCreator {
             let (start, end) = timestamps(plan);
             &ParentInfo {
                 span_id: SpanId::INVALID, // root span
-                start_time: start.ok_or_else(|| "no start timestamp on root")?,
-                end_time: end.ok_or_else(|| "no end timestamp on root")?,
+                start_time: start.ok_or("no start timestamp on root")?,
+                end_time: end.ok_or("no end timestamp on root")?,
             }
         };
 

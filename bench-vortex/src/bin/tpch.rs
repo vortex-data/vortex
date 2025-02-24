@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::metrics::MetricsSetExt;
+use bench_vortex::metrics::{
+    benchmark_scope, otlp_trace_exporter, MetricsSetExt, OtlpTraceCreator,
+};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
 use bench_vortex::tpch::{
@@ -16,10 +18,12 @@ use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
+use opentelemetry_sdk::trace::SpanExporter;
 use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
+use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
@@ -52,6 +56,8 @@ struct Args {
     data_generator: DataGenerator,
     #[arg(long)]
     all_metrics: bool,
+    #[arg(long)]
+    export_spans: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug)]
@@ -137,6 +143,7 @@ fn main() -> ExitCode {
         args.scale_factor,
         url,
         args.all_metrics,
+        args.export_spans,
     ))
 }
 
@@ -151,6 +158,7 @@ async fn bench_main(
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
+    export_spans: bool,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -177,6 +185,7 @@ async fn bench_main(
     let mut measurements = Vec::new();
 
     let mut metrics = MetricsSet::new();
+    let mut spans = Vec::new();
 
     for format in formats.iter().copied() {
         // Load datasets
@@ -200,10 +209,14 @@ async fn bench_main(
             }
 
             for i in 0..2 {
-                let (row_count, new_metrics) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
+                let (row_count, plan) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 if i == 0 {
                     row_counts.push((query_idx, format, row_count));
-                    for (idx, m) in new_metrics.into_iter().enumerate() {
+                    // gather metrics
+                    for (idx, m) in VortexMetricsFinder::find_all(plan.as_ref())
+                        .into_iter()
+                        .enumerate()
+                    {
                         metrics.merge_all_with_label(
                             m,
                             &[
@@ -212,6 +225,11 @@ async fn bench_main(
                             ],
                         );
                     }
+                    // gather spans, each span is annotated with metrics
+                    spans.extend(OtlpTraceCreator::plan_to_spans(
+                        plan.as_ref(),
+                        benchmark_scope("tpch", query_idx),
+                    ));
                 }
             }
 
@@ -284,6 +302,20 @@ async fn bench_main(
                     }
                 }
             })
+    }
+
+    if export_spans {
+        match otlp_trace_exporter() {
+            Ok(mut exporter) => {
+                let res = exporter.export(spans).await;
+                if let Err(err) = res {
+                    warn!("failed to export spans {err}");
+                }
+            }
+            Err(err) => {
+                warn!("failed to create span exporter {err}");
+            }
+        }
     }
 
     match display_format {
