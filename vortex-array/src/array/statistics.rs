@@ -82,7 +82,13 @@ impl<A: Array + ArrayImpl> Statistics for A {
                     .map(|s| s.into_value())
             }
             Stat::NullCount => Some(self.invalid_count()?.into()),
-            Stat::IsConstant => Some(is_constant(self)?.into()),
+            Stat::IsConstant => {
+                if self.is_empty() {
+                    None
+                } else {
+                    Some(is_constant(self)?.into())
+                }
+            }
             _ => {
                 let vtable = self.vtable();
                 let stats_set = vtable.compute_statistics(self, stat)?;
