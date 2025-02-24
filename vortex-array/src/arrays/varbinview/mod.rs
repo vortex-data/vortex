@@ -32,7 +32,7 @@ mod serde;
 mod stats;
 mod variants;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
 pub struct Inlined {
     size: u32,

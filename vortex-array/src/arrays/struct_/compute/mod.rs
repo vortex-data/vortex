@@ -9,12 +9,12 @@ use vortex_scalar::Scalar;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::StructEncoding;
 use crate::compute::{
-    filter, scalar_at, slice, take, try_cast, CastFn, FilterFn, MaskFn, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    filter, is_constant, scalar_at, slice, take, try_cast, CastFn, FilterFn, IsConstantFn, MaskFn,
+    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ArrayVisitor};
 
 impl ComputeVTable for StructEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
@@ -22,6 +22,10 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
@@ -168,6 +172,17 @@ impl MinMaxFn<&StructArray> for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
+    }
+}
+
+impl IsConstantFn<&StructArray> for StructEncoding {
+    fn is_constant(&self, array: &StructArray) -> VortexResult<Option<bool>> {
+        let mut all_children_constant = true;
+        for child in array.children().iter() {
+            all_children_constant &= is_constant(child)?;
+        }
+
+        Ok(Some(all_children_constant))
     }
 }
 

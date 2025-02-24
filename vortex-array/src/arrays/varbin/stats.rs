@@ -82,7 +82,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
     })
 }
 
-fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
+pub(super) fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     let Some(first_value) = iter.next() else {
         return true; // empty array is constant
     };

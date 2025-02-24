@@ -49,11 +49,11 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
 
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 

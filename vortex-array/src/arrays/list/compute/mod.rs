@@ -9,12 +9,16 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    scalar_at, slice, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
+    scalar_at, slice, IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ListEncoding {
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -74,6 +78,12 @@ impl MaskFn<&ListArray> for ListEncoding {
 impl MinMaxFn<&ListArray> for ListEncoding {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
+        Ok(None)
+    }
+}
+
+impl IsConstantFn<&ListArray> for ListEncoding {
+    fn is_constant(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
         Ok(None)
     }
 }

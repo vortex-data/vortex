@@ -1,4 +1,5 @@
 mod cast;
+mod is_constant;
 mod min_max;
 mod take;
 mod to_arrow;
@@ -10,12 +11,18 @@ use vortex_scalar::Scalar;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::VarBinViewEncoding;
-use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{
+    CastFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+};
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
