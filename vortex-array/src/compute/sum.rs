@@ -120,6 +120,8 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         f.sum(array)?
     } else {
         // Otherwise, canonicalize and try again.
+        log::debug!("No sum implementation found for {}", array.encoding());
+
         let array = array.to_canonical()?;
         if let Some(f) = array.as_ref().vtable().sum_fn() {
             f.sum(array.as_ref())?
