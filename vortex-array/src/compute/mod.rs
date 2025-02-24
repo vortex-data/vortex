@@ -28,7 +28,8 @@ pub use scalar_at::{ScalarAtFn, scalar_at};
 pub use search_sorted::*;
 pub use slice::{SliceFn, slice};
 pub use sum::*;
-pub use take::{TakeFn, take, take_into};
+pub use take::{take, take_into, TakeFn};
+pub use take_from::{take_from, TakeFromFn};
 pub use to_arrow::*;
 
 mod between;
@@ -49,6 +50,7 @@ mod search_sorted;
 mod slice;
 mod sum;
 mod take;
+mod take_from;
 mod to_arrow;
 
 #[cfg(feature = "test-harness")]

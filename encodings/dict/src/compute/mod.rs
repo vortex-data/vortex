@@ -7,12 +7,15 @@ use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, LikeFn, ScalarAtFn, SliceFn, TakeFn,
     filter, scalar_at, slice, take,
 };
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_dtype::{DType, PType, match_each_native_simd_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::compress::dict_decode_typed_primitive;
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
@@ -58,9 +61,32 @@ impl ScalarAtFn<&DictArray> for DictEncoding {
 
 impl TakeFn<&DictArray> for DictEncoding {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        if let Some(take_from_fn) = indices.vtable().take_from_fn() {
+            return take_from_fn.take_from(indices, array.values());
+        }
+
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
+        if let DType::Primitive(ptype, _) = array.dtype() {
+            // TODO(alex): handle nullable codes & values
+            if *ptype != PType::F16 && array.codes().all_valid()? && array.values().all_valid()? {
+                let codes = array.codes().to_primitive()?;
+                let values = array.values().to_primitive()?;
+
+                match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
+                    match_each_native_simd_ptype!(values.ptype(), |$V| {
+                        let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
+                            codes.as_slice(),
+                            values.as_slice(),
+                            array.dtype().nullability(),
+                        );
+                        return Ok(decoded.into_array());
+                    })
+                })
+            }
+        }
+
         let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
     }
@@ -86,11 +112,14 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at, slice};
-    use vortex_array::{Array, ArrayRef, ToCanonical};
+    use vortex_array::compute::{Operator, compare, scalar_at, slice, take, take_from};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
+    use vortex_runend::RunEndArray;
     use vortex_scalar::Scalar;
 
+    use crate::DictArray;
     use crate::builders::dict_encode;
 
     #[test]
@@ -230,5 +259,37 @@ mod test {
         )
         .unwrap();
         test_mask(&array);
+    }
+
+    #[test]
+    fn test_dict_with_runend() {
+        let values = buffer![100u32, 200, 300].into_array();
+        let indices = buffer![0u32, 0, 2, 2, 2, 2, 2, 1, 1, 1].into_array();
+
+        let runend = RunEndArray::try_new(
+            buffer![2u32, 7, 10].into_array(),
+            buffer![0u32, 2, 1].into_array(),
+        )
+        .unwrap();
+
+        let dict = DictArray::try_new(indices, values).unwrap();
+
+        let taken = take_from(
+            &runend.clone().into_array(),
+            &dict.values().clone().into_array(),
+        )
+        .unwrap();
+
+        let taken2 = take(&dict, &runend.into_array()).unwrap();
+
+        assert_eq!(
+            taken.to_primitive().unwrap().as_slice::<u32>(),
+            &[100u32, 100, 300, 300, 300, 300, 300, 200, 200, 200]
+        );
+
+        assert_eq!(
+            taken.to_primitive().unwrap().as_slice::<u32>(),
+            taken2.to_primitive().unwrap().as_slice::<u32>()
+        );
     }
 }
