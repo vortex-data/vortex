@@ -3,9 +3,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::metrics::{
-    benchmark_scope, otlp_trace_exporter, MetricsSetExt, OtlpTraceCreator,
-};
+use bench_vortex::metrics::{export_plan_spans, MetricsSetExt};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
 use bench_vortex::tpch::{
@@ -18,7 +16,6 @@ use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
-use opentelemetry_sdk::trace::SpanExporter;
 use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
@@ -185,7 +182,7 @@ async fn bench_main(
     let mut measurements = Vec::new();
 
     let mut metrics = MetricsSet::new();
-    let mut spans = Vec::new();
+    let mut plans = Vec::new();
 
     for format in formats.iter().copied() {
         // Load datasets
@@ -225,11 +222,7 @@ async fn bench_main(
                             ],
                         );
                     }
-                    // gather spans, each span is annotated with metrics
-                    spans.extend(OtlpTraceCreator::plan_to_spans(
-                        plan.as_ref(),
-                        benchmark_scope("tpch", query_idx),
-                    ));
+                    plans.push((query_idx, plan));
                 }
             }
 
@@ -305,16 +298,8 @@ async fn bench_main(
     }
 
     if export_spans {
-        match otlp_trace_exporter() {
-            Ok(mut exporter) => {
-                let res = exporter.export(spans).await;
-                if let Err(err) = res {
-                    warn!("failed to export spans {err}");
-                }
-            }
-            Err(err) => {
-                warn!("failed to create span exporter {err}");
-            }
+        if let Err(e) = export_plan_spans("tpch", plans).await {
+            warn!("failed to export spans {e}");
         }
     }
 

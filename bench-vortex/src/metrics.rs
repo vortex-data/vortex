@@ -8,6 +8,7 @@ use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
+use opentelemetry_sdk::Resource;
 use vortex::aliases::hash_map::HashMap;
 
 use crate::GIT_COMMIT_ID;
@@ -74,17 +75,25 @@ fn aggregate_metric(metric: &mut MetricValue, to_aggregate: &MetricValue) {
     };
 }
 
-pub fn otlp_trace_exporter() -> anyhow::Result<impl SpanExporter> {
-    Ok(OtlpSpanExporter::builder().with_http().build()?)
-}
-
-pub fn benchmark_scope(bench_name: &'static str, query_idx: usize) -> InstrumentationScope {
-    InstrumentationScope::builder(bench_name)
-        .with_attributes([
-            KeyValue::new("query_idx", query_idx as i64),
-            KeyValue::new("commit", GIT_COMMIT_ID.as_str()),
-        ])
-        .build()
+pub async fn export_plan_spans(
+    bench_name: &'static str,
+    plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
+) -> anyhow::Result<()> {
+    let mut exporter = OtlpSpanExporter::builder().with_http().build()?;
+    for (query_idx, plan) in plans {
+        let resource = Resource::builder()
+            .with_attribute(KeyValue::new("query_idx", query_idx as i64))
+            .with_attribute(KeyValue::new("bench_name", bench_name))
+            .with_attribute(KeyValue::new("commit", GIT_COMMIT_ID.as_str()))
+            .build();
+        exporter.set_resource(&resource);
+        let spans = OtlpTraceCreator::plan_to_spans(
+            plan.as_ref(),
+            InstrumentationScope::builder(bench_name).build(),
+        );
+        exporter.export(spans).await?;
+    }
+    Ok(())
 }
 
 pub struct OtlpTraceCreator {
