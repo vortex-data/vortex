@@ -5424,6 +5424,7 @@ dependencies = [
  "vortex-error",
  "vortex-fsst",
  "vortex-mask",
+ "vortex-runend",
  "vortex-scalar",
 ]
 
