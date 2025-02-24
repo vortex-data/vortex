@@ -130,14 +130,17 @@ pub struct StatsAccumulator {
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: DType, stats: Arc<[Stat]>) -> Self {
-        let builders = stats
+    pub fn new(dtype: DType, stats: &[Stat]) -> Self {
+        let (stats, builders): (Vec<Stat>, _) = stats
             .iter()
-            .filter_map(|s| s.dtype(&dtype))
-            .map(|stat_dtype| builder_with_capacity(&stat_dtype.as_nullable(), 1024))
-            .collect();
+            .filter_map(|s| {
+                s.dtype(&dtype)
+                    .map(|stat_dtype| (*s, builder_with_capacity(&stat_dtype.as_nullable(), 1024)))
+            })
+            .unzip();
+
         Self {
-            stats,
+            stats: stats.into(),
             builders,
             length: 0,
         }
