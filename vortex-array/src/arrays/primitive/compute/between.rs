@@ -6,7 +6,6 @@ use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenFn, BetweenOptions, Lt, Lte, OperatorImpl, StrictComparison};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};
-use crate::stream::ArrayStreamExt;
 
 impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
     fn between(
@@ -31,7 +30,7 @@ fn between_impl<T: NativePType + Copy>(
     lower: T,
     upper: T,
     options: &BetweenOptions,
-) -> VortexResult<ArrayRef> {
+) -> ArrayRef {
     match (options.lower_strict, options.upper_strict) {
         (StrictComparison::Strict, StrictComparison::Strict) => {
             between_impl_::<Lt, Lt, _>(arr, lower, upper)
@@ -48,7 +47,7 @@ fn between_impl<T: NativePType + Copy>(
     }
 }
 
-fn between_impl_<Lower, Upper, T>(arr: &PrimitiveArray, lower: T, upper: T) -> VortexResult<Array>
+fn between_impl_<Lower, Upper, T>(arr: &PrimitiveArray, lower: T, upper: T) -> ArrayRef
 where
     T: NativePType + Copy,
     Lower: OperatorImpl<T>,

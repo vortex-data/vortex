@@ -30,11 +30,14 @@ pub trait ComputeVTable {
 
     /// Binary operator implementation for arrays against other arrays.
     ///
-    ///See: [CompareFn].
+    /// See: [CompareFn].
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         None
     }
 
+    /// A ternary operator, returning bool if the values are between the other two given values.
+    ///
+    /// See: [BetweenFn].
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         None
     }
