@@ -244,11 +244,9 @@ impl FileFormat for VortexFormat {
                     .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
-                let sum = stats_set
-                    .get_scalar(
-                        Stat::Sum,
-                        Stat::Sum.dtype(&DType::from_arrow(field.as_ref())),
-                    )
+                let sum = Stat::Sum
+                    .dtype(&DType::from_arrow(field.as_ref()))
+                    .and_then(|dtype| stats_set.get_scalar(Stat::Sum, dtype))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
                 ColumnStatistics {

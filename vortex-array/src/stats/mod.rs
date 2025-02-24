@@ -198,8 +198,8 @@ impl Stat {
         matches!(self, Stat::Min | Stat::Max)
     }
 
-    pub fn dtype(&self, data_type: &DType) -> DType {
-        match self {
+    pub fn dtype(&self, data_type: &DType) -> Option<DType> {
+        Some(match self {
             Stat::BitWidthFreq => DType::List(
                 Arc::new(DType::Primitive(PType::U64, NonNullable)),
                 NonNullable,
@@ -234,16 +234,16 @@ impl Stat {
                             DType::Primitive(PType::F64, Nullable)
                         }
                     },
+                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
                     // Unsupported types
                     DType::Null
                     | DType::Utf8(_)
                     | DType::Binary(_)
                     | DType::Struct(..)
-                    | DType::List(..) => DType::Null,
-                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype()),
+                    | DType::List(..) => return None,
                 }
             }
-        }
+        })
     }
 
     pub fn name(&self) -> &str {

@@ -70,8 +70,18 @@ impl<A: Array + ArrayImpl> Statistics for A {
         Ok(match stat {
             Stat::Min => min_max(self)?.map(|MinMaxResult { min, max: _ }| min.into_value()),
             Stat::Max => min_max(self)?.map(|MinMaxResult { min: _, max }| max.into_value()),
-            Stat::Sum => Some(sum(self)?.into_value()),
-            Stat::NullCount => Some(self.valid_count()?.into()),
+            Stat::Sum => {
+                Stat::Sum
+                    .dtype(self.dtype())
+                    .is_some()
+                    .then(|| {
+                        // Sum is supported for this dtype.
+                        sum(self)
+                    })
+                    .transpose()?
+                    .map(|s| s.into_value())
+            }
+            Stat::NullCount => Some(self.invalid_count()?.into()),
             _ => {
                 let vtable = self.vtable();
                 let stats_set = vtable.compute_statistics(self, stat)?;

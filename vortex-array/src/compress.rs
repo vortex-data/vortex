@@ -72,16 +72,15 @@ pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
-            let compressed_scalar = compressed
-                .statistics()
-                .get_stat(stat)
-                .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
-            debug_assert_eq!(
-                compressed_scalar.clone(),
-                Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
-                "Compression changed {stat} from {value} to {:?}",
-                compressed_scalar.as_ref(),
-            );
+            if let Some(dtype) = stat.dtype(compressed.dtype()) {
+                let compressed_scalar = compressed.statistics().get_scalar(stat, &dtype);
+                debug_assert_eq!(
+                    compressed_scalar,
+                    Some(value.clone().into_scalar(dtype)),
+                    "Compression changed {stat} from {value} to {:?}",
+                    compressed_scalar.as_ref(),
+                );
+            }
         }
     }
 }

@@ -6,7 +6,6 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::SumFn;
-use crate::stats::Stat;
 use crate::Array;
 
 impl SumFn<&BoolArray> for BoolEncoding {
@@ -18,7 +17,7 @@ impl SumFn<&BoolArray> for BoolEncoding {
             }
             AllOr::None => {
                 // All-invalid
-                None
+                unreachable!("All-invalid boolean array should have been handled by entry-point")
             }
             AllOr::Some(validity_mask) => Some(
                 array
@@ -27,9 +26,6 @@ impl SumFn<&BoolArray> for BoolEncoding {
                     .count_set_bits() as u64,
             ),
         };
-        Ok(Scalar::new(
-            Stat::Sum.dtype(array.dtype()),
-            true_count.into(),
-        ))
+        Ok(Scalar::from(true_count))
     }
 }

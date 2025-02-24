@@ -1,6 +1,6 @@
 use num_traits::PrimInt;
 use vortex_dtype::{match_each_native_ptype, NativePType, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
@@ -10,7 +10,9 @@ use crate::{Array, ArrayRef};
 
 impl SumFn<&ChunkedArray> for ChunkedEncoding {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
-        let sum_dtype = Stat::Sum.dtype(array.dtype());
+        let sum_dtype = Stat::Sum
+            .dtype(array.dtype())
+            .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
         let sum_ptype = PType::try_from(&sum_dtype).vortex_expect("sum dtype must be primitive");
 
         let scalar_value = match_each_native_ptype!(
