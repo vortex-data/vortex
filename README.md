@@ -94,7 +94,7 @@ The Vortex type-system is still in flux. The current set of logical types is:
 * Null
 * Bool
 * Integer(8, 16, 32, 64)
-* Float(16, b16, 32, 64)
+* Float(16, 32, 64)
 * Binary
 * UTF8
 * Struct
