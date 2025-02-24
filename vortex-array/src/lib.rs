@@ -29,7 +29,6 @@ pub mod compute;
 mod context;
 mod encoding;
 pub mod iter;
-mod macros;
 mod metadata;
 pub mod nbytes;
 mod partial_ord;
