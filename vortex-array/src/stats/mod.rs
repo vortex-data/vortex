@@ -11,7 +11,7 @@ use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -38,6 +38,7 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::TrueCount,
     Stat::NullCount,
     Stat::RunCount,
+    Stat::Sum,
     Stat::IsConstant,
     Stat::IsSorted,
     Stat::IsStrictSorted,
@@ -78,6 +79,8 @@ pub enum Stat {
     RunCount,
     /// The number of true values in the array (nulls are treated as false)
     TrueCount,
+    /// The sum of the non-null values of the array.
+    Sum,
     /// The number of null values in the array
     NullCount,
     /// The uncompressed size of the array in bytes
@@ -88,6 +91,7 @@ pub enum Stat {
 /// They tie together the Stat and the StatBound, which allows the bound to be extracted.
 pub struct Max;
 pub struct Min;
+pub struct Sum;
 pub struct BitWidthFreq;
 pub struct TrailingZeroFreq;
 pub struct IsConstant;
@@ -164,21 +168,29 @@ impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
     const STAT: Stat = Stat::Min;
 }
 
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Sum {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::Sum;
+}
+
 impl Stat {
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not
     pub fn is_commutative(&self) -> bool {
-        matches!(
-            self,
+        // NOTE: we prefer this syntax to force a compile error if we add a new stat
+        match self {
             Stat::BitWidthFreq
-                | Stat::TrailingZeroFreq
-                | Stat::IsConstant
-                | Stat::Max
-                | Stat::Min
-                | Stat::TrueCount
-                | Stat::NullCount
-                | Stat::UncompressedSizeInBytes
-        )
+            | Stat::TrailingZeroFreq
+            | Stat::IsConstant
+            | Stat::Max
+            | Stat::Min
+            | Stat::TrueCount
+            | Stat::NullCount
+            | Stat::Sum
+            | Stat::UncompressedSizeInBytes => true,
+            Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => false,
+        }
     }
 
     /// Whether the statistic has the same dtype as the array it's computed on
@@ -205,6 +217,32 @@ impl Stat {
             Stat::TrueCount => DType::Primitive(PType::U64, NonNullable),
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+            Stat::Sum => {
+                // Any array that cannot be summed has a sum DType of null.
+                // Any array that can be summed, but overflows, has a sum _value_ of null.
+                // Therefore, we make sum stats nullable.
+                match data_type {
+                    DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
+                    DType::Primitive(ptype, _) => match ptype {
+                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
+                            DType::Primitive(PType::U64, Nullable)
+                        }
+                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
+                            DType::Primitive(PType::I64, Nullable)
+                        }
+                        PType::F16 | PType::F32 | PType::F64 => {
+                            DType::Primitive(PType::F64, Nullable)
+                        }
+                    },
+                    // Unsupported types
+                    DType::Null
+                    | DType::Utf8(_)
+                    | DType::Binary(_)
+                    | DType::Struct(..)
+                    | DType::List(..) => DType::Null,
+                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype()),
+                }
+            }
         }
     }
 
@@ -221,6 +259,7 @@ impl Stat {
             Self::TrueCount => "true_count",
             Self::NullCount => "null_count",
             Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
+            Stat::Sum => "sum",
         }
     }
 }
@@ -303,6 +342,7 @@ pub trait Statistics {
             if let Some(s) = parent.get_stat(stat) {
                 // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
                 //  so we don't have to take lots of write locks.
+                // TODO(ngates): depending on statistic, this should choose the more precise one.
                 self.set_stat(stat, s);
             }
         }
@@ -457,17 +497,23 @@ mod test {
 
     #[test]
     fn commutativity() {
-        assert!(Stat::BitWidthFreq.is_commutative());
-        assert!(Stat::TrailingZeroFreq.is_commutative());
-        assert!(Stat::IsConstant.is_commutative());
-        assert!(Stat::Min.is_commutative());
-        assert!(Stat::Max.is_commutative());
-        assert!(Stat::TrueCount.is_commutative());
-        assert!(Stat::NullCount.is_commutative());
-
-        assert!(!Stat::IsStrictSorted.is_commutative());
-        assert!(!Stat::IsSorted.is_commutative());
-        assert!(!Stat::RunCount.is_commutative());
+        for stat in all::<Stat>() {
+            let expected = match stat {
+                Stat::BitWidthFreq => true,
+                Stat::TrailingZeroFreq => true,
+                Stat::IsConstant => true,
+                Stat::IsSorted => false,
+                Stat::IsStrictSorted => false,
+                Stat::Max => true,
+                Stat::Min => true,
+                Stat::RunCount => false,
+                Stat::TrueCount => true,
+                Stat::Sum => true,
+                Stat::NullCount => true,
+                Stat::UncompressedSizeInBytes => true,
+            };
+            assert_eq!(stat.is_commutative(), expected, "{:?}", stat);
+        }
     }
 
     #[test]

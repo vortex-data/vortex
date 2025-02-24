@@ -1,10 +1,11 @@
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
+use num_traits::CheckedAdd;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType};
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -290,6 +291,7 @@ impl StatsSet {
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -315,10 +317,13 @@ impl StatsSet {
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
-                _ => vortex_panic!("Unrecognized commutative stat {}", s),
+                Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => {
+                    unreachable!("not commutative")
+                }
             }
         }
 
@@ -424,6 +429,37 @@ impl StatsSet {
                 }
             }
             _ => self.clear(Stat::Max),
+        }
+    }
+
+    fn merge_sum(&mut self, other: &Self, dtype: &DType) {
+        match (
+            self.get_scalar_bound::<Sum>(dtype.clone()),
+            other.get_scalar_bound::<Sum>(dtype.clone()),
+        ) {
+            (Some(m1), Some(m2)) => {
+                // If the combine sum is exact, then we can sum them.
+                if let Some(scalar_value) = m1.zip(m2).some_exact().and_then(|(s1, s2)| {
+                    s1.as_primitive()
+                        .checked_add(&s2.as_primitive())
+                        .map(|pscalar| {
+                            pscalar
+                                .pvalue()
+                                .map(|pvalue| {
+                                    Scalar::primitive_value(
+                                        pvalue,
+                                        pscalar.ptype(),
+                                        pscalar.dtype().nullability(),
+                                    )
+                                    .into_value()
+                                })
+                                .unwrap_or_else(ScalarValue::null)
+                        })
+                }) {
+                    self.set(Stat::Sum, Precision::Exact(scalar_value));
+                }
+            }
+            _ => self.clear(Stat::Sum),
         }
     }
 

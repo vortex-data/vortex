@@ -70,7 +70,7 @@ impl StatsTable {
             // Different stats need different aggregations
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
-                Stat::Min | Stat::Max => {
+                Stat::Min | Stat::Max | Stat::Sum => {
                     if let Some(s) = array.statistics().compute_stat(*stat) {
                         stats_set.set(*stat, Precision::exact(s))
                     }

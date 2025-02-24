@@ -35,9 +35,15 @@ impl WriteFlatBuffer for StatsSet {
             .and_then(Precision::some_exact)
             .map(|max| max.write_flatbuffer(fbb));
 
+        let sum = self
+            .get(Stat::Sum)
+            .and_then(Precision::some_exact)
+            .map(|max| max.write_flatbuffer(fbb));
+
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
             max,
+            sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted)
                 .and_then(Precision::some_exact),
@@ -130,6 +136,11 @@ impl ReadFlatBuffer for StatsSet {
                             Stat::UncompressedSizeInBytes,
                             Precision::Exact(uncompressed_size_in_bytes.into()),
                         );
+                    }
+                }
+                Stat::Sum => {
+                    if let Some(sum) = fb.sum() {
+                        stats_set.set(Stat::Sum, Precision::Exact(ScalarValue::try_from(sum)?));
                     }
                 }
             }

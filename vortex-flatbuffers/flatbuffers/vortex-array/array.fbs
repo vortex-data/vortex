@@ -39,6 +39,7 @@ table ArrayNode {
 table ArrayStats {
     min: ScalarValue;
     max: ScalarValue;
+    sum: ScalarValue;
     is_sorted: bool = null;
     is_strict_sorted: bool = null;
     is_constant: bool = null;

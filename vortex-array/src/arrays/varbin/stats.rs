@@ -78,6 +78,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
                 stat
             )
         }
+        Stat::Sum => unreachable!("Sum is not supported for VarBinArray"),
     })
 }
 

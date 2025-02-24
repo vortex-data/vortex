@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use vortex_error::VortexExpect;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::compute::{min_max, scalar_at, MinMaxResult};
+use crate::compute::{min_max, scalar_at, sum, MinMaxResult};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
@@ -67,36 +67,46 @@ impl<A: Array + ArrayImpl> Statistics for A {
 
         // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
         //  regular compute functions.
-        let stats_set = if matches!(stat, Stat::Min | Stat::Max) {
-            let mut stats_set = self.statistics().stats_set();
-            if let Some(MinMaxResult { min, max }) =
-                min_max(self).vortex_expect("Failed to compute min/max")
-            {
-                if min == max
-                    && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
+        let stats_set = match stat {
+            Stat::Min | Stat::Max => {
+                let mut stats_set = self.statistics().stats_set();
+                if let Some(MinMaxResult { min, max }) =
+                    min_max(self).vortex_expect("Failed to compute min/max")
                 {
-                    stats_set.set(Stat::IsConstant, Precision::exact(true));
+                    if min == max
+                        && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
+                    {
+                        stats_set.set(Stat::IsConstant, Precision::exact(true));
+                    }
+
+                    stats_set
+                        .combine_sets(
+                            &StatsSet::from_iter([
+                                (Stat::Min, Precision::exact(min.into_value())),
+                                (Stat::Max, Precision::exact(max.into_value())),
+                            ]),
+                            self.dtype(),
+                        )
+                        // TODO(ngates): this shouldn't be fallible
+                        .vortex_expect("Failed to combine stats sets");
                 }
 
                 stats_set
-                    .combine_sets(
-                        &StatsSet::from_iter([
-                            (Stat::Min, Precision::exact(min.into_value())),
-                            (Stat::Max, Precision::exact(max.into_value())),
-                        ]),
-                        self.dtype(),
-                    )
-                    // TODO(ngates): this shouldn't be fallible
-                    .vortex_expect("Failed to combine stats sets");
             }
-
-            stats_set
-        } else {
-            let vtable = self.vtable();
-            vtable
-                .compute_statistics(self, stat)
-                // TODO(ngates): hmmm, then why does it return a result?
-                .vortex_expect("compute_statistics must not fail")
+            // Try to compute the sum and return it.
+            Stat::Sum => {
+                return sum(self)
+                    .inspect_err(|e| log::warn!("{}", e))
+                    .ok()
+                    .map(|sum| sum.into_value())
+            }
+            _ => {
+                let vtable = self.vtable();
+                vtable
+                    .compute_statistics(self, stat)
+                    // TODO(ngates): hmmm, then why does it return a result?
+                    .vortex_expect("compute_statistics must not fail")
+            }
         };
 
         {

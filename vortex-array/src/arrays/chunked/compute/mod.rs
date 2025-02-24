@@ -21,6 +21,7 @@ mod mask;
 mod min_max;
 mod scalar_at;
 mod slice;
+mod sum;
 mod take;
 
 impl ComputeVTable for ChunkedEncoding {

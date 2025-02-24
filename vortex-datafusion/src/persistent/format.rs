@@ -244,11 +244,18 @@ impl FileFormat for VortexFormat {
                     .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
+                let sum = stats_set
+                    .get_scalar(
+                        Stat::Sum,
+                        Stat::Sum.dtype(&DType::from_arrow(field.as_ref())),
+                    )
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
                 ColumnStatistics {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
                     min_value: directional_bound_to_df_precision(min),
-                    sum_value: Precision::default(),
+                    sum_value: directional_bound_to_df_precision(sum),
                     distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| {
