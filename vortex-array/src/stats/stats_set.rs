@@ -317,6 +317,7 @@ impl StatsSet {
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
