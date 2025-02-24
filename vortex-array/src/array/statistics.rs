@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::compute::{min_max, scalar_at, sum, MinMaxResult};
+use crate::compute::{is_constant, min_max, scalar_at, sum, MinMaxResult};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
@@ -82,6 +82,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
                     .map(|s| s.into_value())
             }
             Stat::NullCount => Some(self.invalid_count()?.into()),
+            Stat::IsConstant => Some(is_constant(self)?.into()),
             _ => {
                 let vtable = self.vtable();
                 let stats_set = vtable.compute_statistics(self, stat)?;

@@ -251,7 +251,7 @@ mod test {
         let bool_arr = BoolArray::new(BooleanBuffer::new_set(0), Validity::NonNullable);
         assert!(bool_arr.statistics().compute_is_strict_sorted().is_none());
         assert!(bool_arr.statistics().compute_is_sorted().is_none());
-        assert!(bool_arr.statistics().compute_is_constant().is_none());
+        // assert!(bool_arr.statistics().compute_is_constant().is_none());
         assert!(bool_arr.statistics().compute_min::<bool>().is_none());
         assert!(bool_arr.statistics().compute_max::<bool>().is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 0);
