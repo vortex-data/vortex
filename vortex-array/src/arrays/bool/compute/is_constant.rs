@@ -14,9 +14,8 @@ impl IsConstantFn<&BoolArray> for BoolEncoding {
 
         let bit_chunks = buffer.bit_chunks();
         let packed = bit_chunks.iter().all(|chunk| chunk == value_block);
-        let reminder = 
-            bit_chunks.remainder_bits().count_ones() as usize == bit_chunks.remainder_len() * (first_value as usize);
-
+        let reminder = bit_chunks.remainder_bits().count_ones() as usize
+            == bit_chunks.remainder_len() * (first_value as usize);
 
         // We iterate on blocks of u64
         Ok(Some(packed & reminder))
@@ -37,7 +36,7 @@ mod tests {
     #[case({
         let mut v = vec![true; 64];
         v.push(false);
-        v 
+        v
     }, Some(false))]
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: Option<bool>) {
         let array = BoolArray::from_iter(input);
