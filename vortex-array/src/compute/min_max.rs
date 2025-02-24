@@ -93,6 +93,14 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
             max,
             array.encoding()
         );
+
+        // Update the stats set with the computed min/max
+        array
+            .statistics()
+            .set_stat(Stat::Min, Precision::Exact(min.value().clone()));
+        array
+            .statistics()
+            .set_stat(Stat::Max, Precision::Exact(max.value().clone()));
     }
 
     Ok(min_max)

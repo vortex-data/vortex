@@ -12,7 +12,7 @@ use crate::FoRArray;
 
 pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let min = array
-        .compute_stat(Stat::Min)
+        .compute_stat(Stat::Min)?
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
     let dtype = array.dtype().clone();

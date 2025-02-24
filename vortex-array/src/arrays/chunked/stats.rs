@@ -27,7 +27,7 @@ impl StatisticsVTable<&ChunkedArray> for ChunkedEncoding {
                     }
                 }
                 _ => s
-                    .compute_stat(stat)
+                    .compute_stat(stat)?
                     .map(|s| StatsSet::of(stat, Precision::exact(s))),
             }
             .unwrap_or_default();

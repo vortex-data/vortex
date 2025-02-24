@@ -14,7 +14,7 @@ use crate::Array;
 
 impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {
-        let scalar_value = match array.validity_mask()?.boolean_buffer() {
+        Ok(match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
                 // All-valid
                 match_each_native_ptype!(
@@ -26,7 +26,11 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
             }
             AllOr::None => {
                 // All-invalid
-                return Ok(Scalar::null(Stat::Sum.dtype(array.dtype())));
+                return Ok(Scalar::null(
+                    Stat::Sum
+                        .dtype(array.dtype())
+                        .vortex_expect("Sum dtype must be defined for primitive type"),
+                ));
             }
             AllOr::Some(validity_mask) => {
                 // Some-valid
@@ -45,10 +49,7 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
                     }
                 )
             }
-        };
-
-        let sum_dtype = Stat::Sum.dtype(array.dtype());
-        Ok(Scalar::new(sum_dtype, scalar_value))
+        })
     }
 }
 

@@ -1,6 +1,6 @@
 use std::sync::RwLock;
 
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{min_max, scalar_at, sum, MinMaxResult};
@@ -59,65 +59,40 @@ impl<A: Array + ArrayImpl> Statistics for A {
             .clear(stat);
     }
 
-    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue> {
+    fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(stat)) = self.get_stat(stat) {
-            return Some(stat);
+            return Ok(Some(stat));
         }
 
         // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
         //  regular compute functions.
-        let stats_set = match stat {
-            Stat::Min | Stat::Max => {
-                let mut stats_set = self.statistics().stats_set();
-                if let Some(MinMaxResult { min, max }) =
-                    min_max(self).vortex_expect("Failed to compute min/max")
-                {
-                    if min == max
-                        && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
-                    {
-                        stats_set.set(Stat::IsConstant, Precision::exact(true));
-                    }
-
-                    stats_set
-                        .combine_sets(
-                            &StatsSet::from_iter([
-                                (Stat::Min, Precision::exact(min.into_value())),
-                                (Stat::Max, Precision::exact(max.into_value())),
-                            ]),
-                            self.dtype(),
-                        )
-                        // TODO(ngates): this shouldn't be fallible
-                        .vortex_expect("Failed to combine stats sets");
-                }
-
-                stats_set
-            }
-            // Try to compute the sum and return it.
+        Ok(match stat {
+            Stat::Min => min_max(self)?.map(|MinMaxResult { min, max: _ }| min.into_value()),
+            Stat::Max => min_max(self)?.map(|MinMaxResult { min: _, max }| max.into_value()),
             Stat::Sum => {
-                return sum(self)
-                    .inspect_err(|e| log::warn!("{}", e))
-                    .ok()
-                    .map(|sum| sum.into_value())
+                Stat::Sum
+                    .dtype(self.dtype())
+                    .is_some()
+                    .then(|| {
+                        // Sum is supported for this dtype.
+                        sum(self)
+                    })
+                    .transpose()?
+                    .map(|s| s.into_value())
             }
+            Stat::NullCount => Some(self.invalid_count()?.into()),
             _ => {
                 let vtable = self.vtable();
-                vtable
-                    .compute_statistics(self, stat)
-                    // TODO(ngates): hmmm, then why does it return a result?
-                    .vortex_expect("compute_statistics must not fail")
+                let stats_set = vtable.compute_statistics(self, stat)?;
+                // Update the stats set with all the computed stats.
+                let mut w = self._stats_set().write().vortex_expect("poisoned lock");
+                for (stat, value) in stats_set.into_iter() {
+                    w.set(stat, value);
+                }
+                w.get(stat).and_then(|p| p.some_exact())
             }
-        };
-
-        {
-            // Update the stats set with all the computed stats.
-            let mut w = self._stats_set().write().vortex_expect("poisoned lock");
-            for (stat, value) in stats_set.into_iter() {
-                w.set(stat, value);
-            }
-        }
-
-        self.get_stat(stat).and_then(|p| p.some_exact())
+        })
     }
 
     fn retain_only(&self, stats: &[Stat]) {

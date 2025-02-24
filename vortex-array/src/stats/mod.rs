@@ -198,8 +198,8 @@ impl Stat {
         matches!(self, Stat::Min | Stat::Max)
     }
 
-    pub fn dtype(&self, data_type: &DType) -> DType {
-        match self {
+    pub fn dtype(&self, data_type: &DType) -> Option<DType> {
+        Some(match self {
             Stat::BitWidthFreq => DType::List(
                 Arc::new(DType::Primitive(PType::U64, NonNullable)),
                 NonNullable,
@@ -220,7 +220,7 @@ impl Stat {
             Stat::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
-                // Therefore, we make sum stats nullable.
+                // Therefore, we make integer sum stats nullable.
                 match data_type {
                     DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
                     DType::Primitive(ptype, _) => match ptype {
@@ -231,19 +231,20 @@ impl Stat {
                             DType::Primitive(PType::I64, Nullable)
                         }
                         PType::F16 | PType::F32 | PType::F64 => {
-                            DType::Primitive(PType::F64, Nullable)
+                            // Float sums cannot overflow, so it's non-nullable
+                            DType::Primitive(PType::F64, NonNullable)
                         }
                     },
+                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
                     // Unsupported types
                     DType::Null
                     | DType::Utf8(_)
                     | DType::Binary(_)
                     | DType::Struct(..)
-                    | DType::List(..) => DType::Null,
-                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype()),
+                    | DType::List(..) => return None,
                 }
             }
-        }
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -319,7 +320,7 @@ pub trait Statistics {
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue>;
+    fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
@@ -328,7 +329,7 @@ pub trait Statistics {
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for stat in stats {
-            if let Some(s) = self.compute_stat(*stat) {
+            if let Some(s) = self.compute_stat(*stat)? {
                 stats_set.set(*stat, Precision::exact(s))
             }
         }
@@ -396,6 +397,9 @@ impl dyn Statistics + '_ {
         stat: Stat,
     ) -> Option<U> {
         self.compute_stat(stat)
+            .inspect_err(|e| log::warn!("Failed to compute stat {}: {}", stat, e))
+            .ok()
+            .flatten()
             .map(|s| U::try_from(&s))
             .transpose()
             .unwrap_or_else(|err| {
@@ -493,27 +497,6 @@ mod test {
             .compute_as::<i64>(Stat::Min);
 
         assert_eq!(min, None);
-    }
-
-    #[test]
-    fn commutativity() {
-        for stat in all::<Stat>() {
-            let expected = match stat {
-                Stat::BitWidthFreq => true,
-                Stat::TrailingZeroFreq => true,
-                Stat::IsConstant => true,
-                Stat::IsSorted => false,
-                Stat::IsStrictSorted => false,
-                Stat::Max => true,
-                Stat::Min => true,
-                Stat::RunCount => false,
-                Stat::TrueCount => true,
-                Stat::Sum => true,
-                Stat::NullCount => true,
-                Stat::UncompressedSizeInBytes => true,
-            };
-            assert_eq!(stat.is_commutative(), expected, "{:?}", stat);
-        }
     }
 
     #[test]

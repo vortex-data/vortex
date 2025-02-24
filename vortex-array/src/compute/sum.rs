@@ -1,5 +1,5 @@
-use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::PType;
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -34,13 +34,9 @@ where
 /// If the array is all-invalid, the sum will be zero.
 pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
     // Compute the expected dtype of the sum.
-    let sum_dtype = Stat::Sum.dtype(array.dtype());
-
-    // If the sum_dtype is DType::Null, it means sum is not supported for this dtype.
-    // This occurs when the array's dtype does not support summing, e.g. strings.
-    if matches!(sum_dtype, DType::Null) {
-        vortex_bail!("Sum not supported for dtype: {}", array.dtype());
-    }
+    let sum_dtype = Stat::Sum
+        .dtype(array.dtype())
+        .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
 
     // Short-circuit using array statistics.
     if let Some(Precision::Exact(sum)) = array.statistics().get_stat(Stat::Sum) {

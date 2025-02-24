@@ -121,7 +121,7 @@ impl StatisticsVTable<&ZigZagArray> for ZigZagEncoding {
 
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
-            if let Some(val) = array.encoded().statistics().compute_stat(stat) {
+            if let Some(val) = array.encoded().statistics().compute_stat(stat)? {
                 stats.set(stat, Precision::exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {

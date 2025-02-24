@@ -42,9 +42,12 @@ impl StatsTable {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
-                (stat.name(), stat.dtype(column_dtype).as_nullable())
-            }))),
+            Arc::new(StructDType::from_iter(present_stats.iter().filter_map(
+                |stat| {
+                    stat.dtype(column_dtype)
+                        .map(|dtype| (stat.name(), dtype.as_nullable()))
+                },
+            ))),
             Nullability::NonNullable,
         )
     }
@@ -71,7 +74,7 @@ impl StatsTable {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(*stat) {
+                    if let Some(s) = array.statistics().compute_stat(*stat)? {
                         stats_set.set(*stat, Precision::exact(s))
                     }
                 }
@@ -130,7 +133,8 @@ impl StatsAccumulator {
     pub fn new(dtype: DType, stats: Arc<[Stat]>) -> Self {
         let builders = stats
             .iter()
-            .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
+            .filter_map(|s| s.dtype(&dtype))
+            .map(|stat_dtype| builder_with_capacity(&stat_dtype.as_nullable(), 1024))
             .collect();
         Self {
             stats,
@@ -145,8 +149,12 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().compute_stat(*s) {
-                builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
+            if let Some(v) = array.statistics().compute_stat(*s)? {
+                builder.append_scalar(&Scalar::new(
+                    s.dtype(array.dtype())
+                        .vortex_expect("non-empty stat must therefore be supported for this dtype"),
+                    v,
+                ))?;
             } else {
                 builder.append_null();
             }
