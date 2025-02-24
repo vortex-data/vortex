@@ -44,7 +44,6 @@ table ArrayStats {
     is_strict_sorted: bool = null;
     is_constant: bool = null;
     run_count: uint64 = null;
-    true_count: uint64 = null;
     null_count: uint64 = null;
     bit_width_freq: [uint64];
     trailing_zero_freq: [uint64];

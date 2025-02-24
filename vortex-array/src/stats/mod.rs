@@ -29,13 +29,13 @@ pub use precision::Precision;
 pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+/// Sum is included for boolean arrays.
+pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::Sum, Stat::NullCount];
 
 /// Stats to keep when serializing arrays to layouts
 pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
     Stat::Max,
-    Stat::TrueCount,
     Stat::NullCount,
     Stat::RunCount,
     Stat::Sum,
@@ -77,8 +77,6 @@ pub enum Stat {
     Min,
     /// The number of runs in the array (ignoring nulls)
     RunCount,
-    /// The number of true values in the array (nulls are treated as false)
-    TrueCount,
     /// The sum of the non-null values of the array.
     Sum,
     /// The number of null values in the array
@@ -98,7 +96,6 @@ pub struct IsConstant;
 pub struct IsSorted;
 pub struct IsStrictSorted;
 pub struct RunCount;
-pub struct TrueCount;
 pub struct NullCount;
 pub struct UncompressedSizeInBytes;
 
@@ -136,12 +133,6 @@ impl<T: PartialOrd + Clone> StatType<T> for RunCount {
     type Bound = UpperBound<T>;
 
     const STAT: Stat = Stat::RunCount;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::TrueCount;
 }
 
 impl<T: PartialOrd + Clone> StatType<T> for NullCount {
@@ -185,7 +176,6 @@ impl Stat {
             | Stat::IsConstant
             | Stat::Max
             | Stat::Min
-            | Stat::TrueCount
             | Stat::NullCount
             | Stat::Sum
             | Stat::UncompressedSizeInBytes => true,
@@ -214,7 +204,6 @@ impl Stat {
             Stat::Max => data_type.clone(),
             Stat::Min => data_type.clone(),
             Stat::RunCount => DType::Primitive(PType::U64, NonNullable),
-            Stat::TrueCount => DType::Primitive(PType::U64, NonNullable),
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
             Stat::Sum => {
@@ -257,7 +246,6 @@ impl Stat {
             Self::Max => "max",
             Self::Min => "min",
             Self::RunCount => "run_count",
-            Self::TrueCount => "true_count",
             Self::NullCount => "null_count",
             Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
             Stat::Sum => "sum",
@@ -440,10 +428,6 @@ impl dyn Statistics + '_ {
 
     pub fn compute_is_constant(&self) -> Option<bool> {
         self.compute_as(Stat::IsConstant)
-    }
-
-    pub fn compute_true_count(&self) -> Option<usize> {
-        self.compute_as(Stat::TrueCount)
     }
 
     pub fn compute_null_count(&self) -> Option<usize> {

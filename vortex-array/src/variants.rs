@@ -8,11 +8,23 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
+use crate::compute::sum;
 use crate::{Array, ArrayRef};
 
 pub trait NullArrayTrait {}
 
-pub trait BoolArrayTrait {}
+pub trait BoolArrayTrait: Array {}
+
+impl dyn BoolArrayTrait + '_ {
+    pub fn true_count(&self) -> VortexResult<usize> {
+        let true_count = sum(self)?;
+        Ok(true_count
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("true count should never overflow usize")
+            .vortex_expect("true count should never be null"))
+    }
+}
 
 pub trait PrimitiveArrayTrait: Array {
     /// The logical primitive type of the array.

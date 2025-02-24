@@ -96,7 +96,6 @@ fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
         Stat::Max,
         Stat::Min,
         Stat::RunCount,
-        Stat::TrueCount,
         Stat::NullCount,
         Stat::UncompressedSizeInBytes,
     ]);

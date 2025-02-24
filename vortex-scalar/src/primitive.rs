@@ -140,6 +140,7 @@ macro_rules! from_primitive_or_f16_for_non_floating_point {
     };
 }
 
+from_primitive_or_f16_for_non_floating_point!(usize);
 from_primitive_or_f16_for_non_floating_point!(u8);
 from_primitive_or_f16_for_non_floating_point!(u16);
 from_primitive_or_f16_for_non_floating_point!(u32);
