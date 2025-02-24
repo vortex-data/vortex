@@ -16,35 +16,35 @@ use vortex_array::Array;
 use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -53,7 +53,7 @@ impl ComputeVTable for RunEndEncoding {
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::IntoArray;
+    use vortex_array::Array;
 
     use crate::RunEndArray;
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -29,7 +29,7 @@ use crate::{ExprRef, VortexExpr};
 /// ).unwrap();
 /// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
 /// let x_copy = packed
-///     .as_struct_array()
+///     .as_struct_typed()
 ///     .unwrap()
 ///     .maybe_null_field_by_name("x copy")
 ///     .unwrap();
@@ -102,15 +102,17 @@ impl VortexExpr for Pack {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
             .iter()
             .map(|value_expr| value_expr.evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
-        StructArray::try_new(self.names.clone(), value_arrays, len, Validity::NonNullable)
-            .map(IntoArray::into_array)
+        Ok(
+            StructArray::try_new(self.names.clone(), value_arrays, len, Validity::NonNullable)?
+                .into_array(),
+        )
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -141,7 +143,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -156,7 +158,7 @@ mod tests {
         .unwrap()
     }
 
-    fn primitive_field(array: &Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -164,17 +166,17 @@ mod tests {
         };
 
         let mut array = array
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("expected a struct"))?
             .maybe_null_field_by_name(field)?;
 
         for field in field_path {
             array = array
-                .as_struct_array()
+                .as_struct_typed()
                 .ok_or_else(|| vortex_err!("expected a struct"))?
                 .maybe_null_field_by_name(field)?;
         }
-        Ok(array.into_primitive().unwrap())
+        Ok(array.to_primitive().unwrap())
     }
 
     #[test]
@@ -184,7 +186,7 @@ mod tests {
         let test_array = test_array().into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert!(actual_array.as_struct_array().unwrap().nfields() == 0);
+        assert!(actual_array.as_struct_typed().unwrap().nfields() == 0);
     }
 
     #[test]
@@ -195,10 +197,10 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(test_array().as_ref()).unwrap();
+        let actual_array = expr.evaluate(&test_array()).unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &expected_names
         );
 
@@ -238,10 +240,10 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(test_array().as_ref()).unwrap();
+        let actual_array = expr.evaluate(&test_array()).unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &expected_names
         );
 

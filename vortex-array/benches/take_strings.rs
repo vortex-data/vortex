@@ -3,7 +3,7 @@
 use divan::Bencher;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::take;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 
@@ -18,17 +18,17 @@ fn varbin(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&array, &indices))
-        .bench_refs(|(array, indices)| take(array, indices).unwrap());
+        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
 }
 
 #[divan::bench]
 fn varbinview(bencher: Bencher) {
-    let array = fixture(65_535).into_varbinview().unwrap();
+    let array = fixture(65_535).to_varbinview().unwrap();
     let indices = indices(1024);
 
     bencher
-        .with_inputs(|| (array.as_ref(), &indices))
-        .bench_refs(|(array, indices)| take(array, indices).unwrap());
+        .with_inputs(|| (&array, &indices))
+        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
 }
 
 fn fixture(len: usize) -> VarBinArray {
@@ -42,6 +42,6 @@ fn fixture(len: usize) -> VarBinArray {
 }
 
 // Fraction of the indices to take.
-fn indices(len: usize) -> Array {
+fn indices(len: usize) -> ArrayRef {
     Buffer::from_iter((0..len).filter_map(|x| (x % 2 == 0).then_some(x as u64))).into_array()
 }

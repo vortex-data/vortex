@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use vortex_array::compute::{between, BetweenOptions};
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
@@ -63,7 +63,7 @@ impl VortexExpr for Between {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let arr_val = self.arr.evaluate(batch)?;
         let lower_arr_val = self.lower.evaluate(batch)?;
         let upper_arr_val = self.upper.evaluate(batch)?;

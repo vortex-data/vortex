@@ -6,7 +6,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{Array, ContextRef};
+use vortex_array::{ArrayRef, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -47,7 +47,7 @@ impl<R: AsyncRead> ArrayStream for AsyncIPCReader<R> {
 }
 
 impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayRef>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -60,7 +60,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
             Some(msg) => match msg {
                 Ok(DecoderMessage::Array((array_parts, row_count))) => Poll::Ready(Some(
                     array_parts
-                        .decode(this.ctx.clone(), this.dtype.clone(), row_count)
+                        .decode(this.ctx, this.dtype.clone(), row_count)
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(
@@ -187,8 +187,8 @@ impl Stream for ArrayStreamIPCBytes {
 mod test {
     use futures_util::io::Cursor;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::stream::{ArrayStream, ArrayStreamArrayExt, ArrayStreamExt};
+    use vortex_array::{Array, ToCanonical};
 
     use super::*;
 
@@ -196,9 +196,7 @@ mod test {
     async fn test_async_stream() {
         let array = PrimitiveArray::from_iter([1, 2, 3]);
         let ipc_buffer = array
-            .clone()
-            .into_array()
-            .into_array_stream()
+            .to_array_stream()
             .into_ipc()
             .collect_to_buffer()
             .await
@@ -209,7 +207,7 @@ mod test {
             .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.into_array().await.unwrap().into_primitive().unwrap();
+        let result = reader.into_array().await.unwrap().to_primitive().unwrap();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

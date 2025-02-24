@@ -11,7 +11,7 @@ use vortex_flatbuffers::{dtype as fbd, message as fb, FlatBuffer};
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`vortex_array::Array`] without
+/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayRef`] without
 /// a [`vortex_array::ContextRef`] and a [`DType`]. As such, we partially decode into an
 /// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
@@ -139,17 +139,17 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArrayVisitor, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::{EncoderMessage, MessageEncoder};
 
-    fn write_and_read(expected: Array) {
+    fn write_and_read(expected: &dyn Array) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
-        for buf in encoder.encode(EncoderMessage::Array(&expected)) {
+        for buf in encoder.encode(EncoderMessage::Array(expected)) {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
@@ -164,7 +164,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .decode(Default::default(), expected.dtype().clone(), row_count)
+            .decode(&Default::default(), expected.dtype().clone(), row_count)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());
@@ -173,14 +173,14 @@ mod test {
 
     #[test]
     fn array_ipc() {
-        write_and_read(buffer![0i32, 1, 2, 3].into_array());
+        write_and_read(&buffer![0i32, 1, 2, 3].into_array());
     }
 
     #[test]
     fn array_no_buffers() {
         // Constant arrays have a single buffer
-        let array = ConstantArray::new(10i32, 20).into_array();
+        let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(array);
+        write_and_read(&array);
     }
 }

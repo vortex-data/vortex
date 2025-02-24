@@ -3,7 +3,7 @@
 use std::sync::{Arc, LazyLock};
 
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
@@ -93,7 +93,11 @@ struct SamplingCompressorWriter {
 }
 
 impl LayoutWriter for SamplingCompressorWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 

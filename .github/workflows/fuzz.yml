@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           tar -acf io_corpus.tar.zst fuzz/corpus/file_io
-          aws s3 cp io_corpus.tar.zst s3://vortex-fuzz-corpus
+          aws s3api put-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --body io_corpus.tar.zst --checksum-algorithm CRC32
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           tar -acf array_ops_corpus.tar.zst fuzz/corpus/array_ops
-          aws s3 cp array_ops_corpus.tar.zst s3://vortex-fuzz-corpus
+          aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --body array_ops_corpus.tar.zst --checksum-algorithm CRC32
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

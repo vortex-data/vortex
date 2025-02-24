@@ -4,10 +4,10 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{scalar_at, ScalarAtFn};
 
-impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
+impl ScalarAtFn<&ChunkedArray> for ChunkedEncoding {
     fn scalar_at(&self, array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
-        scalar_at(&array.chunk(chunk_index)?, chunk_offset)
+        scalar_at(array.chunk(chunk_index)?, chunk_offset)
     }
 }
 
@@ -16,6 +16,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::scalar_at;
     use crate::IntoArray;
@@ -33,8 +34,8 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 1).unwrap(), 2u64.into());
+        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
+        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
     }
 
     #[test]
@@ -49,10 +50,10 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 1).unwrap(), 2u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 2).unwrap(), 3u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 3).unwrap(), 4u64.into());
+        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
+        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
+        assert_eq!(scalar_at(&array, 2).unwrap(), 3u64.into());
+        assert_eq!(scalar_at(&array, 3).unwrap(), 4u64.into());
     }
 
     #[test]
@@ -67,9 +68,9 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 1).unwrap(), 2u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 2).unwrap(), 3u64.into());
-        assert_eq!(scalar_at(array.as_ref(), 3).unwrap(), 4u64.into());
+        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
+        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
+        assert_eq!(scalar_at(&array, 2).unwrap(), 3u64.into());
+        assert_eq!(scalar_at(&array, 3).unwrap(), 4u64.into());
     }
 }

@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{Array, EncodingId};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, ArrayRef, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::compressors::formatter::IndentFormatter;
@@ -35,11 +36,11 @@ pub trait EncodingCompressor: Sync + Send + Debug {
 
     fn cost(&self) -> u8;
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor>;
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor>;
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
@@ -146,7 +147,7 @@ impl<'a> CompressionTree<'a> {
     /// Compresses array with our compressor without verifying that the compressor can compress this array
     pub fn compress_unchecked(
         &self,
-        array: &Array,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         self.compressor.compress(
@@ -158,7 +159,7 @@ impl<'a> CompressionTree<'a> {
 
     pub fn compress(
         &self,
-        array: &Array,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> Option<VortexResult<CompressedArray<'a>>> {
         self.compressor
@@ -194,22 +195,20 @@ impl<'a> CompressionTree<'a> {
 
 #[derive(Debug, Clone)]
 pub struct CompressedArray<'a> {
-    array: Array,
+    array: ArrayRef,
     path: Option<CompressionTree<'a>>,
 }
 
 impl<'a> CompressedArray<'a> {
-    pub fn uncompressed(array: Array) -> Self {
+    pub fn uncompressed(array: ArrayRef) -> Self {
         Self { array, path: None }
     }
 
     pub fn compressed(
-        compressed: Array,
+        compressed: ArrayRef,
         path: Option<CompressionTree<'a>>,
-        uncompressed: impl AsRef<Array>,
+        uncompressed: &dyn Array,
     ) -> Self {
-        let uncompressed = uncompressed.as_ref();
-
         // Sanity check the compressed array
         assert_eq!(
             compressed.len(),
@@ -229,7 +228,7 @@ impl<'a> CompressedArray<'a> {
         let _ = uncompressed
             .statistics()
             .compute_uncompressed_size_in_bytes();
-        compressed.inherit_statistics(uncompressed.statistics());
+        compressed.statistics().inherit(uncompressed.statistics());
 
         let compressed = Self {
             array: compressed,
@@ -243,7 +242,7 @@ impl<'a> CompressedArray<'a> {
         self.validate_children(self.path.as_ref(), &self.array)
     }
 
-    fn validate_children(&self, path: Option<&CompressionTree>, array: &Array) {
+    fn validate_children(&self, path: Option<&CompressionTree>, array: &dyn Array) {
         if let Some(path) = path.as_ref() {
             path.children
                 .iter()
@@ -267,12 +266,12 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn array(&self) -> &Array {
+    pub fn array(&self) -> &ArrayRef {
         &self.array
     }
 
     #[inline]
-    pub fn into_array(self) -> Array {
+    pub fn into_array(self) -> ArrayRef {
         self.array
     }
 
@@ -287,7 +286,7 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn into_parts(self) -> (Array, Option<CompressionTree<'a>>) {
+    pub fn into_parts(self) -> (ArrayRef, Option<CompressionTree<'a>>) {
         (self.array, self.path)
     }
 
@@ -298,8 +297,8 @@ impl<'a> CompressedArray<'a> {
     }
 }
 
-impl AsRef<Array> for CompressedArray<'_> {
-    fn as_ref(&self) -> &Array {
+impl AsRef<dyn Array> for CompressedArray<'_> {
+    fn as_ref(&self) -> &(dyn Array + 'static) {
         &self.array
     }
 }

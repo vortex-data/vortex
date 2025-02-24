@@ -1,6 +1,6 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -49,7 +49,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &Array, stats: &[Stat]) {
+fn retain_only_stats(array: &dyn Array, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -57,7 +57,11 @@ fn retain_only_stats(array: &Array, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
@@ -95,9 +99,9 @@ mod tests {
 
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stats::{Stat, Statistics};
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::Array;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
@@ -124,8 +128,11 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(result.get_stat(Stat::BitWidthFreq).is_none());
-            assert!(result.get_stat(Stat::TrailingZeroFreq).is_none());
+            assert!(result.statistics().get_stat(Stat::BitWidthFreq).is_none());
+            assert!(result
+                .statistics()
+                .get_stat(Stat::TrailingZeroFreq)
+                .is_none());
         })
     }
 }

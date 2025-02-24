@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
@@ -11,7 +11,11 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayRef> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
 
@@ -44,7 +48,7 @@ impl ExprEvaluator for ChunkedReader {
         }
 
         let chunks = try_join_all(chunks).await?;
-        Ok(ChunkedArray::try_new_unchecked(chunks, dtype).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
 
     async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
@@ -69,7 +73,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -115,7 +119,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(result.len(), 9);

@@ -3,7 +3,7 @@ use rand::prelude::StdRng;
 use rand::SeedableRng;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-use vortex_array::{IntoArray, IntoCanonical};
+use vortex_array::Array;
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_fastlanes::test_harness::make_array;
 
@@ -41,7 +41,7 @@ fn into_canonical_non_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.into_canonical().vortex_unwrap());
+        .bench_values(|chunked| chunked.to_canonical().vortex_unwrap());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -66,7 +66,7 @@ fn canonical_into_non_nullable(
                 chunk_len * chunk_count,
             );
             chunked
-                .canonicalize_into(&mut primitive_builder)
+                .append_to_builder(&mut primitive_builder)
                 .vortex_unwrap();
             primitive_builder.finish()
         });
@@ -99,7 +99,7 @@ fn into_canonical_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.into_canonical().vortex_unwrap());
+        .bench_values(|chunked| chunked.to_canonical().vortex_unwrap());
 }
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
@@ -125,7 +125,7 @@ fn canonical_into_nullable(
                 chunk_len * chunk_count,
             );
             chunked
-                .canonicalize_into(&mut primitive_builder)
+                .append_to_builder(&mut primitive_builder)
                 .vortex_unwrap();
             primitive_builder.finish()
         });

@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: "-A warnings"
+      RUSTFLAGS: '-A warnings'
     strategy:
       fail-fast: false
       matrix:
@@ -133,7 +133,9 @@ jobs:
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
-            args: "--target wasm32-unknown-unknown --exclude vortex-datafusion --exclude vortex-tui"
+            env:
+              rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -144,7 +146,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+        run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -168,6 +170,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
+      - name: Rustc check
+        run: cargo check --locked --all-features --all-targets
       - name: Rust Lint - Clippy All Features
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features

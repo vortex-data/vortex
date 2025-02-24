@@ -246,7 +246,6 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::stats::bound::IntersectionResult;
     use crate::stats::{Precision, StatBound, UpperBound};
 

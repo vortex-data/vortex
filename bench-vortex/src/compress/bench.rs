@@ -7,7 +7,8 @@ use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
-use vortex::Array;
+use vortex::nbytes::NBytes;
+use vortex::{ArrayExt, ArrayRef};
 
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
@@ -44,7 +45,7 @@ impl FromIterator<CompressMeasurements> for CompressMeasurements {
     }
 }
 
-pub fn benchmark_compress<F, U>(
+pub fn benchmark_compress<F>(
     runtime: &Runtime,
     progress: &ProgressBar,
     formats: &[Format],
@@ -53,12 +54,10 @@ pub fn benchmark_compress<F, U>(
     make_uncompressed: F,
 ) -> CompressMeasurements
 where
-    F: Fn() -> U,
-    U: AsRef<Array>,
+    F: Fn() -> ArrayRef,
 {
     let uncompressed = make_uncompressed();
-    let uncompressed_array = uncompressed.as_ref();
-    let uncompressed_size = uncompressed_array.nbytes();
+    let uncompressed_size = uncompressed.nbytes();
     let compressed_size = AtomicU64::default();
 
     let mut ratios = Vec::new();
@@ -70,7 +69,7 @@ where
             bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 compressed_size.store(
-                    vortex_compress_write(uncompressed_array, &mut Vec::new())
+                    vortex_compress_write(&uncompressed, &mut Vec::new())
                         .await
                         .unwrap(),
                     Ordering::SeqCst,
@@ -97,7 +96,7 @@ where
 
     if formats.contains(&Format::Parquet) {
         let parquet_compressed_size = AtomicU64::default();
-        let chunked = ChunkedArray::try_from(uncompressed_array.clone()).unwrap();
+        let chunked = uncompressed.as_::<ChunkedArray>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
         throughputs.push(ThroughputMeasurement {
             name: format!("compress time/{}", bench_name),
@@ -130,7 +129,7 @@ where
         let buffer = LazyCell::new(|| {
             let mut buf = Vec::new();
             runtime
-                .block_on(vortex_compress_write(uncompressed_array, &mut buf))
+                .block_on(vortex_compress_write(&uncompressed, &mut buf))
                 .unwrap();
             Bytes::from(buf)
         });
@@ -150,7 +149,7 @@ where
 
     if formats.contains(&Format::Parquet) {
         let buffer = LazyCell::new(|| {
-            let chunked = ChunkedArray::try_from(uncompressed_array.clone()).unwrap();
+            let chunked = uncompressed.as_::<ChunkedArray>().clone();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
             parquet_compress_write(

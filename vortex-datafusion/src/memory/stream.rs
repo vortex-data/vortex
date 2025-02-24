@@ -8,7 +8,7 @@ use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult
 use datafusion_execution::RecordBatchStream;
 use futures::Stream;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::IntoArrayVariant;
+use vortex_array::ToCanonical;
 use vortex_dtype::FieldNames;
 
 pub(crate) struct VortexRecordBatchStream {
@@ -30,11 +30,11 @@ impl Stream for VortexRecordBatchStream {
         }
 
         // Grab next chunk, project and convert to Arrow.
-        let chunk = self.chunks.chunk(self.idx)?;
+        let chunk = self.chunks.chunk(self.idx)?.clone();
         self.idx += 1;
 
         let struct_array = chunk
-            .into_struct()
+            .to_struct()
             .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
 
         let projected_struct = struct_array

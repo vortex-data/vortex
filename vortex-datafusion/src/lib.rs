@@ -9,7 +9,7 @@ use arrow_schema::{DataType, Schema};
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::Result as DFResult;
 use datafusion_expr::{Expr, Operator};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_error::vortex_err;
 
 use crate::memory::VortexMemTable;
@@ -55,15 +55,15 @@ fn supported_data_types(dt: DataType) -> bool {
 
 /// Extension function to the DataFusion [`SessionContext`] for registering Vortex tables.
 pub trait SessionContextExt {
-    /// Register an in-memory Vortex [`Array`] as a DataFusion table.
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: Array) -> DFResult<()>;
+    /// Register an in-memory Vortex [`ArrayRef`] as a DataFusion table.
+    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayRef) -> DFResult<()>;
 
-    /// Read an in-memory Vortex [`Array`] into a DataFusion [`DataFrame`].
-    fn read_mem_vortex(&self, array: Array) -> DFResult<DataFrame>;
+    /// Read an in-memory Vortex [`ArrayRef`] into a DataFusion [`DataFrame`].
+    fn read_mem_vortex(&self, array: ArrayRef) -> DFResult<DataFrame>;
 }
 
 impl SessionContextExt for SessionContext {
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: Array) -> DFResult<()> {
+    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayRef) -> DFResult<()> {
         if !array.dtype().is_struct() {
             return Err(vortex_err!(
                 "Vortex arrays must have struct type, found {}",
@@ -77,7 +77,7 @@ impl SessionContextExt for SessionContext {
             .map(|_| ())
     }
 
-    fn read_mem_vortex(&self, array: Array) -> DFResult<DataFrame> {
+    fn read_mem_vortex(&self, array: ArrayRef) -> DFResult<DataFrame> {
         if !array.dtype().is_struct() {
             return Err(vortex_err!(
                 "Vortex arrays must have struct type, found {}",

@@ -15,7 +15,7 @@ use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexError};
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::stream::ArrayStreamAdapter;
-use vortex::Array;
+use vortex::TryIntoArray;
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::{idempotent_async, CTX};
@@ -174,7 +174,9 @@ pub async fn register_vortex_files(
                         // TODO(ngates): or should we use the provided schema?
                         DType::from_arrow(record_batches.schema()),
                         record_batches.map(|batch| {
-                            batch.map_err(VortexError::from).and_then(Array::try_from)
+                            batch
+                                .map_err(VortexError::from)
+                                .and_then(|b| b.try_into_array())
                         }),
                     );
 

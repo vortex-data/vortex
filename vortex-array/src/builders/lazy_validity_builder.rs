@@ -89,7 +89,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
-    pub fn append_validity(&mut self, validity: Validity, length: usize) -> VortexResult<()> {
+    pub fn append_validity(&mut self, validity: &Validity, length: usize) -> VortexResult<()> {
         self.append_validity_mask(validity.to_logical(length)?);
         Ok(())
     }

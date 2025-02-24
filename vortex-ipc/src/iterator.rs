@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{Array, ContextRef};
+use vortex_array::{ArrayRef, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -38,14 +38,14 @@ impl<R: Read> ArrayIterator for SyncIPCReader<R> {
 }
 
 impl<R: Read> Iterator for SyncIPCReader<R> {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayRef>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.next()? {
             Ok(msg) => match msg {
                 DecoderMessage::Array((array_parts, row_count)) => Some(
                     array_parts
-                        .decode(self.ctx.clone(), self.dtype.clone(), row_count)
+                        .decode(&self.ctx, self.dtype.clone(), row_count)
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(
@@ -153,8 +153,8 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
+    use vortex_array::{Array, ToCanonical};
 
     use super::*;
 
@@ -162,9 +162,7 @@ mod test {
     fn test_sync_stream() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let ipc_buffer = array
-            .clone()
-            .into_array()
-            .into_array_iterator()
+            .to_array_iterator()
             .into_ipc()
             .collect_to_buffer()
             .unwrap();
@@ -172,7 +170,7 @@ mod test {
         let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.into_array_data().unwrap().into_primitive().unwrap();
+        let result = reader.into_array().unwrap().to_primitive().unwrap();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

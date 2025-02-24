@@ -2,7 +2,7 @@ use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{vortex_err, VortexResult};
@@ -41,12 +41,12 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     })
 }
 
-pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
+pub fn decompress(array: &FoRArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.ptype();
 
     // TODO(ngates): do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().into_primitive()?.reinterpret_cast(ptype);
-    let validity = encoded.validity();
+    let encoded = array.encoded().to_primitive()?.reinterpret_cast(ptype);
+    let validity = encoded.validity().clone();
 
     Ok(match_each_integer_ptype!(ptype, |$T| {
         let min = array.reference_scalar()
@@ -76,7 +76,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use super::*;
@@ -114,7 +114,7 @@ mod test {
         // Create a range offset by a million
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = for_compress(array.clone()).unwrap();
-        let decompressed = compressed.into_primitive().unwrap();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
 
@@ -131,12 +131,12 @@ mod test {
                 .unwrap()
         );
 
-        let encoded = compressed.encoded().into_primitive().unwrap();
+        let encoded = compressed.encoded().to_primitive().unwrap();
         let encoded_bytes: &[u8] = encoded.as_slice::<u8>();
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         assert_eq!(encoded_bytes, unsigned.as_slice());
 
-        let decompressed = compressed.as_ref().clone().into_primitive().unwrap();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<i8>(), array.as_slice::<i8>());
         array
             .as_slice::<i8>()

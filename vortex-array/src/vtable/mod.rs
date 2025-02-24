@@ -1,31 +1,20 @@
 //! This module contains the VTable definitions for a Vortex Array.
 
-use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
-mod canonical;
 mod compute;
-mod metadata;
+mod serde;
 mod statistics;
-mod validate;
-mod validity;
-mod variants;
-mod visitor;
 
-pub use canonical::*;
 pub use compute::*;
-pub use metadata::*;
+pub use serde::*;
 pub use statistics::*;
-pub use validate::*;
-pub use validity::*;
-pub use variants::*;
-pub use visitor::*;
 
 use crate::encoding::EncodingId;
-use crate::Array;
+use crate::{Array, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 #[derive(Debug, Clone)]
@@ -71,21 +60,12 @@ pub trait EncodingVTable:
     'static
     + Sync
     + Send
-    + Debug
-    + CanonicalVTable<Array>
     + ComputeVTable
-    + MetadataVTable<Array>
-    + StatisticsVTable<Array>
-    + ValidateVTable<Array>
-    + ValidityVTable<Array>
-    + VariantsVTable<Array>
-    + VisitorVTable<Array>
+    + for<'a> SerdeVTable<&'a dyn Array>
+    + for<'a> StatisticsVTable<&'a dyn Array>
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
-
-    /// Return a reference to this encoding as a `dyn Any` for type erasure.
-    fn as_any(&self) -> &dyn Any;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {
@@ -99,5 +79,23 @@ impl Eq for dyn EncodingVTable + '_ {}
 impl Hash for dyn EncodingVTable + '_ {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state)
+    }
+}
+
+impl Debug for dyn EncodingVTable + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
+}
+
+impl<
+        E: Encoding
+            + ComputeVTable
+            + for<'a> SerdeVTable<&'a dyn Array>
+            + for<'a> StatisticsVTable<&'a dyn Array>,
+    > EncodingVTable for E
+{
+    fn id(&self) -> EncodingId {
+        E::ID
     }
 }

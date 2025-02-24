@@ -33,18 +33,18 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 #[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
-    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
+    let dict = dict_encode(&primitive_arr).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
+        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbin_arr).unwrap();
     let bytes = varbin_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
@@ -52,18 +52,18 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
+        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbinview_arr).unwrap();
     let bytes = varbinview_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
     let value = from_utf8(bytes.as_slice()).unwrap();
     bencher
         .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
+        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
 }

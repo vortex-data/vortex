@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -10,13 +10,13 @@ use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 // TODO(joe): add fuzzing.
 
-impl CompareFn<ALPArray> for ALPEncoding {
+impl CompareFn<&ALPArray> for ALPEncoding {
     fn compare(
         &self,
         lhs: &ALPArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         if lhs.patches().is_some() {
             // TODO(joe): support patches
             return Ok(None);
@@ -48,7 +48,7 @@ fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
     operator: Operator,
-) -> VortexResult<Option<Array>>
+) -> VortexResult<Option<ArrayRef>>
 where
     F::ALPInt: Into<Scalar>,
     <F as ALPFloat>::ALPInt: Debug,
@@ -65,7 +65,7 @@ where
     match encoded {
         Some(encoded) => {
             let s = ConstantArray::new(encoded, alp.len());
-            Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
+            Ok(Some(compare(alp.encoded(), &s, operator)?))
         }
         None => match operator {
             // Since this value is not encodable it cannot be equal to any value in the encoded
@@ -76,7 +76,7 @@ where
             Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
             Operator::Gt | Operator::Gte => Ok(Some(compare(
                 alp.encoded(),
-                ConstantArray::new(F::encode_above(value, exponents), alp.len()),
+                &ConstantArray::new(F::encode_above(value, exponents), alp.len()),
                 // Since the encoded value is unencodable gte is equivalent to gt.
                 // Consider a value v, between two encodable values v_l (just less) and
                 // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
@@ -84,7 +84,7 @@ where
             )?)),
             Operator::Lt | Operator::Lte => Ok(Some(compare(
                 alp.encoded(),
-                ConstantArray::new(F::encode_below(value, exponents), alp.len()),
+                &ConstantArray::new(F::encode_below(value, exponents), alp.len()),
                 // Since the encoded values unencodable lt is equivalent to lte.
                 // See Gt | Gte for further explanation.
                 Operator::Lte,
@@ -97,7 +97,7 @@ where
 mod tests {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -115,7 +115,7 @@ mod tests {
     {
         alp_scalar_compare(alp, value, operator)
             .unwrap()
-            .map(|a| a.into_bool().unwrap().boolean_buffer().iter().collect())
+            .map(|a| a.to_bool().unwrap().boolean_buffer().iter().collect())
     }
 
     #[test]
@@ -124,18 +124,14 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
         let r = alp_scalar_compare(&encoded, 1.3_f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         for v in r.boolean_buffer().iter() {
@@ -145,7 +141,7 @@ mod tests {
         let r = alp_scalar_compare(&encoded, 1.234f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         for v in r.boolean_buffer().iter() {
@@ -159,11 +155,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -171,7 +163,7 @@ mod tests {
         let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         assert!(r_eq.boolean_buffer().iter().all(|v| !v));
@@ -180,7 +172,7 @@ mod tests {
         let r_neq = alp_scalar_compare(&encoded, 1.234444f32, Operator::NotEq)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         assert!(r_neq.boolean_buffer().iter().all(|v| v));
@@ -192,18 +184,14 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![605; 10]
         );
 
         let r_gte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gte)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         // !(0.0605_f32 >= 0.06051_f32);
@@ -212,7 +200,7 @@ mod tests {
         let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gt)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         // (0.0605_f32 > 0.06051_f32);
@@ -221,7 +209,7 @@ mod tests {
         let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lte)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         // 0.0605_f32 <= 0.06051_f32;
@@ -230,7 +218,7 @@ mod tests {
         let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lt)
             .unwrap()
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         //0.0605_f32 < 0.06051_f32;
@@ -243,11 +231,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![0; 10]
         );
 
@@ -296,9 +280,9 @@ mod tests {
             array.len(),
         );
 
-        let r = compare(encoded, other.as_ref(), Operator::Eq)
+        let r = compare(&encoded, &other, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         for v in r.boolean_buffer().iter() {

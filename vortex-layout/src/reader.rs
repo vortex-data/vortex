@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
@@ -30,7 +30,7 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 ///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
 pub trait ExprEvaluator: Send + Sync {
-    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array>;
+    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef>;
 
     /// Refine the row mask by evaluating any pruning. This should be relatively cheap, statistics
     /// based evaluation, and returns an approximate result.
@@ -41,7 +41,7 @@ pub trait ExprEvaluator: Send + Sync {
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
-    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
         self.as_ref().evaluate_expr(row_mask, expr).await
     }
 

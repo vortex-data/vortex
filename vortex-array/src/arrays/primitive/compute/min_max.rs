@@ -7,8 +7,9 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
+use crate::Array;
 
-impl MinMaxFn<PrimitiveArray> for PrimitiveEncoding {
+impl MinMaxFn<&PrimitiveArray> for PrimitiveEncoding {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |$T| {
             compute_min_max_with_validity::<$T>(array)
