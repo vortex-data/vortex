@@ -10,7 +10,7 @@ pub trait IsConstantFn<A> {
     /// * All values are valid
     /// * array.len() > 1
     ///
-    /// Returns Ok(None) to signal we couldn't make an exact determination.
+    /// Returns `Ok(None)` to signal we couldn't make an exact determination.
     fn is_constant(&self, array: A) -> VortexResult<Option<bool>>;
 }
 

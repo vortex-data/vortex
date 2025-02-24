@@ -1,16 +1,21 @@
-use vortex_array::compute::{FilterFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{FilterFn, IsConstantFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::Array;
 
 use crate::ALPRDEncoding;
 
 mod filter;
+mod is_constant;
 mod mask;
 mod scalar_at;
 mod slice;
 mod take;
 
 impl ComputeVTable for ALPRDEncoding {
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
