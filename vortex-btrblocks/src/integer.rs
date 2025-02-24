@@ -3,7 +3,7 @@ mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Deref, Not};
+use std::ops::Not;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
@@ -474,7 +474,7 @@ impl Scheme for SparseScheme {
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
             let non_null = mask.not();
-            let non_null_values = filter(stats.source().as_ref(), &non_null)?;
+            let non_null_values = filter(stats.source(), &non_null)?;
             let non_null_indices = match non_null.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false

@@ -16,10 +16,10 @@ use vortex_layout::segments::SegmentWriter;
 use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 use vortex_sampling_compressor::compressors::CompressionTree;
-use vortex_sampling_compressor::SamplingCompressor;
+use vortex_sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
 
 /// The default Vortex file layout strategy.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VortexLayoutStrategy {
     options: StrategyOptions,
 }
@@ -47,6 +47,16 @@ pub struct StrategyOptions {
 }
 
 impl VortexLayoutStrategy {
+    /// Create a new layout writer with the default layout selection and chunk compressor.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a new layout writer with the specified options, e.g. the chunk compressor.
+    pub fn new_with(options: StrategyOptions) -> Self {
+        Self { options }
+    }
+
     fn new_compressed_writer(&self) -> Box<dyn LayoutWriter> {
         match self.options.compressor {
             Compressor::BtrBlocks => BtrBlocksCompressedWriter {
@@ -54,7 +64,6 @@ impl VortexLayoutStrategy {
                     &DType::Null,
                     ChunkedLayoutOptions {
                         chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                        ..Default::default()
                     },
                 )
                 .boxed(),
@@ -67,7 +76,6 @@ impl VortexLayoutStrategy {
                     &DType::Null,
                     ChunkedLayoutOptions {
                         chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                        ..Default::default()
                     },
                 )
                 .boxed(),
@@ -163,11 +171,15 @@ struct BtrBlocksCompressedWriter {
 }
 
 impl LayoutWriter for BtrBlocksCompressedWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        let compressed = BtrBlocksCompressor.compress(chunk)?;
+        let compressed = BtrBlocksCompressor.compress(&chunk)?;
         self.child.push_chunk(segments, compressed)
     }
 
