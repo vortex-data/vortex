@@ -319,7 +319,7 @@ pub trait Statistics {
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue>;
+    fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
@@ -328,7 +328,7 @@ pub trait Statistics {
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for stat in stats {
-            if let Some(s) = self.compute_stat(*stat) {
+            if let Some(s) = self.compute_stat(*stat)? {
                 stats_set.set(*stat, Precision::exact(s))
             }
         }
@@ -396,6 +396,9 @@ impl dyn Statistics + '_ {
         stat: Stat,
     ) -> Option<U> {
         self.compute_stat(stat)
+            .inspect_err(|e| log::warn!("Failed to compute stat {}: {}", stat, e))
+            .ok()
+            .flatten()
             .map(|s| U::try_from(&s))
             .transpose()
             .unwrap_or_else(|err| {
@@ -495,6 +498,7 @@ mod test {
         assert_eq!(min, None);
     }
 
+    #[test]
     fn has_same_dtype_as_array() {
         assert!(Stat::Min.has_same_dtype_as_array());
         assert!(Stat::Max.has_same_dtype_as_array());

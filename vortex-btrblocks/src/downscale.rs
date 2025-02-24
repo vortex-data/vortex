@@ -20,8 +20,8 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
         .maybe_as::<PrimitiveArray>()
         .vortex_expect("Checked earlier");
 
-    let min = array.compute_stat(Stat::Min);
-    let max = array.compute_stat(Stat::Max);
+    let min = array.compute_stat(Stat::Min)?;
+    let max = array.compute_stat(Stat::Max)?;
 
     let (Some(min), Some(max)) = (min, max) else {
         // This array but be all nulls.

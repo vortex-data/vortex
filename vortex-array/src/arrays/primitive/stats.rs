@@ -377,8 +377,8 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min = arr.compute_stat(Stat::Min);
-        let max = arr.compute_stat(Stat::Max);
+        let min = arr.compute_stat(Stat::Min).unwrap();
+        let max = arr.compute_stat(Stat::Max).unwrap();
         assert!(min.is_none());
         assert!(max.is_none());
     }
