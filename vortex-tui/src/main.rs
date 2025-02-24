@@ -1,6 +1,5 @@
 #![allow(clippy::expect_used)]
 mod browse;
-mod segments;
 mod tree;
 
 use std::path::PathBuf;
