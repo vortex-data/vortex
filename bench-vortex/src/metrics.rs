@@ -1,16 +1,13 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use chrono::{DateTime, Utc};
 use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
 use datafusion_physical_plan::{accept, ExecutionPlan, ExecutionPlanVisitor, Metric};
-use opentelemetry::trace::{SpanContext, Status, TraceId, TraceState};
-use opentelemetry::{SpanId, TraceFlags};
+use itertools::Itertools;
+use opentelemetry::trace::{SpanContext, Status, TraceId};
+use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
-use opentelemetry_sdk::trace::{
-    IdGenerator, RandomIdGenerator, SpanData, SpanEvents, SpanExporter,
-};
-use tracing_subscriber::registry::SpanData;
+use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
 pub trait MetricsSetExt {
@@ -84,7 +81,7 @@ pub struct OtlpTraceCreator {
     trace_id: TraceId,
     id_generator: RandomIdGenerator,
     parents_stack: Vec<ParentInfo>,
-    // TODO(os): instrumentation scope
+    scope: InstrumentationScope,
 }
 
 struct ParentInfo {
@@ -94,22 +91,27 @@ struct ParentInfo {
 }
 
 impl OtlpTraceCreator {
-    pub fn plan_to_spans(plan: &dyn ExecutionPlan) -> Vec<SpanData> {
+    pub fn plan_to_spans(plan: &dyn ExecutionPlan, scope: InstrumentationScope) -> Vec<SpanData> {
         let id_generator = RandomIdGenerator::default();
         let mut traces = Self {
             trace_id: id_generator.new_trace_id(),
             id_generator,
             completed_spans: Vec::new(),
             parents_stack: Vec::new(),
+            scope,
         };
         match accept(plan, &mut traces) {
             Ok(()) => traces.completed_spans,
             Err(_) => Vec::new(),
         }
     }
+
     fn to_span(&self, plan: &dyn ExecutionPlan, parent_info: &ParentInfo) -> SpanData {
         let (own_start, own_end) = timestamps(plan);
-        // TODO(os): attributes from metrics
+        let attributes = plan
+            .metrics()
+            .map(|m| m.iter().flat_map(|metric| to_key_value(metric)).collect())
+            .unwrap_or_default();
         SpanData {
             span_context: SpanContext::new(
                 self.trace_id,
@@ -123,36 +125,64 @@ impl OtlpTraceCreator {
             name: plan.name().to_string().into(),
             start_time: own_start.unwrap_or(parent_info.start_time),
             end_time: own_end.unwrap_or(parent_info.end_time),
-            attributes: todo!(),
+            attributes,
             dropped_attributes_count: 0,
             events: Default::default(),
             links: Default::default(),
             status: Status::Ok,
-            instrumentation_scope: todo!(),
+            instrumentation_scope: self.scope.clone(),
         }
     }
 }
 
+/// Returns the minimum start time and the maximum end time from given plan metrics.
+/// In a metric set there can be start and end timestamps for multiple partitions.
 fn timestamps(plan: &dyn ExecutionPlan) -> (Option<SystemTime>, Option<SystemTime>) {
     match plan.metrics() {
         None => (None, None),
         Some(metrics) => {
-            let mut start = None;
-            let mut end = None;
+            let mut min_start: Option<SystemTime> = None;
+            let mut max_end: Option<SystemTime> = None;
             for m in metrics.iter() {
                 match m.value() {
                     MetricValue::StartTimestamp(ts) => {
-                        start = ts.value().map(|dt| dt.into());
+                        min_start = match (ts.value().map(|dt| dt.into()), min_start) {
+                            (Some(current), None) => Some(current),
+                            (Some(current), Some(min)) => Some(min.min(current)),
+                            _ => None,
+                        };
                     }
                     MetricValue::EndTimestamp(ts) => {
-                        end = ts.value().map(|dt| dt.into());
+                        max_end = match (ts.value().map(|dt| dt.into()), max_end) {
+                            (Some(current), None) => Some(current),
+                            (Some(current), Some(max)) => Some(max.max(current)),
+                            _ => None,
+                        };
                     }
                     _ => {}
                 }
             }
-            (start, end)
+            (min_start, max_end)
         }
     }
+}
+
+fn to_key_value(metric: &Arc<Metric>) -> Option<KeyValue> {
+    let value: i64 = metric.value().as_usize().try_into().ok()?;
+
+    let name = metric.value().name();
+    let labels = metric
+        .labels()
+        .iter()
+        .map(|l| (l.name().to_string(), l.value().to_string()));
+    let all_labels = metric
+        .partition()
+        .map(|p| ("partition".to_string(), p.to_string()))
+        .into_iter()
+        .chain(labels)
+        .map(|(k, v)| format!("{{{k}={v}}}"))
+        .join(",");
+    Some(KeyValue::new(format!("{name}{all_labels}"), value))
 }
 
 impl ExecutionPlanVisitor for OtlpTraceCreator {
