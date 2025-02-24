@@ -1,11 +1,9 @@
-use std::ops::Sub;
-
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::{BinaryNumericOperator, Scalar, ScalarValue};
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
 
@@ -438,12 +436,27 @@ impl StatsSet {
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) = m1
-                    .clone()
-                    .zip(m2.clone())
-                    .some_exact()
-                    .and_then(|(s1, s2)| s1.as_primitive().checked_add(&s2.as_primitive()))
-                    .map(ScalarValue::from)
+                if let Some(scalar_value) =
+                    m1
+                        .zip(m2)
+                        .some_exact()
+                        .and_then(|(s1, s2)| {
+                            s1.as_primitive()
+                                .checked_add(&s2.as_primitive())
+                                .map(|pscalar| {
+                                    pscalar
+                                        .pvalue()
+                                        .map(|pvalue| {
+                                            Scalar::primitive_value(
+                                                pvalue,
+                                                pscalar.ptype(),
+                                                pscalar.dtype().nullability(),
+                                            )
+                                            .into_value()
+                                        })
+                                        .unwrap_or_else(ScalarValue::null)
+                                })
+                        })
                 {
                     self.set(Stat::Sum, Precision::Exact(scalar_value));
                 }

@@ -245,8 +245,7 @@ pub mod test_harness {
                     .iter()
                     .map(|x| x
                         .as_primitive()
-                        .checked_binary_numeric(scalar_one.as_primitive(), operator)
-                        .unwrap()
+                        .checked_binary_numeric(&scalar_one.as_primitive(), operator)
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<Scalar>>(),
@@ -269,8 +268,7 @@ pub mod test_harness {
                     .iter()
                     .map(|x| scalar_one
                         .as_primitive()
-                        .checked_binary_numeric(x.as_primitive(), operator)
-                        .unwrap()
+                        .checked_binary_numeric(&x.as_primitive(), operator)
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<_>>(),

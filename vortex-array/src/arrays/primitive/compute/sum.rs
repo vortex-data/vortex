@@ -1,9 +1,9 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use num_traits::{Float, Signed, Unsigned};
+use num_traits::{Float, Signed, ToPrimitive, Unsigned};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
@@ -38,35 +38,37 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
             }
             AllOr::Some(validity_mask) => match array.ptype() {
                 PType::U8 => {
-                    sum_unsigned_with_validity(array.as_slice::<u8>(), &validity_mask).into()
+                    sum_unsigned_with_validity(array.as_slice::<u8>(), validity_mask).into()
                 }
                 PType::U16 => {
-                    sum_unsigned_with_validity(array.as_slice::<u16>(), &validity_mask).into()
+                    sum_unsigned_with_validity(array.as_slice::<u16>(), validity_mask).into()
                 }
                 PType::U32 => {
-                    sum_unsigned_with_validity(array.as_slice::<u32>(), &validity_mask).into()
+                    sum_unsigned_with_validity(array.as_slice::<u32>(), validity_mask).into()
                 }
                 PType::U64 => {
-                    sum_unsigned_with_validity(array.as_slice::<u64>(), &validity_mask).into()
+                    sum_unsigned_with_validity(array.as_slice::<u64>(), validity_mask).into()
                 }
                 PType::I8 => {
-                    sum_signed_with_validity(array.as_slice::<i8>(), &validity_mask).into()
+                    sum_signed_with_validity(array.as_slice::<i8>(), validity_mask).into()
                 }
                 PType::I16 => {
-                    sum_signed_with_validity(array.as_slice::<i16>(), &validity_mask).into()
+                    sum_signed_with_validity(array.as_slice::<i16>(), validity_mask).into()
                 }
                 PType::I32 => {
-                    sum_signed_with_validity(array.as_slice::<i32>(), &validity_mask).into()
+                    sum_signed_with_validity(array.as_slice::<i32>(), validity_mask).into()
                 }
                 PType::I64 => {
-                    sum_signed_with_validity(array.as_slice::<i64>(), &validity_mask).into()
+                    sum_signed_with_validity(array.as_slice::<i64>(), validity_mask).into()
                 }
-                PType::F16 => sum_float_with_validity(array, &validity_mask).into(),
+                PType::F16 => {
+                    sum_float_with_validity(array.as_slice::<f16>(), validity_mask).into()
+                }
                 PType::F32 => {
-                    sum_float_with_validity(array.as_slice::<f32>(), &validity_mask).into()
+                    sum_float_with_validity(array.as_slice::<f32>(), validity_mask).into()
                 }
                 PType::F64 => {
-                    sum_float_with_validity(array.as_slice::<f64>(), &validity_mask).into()
+                    sum_float_with_validity(array.as_slice::<f64>(), validity_mask).into()
                 }
             },
         };
@@ -76,43 +78,43 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-fn sum_unsigned<T: NativePType + Unsigned>(values: &[T]) -> Option<u64> {
+fn sum_unsigned<T: NativePType + Unsigned + ToPrimitive>(values: &[T]) -> Option<u64> {
     let mut sum = 0u64;
     for &x in values {
-        sum = sum.checked_add(u64::from(x))?;
+        sum = sum.checked_add(x.to_u64()?)?;
     }
     Some(sum)
 }
 
-fn sum_unsigned_with_validity<T: NativePType + Unsigned>(
+fn sum_unsigned_with_validity<T: NativePType + Unsigned + ToPrimitive>(
     values: &[T],
     validity: &BooleanBuffer,
 ) -> Option<u64> {
     let mut sum = 0u64;
     for (&x, valid) in values.iter().zip_eq(validity.iter()) {
         if valid {
-            sum = sum.checked_add(u64::from(x))?;
+            sum = sum.checked_add(x.to_u64()?)?;
         }
     }
     Some(sum)
 }
 
-fn sum_signed<T: NativePType + Signed>(values: &[T]) -> Option<i64> {
+fn sum_signed<T: NativePType + Signed + ToPrimitive>(values: &[T]) -> Option<i64> {
     let mut sum = 0i64;
     for &x in values {
-        sum = sum.checked_add(i64::from(x))?;
+        sum = sum.checked_add(x.to_i64()?)?;
     }
     Some(sum)
 }
 
-fn sum_signed_with_validity<T: NativePType + Signed>(
+fn sum_signed_with_validity<T: NativePType + Signed + ToPrimitive>(
     values: &[T],
     validity: &BooleanBuffer,
 ) -> Option<i64> {
     let mut sum = 0i64;
     for (&x, valid) in values.iter().zip_eq(validity.iter()) {
         if valid {
-            sum = sum.checked_add(i64::from(x))?;
+            sum = sum.checked_add(x.to_i64()?)?;
         }
     }
     Some(sum)
@@ -121,7 +123,7 @@ fn sum_signed_with_validity<T: NativePType + Signed>(
 fn sum_float<T: NativePType + Float>(values: &[T]) -> f64 {
     let mut sum = 0.0;
     for &x in values {
-        sum += f64::from(x);
+        sum += x.to_f64().vortex_expect("Failed to cast value to f64");
     }
     sum
 }
@@ -130,7 +132,7 @@ fn sum_float_with_validity<T: NativePType + Float>(array: &[T], validity: &Boole
     let mut sum = 0.0;
     for (&x, valid) in array.iter().zip_eq(validity.iter()) {
         if valid {
-            sum += f64::from(x);
+            sum += x.to_f64().vortex_expect("Failed to cast value to f64");
         }
     }
     sum

@@ -7,6 +7,10 @@ use crate::stats::{Precision, Stat};
 use crate::Array;
 
 pub trait SumFn<A> {
+    /// # Preconditions
+    ///
+    /// * The array's DType is summable
+    /// * The array is not all-null
     fn sum(&self, array: A) -> VortexResult<Scalar>;
 }
 
@@ -24,27 +28,30 @@ where
 }
 
 /// Sum an array.
+///
+/// If the sum overflows, a null scalar will be returned.
+/// If the sum is not supported for the array's dtype, an error will be raised.
+/// If the array is all-invalid, the sum will be zero.
 pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
     // Compute the expected dtype of the sum.
     let sum_dtype = Stat::Sum.dtype(array.dtype());
 
-    // If the sum_dtype is DType::Null, then the sum is always null.
+    // If the sum_dtype is DType::Null, it means sum is not supported for this dtype.
     // This occurs when the array's dtype does not support summing, e.g. strings.
     if matches!(sum_dtype, DType::Null) {
-        return Ok(Scalar::null(DType::Null));
+        vortex_bail!("Sum not supported for dtype: {}", array.dtype());
     }
 
     // Short-circuit using array statistics.
-    // TODO(ngates): enable this once statistics do not compute themselves.
-    // if let Some(sum) = array.statistics().compute_stat(Stat::Sum) {
-    //     return Ok(Scalar::new(sum_dtype, sum));
-    // }
+    if let Some(Precision::Exact(sum)) = array.statistics().get_stat(Stat::Sum) {
+        return Ok(Scalar::new(sum_dtype, sum));
+    }
 
     // If the array is constant, we can compute the sum directly.
     if let Some(mut constant) = array.as_constant() {
         if constant.is_null() {
-            // An all-null constant array has a sum of null.
-            return Ok(Scalar::null(sum_dtype));
+            // An all-null constant array has a sum of 0.
+            return Ok(Scalar::new(sum_dtype, 0.into()));
         }
 
         // If it's an extension array, then unwrap it into the storage scalar.
@@ -138,4 +145,31 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         .set_stat(Stat::Sum, Precision::Exact(sum.value().clone()));
 
     Ok(sum)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::sum;
+
+    #[test]
+    fn sum_all_invalid() {
+        let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
+        let result = sum(&array).unwrap();
+        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn sum_constant() {
+        let array = PrimitiveArray::from_iter([1, 1, 1, 1]);
+        let result = sum(&array).unwrap();
+        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(4));
+    }
+
+    #[test]
+    fn sum_boolean() {
+        let array = BoolArray::from_iter([true, false, false, true]);
+        let result = sum(&array).unwrap();
+        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(2));
+    }
 }

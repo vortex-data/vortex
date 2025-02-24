@@ -371,7 +371,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// If the types are incompatible (ignoring nullability), an error is returned.
     ///
     /// If either value is null, the result is null.
-    fn checked_binary_numeric(
+    pub fn checked_binary_numeric(
         &self,
         other: &PrimitiveScalar<'a>,
         op: BinaryNumericOperator,

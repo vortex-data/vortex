@@ -25,7 +25,7 @@ impl BinaryNumericFn<&SparseArray> for SparseEncoding {
         let new_fill_value = array
             .fill_scalar()
             .as_primitive()
-            .checked_binary_numeric(rhs_scalar.as_primitive(), op)?
+            .checked_binary_numeric(&rhs_scalar.as_primitive(), op)
             .ok_or_else(|| vortex_err!("numeric overflow"))?
             .into();
         Ok(Some(

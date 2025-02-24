@@ -218,10 +218,10 @@ impl Stat {
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
             Stat::Sum => {
-                // Note that all-invalid arrays have a sum of null, as do arrays whose sum
-                // overflows u64/i64. Therefore, we make all sum stats nullable.
+                // Any array that cannot be summed has a sum DType of null.
+                // Any array that can be summed, but overflows, has a sum _value_ of null.
+                // Therefore, we make sum stats nullable.
                 match data_type {
-                    DType::Null => DType::Null,
                     DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
                     DType::Primitive(ptype, _) => match ptype {
                         PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
@@ -235,9 +235,11 @@ impl Stat {
                         }
                     },
                     // Unsupported types
-                    DType::Utf8(_) | DType::Binary(_) | DType::Struct(..) | DType::List(..) => {
-                        DType::Null
-                    }
+                    DType::Null
+                    | DType::Utf8(_)
+                    | DType::Binary(_)
+                    | DType::Struct(..)
+                    | DType::List(..) => DType::Null,
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype()),
                 }
             }

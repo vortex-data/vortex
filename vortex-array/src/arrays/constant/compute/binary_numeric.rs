@@ -21,7 +21,7 @@ impl BinaryNumericFn<&ConstantArray> for ConstantEncoding {
                 array
                     .scalar()
                     .as_primitive()
-                    .checked_binary_numeric(rhs.as_primitive(), op)?
+                    .checked_binary_numeric(&rhs.as_primitive(), op)
                     .ok_or_else(|| vortex_err!("numeric overflow"))?,
                 array.len(),
             )
