@@ -55,10 +55,7 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
             run_count: self
                 .get_as::<u64>(Stat::RunCount)
-                .and_then(Precision::as_exact),
-            true_count: self
-                .get_as::<u64>(Stat::TrueCount)
-                .and_then(Precision::as_exact),
+                .and_then(Precision::some_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
                 .and_then(Precision::as_exact),
@@ -118,11 +115,6 @@ impl ReadFlatBuffer for StatsSet {
                 Stat::RunCount => {
                     if let Some(run_count) = fb.run_count() {
                         stats_set.set(Stat::RunCount, Precision::Exact(run_count.into()));
-                    }
-                }
-                Stat::TrueCount => {
-                    if let Some(true_count) = fb.true_count() {
-                        stats_set.set(Stat::TrueCount, Precision::Exact(true_count.into()));
                     }
                 }
                 Stat::NullCount => {

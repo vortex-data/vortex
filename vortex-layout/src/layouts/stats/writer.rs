@@ -53,7 +53,7 @@ impl StatsLayoutWriter {
         options: StatsLayoutOptions,
     ) -> VortexResult<Self> {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
-        let stats_accumulator = StatsAccumulator::new(dtype.clone(), present_stats);
+        let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
 
         Ok(Self {
             options,

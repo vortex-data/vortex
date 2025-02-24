@@ -79,7 +79,7 @@ impl StatsTable {
                     }
                 }
                 // These stats sum up
-                Stat::TrueCount | Stat::NullCount | Stat::UncompressedSizeInBytes => {
+                Stat::NullCount | Stat::UncompressedSizeInBytes => {
                     // TODO(ngates): use Stat::Sum when we add it.
                     let parray =
                         try_cast(&array, &DType::Primitive(PType::U64, Nullability::Nullable))?
@@ -130,14 +130,17 @@ pub struct StatsAccumulator {
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: DType, stats: Arc<[Stat]>) -> Self {
-        let builders = stats
+    pub fn new(dtype: DType, stats: &[Stat]) -> Self {
+        let (stats, builders): (Vec<Stat>, _) = stats
             .iter()
-            .filter_map(|s| s.dtype(&dtype))
-            .map(|stat_dtype| builder_with_capacity(&stat_dtype.as_nullable(), 1024))
-            .collect();
+            .filter_map(|s| {
+                s.dtype(&dtype)
+                    .map(|stat_dtype| (*s, builder_with_capacity(&stat_dtype.as_nullable(), 1024)))
+            })
+            .unzip();
+
         Self {
-            stats,
+            stats: stats.into(),
             builders,
             length: 0,
         }

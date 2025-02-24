@@ -28,9 +28,9 @@ impl FileStatsLayoutWriter {
         let stats_accumulators = match dtype.as_struct() {
             Some(dtype) => dtype
                 .fields()
-                .map(|field_dtype| StatsAccumulator::new(field_dtype, stats.clone()))
+                .map(|field_dtype| StatsAccumulator::new(field_dtype, &stats))
                 .collect(),
-            None => [StatsAccumulator::new(dtype.clone(), stats.clone())].into(),
+            None => [StatsAccumulator::new(dtype.clone(), &stats)].into(),
         };
 
         Ok(Self {

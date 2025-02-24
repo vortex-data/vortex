@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
 /// Validity information for an array
 #[derive(Clone, Debug)]
@@ -44,9 +44,10 @@ impl Validity {
                         length
                     )
                 }
-                let true_count = a.statistics().compute_true_count().ok_or_else(|| {
-                    vortex_err!("Failed to compute true count from validity array")
-                })?;
+                let true_count = a
+                    .as_bool_typed()
+                    .vortex_expect("Validity array must be boolean")
+                    .true_count()?;
                 Ok(length - true_count)
             }
         }

@@ -1,13 +1,8 @@
-use divan::Bencher;
 use num_traits::NumCast;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
 use vortex_alp::{alp_encode, ALPArray};
-use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-use vortex_array::compute::StrictComparison::NonStrict;
-use vortex_array::compute::{
-    between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
-};
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
@@ -59,154 +54,207 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
 
-#[divan::bench(
-    types = [i32, i64, u32, u64, f32, f64],
-    args = BENCH_ARGS,
-)]
-fn old_raw_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_primitive_array::<T>(&mut rng, len);
+mod primitive {
+    use divan::Bencher;
+    use num_traits::NumCast;
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::StrictComparison::NonStrict;
+    use vortex_array::compute::{
+        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+    };
+    use vortex_array::Array;
+    use vortex_dtype::NativePType;
+    use vortex_error::VortexExpect;
 
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        binary_boolean(
-            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-            BinaryOperator::And,
-        )
-        .vortex_expect("")
-    })
+    use crate::{generate_primitive_array, BENCH_ARGS};
+
+    #[divan::bench(
+        types = [i32, i64, u32, u64, f32, f64],
+        args = BENCH_ARGS,
+    )]
+    fn old_raw_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_primitive_array::<T>(&mut rng, len);
+
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            binary_boolean(
+                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
+                    .vortex_expect(""),
+                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                BinaryOperator::And,
+            )
+            .vortex_expect("")
+        })
+    }
+
+    #[divan::bench(
+        types = [i32, i64, u32, u64, f32, f64],
+        args = BENCH_ARGS,
+    )]
+    fn new_raw_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_primitive_array::<T>(&mut rng, len);
+
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            between(
+                &arr,
+                &ConstantArray::new(min, arr.len()),
+                &ConstantArray::new(max, arr.len()),
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
+            )
+            .vortex_expect("")
+        })
+    }
 }
 
-#[divan::bench(
-    types = [i32, i64, u32, u64, f32, f64],
-    args = BENCH_ARGS,
-)]
-fn new_raw_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_primitive_array::<T>(&mut rng, len);
+mod bitpack {
+    use divan::Bencher;
+    use num_traits::NumCast;
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::StrictComparison::NonStrict;
+    use vortex_array::compute::{
+        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+    };
+    use vortex_dtype::NativePType;
+    use vortex_error::VortexExpect;
 
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        between(
-            &arr,
-            &ConstantArray::new(min, arr.len()),
-            &ConstantArray::new(max, arr.len()),
-            &BetweenOptions {
-                lower_strict: NonStrict,
-                upper_strict: NonStrict,
-            },
-        )
-        .vortex_expect("")
-    })
+    use crate::{generate_bit_pack_primitive_array, BENCH_ARGS};
+
+    #[divan::bench(
+        types = [i16, i32, i64],
+        args = BENCH_ARGS,
+    )]
+    fn old_bp_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
+
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            binary_boolean(
+                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
+                    .vortex_expect(""),
+                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                BinaryOperator::And,
+            )
+        })
+    }
+
+    #[divan::bench(
+        types = [i16, i32, i64],
+        args = BENCH_ARGS,
+    )]
+    fn new_bp_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
+
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            between(
+                &arr,
+                &ConstantArray::new(min, arr.len()),
+                &ConstantArray::new(max, arr.len()),
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
+            )
+        })
+    }
 }
 
-#[divan::bench(
-    types = [i16, i32, i64],
-    args = BENCH_ARGS,
-)]
-fn old_bp_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
+mod alp {
 
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        binary_boolean(
-            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-            BinaryOperator::And,
-        )
-    })
-}
+    use divan::Bencher;
+    use num_traits::NumCast;
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::StrictComparison::NonStrict;
+    use vortex_array::compute::{
+        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+    };
+    use vortex_dtype::NativePType;
+    use vortex_error::VortexExpect;
 
-#[divan::bench(
-    types = [i16, i32, i64],
-    args = BENCH_ARGS,
-)]
-fn new_bp_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
+    use crate::{generate_alp_bit_pack_primitive_array, BENCH_ARGS};
 
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        between(
-            &arr,
-            &ConstantArray::new(min, arr.len()),
-            &ConstantArray::new(max, arr.len()),
-            &BetweenOptions {
-                lower_strict: NonStrict,
-                upper_strict: NonStrict,
-            },
-        )
-    })
-}
+    #[divan::bench(
+        types = [f32, f64],
+        args = BENCH_ARGS,
+    )]
+    fn old_alp_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-#[divan::bench(
-    types = [f32, f64],
-    args = BENCH_ARGS,
-)]
-fn old_alp_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            binary_boolean(
+                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
+                    .vortex_expect(""),
+                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                BinaryOperator::And,
+            )
+        })
+    }
 
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        binary_boolean(
-            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-            BinaryOperator::And,
-        )
-    })
-}
+    #[divan::bench(
+        types = [f32, f64],
+        args = BENCH_ARGS,
+    )]
+    fn new_alp_prim_test_between<T>(bencher: Bencher, len: usize)
+    where
+        T: NumCast + NativePType,
+        vortex_scalar::Scalar: From<T>,
+    {
+        let min = T::from_usize(5561).vortex_expect("");
+        let max = T::from_usize(6032).vortex_expect("");
+        let mut rng = StdRng::seed_from_u64(0);
+        let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-#[divan::bench(
-    types = [f32, f64],
-    args = BENCH_ARGS,
-)]
-fn new_alp_prim_test_between<T>(bencher: Bencher, len: usize)
-where
-    T: NumCast + NativePType,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min = T::from_usize(5561).vortex_expect("");
-    let max = T::from_usize(6032).vortex_expect("");
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
-
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        between(
-            &arr,
-            &ConstantArray::new(min, arr.len()),
-            &ConstantArray::new(max, arr.len()),
-            &BetweenOptions {
-                lower_strict: NonStrict,
-                upper_strict: NonStrict,
-            },
-        )
-    })
+        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+            between(
+                &arr,
+                &ConstantArray::new(min, arr.len()),
+                &ConstantArray::new(max, arr.len()),
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
+            )
+        })
+    }
 }

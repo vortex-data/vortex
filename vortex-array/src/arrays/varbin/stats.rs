@@ -68,9 +68,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             stats
         }
         Stat::UncompressedSizeInBytes => StatsSet::of(stat, Precision::exact(array.nbytes())),
-        Stat::TrueCount | Stat::RunCount | Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
-            StatsSet::default()
-        }
+        Stat::RunCount | Stat::BitWidthFreq | Stat::TrailingZeroFreq => StatsSet::default(),
         Stat::Min | Stat::Max => {
             // Min and max are automatically dispatched to min_max compute function.
             vortex_panic!(

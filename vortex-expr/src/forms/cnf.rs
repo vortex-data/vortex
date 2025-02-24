@@ -1,8 +1,9 @@
-use vortex_error::VortexResult;
+use itertools::Itertools;
+use vortex_error::{VortexExpect, VortexResult};
 
 use super::nnf::nnf;
 use crate::traversal::{Node as _, NodeVisitor, TraversalOrder};
-use crate::{lit, BinaryExpr, ExprRef, Operator};
+use crate::{lit, or, BinaryExpr, ExprRef, Operator};
 
 /// Return an equivalent expression in Conjunctive Normal Form (CNF).
 ///
@@ -19,35 +20,15 @@ use crate::{lit, BinaryExpr, ExprRef, Operator};
 /// use vortex_expr::forms::cnf::cnf;
 ///
 /// let double_negation = not(not(col("a")));
-/// let cnfed = cnf(double_negation).unwrap();
-/// assert_eq!(cnfed, vec![vec![col("a")]]);
+/// let cnfed = cnf(double_negation);
+/// assert_eq!(cnfed, vec![col("a")]);
 /// ```
 ///
 /// Unlike NNF, CNF, lifts conjunctions to the top-level and distributions disjunctions such that
 /// there is at most one disjunction for each conjunction operand:
 ///
-/// ```
-/// use vortex_expr::{not, col, or, and};
-/// use vortex_expr::forms::cnf::cnf;
 ///
-/// assert_eq!(
-///     cnf(
-///         or(
-///             or(
-///                 and(col("a"), col("b")),
-///                 col("c")
-///             ),
-///             col("d")
-///         )
-///     ).unwrap(),
-///     vec![
-///         vec![col("a"), col("c"), col("d")],
-///         vec![col("b"), col("c"), col("d")]
-///     ]
-/// );
-/// ```
-///
-/// ```
+/// ```rust
 /// use vortex_expr::{not, col, or, and};
 /// use vortex_expr::forms::cnf::cnf;
 ///
@@ -57,101 +38,28 @@ use crate::{lit, BinaryExpr, ExprRef, Operator};
 ///             and(col("a"), col("b")),
 ///             col("c"),
 ///         )
-///     ).unwrap(),
+///     ),
 ///     vec![
-///         vec![col("a"), col("c")],
-///         vec![col("b"), col("c")],
+///         or(col("a"), col("c")),
+///         or(col("b"), col("c")),
 ///     ]
 /// );
 /// ```
 ///
-/// Vortex extends the CNF definition to any Boolean-valued expression, even ones with non-Boolean
-/// parameters:
-///
-/// ```
-/// use vortex_expr::{not, col, or, and, gt_eq, lit, not_eq, lt, eq};
-/// use vortex_expr::forms::cnf::cnf;
-/// use itertools::Itertools;
-///
-/// assert_eq!(
-///     cnf(
-///         or(
-///             and(
-///                 gt_eq(col("earnings"), lit(50_000)),
-///                 not_eq(col("role"), lit("Manager"))
-///             ),
-///             col("special_flag")
-///         ),
-///     ).unwrap(),
-///     vec![
-///         vec![
-///             gt_eq(col("earnings"), lit(50_000)),
-///             col("special_flag")
-///         ],
-///         vec![
-///             not_eq(col("role"), lit("Manager")),
-///             col("special_flag")
-///         ]
-///     ]
-/// );
-/// ```
-///
-/// ```
-/// use vortex_expr::{not, col, or, and, gt_eq, lit, not_eq, lt, eq};
-/// use vortex_expr::forms::cnf::cnf;
-/// use itertools::Itertools;
-///
-/// assert_eq!(
-///     cnf(
-///         or(
-///             or(
-///                 and(
-///                     gt_eq(col("earnings"), lit(50_000)),
-///                     not_eq(col("role"), lit("Manager"))
-///                 ),
-///                 col("special_flag")
-///             ),
-///             and(
-///                 lt(col("tenure"), lit(5)),
-///                 eq(col("role"), lit("Engineer"))
-///             ),
-///         )
-///     ).unwrap(),
-///     vec![
-///         vec![
-///             gt_eq(col("earnings"), lit(50_000)),
-///             col("special_flag"),
-///             lt(col("tenure"), lit(5)),
-///         ],
-///         vec![
-///             gt_eq(col("earnings"), lit(50_000)),
-///             col("special_flag"),
-///             eq(col("role"), lit("Engineer")),
-///         ],
-///         vec![
-///             not_eq(col("role"), lit("Manager")),
-///             col("special_flag"),
-///             lt(col("tenure"), lit(5)),
-///         ],
-///         vec![
-///             not_eq(col("role"), lit("Manager")),
-///             col("special_flag"),
-///             eq(col("role"), lit("Engineer")),
-///         ],
-///     ]
-/// );
-/// ```
-///
-pub fn cnf(expr: ExprRef) -> VortexResult<Vec<Vec<ExprRef>>> {
+pub fn cnf(expr: ExprRef) -> Vec<ExprRef> {
     if expr == lit(true) {
         // True in CNF
-        return Ok(vec![]);
+        return vec![];
     }
-    let nnf = nnf(expr)?;
+    let nnf = nnf(expr);
 
     let mut visitor = CNFVisitor::default();
-    nnf.accept(&mut visitor)?;
-    Ok(visitor.finish())
+    nnf.accept(&mut visitor).vortex_expect("cannot fail");
+    visitor
+        .finish()
+        .into_iter()
+        .filter_map(|disjunction| disjunction.into_iter().reduce(or))
+        .collect_vec()
 }
 
 #[derive(Default)]
@@ -198,5 +106,74 @@ impl NodeVisitor<'_> for CNFVisitor {
         // Anything other than And and Or are terminals from the perspective of CNF
         self.conjuncts_of_disjuncts.push(vec![node.clone()]);
         Ok(TraversalOrder::Skip)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use vortex_expr::forms::cnf::cnf;
+    use vortex_expr::{and, col, eq, gt_eq, lit, lt, not_eq, or};
+
+    #[test]
+    fn test_cnf_simple() {
+        assert_eq!(
+            cnf(or(or(and(col("a"), col("b")), col("c")), col("d"))),
+            vec![
+                or(or(col("a"), col("c")), col("d")),
+                or(or(col("b"), col("c")), col("d"))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_with_lit() {
+        assert_eq!(
+            cnf(or(
+                and(
+                    gt_eq(col("earnings"), lit(50_000)),
+                    not_eq(col("role"), lit("Manager"))
+                ),
+                col("special_flag")
+            ),),
+            vec![
+                or(gt_eq(col("earnings"), lit(50_000)), col("special_flag")),
+                or(not_eq(col("role"), lit("Manager")), col("special_flag"))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_cnf() {
+        assert_eq!(
+            cnf(or(
+                or(
+                    and(
+                        gt_eq(col("earnings"), lit(50_000)),
+                        not_eq(col("role"), lit("Manager"))
+                    ),
+                    col("special_flag")
+                ),
+                and(lt(col("tenure"), lit(5)), eq(col("role"), lit("Engineer"))),
+            )),
+            vec![
+                or(
+                    or(gt_eq(col("earnings"), lit(50_000)), col("special_flag")),
+                    lt(col("tenure"), lit(5))
+                ),
+                or(
+                    or(gt_eq(col("earnings"), lit(50_000)), col("special_flag")),
+                    eq(col("role"), lit("Engineer"))
+                ),
+                or(
+                    or(not_eq(col("role"), lit("Manager")), col("special_flag")),
+                    lt(col("tenure"), lit(5))
+                ),
+                or(
+                    or(not_eq(col("role"), lit("Manager")), col("special_flag")),
+                    eq(col("role"), lit("Engineer"))
+                )
+            ]
+        );
     }
 }

@@ -88,7 +88,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
                 array.iter().skip(1).for_each(|next| stats.next(*next));
                 stats.finish()
             }
-            Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
+            Stat::UncompressedSizeInBytes => StatsSet::default(),
             _ => unreachable!("already handled above"),
         })
     }
@@ -103,7 +103,7 @@ impl<T: PStatsType> StatisticsVTable<&NullableValues<'_, T>> for PrimitiveEncodi
         stat: Stat,
     ) -> VortexResult<StatsSet> {
         let values = nulls.0;
-        if values.is_empty() || stat == Stat::TrueCount || stat == Stat::UncompressedSizeInBytes {
+        if values.is_empty() || stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::default());
         }
 

@@ -6,7 +6,7 @@ use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::{Array, ToCanonical as _};
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
+use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
@@ -25,10 +25,6 @@ impl StatisticsVTable<&RunEndArray> for RunEndEncoding {
                     .unwrap_or(false)
                     && array.validity_mask()?.all_true(),
             )),
-            Stat::TrueCount => match array.dtype() {
-                DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
-                _ => None,
-            },
             Stat::NullCount => Some(ScalarValue::from(array.null_count()?)),
             _ => None,
         };
@@ -42,6 +38,8 @@ impl StatisticsVTable<&RunEndArray> for RunEndEncoding {
 }
 
 impl RunEndArray {
+    // TODO(ngates): this should be re-used for impl SumFn.
+    #[allow(dead_code)]
     fn true_count(&self) -> VortexResult<u64> {
         let ends = self.ends().to_primitive()?;
         let values = self.values().to_bool()?.boolean_buffer().clone();
@@ -49,6 +47,8 @@ impl RunEndArray {
         match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count(ends.as_slice::<$P>(), values))
     }
 
+    // TODO(ngates): this should be re-used for impl SumFn.
+    #[allow(dead_code)]
     fn typed_true_count<P: NativePType + Into<u64>>(
         &self,
         decompressed_ends: &[P],
@@ -192,10 +192,6 @@ mod tests {
             3
         );
         assert!(!arr.statistics().compute_as::<bool>(Stat::IsSorted).unwrap());
-        assert_eq!(
-            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
-            2
-        );
 
         let sliced = slice(&arr, 4, 7).unwrap();
 
@@ -213,13 +209,6 @@ mod tests {
             .statistics()
             .compute_as::<bool>(Stat::IsSorted)
             .unwrap());
-        assert_eq!(
-            sliced
-                .statistics()
-                .compute_as::<u64>(Stat::TrueCount)
-                .unwrap(),
-            0
-        );
     }
 
     #[test]
@@ -230,10 +219,6 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        assert_eq!(
-            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
-            0
-        );
         assert_eq!(
             arr.statistics().compute_as::<u64>(Stat::NullCount).unwrap(),
             10

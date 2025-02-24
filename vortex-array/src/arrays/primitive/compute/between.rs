@@ -3,7 +3,7 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{BetweenFn, BetweenOptions};
+use crate::compute::{BetweenFn, BetweenOptions, StrictComparison};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};
 
@@ -31,15 +31,39 @@ fn between_impl<T: NativePType + Copy>(
     upper: T,
     options: &BetweenOptions,
 ) -> ArrayRef {
-    let lower_fn = options.lower_strict.to_operator().to_fn();
-    let upper_fn = options.upper_strict.to_operator().to_fn();
+    match (options.lower_strict, options.upper_strict) {
+        // Note: these comparisons are explicitly passed in to allow function impl inlining
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            between_impl_(arr, lower, PartialOrd::lt, upper, PartialOrd::lt)
+        }
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            between_impl_(arr, lower, PartialOrd::lt, upper, PartialOrd::le)
+        }
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            between_impl_(arr, lower, PartialOrd::le, upper, PartialOrd::lt)
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            between_impl_(arr, lower, PartialOrd::le, upper, PartialOrd::le)
+        }
+    }
+}
 
+fn between_impl_<T>(
+    arr: &PrimitiveArray,
+    lower: T,
+    lower_fn: impl Fn(&T, &T) -> bool,
+    upper: T,
+    upper_fn: impl Fn(&T, &T) -> bool,
+) -> ArrayRef
+where
+    T: NativePType + Copy,
+{
     let slice = arr.as_slice::<T>();
     BoolArray::new(
-        BooleanBuffer::collect_bool(arr.len(), |idx| {
+        BooleanBuffer::collect_bool(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
-            let i = *unsafe { slice.get_unchecked(idx) };
-            lower_fn(lower, i) & upper_fn(i, upper)
+            let i = unsafe { slice.get_unchecked(idx) };
+            lower_fn(&lower, i) & upper_fn(i, &upper)
         }),
         arr.validity().clone(),
     )

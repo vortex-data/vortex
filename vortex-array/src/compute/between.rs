@@ -27,7 +27,7 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub fn to_operator(&self) -> Operator {
+    pub const fn to_operator(&self) -> Operator {
         match self {
             StrictComparison::Strict => Operator::Lt,
             StrictComparison::NonStrict => Operator::Lte,

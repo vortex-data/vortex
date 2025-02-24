@@ -59,17 +59,6 @@ impl Operator {
             Operator::Lte => Operator::Gte,
         }
     }
-
-    pub const fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
-        match self {
-            Operator::Eq => |l, r| l == r,
-            Operator::NotEq => |l, r| l != r,
-            Operator::Gt => |l, r| l > r,
-            Operator::Gte => |l, r| l >= r,
-            Operator::Lt => |l, r| l < r,
-            Operator::Lte => |l, r| l <= r,
-        }
-    }
 }
 
 pub trait CompareFn<A> {

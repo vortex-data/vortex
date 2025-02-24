@@ -1,4 +1,4 @@
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
 use crate::{not, BinaryExpr, ExprRef, Not, Operator};
@@ -17,7 +17,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// let double_negation = not(not(col("a")));
-/// let nnfed = nnf(double_negation).unwrap();
+/// let nnfed = nnf(double_negation);
 /// assert_eq!(&nnfed, &col("a"));
 /// ```
 ///
@@ -28,7 +28,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// let triple_negation = not(not(not(col("a"))));
-/// let nnfed = nnf(triple_negation).unwrap();
+/// let nnfed = nnf(triple_negation);
 /// assert_eq!(&nnfed, &not(col("a")));
 /// ```
 ///
@@ -39,7 +39,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// assert_eq!(
-///     &nnf(not(and(col("a"), col("b")))).unwrap(),
+///     &nnf(not(and(col("a"), col("b")))),
 ///     &or(not(col("a")), not(col("b")))
 /// );
 /// ```
@@ -51,13 +51,16 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// assert_eq!(
-///     &nnf(not(and(gt_eq(col("a"), lit(3)), col("b")))).unwrap(),
+///     &nnf(not(and(gt_eq(col("a"), lit(3)), col("b")))),
 ///     &or(lt(col("a"), lit(3)), not(col("b")))
 /// );
 /// ```
-pub fn nnf(expr: ExprRef) -> VortexResult<ExprRef> {
+pub fn nnf(expr: ExprRef) -> ExprRef {
     let mut visitor = NNFVisitor::default();
-    Ok(expr.transform_with_context(&mut visitor, false)?.result())
+
+    expr.transform_with_context(&mut visitor, false)
+        .vortex_expect("cannot fail")
+        .result()
 }
 
 #[derive(Default)]
