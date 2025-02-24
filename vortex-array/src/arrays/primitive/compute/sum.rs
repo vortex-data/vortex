@@ -49,9 +49,7 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
                 PType::U64 => {
                     sum_unsigned_with_validity(array.as_slice::<u64>(), validity_mask).into()
                 }
-                PType::I8 => {
-                    sum_signed_with_validity(array.as_slice::<i8>(), validity_mask).into()
-                }
+                PType::I8 => sum_signed_with_validity(array.as_slice::<i8>(), validity_mask).into(),
                 PType::I16 => {
                     sum_signed_with_validity(array.as_slice::<i16>(), validity_mask).into()
                 }

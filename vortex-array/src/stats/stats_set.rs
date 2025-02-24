@@ -436,28 +436,23 @@ impl StatsSet {
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) =
-                    m1
-                        .zip(m2)
-                        .some_exact()
-                        .and_then(|(s1, s2)| {
-                            s1.as_primitive()
-                                .checked_add(&s2.as_primitive())
-                                .map(|pscalar| {
-                                    pscalar
-                                        .pvalue()
-                                        .map(|pvalue| {
-                                            Scalar::primitive_value(
-                                                pvalue,
-                                                pscalar.ptype(),
-                                                pscalar.dtype().nullability(),
-                                            )
-                                            .into_value()
-                                        })
-                                        .unwrap_or_else(ScalarValue::null)
+                if let Some(scalar_value) = m1.zip(m2).some_exact().and_then(|(s1, s2)| {
+                    s1.as_primitive()
+                        .checked_add(&s2.as_primitive())
+                        .map(|pscalar| {
+                            pscalar
+                                .pvalue()
+                                .map(|pvalue| {
+                                    Scalar::primitive_value(
+                                        pvalue,
+                                        pscalar.ptype(),
+                                        pscalar.dtype().nullability(),
+                                    )
+                                    .into_value()
                                 })
+                                .unwrap_or_else(ScalarValue::null)
                         })
-                {
+                }) {
                     self.set(Stat::Sum, Precision::Exact(scalar_value));
                 }
             }
