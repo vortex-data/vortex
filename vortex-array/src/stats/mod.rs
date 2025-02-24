@@ -342,6 +342,7 @@ pub trait Statistics {
             if let Some(s) = parent.get_stat(stat) {
                 // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
                 //  so we don't have to take lots of write locks.
+                // TODO(ngates): depending on statistic, this should choose the more precise one.
                 self.set_stat(stat, s);
             }
         }
