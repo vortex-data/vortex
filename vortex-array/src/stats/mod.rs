@@ -220,7 +220,7 @@ impl Stat {
             Stat::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
-                // Therefore, we make sum stats nullable.
+                // Therefore, we make integer sum stats nullable.
                 match data_type {
                     DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
                     DType::Primitive(ptype, _) => match ptype {
@@ -231,7 +231,8 @@ impl Stat {
                             DType::Primitive(PType::I64, Nullable)
                         }
                         PType::F16 | PType::F32 | PType::F64 => {
-                            DType::Primitive(PType::F64, Nullable)
+                            // Float sums cannot overflow, so it's non-nullable
+                            DType::Primitive(PType::F64, NonNullable)
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
