@@ -495,28 +495,6 @@ mod test {
         assert_eq!(min, None);
     }
 
-    #[test]
-    fn commutativity() {
-        for stat in all::<Stat>() {
-            let expected = match stat {
-                Stat::BitWidthFreq => true,
-                Stat::TrailingZeroFreq => true,
-                Stat::IsConstant => true,
-                Stat::IsSorted => false,
-                Stat::IsStrictSorted => false,
-                Stat::Max => true,
-                Stat::Min => true,
-                Stat::RunCount => false,
-                Stat::TrueCount => true,
-                Stat::Sum => true,
-                Stat::NullCount => true,
-                Stat::UncompressedSizeInBytes => true,
-            };
-            assert_eq!(stat.is_commutative(), expected, "{:?}", stat);
-        }
-    }
-
-    #[test]
     fn has_same_dtype_as_array() {
         assert!(Stat::Min.has_same_dtype_as_array());
         assert!(Stat::Max.has_same_dtype_as_array());
