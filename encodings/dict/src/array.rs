@@ -103,28 +103,36 @@ impl ArrayCanonicalImpl for DictArray {
                 take(&canonical_values, self.codes())?.to_canonical()
             }
             DType::Primitive(ptype, _)
-            // TODO(alex): handle nullable codes & values
-            if *ptype != PType::F16
-                && self.codes().all_valid()?
-                && self.values().all_valid()? =>
-                {
-                    let codes = self.codes().to_primitive()?;
-                    let values = self.values().to_primitive()?;
+                if *ptype != PType::F16
+                    && self.codes().all_valid()?
+                    && self.values().all_valid()? =>
+            {
+                // TODO(alex): handle nullable codes & values
+                let codes = self.codes().to_primitive()?;
+                let values = self.values().to_primitive()?;
 
-                    match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
-                        match_each_native_simd_ptype!(values.ptype(), |$V| {
-                            // SIMD types larger than the SIMD register size are beneficial for
-                            // performance as this leads to better instruction level parallelism.
-                            let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
-                                codes.as_slice(),
-                                values.as_slice(),
-                                self.dtype().nullability(),
-                            );
-                            decoded.to_canonical()
-                        })
+                match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
+                    match_each_native_simd_ptype!(values.ptype(), |$V| {
+                        // SIMD types larger than the SIMD register size are beneficial for
+                        // performance as this leads to better instruction level parallelism.
+                        let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
+                            codes.as_slice(),
+                            values.as_slice(),
+                            self.dtype().nullability(),
+                        );
+                        decoded.to_canonical()
+                    })
                 })
+            }
+            _ => {
+                if let Some(take_from_fn) = self.codes().vtable().take_from_fn() {
+                    if let Some(array) = take_from_fn.take_from(self.codes(), self.values())? {
+                        return array.to_canonical();
+                    }
                 }
-            _ => take(self.values(), self.codes())?.to_canonical()
+
+                take(self.values(), self.codes())?.to_canonical()
+            }
         }
     }
 

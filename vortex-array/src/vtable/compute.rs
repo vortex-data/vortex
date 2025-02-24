@@ -2,7 +2,7 @@ use crate::Array;
 use crate::compute::{
     BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
     FilterFn, InvertFn, IsConstantFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -130,6 +130,10 @@ pub trait ComputeVTable {
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
+        None
+    }
+
+    fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
         None
     }
 

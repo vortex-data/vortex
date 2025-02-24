@@ -25,6 +25,7 @@ impl TakeFn<&RunEndArray> for RunEndEncoding {
                 })
                 .collect::<VortexResult<Vec<_>>>()?
         });
+
         take_indices_unchecked(array, &checked_indices)
     }
 }
