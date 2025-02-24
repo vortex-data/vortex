@@ -112,16 +112,16 @@ impl ArrayCanonicalImpl for DictArray {
                     let values = self.values().to_primitive()?;
 
                     match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
-                    match_each_native_simd_ptype!(values.ptype(), |$V| {
-                        // SIMD types larger than the SIMD register size are beneficial for
-                        // performance as this leads to better instruction level parallelism.
-                        let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
-                            codes.as_slice(),
-                            values.as_slice(),
-                            self.dtype().nullability(),
-                        );
-                        decoded.to_canonical()
-                    })
+                        match_each_native_simd_ptype!(values.ptype(), |$V| {
+                            // SIMD types larger than the SIMD register size are beneficial for
+                            // performance as this leads to better instruction level parallelism.
+                            let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
+                                codes.as_slice(),
+                                values.as_slice(),
+                                self.dtype().nullability(),
+                            );
+                            decoded.to_canonical()
+                        })
                 })
                 }
             _ => take(self.values(), self.codes())?.to_canonical()
