@@ -72,7 +72,7 @@ impl Registry {
                 .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", id))?;
             ctx = ctx.with_encoding(vtable.clone());
         }
-        Ok(Arc::new(ctx))
+        Ok(ctx)
     }
 
     /// Create a new [`LayoutContextRef`] with the provided encodings.

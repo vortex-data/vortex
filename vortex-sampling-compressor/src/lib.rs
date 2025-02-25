@@ -1,4 +1,4 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use compressors::bitpacked::BITPACK_WITH_PATCHES;
 use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -83,7 +83,7 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
 ];
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<Context> = LazyLock::new(|| {
-    Arc::new(Context::default().with_encodings([
+    Context::default().with_encodings([
         ALPEncoding.vtable(),
         ALPRDEncoding.vtable(),
         BitPackedEncoding.vtable(),
@@ -105,7 +105,7 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<Context> = LazyLock::new(|| {
         VarBinEncoding.vtable(),
         VarBinViewEncoding.vtable(),
         ZigZagEncoding.vtable(),
-    ]))
+    ])
 });
 
 #[derive(Debug, Clone)]

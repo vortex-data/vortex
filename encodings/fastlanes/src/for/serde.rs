@@ -2,7 +2,10 @@ use std::fmt::Formatter;
 
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
-use vortex_array::{Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context};
+use vortex_array::{
+    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context, DeserializeMetadata,
+    SerializeMetadata,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
