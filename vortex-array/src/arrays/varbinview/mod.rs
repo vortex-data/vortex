@@ -456,13 +456,7 @@ impl ArrayStatisticsImpl for VarBinViewArray {
 
 impl ArrayCanonicalImpl for VarBinViewArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_array = varbinview_as_arrow(self);
-        let vortex_array = ArrayRef::from_arrow(arrow_array, nullable);
-
-        Ok(Canonical::VarBinView(VarBinViewArray::try_from_array(
-            vortex_array,
-        )?))
+        Ok(Canonical::VarBinView(self.clone()))
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {

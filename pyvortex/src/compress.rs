@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use vortex::sampling_compressor::SamplingCompressor;
+use vortex::compressor::BtrBlocksCompressor;
 
 use crate::arrays::PyArray;
 use crate::install_module;
@@ -47,9 +47,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    'vortex.alp(0x11)(f64?, len=1000)'
 #[pyfunction]
 pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
-    let compressor = SamplingCompressor::default();
-    let inner = compressor
-        .compress(array.borrow().as_ref(), None)?
-        .into_array();
-    PyArray::init(array.py(), inner)
+    let compressed = BtrBlocksCompressor.compress(array.borrow().as_ref())?;
+    PyArray::init(array.py(), compressed)
 }

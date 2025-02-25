@@ -14,6 +14,7 @@ use vortex_runend::compress::runend_encode;
 use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
+use crate::patches::compress_patches;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling, integer,
@@ -184,14 +185,6 @@ impl Scheme for ALPScheme {
             return Ok(0.0);
         }
 
-        // If Dict/RLE is feasible, we want to do that before ALP, and then only ALP encode
-        // the values.
-        if stats.average_run_length >= RUN_END_THRESHOLD
-            || stats.distinct_values_count < stats.value_count / 2
-        {
-            return Ok(0.0);
-        }
-
         estimate_compression_ratio_with_sampling(
             self,
             stats,
@@ -225,10 +218,9 @@ impl Scheme for ALPScheme {
         let compressed_alp_ints =
             IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &int_excludes)?;
 
-        Ok(
-            ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches().cloned())?
-                .into_array(),
-        )
+        let patches = alp.patches().map(compress_patches).transpose()?;
+
+        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
     }
 }
 
@@ -273,7 +265,15 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        Ok(encoder.encode(stats.source()).into_array())
+        let mut alp_rd = encoder.encode(stats.source());
+
+        let patches = alp_rd
+            .left_parts_patches()
+            .map(compress_patches)
+            .transpose()?;
+        alp_rd.replace_left_parts_patches(patches);
+
+        Ok(alp_rd.into_array())
     }
 }
 

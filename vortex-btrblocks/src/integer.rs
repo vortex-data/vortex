@@ -26,6 +26,7 @@ use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
+use crate::patches::compress_patches;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
@@ -406,7 +407,11 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let packed = bitpack_encode(stats.source(), bw)?;
+        let mut packed = bitpack_encode(stats.source(), bw)?;
+
+        let patches = packed.patches().map(compress_patches).transpose()?;
+        packed.replace_patches(patches);
+
         Ok(packed.into_array())
     }
 }

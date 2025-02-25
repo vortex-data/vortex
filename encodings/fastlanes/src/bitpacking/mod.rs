@@ -181,6 +181,10 @@ impl BitPackedArray {
         self.patches.as_ref()
     }
 
+    pub fn replace_patches(&mut self, patches: Option<Patches>) {
+        self.patches = patches;
+    }
+
     #[inline]
     pub fn offset(&self) -> u16 {
         self.offset

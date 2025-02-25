@@ -3,20 +3,30 @@ use std::sync::RwLock;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::compute::{IsConstantOpts, MinMaxResult, is_constant_opts, min_max, scalar_at, sum};
+use crate::compute::{
+    IsConstantOpts, MinMaxResult, is_constant, is_constant_opts, min_max, scalar_at, sum,
+};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {
+    /// Make a best effort attempt to try and figure out if the array is constant, without canonicalizing it.
     fn is_constant(&self) -> bool;
 
+    /// If [`ArrayStatistics::is_constant`] is true, return the actual constant value as a [`Scalar`].
     fn as_constant(&self) -> Option<Scalar>;
 }
 
 impl<A: Array + 'static> ArrayStatistics for A {
     fn is_constant(&self) -> bool {
-        self.statistics().compute_is_constant().unwrap_or(false)
+        let opts = IsConstantOpts {
+            canonicalize: false,
+        };
+        is_constant_opts(self, &opts)
+            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .ok()
+            .unwrap_or_default()
     }
 
     fn as_constant(&self) -> Option<Scalar> {
@@ -86,15 +96,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
                 if self.is_empty() {
                     None
                 } else {
-                    Some(
-                        is_constant_opts(
-                            self,
-                            &IsConstantOpts {
-                                fallback_to_canonicalize: true,
-                            },
-                        )?
-                        .into(),
-                    )
+                    Some(is_constant(self)?.into())
                 }
             }
             _ => {

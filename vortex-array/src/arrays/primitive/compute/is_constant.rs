@@ -1,11 +1,15 @@
 use vortex_dtype::{NativePType, match_each_native_ptype};
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
-use crate::compute::IsConstantFn;
+use crate::compute::{IsConstantFn, IsConstantOpts};
 use crate::variants::PrimitiveArrayTrait;
 
 impl IsConstantFn<&PrimitiveArray> for PrimitiveEncoding {
-    fn is_constant(&self, array: &PrimitiveArray) -> vortex_error::VortexResult<Option<bool>> {
+    fn is_constant(
+        &self,
+        array: &PrimitiveArray,
+        _opts: &IsConstantOpts,
+    ) -> vortex_error::VortexResult<Option<bool>> {
         let is_constant = match_each_native_ptype!(array.ptype(), |$P| {
             compute_is_constant(array.as_slice::<$P>())
         });

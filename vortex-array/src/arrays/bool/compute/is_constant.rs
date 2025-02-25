@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::IsConstantFn;
+use crate::compute::{IsConstantFn, IsConstantOpts};
 
 impl IsConstantFn<&BoolArray> for BoolEncoding {
-    fn is_constant(&self, array: &BoolArray) -> VortexResult<Option<bool>> {
+    fn is_constant(&self, array: &BoolArray, _opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         let buffer = array.boolean_buffer();
 
         // Safety:
@@ -39,7 +39,9 @@ mod tests {
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: Option<bool>) {
         let array = BoolArray::from_iter(input);
 
-        let output = BoolEncoding.is_constant(&array).unwrap();
+        let output = BoolEncoding
+            .is_constant(&array, &IsConstantOpts::default())
+            .unwrap();
         assert_eq!(output, expected);
     }
 }

@@ -1,6 +1,5 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::compute::is_constant;
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
@@ -48,8 +47,7 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let array_is_constant = is_constant(array)?;
-    let derived_stats = (!array_is_constant).then(|| derive_sliced_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_sliced_stats(array));
 
     let sliced = array
         .vtable()

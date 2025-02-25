@@ -30,6 +30,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 cfg-if = { workspace = true }
+chrono = { workspace = true, features = ["std"] }
 clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true, features = [
     "parquet",
@@ -47,6 +48,9 @@ itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp"] }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true, features = ["trace"] }
+opentelemetry_sdk = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }

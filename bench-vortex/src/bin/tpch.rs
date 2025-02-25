@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::metrics::MetricsSetExt;
+use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
 use bench_vortex::tpch::{
@@ -20,6 +20,7 @@ use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
+use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
@@ -52,6 +53,8 @@ struct Args {
     data_generator: DataGenerator,
     #[arg(long)]
     all_metrics: bool,
+    #[arg(long)]
+    export_spans: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug)]
@@ -139,6 +142,7 @@ fn main() -> ExitCode {
         args.scale_factor,
         url,
         args.all_metrics,
+        args.export_spans,
     ))
 }
 
@@ -153,6 +157,7 @@ async fn bench_main(
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
+    export_spans: bool,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -181,6 +186,7 @@ async fn bench_main(
     let mut metrics = MetricsSet::new();
 
     for format in formats.iter().copied() {
+        let mut plans = Vec::new();
         // Load datasets
         let ctx = load_datasets(&url, format, emulate_object_store)
             .await
@@ -202,10 +208,14 @@ async fn bench_main(
             }
 
             for i in 0..2 {
-                let (row_count, new_metrics) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
+                let (row_count, plan) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 if i == 0 {
                     row_counts.push((query_idx, format, row_count));
-                    for (idx, m) in new_metrics.into_iter().enumerate() {
+                    // gather metrics
+                    for (idx, m) in VortexMetricsFinder::find_all(plan.as_ref())
+                        .into_iter()
+                        .enumerate()
+                    {
                         metrics.merge_all_with_label(
                             m,
                             &[
@@ -214,6 +224,7 @@ async fn bench_main(
                             ],
                         );
                     }
+                    plans.push((query_idx, plan));
                 }
             }
 
@@ -245,6 +256,11 @@ async fn bench_main(
             });
 
             progress.inc(1);
+        }
+        if export_spans {
+            if let Err(e) = export_plan_spans(format, plans).await {
+                warn!("failed to export spans {e}");
+            }
         }
     }
 

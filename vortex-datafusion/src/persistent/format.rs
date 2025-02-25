@@ -32,8 +32,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FooterCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
-use crate::can_be_pushed_down;
-use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
+use crate::{PrecisionExt as _, can_be_pushed_down};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
@@ -240,7 +239,7 @@ impl FileFormat for VortexFormat {
             });
 
         // Sum up the total byte size across all the columns.
-        let total_byte_size = bound_to_datafusion(total_byte_size);
+        let total_byte_size = total_byte_size.to_df();
 
         let column_statistics = stats
             .into_iter()
@@ -261,10 +260,10 @@ impl FileFormat for VortexFormat {
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
                 ColumnStatistics {
-                    null_count: directional_bound_to_df_precision(null_count),
-                    max_value: directional_bound_to_df_precision(max),
-                    min_value: directional_bound_to_df_precision(min),
-                    sum_value: directional_bound_to_df_precision(sum),
+                    null_count: null_count.to_df(),
+                    max_value: max.to_df(),
+                    min_value: min.to_df(),
+                    sum_value: sum.to_df(),
                     distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| is_constant.as_exact().map(|_| Precision::Exact(1)))

@@ -7,7 +7,6 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use super::is_constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::encoding::Encoding;
@@ -126,11 +125,10 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
     }
 
-    let left_is_constant = is_constant(left)?;
-    let right_is_constant = is_constant(right)?;
+    let right_is_constant = right.is_constant();
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left_is_constant && !right_is_constant {
+    if left.is_constant() && !right_is_constant {
         return compare(right, left, operator.swap());
     }
 

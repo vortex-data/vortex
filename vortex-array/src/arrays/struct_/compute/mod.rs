@@ -9,8 +9,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    CastFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn,
-    ToArrowFn, filter, is_constant, scalar_at, slice, take, try_cast,
+    CastFn, FilterFn, IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
+    SliceFn, TakeFn, ToArrowFn, filter, is_constant_opts, scalar_at, slice, take, try_cast,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -176,14 +176,18 @@ impl MinMaxFn<&StructArray> for StructEncoding {
 }
 
 impl IsConstantFn<&StructArray> for StructEncoding {
-    fn is_constant(&self, array: &StructArray) -> VortexResult<Option<bool>> {
+    fn is_constant(
+        &self,
+        array: &StructArray,
+        opts: &IsConstantOpts,
+    ) -> VortexResult<Option<bool>> {
         let children = array.children();
         if children.is_empty() {
             return Ok(None);
         }
 
         for child in children.iter() {
-            if !is_constant(child)? {
+            if !is_constant_opts(child, opts)? {
                 return Ok(Some(false));
             }
         }

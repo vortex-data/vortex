@@ -9,7 +9,8 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn, scalar_at, slice,
+    IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
+    scalar_at, slice,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -83,7 +84,11 @@ impl MinMaxFn<&ListArray> for ListEncoding {
 }
 
 impl IsConstantFn<&ListArray> for ListEncoding {
-    fn is_constant(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
+    fn is_constant(
+        &self,
+        _array: &ListArray,
+        _opts: &IsConstantOpts,
+    ) -> VortexResult<Option<bool>> {
         // TODO(adam): Do we want to fallback to arrow here?
         Ok(None)
     }
