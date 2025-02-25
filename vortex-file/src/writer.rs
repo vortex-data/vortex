@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use vortex_array::stats::{Stat, PRUNING_STATS};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
