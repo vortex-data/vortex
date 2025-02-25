@@ -8,8 +8,9 @@ use std::ops::Not;
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, scalar_at};
 use vortex_array::nbytes::NBytes;
+use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
@@ -406,7 +407,32 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let packed = bitpack_encode(stats.source(), bw)?;
+        let mut packed = bitpack_encode(stats.source(), bw)?;
+
+        if let Some(patches) = packed.patches() {
+            // Downscale the patch indices.
+            let indices = downscale_integer_array(patches.indices().clone())?;
+
+            // Check if the values are constant.
+            let values = patches.values();
+            let values = if values
+                .statistics()
+                .compute_is_constant()
+                .unwrap_or_default()
+            {
+                ConstantArray::new(scalar_at(values, 0)?, values.len()).into_array()
+            } else {
+                values.clone()
+            };
+
+            packed.replace_patches(Some(Patches::new(
+                patches.array_len(),
+                patches.offset(),
+                indices,
+                values,
+            )))
+        }
+
         Ok(packed.into_array())
     }
 }

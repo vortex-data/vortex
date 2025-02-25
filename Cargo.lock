@@ -5192,6 +5192,7 @@ version = "0.24.0"
 dependencies = [
  "vortex-alp",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-dtype",
