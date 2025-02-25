@@ -6,13 +6,13 @@ use vortex_array::arrays::{
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::vtable::VTableRef;
-use vortex_array::{Context, ContextRef, Encoding, EncodingId};
+use vortex_array::{Context, ContextRef, Encoding};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::{LayoutContext, LayoutContextRef, LayoutId, LayoutVTableRef};
+use vortex_layout::{LayoutContext, LayoutContextRef, LayoutVTableRef};
 
 /// A registry of array and layout implementations that can be used when reading a Vortex file.
 ///
@@ -20,8 +20,8 @@ use vortex_layout::{LayoutContext, LayoutContextRef, LayoutId, LayoutVTableRef};
 /// the Vortex file itself. This registry will be used to manage the available encodings.
 #[derive(Debug, Clone)]
 pub struct Registry {
-    array_encodings: HashMap<EncodingId, VTableRef>,
-    layout_encodings: HashMap<LayoutId, LayoutVTableRef>,
+    array_encodings: HashMap<String, VTableRef>,
+    layout_encodings: HashMap<String, LayoutVTableRef>,
 }
 
 impl Default for Registry {
@@ -60,26 +60,32 @@ impl Default for Registry {
 
 impl Registry {
     /// Create a new [`ContextRef`] with the provided encodings.
-    pub fn new_context(&self, encodings: &[EncodingId]) -> VortexResult<ContextRef> {
+    pub fn new_array_context<'a>(
+        &self,
+        encoding_ids: impl Iterator<Item = &'a str>,
+    ) -> VortexResult<ContextRef> {
         let mut ctx = Context::empty();
-        for encoding in encodings {
+        for id in encoding_ids {
             let vtable = self
                 .array_encodings
-                .get(encoding)
-                .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", encoding))?;
+                .get(id)
+                .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", id))?;
             ctx = ctx.with_encoding(vtable.clone());
         }
         Ok(Arc::new(ctx))
     }
 
     /// Create a new [`LayoutContextRef`] with the provided encodings.
-    pub fn new_layout_context(&self, encodings: &[LayoutId]) -> VortexResult<LayoutContextRef> {
+    pub fn new_layout_context<'a>(
+        &self,
+        encoding_ids: impl Iterator<Item = &'a str>,
+    ) -> VortexResult<LayoutContextRef> {
         let mut ctx = LayoutContext::empty();
-        for encoding in encodings {
+        for id in encoding_ids {
             let vtable = self
                 .layout_encodings
-                .get(encoding)
-                .ok_or_else(|| vortex_err!("Layout encoding {} not found in registry", encoding))?;
+                .get(id)
+                .ok_or_else(|| vortex_err!("Layout encoding {} not found in registry", id))?;
             ctx = ctx.with_layout(vtable.clone());
         }
         Ok(Arc::new(ctx))
@@ -87,13 +93,15 @@ impl Registry {
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
     pub fn register_array(mut self, encoding: VTableRef) -> Self {
-        self.array_encodings.insert(encoding.id(), encoding);
+        self.array_encodings
+            .insert(encoding.id().as_ref().to_string(), encoding);
         self
     }
 
     /// Register a new layout encoding, replacing any existing encoding with the same ID.
     pub fn register_layout(mut self, encoding: LayoutVTableRef) -> Self {
-        self.layout_encodings.insert(encoding.id(), encoding);
+        self.layout_encodings
+            .insert(encoding.id().as_ref().to_string(), encoding);
         self
     }
 }

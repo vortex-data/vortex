@@ -14,14 +14,14 @@ use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
-use crate::{COLUMNAR_LAYOUT_ID, LayoutId};
+use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct StructLayout;
 
 impl LayoutVTable for StructLayout {
     fn id(&self) -> LayoutId {
-        COLUMNAR_LAYOUT_ID
+        STRUCT_LAYOUT_ID
     }
 
     fn reader(

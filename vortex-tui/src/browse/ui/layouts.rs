@@ -8,7 +8,7 @@ use ratatui::widgets::{
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
-use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
+use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::serde::ArrayParts;
 use vortex::stats::stats_from_bitset_bytes;
@@ -40,7 +40,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let layout_kind = match cursor.encoding().id() {
         FLAT_LAYOUT_ID => "FLAT".to_string(),
         CHUNKED_LAYOUT_ID => "CHUNKED".to_string(),
-        COLUMNAR_LAYOUT_ID => "COLUMNAR".to_string(),
+        STRUCT_LAYOUT_ID => "COLUMNAR".to_string(),
         _ => "UNKNOWN".to_string(),
     };
 
@@ -226,7 +226,7 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 
 fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
     match cursor.encoding().id() {
-        COLUMNAR_LAYOUT_ID => {
+        STRUCT_LAYOUT_ID => {
             let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
             let field_name = struct_dtype.field_name(nth).expect("field name");
             let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");

@@ -25,7 +25,7 @@ impl FlatReader {
         ctx: ContextRef,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != FlatLayout.id() {
+        if layout.vtable().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 

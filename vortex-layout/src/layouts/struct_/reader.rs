@@ -29,7 +29,7 @@ impl StructReader {
         ctx: ContextRef,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != StructLayout.id() {
+        if layout.vtable().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 

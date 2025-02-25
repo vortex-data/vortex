@@ -45,7 +45,7 @@ impl StatsReader {
         ctx: ContextRef,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != StatsLayout.id() {
+        if layout.vtable().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 

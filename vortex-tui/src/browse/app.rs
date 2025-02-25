@@ -13,7 +13,7 @@ use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -42,7 +42,7 @@ impl From<u16> for Encoding {
             Encoding::Flat
         } else if value == CHUNKED_LAYOUT_ID.0 {
             Encoding::Chunked
-        } else if value == COLUMNAR_LAYOUT_ID.0 {
+        } else if value == STRUCT_LAYOUT_ID.0 {
             Encoding::Columnar
         } else if value == STATS_LAYOUT_ID.0 {
             Encoding::Stats
@@ -79,7 +79,7 @@ impl LayoutCursor {
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
             // Find the DType of the child based on the DType of the current node.
-            dtype = match layout.encoding().id() {
+            dtype = match layout.vtable().id() {
                 CHUNKED_LAYOUT_ID => {
                     // If metadata is present, last child is stats table
                     if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
@@ -93,7 +93,7 @@ impl LayoutCursor {
                         dtype.clone()
                     }
                 }
-                COLUMNAR_LAYOUT_ID => dtype
+                STRUCT_LAYOUT_ID => dtype
                     .as_struct()
                     .expect("struct dtype")
                     .field_by_index(component)
@@ -181,7 +181,7 @@ impl LayoutCursor {
     }
 
     pub fn encoding(&self) -> &LayoutVTableRef {
-        self.layout.encoding()
+        self.layout.vtable()
     }
 
     pub fn layout(&self) -> &Layout {

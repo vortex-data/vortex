@@ -141,7 +141,6 @@ impl<F: FileType> VortexOpenOptions<F> {
         Ok(VortexFile {
             read: self.read,
             options: self.options,
-            ctx: self.ctx.clone(),
             footer,
             segment_cache: self.segment_cache,
             metrics: self.metrics,

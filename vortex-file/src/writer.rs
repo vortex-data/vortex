@@ -83,6 +83,7 @@ impl VortexWriteOptions {
         }
 
         // Flush the final layout messages into the file
+        // FIXME(ngates): we need to extract the context somehow.
         let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
             .flush_async(&mut write, &mut segments)
@@ -97,10 +98,11 @@ impl VortexWriteOptions {
         } else {
             Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
         };
+
         let footer_segment = self
             .write_flatbuffer(
                 &mut write,
-                &Footer::new(
+                &Footer::flatbuffer_writer(
                     layout,
                     segments.into(),
                     self.file_statistics

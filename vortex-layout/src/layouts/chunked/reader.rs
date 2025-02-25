@@ -28,7 +28,7 @@ impl ChunkedReader {
         ctx: ContextRef,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != ChunkedLayout.id() {
+        if layout.vtable().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 
