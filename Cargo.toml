@@ -162,7 +162,7 @@ witchcraft-metrics = "1.0.1"
 # BEGIN crates published by this project
 vortex = { version = "0.24.0", path = "./vortex" }
 vortex-alp = { version = "0.24.0", path = "./encodings/alp" }
-vortex-array = { version = "0.24.0", path = "./vortex-array", features = ["datafusion"] }
+vortex-array = { version = "0.24.0", path = "./vortex-array" }
 vortex-btrblocks = { version = "0.24.0", path = "./vortex-btrblocks" }
 vortex-buffer = { version = "0.24.0", path = "./vortex-buffer" }
 vortex-bytebool = { version = "0.24.0", path = "./encodings/bytebool" }

@@ -22,7 +22,6 @@ use futures::{stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
-use vortex_array::stats::datafusion::PrecisionExt as _;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{stats, ContextRef};
 use vortex_dtype::DType;
@@ -33,7 +32,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FooterCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
-use crate::can_be_pushed_down;
+use crate::{can_be_pushed_down, PrecisionExt as _};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]

@@ -3,12 +3,13 @@ use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Stati
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::nbytes::NBytes;
-use vortex_array::stats::datafusion::PrecisionExt;
 use vortex_array::stats::Stat;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::Array;
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};
+
+use crate::PrecisionExt;
 
 pub(crate) fn chunked_array_df_stats(
     array: &ChunkedArray,
