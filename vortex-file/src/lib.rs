@@ -114,7 +114,6 @@ pub use open::*;
 pub use registry::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::arrays::{BoolEncoding, ChunkedEncoding};
 use vortex_array::Encoding;
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
@@ -166,7 +165,6 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<Registry>> = LazyLock::new(|| {
         .register_array(ALPEncoding.vtable())
         .register_array(ALPRDEncoding.vtable())
         .register_array(BitPackedEncoding.vtable())
-        .register_array(BoolEncoding.vtable())
         .register_array(ByteBoolEncoding.vtable())
         .register_array(DateTimePartsEncoding.vtable())
         .register_array(DeltaEncoding.vtable())

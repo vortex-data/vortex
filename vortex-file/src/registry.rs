@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_map::{Entry, HashMap};
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::vtable::VTableRef;
-use vortex_array::{Array, Context, ContextRef, Encoding, EncodingId};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_array::{Context, ContextRef, Encoding, EncodingId};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::{LayoutContext, LayoutContextRef, LayoutId, LayoutVTableRef};
 
 /// A registry of array and layout implementations that can be used when reading a Vortex file.
@@ -48,10 +49,10 @@ impl Default for Registry {
 
         // Register the layout encodings
         this = this
-            .register_layout(FlatLayout.vtable())
-            .register_layout(StructEncoding.vtable())
-            .register_layout(StatsLayout.vtable())
-            .register_layout(ChunkedLayout.vtable());
+            .register_layout(LayoutVTableRef::new_ref(&FlatLayout))
+            .register_layout(LayoutVTableRef::new_ref(&StructLayout))
+            .register_layout(LayoutVTableRef::new_ref(&StatsLayout))
+            .register_layout(LayoutVTableRef::new_ref(&ChunkedLayout));
 
         this
     }
