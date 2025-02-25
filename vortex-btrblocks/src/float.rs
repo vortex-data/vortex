@@ -1,7 +1,7 @@
 mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, RDEncoder, alp_encode};
+use vortex_alp::{ALPArray, ALPRDArray, RDEncoder, alp_encode};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
@@ -14,6 +14,7 @@ use vortex_runend::compress::runend_encode;
 use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
+use crate::patches::compress_patches;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling, integer,
@@ -217,10 +218,9 @@ impl Scheme for ALPScheme {
         let compressed_alp_ints =
             IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &int_excludes)?;
 
-        Ok(
-            ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches().cloned())?
-                .into_array(),
-        )
+        let patches = alp.patches().map(compress_patches).transpose()?;
+
+        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
     }
 }
 
@@ -265,7 +265,22 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        Ok(encoder.encode(stats.source()).into_array())
+        let alp_rd = encoder.encode(stats.source());
+
+        let patches = alp_rd
+            .left_parts_patches()
+            .map(compress_patches)
+            .transpose()?;
+        let alp_rd = ALPRDArray::try_new(
+            alp_rd.dtype().clone(),
+            alp_rd.left_parts().clone(),
+            alp_rd.left_parts_dictionary().clone(),
+            alp_rd.right_parts().clone(),
+            alp_rd.right_bit_width(),
+            patches,
+        )?;
+
+        Ok(alp_rd.into_array())
     }
 }
 

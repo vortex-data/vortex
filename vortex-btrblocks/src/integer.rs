@@ -8,9 +8,8 @@ use std::ops::Not;
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
-use vortex_array::compute::{filter, scalar_at};
+use vortex_array::compute::filter;
 use vortex_array::nbytes::NBytes;
-use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
@@ -27,6 +26,7 @@ use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
+use crate::patches::compress_patches;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
@@ -409,29 +409,8 @@ impl Scheme for BitPackingScheme {
         }
         let mut packed = bitpack_encode(stats.source(), bw)?;
 
-        if let Some(patches) = packed.patches() {
-            // Downscale the patch indices.
-            let indices = downscale_integer_array(patches.indices().clone())?;
-
-            // Check if the values are constant.
-            let values = patches.values();
-            let values = if values
-                .statistics()
-                .compute_is_constant()
-                .unwrap_or_default()
-            {
-                ConstantArray::new(scalar_at(values, 0)?, values.len()).into_array()
-            } else {
-                values.clone()
-            };
-
-            packed.replace_patches(Some(Patches::new(
-                patches.array_len(),
-                patches.offset(),
-                indices,
-                values,
-            )))
-        }
+        let patches = packed.patches().map(compress_patches).transpose()?;
+        packed.replace_patches(patches);
 
         Ok(packed.into_array())
     }

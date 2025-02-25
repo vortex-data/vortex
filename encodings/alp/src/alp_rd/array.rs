@@ -117,6 +117,11 @@ impl ALPRDArray {
         &self.right_parts
     }
 
+    #[inline]
+    pub fn right_bit_width(&self) -> u8 {
+        self.right_bit_width
+    }
+
     /// Patches of left-most bits.
     pub fn left_parts_patches(&self) -> Option<&Patches> {
         self.left_parts_patches.as_ref()
@@ -126,11 +131,6 @@ impl ALPRDArray {
     #[inline]
     pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
         &self.left_parts_dictionary
-    }
-
-    #[inline]
-    pub(crate) fn right_bit_width(&self) -> u8 {
-        self.right_bit_width
     }
 }
 

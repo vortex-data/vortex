@@ -17,6 +17,7 @@ pub use crate::temporal::compress_temporal;
 mod downscale;
 mod float;
 pub mod integer;
+mod patches;
 mod sample;
 mod string;
 mod temporal;
