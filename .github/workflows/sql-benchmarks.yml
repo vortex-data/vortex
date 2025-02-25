@@ -65,7 +65,7 @@ jobs:
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-          TEST_SECRET_1: ${{ secrets.TEST_SECRET }}
+          TEST_SECRET_1: ${{ secrets.TEST_SECRET_2 }}
           TEST_SECRET_2: "${{ secrets.TEST_SECRET }}"
           TEST_SECRET_3: '${{ secrets.TEST_SECRET }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
