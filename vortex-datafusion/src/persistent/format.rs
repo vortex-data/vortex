@@ -32,7 +32,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FooterCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
-use crate::{can_be_pushed_down, PrecisionExt as _};
+use crate::{PrecisionExt as _, can_be_pushed_down};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]

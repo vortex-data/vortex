@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use arrow_schema::{DataType, Schema};
 use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common::Result as DFResult;
+use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_expr::{Expr, Operator};
-use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
+use vortex_array::stats::Precision;
 use vortex_error::vortex_err;
 
 use crate::memory::VortexMemTable;
