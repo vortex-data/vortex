@@ -80,10 +80,21 @@ pub fn binary_boolean(
     op: BinaryOperator,
 ) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
+        vortex_bail!(
+            "Boolean operations aren't supported on arrays of different lengths: {} and {}",
+            lhs.len(),
+            rhs.len()
+        )
     }
-    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
-        vortex_bail!("Boolean operations are only supported on boolean arrays")
+    if !lhs.dtype().is_boolean()
+        || !rhs.dtype().is_boolean()
+        || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
+    {
+        vortex_bail!(
+            "Boolean operations are only supported on boolean arrays: {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        )
     }
 
     let rhs_is_constant = is_constant(rhs)?;

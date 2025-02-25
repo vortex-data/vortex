@@ -98,12 +98,13 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
     }
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
         vortex_bail!(
-            "Compare operations only support arrays of the same type: {} != {}",
+            "Cannot compare different DTypes {} and {}",
             left.dtype(),
             right.dtype()
         );
     }
 
+    // TODO(ngates): no reason why not
     if left.dtype().is_struct() {
         vortex_bail!(
             "Compare does not support arrays with Struct DType, got: {} and {}",

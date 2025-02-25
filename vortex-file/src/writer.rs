@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
@@ -7,19 +7,23 @@ use vortex_io::VortexWrite;
 use vortex_layout::stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
-use crate::footer::{FileLayout, Postscript, Segment};
+use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
+    exclude_dtype: bool,
+    file_statistics: Option<Vec<Stat>>,
 }
 
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
             strategy: Box::new(VortexLayoutStrategy::default()),
+            exclude_dtype: false,
+            file_statistics: Some(PRUNING_STATS.to_vec()),
         }
     }
 }
@@ -28,6 +32,20 @@ impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy<S: LayoutStrategy>(mut self, strategy: S) -> Self {
         self.strategy = Box::new(strategy);
+        self
+    }
+
+    /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
+    // TODO(ngates): Should we store some sort of DType checksum to make sure the one passed at
+    //  read-time is sane? I guess most layouts will have some reasonable validation.
+    pub fn exclude_dtype(mut self) -> Self {
+        self.exclude_dtype = true;
+        self
+    }
+
+    /// Configure which statistics to compute at the file-level.
+    pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
+        self.file_statistics = Some(file_statistics);
         self
     }
 }
@@ -43,7 +61,7 @@ impl VortexWriteOptions {
         let mut layout_writer = FileStatsLayoutWriter::new(
             self.strategy.new_writer(stream.dtype())?,
             stream.dtype(),
-            PRUNING_STATS.into(),
+            self.file_statistics.clone().unwrap_or_default().into(),
         )?;
 
         // First we write the magic number
@@ -65,20 +83,29 @@ impl VortexWriteOptions {
         }
 
         // Flush the final layout messages into the file
-        let root_layout = layout_writer.finish(&mut segment_writer)?;
+        let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
             .flush_async(&mut write, &mut segments)
             .await?;
 
-        // Write the DType + FileLayout segments
-        let dtype_segment = self.write_flatbuffer(&mut write, stream.dtype()).await?;
-        let file_layout_segment = self
+        // Write the DType, followed by the Footer. We choose this order because in many cases
+        // the reader can provide an external DType, therefore we may not even need to read it.
+        // We will always need the footer, therefore we write it closest to the end of the file
+        // and therefore most likely to be picked up in the initial read.
+        let dtype_segment = if self.exclude_dtype {
+            None
+        } else {
+            Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
+        };
+        let footer_segment = self
             .write_flatbuffer(
                 &mut write,
-                &FileLayout::new(
-                    root_layout,
+                &Footer::new(
+                    layout,
                     segments.into(),
-                    layout_writer.into_stats_sets().into(),
+                    self.file_statistics
+                        .is_some()
+                        .then(|| layout_writer.into_stats_sets().into()),
                 ),
             )
             .await?;
@@ -86,7 +113,7 @@ impl VortexWriteOptions {
         // Assemble the postscript, and write it manually to avoid any framing.
         let postscript = Postscript {
             dtype: dtype_segment,
-            file_layout: file_layout_segment,
+            footer: footer_segment,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes();
         if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {

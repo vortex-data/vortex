@@ -36,10 +36,6 @@ pub(crate) enum InnerScalarValue {
 
 #[cfg(feature = "flatbuffers")]
 impl ScalarValue {
-    pub const fn null() -> Self {
-        Self(InnerScalarValue::Null)
-    }
-
     pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
         use serde::Serialize;
         use vortex_error::VortexExpect;
@@ -112,6 +108,10 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
+    pub const fn null() -> Self {
+        ScalarValue(InnerScalarValue::Null)
+    }
+
     pub fn is_null(&self) -> bool {
         self.0.is_null()
     }

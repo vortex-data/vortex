@@ -7,7 +7,7 @@ use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{FileLayout, Segment, VortexOpenOptions};
+use vortex::file::{Footer, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
@@ -57,25 +57,25 @@ impl From<u16> for Encoding {
 /// The pointer wraps an InitialRead.
 pub struct LayoutCursor {
     path: Vec<usize>,
-    file_layout: FileLayout,
+    footer: Footer,
     layout: Layout,
     #[allow(unused)]
     segment_map: Arc<[Segment]>,
 }
 
 impl LayoutCursor {
-    pub fn new(layout: FileLayout) -> Self {
+    pub fn new(footer: Footer) -> Self {
         Self {
             path: Vec::new(),
-            layout: layout.root_layout().clone(),
-            segment_map: Arc::clone(layout.segment_map()),
-            file_layout: layout,
+            layout: footer.layout().clone(),
+            segment_map: Arc::clone(footer.segment_map()),
+            footer,
         }
     }
 
-    pub fn new_with_path(file_layout: FileLayout, path: Vec<usize>) -> Self {
-        let mut layout = file_layout.root_layout().clone();
-        let mut dtype = file_layout.dtype().clone();
+    pub fn new_with_path(footer: Footer, path: Vec<usize>) -> Self {
+        let mut layout = footer.layout().clone();
+        let mut dtype = footer.dtype().clone();
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
             // Find the DType of the child based on the DType of the current node.
@@ -121,9 +121,9 @@ impl LayoutCursor {
         }
 
         Self {
-            segment_map: Arc::clone(file_layout.segment_map()),
+            segment_map: Arc::clone(footer.segment_map()),
             path,
-            file_layout,
+            footer,
             layout,
         }
     }
@@ -134,14 +134,14 @@ impl LayoutCursor {
         let mut path = self.path.clone();
         path.push(n);
 
-        Self::new_with_path(self.file_layout.clone(), path)
+        Self::new_with_path(self.footer.clone(), path)
     }
 
     pub fn parent(&self) -> Self {
         let mut path = self.path.clone();
         path.pop();
 
-        Self::new_with_path(self.file_layout.clone(), path)
+        Self::new_with_path(self.footer.clone(), path)
     }
 
     /// Get the size of the backing flatbuffer for this layout.
@@ -254,7 +254,7 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
     let reader = TokioFile::open(path)?;
     let file = VortexOpenOptions::file(reader.clone()).open().await?;
 
-    let cursor = LayoutCursor::new(file.file_layout().clone());
+    let cursor = LayoutCursor::new(file.footer().clone());
 
     Ok(AppState {
         reader,

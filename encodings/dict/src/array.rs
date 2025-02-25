@@ -87,7 +87,7 @@ impl ArrayImpl for DictArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&DictEncoding)
+        VTableRef::new_ref(&DictEncoding)
     }
 }
 

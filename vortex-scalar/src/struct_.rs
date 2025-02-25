@@ -17,7 +17,7 @@ pub struct StructScalar<'a> {
 
 impl PartialEq for StructScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        if self.dtype != other.dtype {
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
             return false;
         }
         self.fields() == other.fields()
@@ -26,10 +26,10 @@ impl PartialEq for StructScalar<'_> {
 
 impl Eq for StructScalar<'_> {}
 
-/// Ord is not implemented since it's undefined for different DTypes
+/// Ord is not implemented since it's undefined for different field DTypes
 impl PartialOrd for StructScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.dtype() != other.dtype() {
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
         self.fields().partial_cmp(&other.fields())

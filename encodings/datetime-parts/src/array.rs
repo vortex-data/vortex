@@ -98,7 +98,7 @@ impl ArrayImpl for DateTimePartsArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&DateTimePartsEncoding)
+        VTableRef::new_ref(&DateTimePartsEncoding)
     }
 }
 

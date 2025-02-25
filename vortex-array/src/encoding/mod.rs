@@ -63,7 +63,7 @@ pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     where
         Self: Sized,
     {
-        VTableRef::from_static(self)
+        VTableRef::new_ref(self)
     }
 }
 

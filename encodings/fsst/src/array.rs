@@ -167,7 +167,7 @@ impl ArrayImpl for FSSTArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&FSSTEncoding)
+        VTableRef::new_ref(&FSSTEncoding)
     }
 }
 

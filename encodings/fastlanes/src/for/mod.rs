@@ -72,7 +72,7 @@ impl ArrayImpl for FoRArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&FoREncoding)
+        VTableRef::new_ref(&FoREncoding)
     }
 }
 

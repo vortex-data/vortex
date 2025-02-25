@@ -18,8 +18,8 @@ pub use varbinview::*;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, StructScalar,
-    Utf8Scalar,
+    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
+    StructScalar, Utf8Scalar,
 };
 
 use crate::builders::struct_::StructBuilder;
@@ -100,9 +100,19 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 }
 
 pub trait ArrayBuilderExt: ArrayBuilder {
+    /// A generic function to append a scalar value to the builder.
+    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
+        if value.is_null() {
+            self.append_null();
+            Ok(())
+        } else {
+            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
+        }
+    }
+
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if !scalar.dtype().eq_ignore_nullability(self.dtype()) {
+        if scalar.dtype() != self.dtype() {
             vortex_bail!(
                 "Builder has dtype {:?}, scalar has {:?}",
                 self.dtype(),

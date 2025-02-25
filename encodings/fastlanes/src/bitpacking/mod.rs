@@ -230,7 +230,7 @@ impl ArrayImpl for BitPackedArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&BitPackedEncoding)
+        VTableRef::new_ref(&BitPackedEncoding)
     }
 }
 

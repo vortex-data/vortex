@@ -51,7 +51,7 @@ impl ArrayImpl for NullArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&NullEncoding)
+        VTableRef::new_ref(&NullEncoding)
     }
 }
 

@@ -260,7 +260,7 @@ impl ArrayImpl for PrimitiveArray {
         &self.dtype
     }
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&PrimitiveEncoding)
+        VTableRef::new_ref(&PrimitiveEncoding)
     }
 }
 

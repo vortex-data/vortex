@@ -123,7 +123,7 @@ impl ArrayImpl for SparseArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&SparseEncoding)
+        VTableRef::new_ref(&SparseEncoding)
     }
 }
 

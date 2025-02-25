@@ -7,19 +7,29 @@ use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vo
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<BufferString>,
 }
 
-/// Ord is not implemented since it's undefined for different nullability
+impl PartialEq for Utf8Scalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+    }
+}
+
+impl Eq for Utf8Scalar<'_> {}
+
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.dtype != other.dtype {
-            return None;
-        }
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
+    }
+}
+
+impl Ord for Utf8Scalar<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.value.cmp(&other.value)
     }
 }
 

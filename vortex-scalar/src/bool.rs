@@ -6,18 +6,29 @@ use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vo
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
 }
 
+impl PartialEq for BoolScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+    }
+}
+
+impl Eq for BoolScalar<'_> {}
+
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.dtype != other.dtype {
-            return None;
-        }
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
+    }
+}
+
+impl Ord for BoolScalar<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.cmp(&other.value)
     }
 }
 
@@ -132,11 +143,23 @@ impl From<bool> for ScalarValue {
 
 #[cfg(test)]
 mod test {
+    use vortex_dtype::Nullability::*;
+
     use super::*;
 
     #[test]
     fn into_from() {
         let scalar: Scalar = false.into();
         assert!(!bool::try_from(&scalar).unwrap());
+    }
+
+    #[test]
+    fn equality() {
+        assert_eq!(&Scalar::bool(true, Nullable), &Scalar::bool(true, Nullable));
+        // Equality ignores nullability
+        assert_eq!(
+            &Scalar::bool(true, Nullable),
+            &Scalar::bool(true, NonNullable)
+        );
     }
 }

@@ -104,53 +104,80 @@ impl TryFrom<Scalar> for ScalarValue {
 impl From<ScalarValue> for Scalar {
     fn from(value: ScalarValue) -> Scalar {
         match value {
-            ScalarValue::Null => Some(Scalar::null(DType::Null)),
-            ScalarValue::Boolean(b) => b.map(Scalar::from),
-            ScalarValue::Float16(f) => f.map(Scalar::from),
-            ScalarValue::Float32(f) => f.map(Scalar::from),
-            ScalarValue::Float64(f) => f.map(Scalar::from),
-            ScalarValue::Int8(i) => i.map(Scalar::from),
-            ScalarValue::Int16(i) => i.map(Scalar::from),
-            ScalarValue::Int32(i) => i.map(Scalar::from),
-            ScalarValue::Int64(i) => i.map(Scalar::from),
-            ScalarValue::UInt8(i) => i.map(Scalar::from),
-            ScalarValue::UInt16(i) => i.map(Scalar::from),
-            ScalarValue::UInt32(i) => i.map(Scalar::from),
-            ScalarValue::UInt64(i) => i.map(Scalar::from),
-            ScalarValue::Utf8(s) | ScalarValue::Utf8View(s) | ScalarValue::LargeUtf8(s) => {
-                s.as_ref().map(|s| Scalar::from(s.as_str()))
-            }
+            ScalarValue::Null => Scalar::null(DType::Null),
+            ScalarValue::Boolean(b) => b
+                .map(Scalar::from)
+                .unwrap_or_else(|| Scalar::null(DType::Bool(Nullability::Nullable))),
+            ScalarValue::Float16(f) => f.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::F16, Nullability::Nullable))
+            }),
+            ScalarValue::Float32(f) => f.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::F32, Nullability::Nullable))
+            }),
+            ScalarValue::Float64(f) => f.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable))
+            }),
+            ScalarValue::Int8(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::I8, Nullability::Nullable))
+            }),
+            ScalarValue::Int16(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::I16, Nullability::Nullable))
+            }),
+            ScalarValue::Int32(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+            }),
+            ScalarValue::Int64(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable))
+            }),
+            ScalarValue::UInt8(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::U8, Nullability::Nullable))
+            }),
+            ScalarValue::UInt16(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::U16, Nullability::Nullable))
+            }),
+            ScalarValue::UInt32(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
+            }),
+            ScalarValue::UInt64(i) => i.map(Scalar::from).unwrap_or_else(|| {
+                Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable))
+            }),
+            ScalarValue::Utf8(s) | ScalarValue::Utf8View(s) | ScalarValue::LargeUtf8(s) => s
+                .as_ref()
+                .map(|s| Scalar::from(s.as_str()))
+                .unwrap_or_else(|| Scalar::null(DType::Utf8(Nullability::Nullable))),
             ScalarValue::Binary(b)
             | ScalarValue::BinaryView(b)
             | ScalarValue::LargeBinary(b)
             | ScalarValue::FixedSizeBinary(_, b) => b
                 .as_ref()
-                .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable)),
+                .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable))
+                .unwrap_or_else(|| Scalar::null(DType::Binary(Nullability::Nullable))),
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
-            | ScalarValue::Time32Millisecond(v) => v.map(|i| {
+            | ScalarValue::Time32Millisecond(v) => {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type())
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype)),
-                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))),
+                    v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))))
+                        .unwrap_or_else(crate::ScalarValue::null),
                 )
-            }),
+            }
             ScalarValue::Date64(v)
             | ScalarValue::Time64Microsecond(v)
             | ScalarValue::Time64Nanosecond(v)
             | ScalarValue::TimestampSecond(v, _)
             | ScalarValue::TimestampMillisecond(v, _)
             | ScalarValue::TimestampMicrosecond(v, _)
-            | ScalarValue::TimestampNanosecond(v, _) => v.map(|i| {
+            | ScalarValue::TimestampNanosecond(v, _) => {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
-                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))),
+                    v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))))
+                        .unwrap_or_else(crate::ScalarValue::null),
                 )
-            }),
+            }
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
         }
-        .unwrap_or_else(|| Scalar::null(DType::Null))
     }
 }

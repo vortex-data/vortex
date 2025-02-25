@@ -29,7 +29,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
-use super::cache::FileLayoutCache;
+use super::cache::FooterCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
 use crate::can_be_pushed_down;
@@ -39,14 +39,14 @@ use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
 #[derive(Debug)]
 pub struct VortexFormat {
     context: ContextRef,
-    file_layout_cache: FileLayoutCache,
+    footer_cache: FooterCache,
     opts: VortexFormatOptions,
 }
 
 /// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
-    /// The size of the in-memory [`vortex_file::FileLayout`] cache.
+    /// The size of the in-memory [`vortex_file::Footer`] cache.
     pub cache_size_mb: usize,
 }
 
@@ -117,7 +117,7 @@ impl VortexFormat {
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
+            footer_cache: FooterCache::new(opts.cache_size_mb, context.clone()),
             context,
             opts,
         }
@@ -160,10 +160,10 @@ impl FileFormat for VortexFormat {
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let cache = self.file_layout_cache.clone();
+                let cache = self.footer_cache.clone();
                 async move {
-                    let file_layout = cache.try_get(&o, store).await?;
-                    let inferred_schema = infer_schema(file_layout.dtype())?;
+                    let footer = cache.try_get(&o, store).await?;
+                    let inferred_schema = infer_schema(footer.dtype())?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })
@@ -192,28 +192,39 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
-        let file_layout = self
-            .file_layout_cache
-            .try_get(object, store.clone())
-            .await?;
+        let footer = self.footer_cache.try_get(object, store.clone()).await?;
 
         let vxf = VortexOpenOptions::file(read_at)
-            .with_file_layout(file_layout)
+            .with_footer(footer)
             .open()
             .await?;
 
-        // Evaluate the statistics for each column that we are able to return to DataFusion.
         let struct_dtype = vxf
             .dtype()
             .as_struct()
             .vortex_expect("dtype is not a struct");
+
+        // Evaluate the statistics for each column that we are able to return to DataFusion.
+        let Some(file_stats) = vxf.file_stats() else {
+            // If the file has no column stats, the best we can do is return a row count.
+            return Ok(Statistics {
+                num_rows: Precision::Exact(
+                    usize::try_from(vxf.row_count())
+                        .map_err(|_| vortex_err!("Row count overflow"))
+                        .vortex_expect("Row count overflow"),
+                ),
+                total_byte_size: Precision::Absent,
+                column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
+            });
+        };
+
         let stats = table_schema
             .fields()
             .iter()
             .map(|field| struct_dtype.find(field.name()).ok())
             .map(|idx| match idx {
                 None => StatsSet::default(),
-                Some(id) => vxf.file_stats()[id].clone(),
+                Some(id) => file_stats[id].clone(),
             })
             .collect_vec();
 
@@ -305,7 +316,7 @@ impl FileFormat for VortexFormat {
             Default::default(),
             filters.cloned(),
             self.context.clone(),
-            self.file_layout_cache.clone(),
+            self.footer_cache.clone(),
         )?
         .into_arc();
 
