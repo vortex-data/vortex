@@ -1,0 +1,85 @@
+import net.ltgt.gradle.errorprone.errorprone
+
+plugins {
+    id("com.diffplug.spotless") version "7.0.1"
+    id("com.palantir.consistent-versions") version "2.31.0"
+    id("com.palantir.git-version") version "3.1.0"
+    id("io.github.gradle-nexus.publish-plugin") version "1.3.0"
+    id("net.ltgt.errorprone") version "4.1.0" apply false
+    id("org.inferred.processors") version "3.7.0" apply false
+}
+
+val gitVersion: groovy.lang.Closure<String> by extra
+version = gitVersion()
+
+allprojects {
+    apply(plugin = "com.diffplug.spotless")
+
+    repositories {
+        mavenCentral()
+    }
+
+    tasks.withType<Test> {
+        useJUnitPlatform()
+
+        maxHeapSize = "1G"
+
+        testLogging {
+            events("passed")
+        }
+    }
+
+    plugins.withType<JavaLibraryPlugin> {
+        apply(plugin = "net.ltgt.errorprone")
+        apply(plugin = "org.inferred.processors")
+
+        dependencies {
+            "errorprone"("com.google.errorprone:error_prone_core")
+            "errorprone"("com.jakewharton.nopen:nopen-checker")
+            "compileOnly"("com.jakewharton.nopen:nopen-annotations")
+        }
+
+        spotless {
+            java {
+                palantirJavaFormat()
+                licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
+            }
+        }
+
+        tasks.withType<JavaCompile> {
+            options.errorprone.disable("UnusedVariable")
+            options.compilerArgs.add("--enable-preview")
+
+            // Needed to make sure that the barista-annotations emits to the correct directory
+            options.generatedSourceOutputDirectory = projectDir.resolve("generated_src")
+        }
+
+        tasks.withType<Javadoc> {
+            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:-missing")
+        }
+
+        the<JavaPluginExtension>().toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+        tasks["check"].dependsOn("spotlessCheck")
+    }
+
+    spotless {
+        kotlinGradle {
+            ktlint()
+        }
+    }
+
+    tasks.register("format").get().dependsOn("spotlessApply")
+}
+
+fun booleanEnv(envVar: String): Boolean? = System.getenv(envVar)?.toBoolean()
+
+fun String.runCommand(): String {
+    val proc =
+        ProcessBuilder(*split(" ").toTypedArray())
+            .redirectOutput(ProcessBuilder.Redirect.PIPE)
+            .redirectError(ProcessBuilder.Redirect.INHERIT)
+            .start()
+    proc.waitFor(10, TimeUnit.SECONDS)
+    return proc.inputStream.bufferedReader().readText()
+}

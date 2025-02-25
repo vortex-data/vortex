@@ -5507,6 +5507,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-ffi"
+version = "0.24.0"
+dependencies = [
+ "futures",
+ "object_store",
+ "tokio",
+ "vortex",
+]
+
+[[package]]
 name = "vortex-file"
 version = "0.25.2"
 dependencies = [

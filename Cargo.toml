@@ -12,6 +12,7 @@ members = [
     "vortex-dtype",
     "vortex-error",
     "vortex-expr",
+    "vortex-ffi",
     "vortex-file",
     "vortex-flatbuffers",
     "vortex-io",
@@ -176,6 +177,7 @@ vortex-dtype = { version = "0.25.2", path = "./vortex-dtype", default-features =
 vortex-error = { version = "0.25.2", path = "./vortex-error" }
 vortex-expr = { version = "0.25.2", path = "./vortex-expr" }
 vortex-fastlanes = { version = "0.25.2", path = "./encodings/fastlanes" }
+vortex-ffi = { version = "0.25.2", path = "./vortex-ffi" }
 vortex-file = { version = "0.25.2", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.25.2", path = "./vortex-flatbuffers" }
 vortex-fsst = { version = "0.25.2", path = "./encodings/fsst" }
