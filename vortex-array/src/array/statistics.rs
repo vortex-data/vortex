@@ -14,6 +14,7 @@ pub trait ArrayStatistics {
     /// Make a best effort attempt to try and figure out if the array is constant, without canonicalizing it.
     fn is_constant(&self) -> bool;
 
+    /// If [`ArrayStatistics::is_constant`]
     fn as_constant(&self) -> Option<Scalar>;
 }
 

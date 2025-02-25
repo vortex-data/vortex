@@ -11,19 +11,19 @@ pub trait IsConstantFn<A> {
     /// * array.len() > 1
     ///
     /// Returns `Ok(None)` to signal we couldn't make an exact determination.
-    fn is_constant(&self, array: A) -> VortexResult<Option<bool>>;
+    fn is_constant(&self, array: A, opts: &IsConstantOpts) -> VortexResult<Option<bool>>;
 }
 
 impl<E: Encoding> IsConstantFn<&dyn Array> for E
 where
     E: for<'a> IsConstantFn<&'a E::Array>,
 {
-    fn is_constant(&self, array: &dyn Array) -> VortexResult<Option<bool>> {
+    fn is_constant(&self, array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         let array_ref = array
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        IsConstantFn::is_constant(self, array_ref)
+        IsConstantFn::is_constant(self, array_ref, opts)
     }
 }
 
@@ -110,7 +110,7 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
         "All values must be valid as an invariant of the VTable."
     );
     let is_constant = if let Some(vtable_fn) = array.vtable().is_constant_fn() {
-        vtable_fn.is_constant(array)?
+        vtable_fn.is_constant(array, opts)?
     } else {
         log::debug!(
             "No is_constant implementation found for {}",
@@ -121,7 +121,7 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
             let array = array.to_canonical()?;
 
             if let Some(is_constant_fn) = array.as_ref().vtable().is_constant_fn() {
-                is_constant_fn.is_constant(array.as_ref())?
+                is_constant_fn.is_constant(array.as_ref(), opts)?
             } else {
                 vortex_bail!(
                     "No is_constant function for canonical array: {}",

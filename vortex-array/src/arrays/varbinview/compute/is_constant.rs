@@ -1,10 +1,14 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{Ref, VarBinViewArray, VarBinViewEncoding};
-use crate::compute::IsConstantFn;
+use crate::compute::{IsConstantFn, IsConstantOpts};
 
 impl IsConstantFn<&VarBinViewArray> for VarBinViewEncoding {
-    fn is_constant(&self, array: &VarBinViewArray) -> VortexResult<Option<bool>> {
+    fn is_constant(
+        &self,
+        array: &VarBinViewArray,
+        _opts: &IsConstantOpts,
+    ) -> VortexResult<Option<bool>> {
         let mut views_iter = array.views().iter();
         let first_value = views_iter
             .next()
