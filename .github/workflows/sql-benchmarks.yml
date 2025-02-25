@@ -59,6 +59,18 @@ jobs:
               --export-spans \
             | tee results.json
 
+      - name: Debug
+        shell: bash
+        env:
+          OTEL_SERVICE_NAME: 'vortex-bench'
+          OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+        run: |
+          if [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT}" ]; then echo "empty"; else echo "not empty"; fi;
+          echo "OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}"
+        
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null
         shell: bash
