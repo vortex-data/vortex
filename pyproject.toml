@@ -15,7 +15,7 @@ packages = ["dummy"] # Required for workspace project
 
 [tool.uv]
 managed = true
-required-version = ">=0.5.0"
+required-version = ">=0.6.0"
 # Currently, all dev dependencies live in the root since uv doesn't have transitive dev dependencies.
 #  See: https://github.com/astral-sh/uv/issues/7541
 dev-dependencies = [
