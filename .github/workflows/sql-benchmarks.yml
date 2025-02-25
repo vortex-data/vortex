@@ -45,12 +45,17 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: |
           cargo run \
               --bin ${{ matrix.binary_name }} \
               --release \
               -- \
               -d gh-json \
+              --export-spans \
             | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark
