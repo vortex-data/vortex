@@ -15,7 +15,7 @@ use vortex_flatbuffers::{
 };
 
 use crate::stats::StatsSet;
-use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, ContextRef};
+use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -232,7 +232,7 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: &ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+    pub fn decode(&self, ctx: &Context, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)

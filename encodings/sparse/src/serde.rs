@@ -2,7 +2,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context,
     DeserializeMetadata, RkyvMetadata,
 };
 use vortex_dtype::DType;
@@ -41,7 +41,7 @@ impl SerdeVTable<&SparseArray> for SparseEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

@@ -6,7 +6,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{ArrayRef, Context};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -17,13 +17,13 @@ pin_project! {
     pub struct AsyncIPCReader<R> {
         #[pin]
         reader: AsyncMessageReader<R>,
-        ctx: ContextRef,
+        ctx: Context,
         dtype: DType,
     }
 }
 
 impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
-    pub async fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
+    pub async fn try_new(read: R, ctx: Context) -> VortexResult<Self> {
         let mut reader = AsyncMessageReader::new(read);
 
         let dtype = match reader.next().await.transpose()? {

@@ -1,7 +1,7 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context,
     EmptyMetadata,
 };
 use vortex_dtype::{DType, PType};
@@ -29,7 +29,7 @@ impl SerdeVTable<&FoRArray> for FoREncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

@@ -4,7 +4,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::arrays::{ExtensionArray, ExtensionEncoding};
 use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
+use crate::{Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context, EmptyMetadata};
 
 impl ArrayVisitorImpl for ExtensionArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
@@ -20,7 +20,7 @@ impl SerdeVTable<&ExtensionArray> for ExtensionEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

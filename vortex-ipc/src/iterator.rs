@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{ArrayRef, Context};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -12,12 +12,12 @@ use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessag
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
-    ctx: ContextRef,
+    ctx: Context,
     dtype: DType,
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
+    pub fn try_new(read: R, ctx: Context) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
         match reader.next().transpose()? {
             Some(msg) => match msg {

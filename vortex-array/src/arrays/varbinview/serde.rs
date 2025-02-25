@@ -8,7 +8,7 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context,
     EmptyMetadata,
 };
 
@@ -33,7 +33,7 @@ impl SerdeVTable<&VarBinViewArray> for VarBinViewEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

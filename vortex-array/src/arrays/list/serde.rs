@@ -6,7 +6,7 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
-    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
+    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context, DeserializeMetadata,
     RkyvMetadata,
 };
 
@@ -36,7 +36,7 @@ impl SerdeVTable<&ListArray> for ListEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

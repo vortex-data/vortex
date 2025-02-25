@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_once_cell::OnceCell;
 use vortex_array::serde::ArrayParts;
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{ArrayRef, Context};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
@@ -12,7 +12,7 @@ use crate::{Layout, LayoutReaderExt, LayoutVTable};
 
 pub struct FlatReader {
     layout: Layout,
-    ctx: ContextRef,
+    ctx: Context,
     segment_reader: Arc<dyn AsyncSegmentReader>,
     // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
     //  cache.
@@ -22,7 +22,7 @@ pub struct FlatReader {
 impl FlatReader {
     pub(crate) fn try_new(
         layout: Layout,
-        ctx: ContextRef,
+        ctx: Context,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != FlatLayout.id() {
@@ -37,7 +37,7 @@ impl FlatReader {
         })
     }
 
-    pub(crate) fn ctx(&self) -> &ContextRef {
+    pub(crate) fn ctx(&self) -> &Context {
         &self.ctx
     }
 

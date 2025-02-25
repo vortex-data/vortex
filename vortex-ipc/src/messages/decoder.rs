@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, dtype as fbd, message as fb};
 /// A message decoded from an IPC stream.
 ///
 /// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayRef`] without
-/// a [`vortex_array::ContextRef`] and a [`DType`]. As such, we partially decode into an
+/// a [`vortex_array::Context`] and a [`DType`]. As such, we partially decode into an
 /// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {

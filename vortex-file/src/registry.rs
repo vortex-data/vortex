@@ -6,7 +6,7 @@ use vortex_array::arrays::{
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::vtable::VTableRef;
-use vortex_array::{Context, ContextRef, Encoding};
+use vortex_array::{Context, Encoding};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
@@ -59,11 +59,11 @@ impl Default for Registry {
 }
 
 impl Registry {
-    /// Create a new [`ContextRef`] with the provided encodings.
+    /// Create a new [`Context`] with the provided encodings.
     pub fn new_array_context<'a>(
         &self,
         encoding_ids: impl Iterator<Item = &'a str>,
-    ) -> VortexResult<ContextRef> {
+    ) -> VortexResult<Context> {
         let mut ctx = Context::empty();
         for id in encoding_ids {
             let vtable = self

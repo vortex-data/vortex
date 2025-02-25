@@ -7,8 +7,8 @@ use flatbuffers::{FlatBufferBuilder, root};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
+use vortex_array::Context;
 use vortex_array::stats::StatsSet;
-use vortex_array::{Context, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{
@@ -21,7 +21,7 @@ use crate::Registry;
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
-    ctx: ContextRef,
+    ctx: Context,
     layout_ctx: LayoutContextRef,
     layout: Layout,
     segments: Arc<[Segment]>,
@@ -35,7 +35,7 @@ impl Footer {
     ///
     /// Panics if the segments are not ordered by byte offset.
     pub fn new(
-        ctx: ContextRef,
+        ctx: Context,
         layout_ctx: LayoutContextRef,
         root_layout: Layout,
         segments: Arc<[Segment]>,
@@ -129,8 +129,8 @@ impl Footer {
         ))
     }
 
-    /// Returns the array [`ContextRef`] of the file.
-    pub fn ctx(&self) -> &ContextRef {
+    /// Returns the array [`Context`] of the file.
+    pub fn ctx(&self) -> &Context {
         &self.ctx
     }
 

@@ -3,7 +3,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Context,
     DeserializeMetadata, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
@@ -48,7 +48,7 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &Context,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

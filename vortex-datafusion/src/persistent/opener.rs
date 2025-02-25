@@ -6,7 +6,7 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
-use vortex_array::{ContextRef, ToCanonical};
+use vortex_array::{Context, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -18,7 +18,7 @@ use super::cache::FooterCache;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
-    pub ctx: ContextRef,
+    pub ctx: Context,
     pub scheme: ObjectStoreScheme,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
@@ -32,7 +32,7 @@ pub(crate) struct VortexFileOpener {
 impl VortexFileOpener {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        ctx: ContextRef,
+        ctx: Context,
         scheme: ObjectStoreScheme,
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,

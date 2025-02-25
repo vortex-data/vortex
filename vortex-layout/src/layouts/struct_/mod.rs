@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::ContextRef;
+use vortex_array::Context;
 use vortex_dtype::{DType, Field, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -27,7 +27,7 @@ impl LayoutVTable for StructLayout {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ContextRef,
+        ctx: Context,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(StructReader::try_new(layout, ctx, segment_reader)?.into_arc())

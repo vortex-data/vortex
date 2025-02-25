@@ -2,7 +2,7 @@ use std::iter;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
-use vortex_array::ContextRef;
+use vortex_array::Context;
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -13,7 +13,7 @@ use crate::{Layout, LayoutVTable};
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
-    ctx: ContextRef,
+    ctx: Context,
     segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// Shared lazy chunk scanners
@@ -25,7 +25,7 @@ pub struct ChunkedReader {
 impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
-        ctx: ContextRef,
+        ctx: Context,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != ChunkedLayout.id() {
