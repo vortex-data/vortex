@@ -31,11 +31,11 @@ Vortex array:
 Compress
 --------
 
-Use :func:`~vortex.compress_btr` to compress the Vortex array and check the relative size:
+Use :func:`~vortex.compress` to compress the Vortex array and check the relative size:
 
 .. doctest::
 
-   >>> cvtx = vx.compress_btr(vtx)
+   >>> cvtx = vx.compress(vtx)
    >>> cvtx.nbytes
    15166
    >>> cvtx.nbytes / vtx.nbytes

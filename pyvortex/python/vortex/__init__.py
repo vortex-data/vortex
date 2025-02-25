@@ -19,7 +19,7 @@ from ._lib.arrays import (
     UInt64TypeArray,
     Utf8TypeArray,
 )
-from ._lib.compress import compress, compress_btr
+from ._lib.compress import compress
 from ._lib.dtype import (
     BinaryDType,
     BoolDType,
@@ -82,7 +82,6 @@ assert _lib, "Ensure we eagerly import the Vortex native library"
 __all__ = [
     "array",
     "compress",
-    "compress_btr",
     # Arrays
     "Array",
     "NullTypeArray",

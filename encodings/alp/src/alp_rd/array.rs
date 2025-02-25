@@ -132,6 +132,10 @@ impl ALPRDArray {
     pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
         &self.left_parts_dictionary
     }
+
+    pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
+        self.left_parts_patches = patches;
+    }
 }
 
 impl ArrayImpl for ALPRDArray {

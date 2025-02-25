@@ -1,7 +1,7 @@
 mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPRDArray, RDEncoder, alp_encode};
+use vortex_alp::{ALPArray, RDEncoder, alp_encode};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
@@ -265,20 +265,13 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let alp_rd = encoder.encode(stats.source());
+        let mut alp_rd = encoder.encode(stats.source());
 
         let patches = alp_rd
             .left_parts_patches()
             .map(compress_patches)
             .transpose()?;
-        let alp_rd = ALPRDArray::try_new(
-            alp_rd.dtype().clone(),
-            alp_rd.left_parts().clone(),
-            alp_rd.left_parts_dictionary().clone(),
-            alp_rd.right_parts().clone(),
-            alp_rd.right_bit_width(),
-            patches,
-        )?;
+        alp_rd.replace_left_parts_patches(patches);
 
         Ok(alp_rd.into_array())
     }
