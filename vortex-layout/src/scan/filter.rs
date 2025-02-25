@@ -6,12 +6,12 @@ use bit_vec::BitVec;
 use exponential_decay_histogram::ExponentialDecayHistogram;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::{FieldName, StructDType};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
-use vortex_expr::{get_item, ident, or, ExprRef};
+use vortex_expr::{ExprRef, get_item, ident};
 use vortex_mask::Mask;
 
 use crate::{ExprEvaluator, RowMask};
@@ -55,11 +55,7 @@ impl FilterExpr {
             .collect();
 
         // Partition the expression into conjuncts
-        let conjuncts = cnf(expr)?;
-        let conjuncts: Vec<ExprRef> = conjuncts
-            .into_iter()
-            .filter_map(|disjunction| disjunction.into_iter().reduce(or))
-            .collect();
+        let conjuncts = cnf(expr);
 
         // Find which fields are referenced by each conjunct.
         let conjunct_fields = conjuncts
@@ -114,7 +110,11 @@ impl FilterExpr {
     ///
     /// If we already have fields for a certain conjunct, we choose to evaluate it. Otherwise,
     /// we pick the first conjunct that we prefer based on our ordering.
-    fn next_conjunct(&self, remaining: &BitVec, fetched_fields: &[Option<Array>]) -> Option<usize> {
+    fn next_conjunct(
+        &self,
+        remaining: &BitVec,
+        fetched_fields: &[Option<ArrayRef>],
+    ) -> Option<usize> {
         let read = self.ordering.read().vortex_expect("poisoned lock");
 
         // First try to find a conjunct that we've already fetched fields for.
@@ -191,7 +191,7 @@ pub struct FilterEvaluation {
     /// The parent filter expression.
     filter_expr: Arc<FilterExpr>,
     /// The fields that have been read.
-    field_arrays: Vec<Option<Array>>,
+    field_arrays: Vec<Option<ArrayRef>>,
     /// The conjunctions remaining to be evaluated.
     remaining: BitVec,
     /// The current pruning mask.
@@ -289,7 +289,8 @@ impl FilterEvaluation {
                     .evaluate_expr(RowMask::new(self.mask.clone(), self.row_offset), conjunct)
                     .await?;
                 // Use a rank-intersection to explode the result into the full mask.
-                self.mask.intersect_by_rank(&Mask::try_from(result)?)
+                self.mask
+                    .intersect_by_rank(&Mask::try_from(result.as_ref())?)
             } else {
                 let result = evaluator
                     .evaluate_expr(
@@ -297,7 +298,7 @@ impl FilterEvaluation {
                         conjunct.clone(),
                     )
                     .await?;
-                let conjunct_mask = Mask::try_from(result)?;
+                let conjunct_mask = Mask::try_from(result.as_ref())?;
 
                 log::debug!(
                     "Reporting selectivity {} for {}..{} {}",

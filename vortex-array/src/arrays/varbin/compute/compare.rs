@@ -2,23 +2,23 @@ use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
-use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
+use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::compute::{CompareFn, Operator, compare_lengths_to_empty};
 use crate::variants::PrimitiveArrayTrait as _;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareFn<VarBinArray> for VarBinEncoding {
+impl CompareFn<&VarBinArray> for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
@@ -42,7 +42,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                     // No value is lt ""
                     Operator::Lt => BooleanBuffer::new_unset(len),
                     _ => {
-                        let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+                        let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
                             compare_offsets_to_empty::<$P>(lhs_offsets, operator)
                         })
@@ -50,7 +50,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                 };
 
                 return Ok(Some(
-                    BoolArray::try_new(buffer, lhs.validity())?.into_array(),
+                    BoolArray::new(buffer, lhs.validity().clone()).into_array(),
                 ));
             }
 
@@ -101,4 +101,40 @@ fn compare_offsets_to_empty<P: NativePType>(
         .tuple_windows()
         .map(|(&s, &e)| e - s);
     compare_lengths_to_empty(lengths_iter, operator)
+}
+
+#[cfg(test)]
+mod test {
+    use arrow_buffer::BooleanBuffer;
+    use vortex_buffer::ByteBuffer;
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
+
+    use crate::ToCanonical;
+    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::compute::{Operator, compare};
+
+    #[test]
+    fn test_binary_compare() {
+        let array = VarBinArray::from_iter(
+            [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let result = compare(
+            &array,
+            &ConstantArray::new(
+                Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
+                3,
+            ),
+            Operator::Eq,
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+
+        assert_eq!(
+            result.boolean_buffer(),
+            &BooleanBuffer::from_iter([true, false, false])
+        );
+    }
 }

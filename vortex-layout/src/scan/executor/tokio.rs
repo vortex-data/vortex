@@ -6,7 +6,7 @@ use futures::{FutureExt, TryFutureExt};
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use super::Executor;
 

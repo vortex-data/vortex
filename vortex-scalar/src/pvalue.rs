@@ -7,7 +7,7 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{vortex_err, VortexError, VortexExpect};
+use vortex_error::{VortexError, VortexExpect, vortex_err};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PValue {
@@ -354,8 +354,8 @@ impl Display for PValue {
 mod test {
     use std::cmp::Ordering;
 
-    use vortex_dtype::half::f16;
     use vortex_dtype::PType;
+    use vortex_dtype::half::f16;
 
     use crate::PValue;
 

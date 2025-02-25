@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{expressions, PhysicalExpr};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use datafusion_physical_expr::{PhysicalExpr, expressions};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::{get_item, ident, lit, BinaryExpr, ExprRef, Like, Operator};
+use crate::{BinaryExpr, ExprRef, Like, Operator, get_item, ident, lit};
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.

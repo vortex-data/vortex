@@ -1,16 +1,18 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
+use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
+use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
 use bench_vortex::tpch::{
-    load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10,
-    TPC_H_ROW_COUNT_ARRAY_LENGTH,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
+    run_tpch_query, tpch_queries,
 };
-use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::{Parser, ValueEnum};
+use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
@@ -18,6 +20,7 @@ use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
+use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
@@ -48,6 +51,10 @@ struct Args {
     emulate_object_store: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
+    #[arg(long)]
+    all_metrics: bool,
+    #[arg(long)]
+    export_spans: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug)]
@@ -109,13 +116,15 @@ fn main() -> ExitCode {
             //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                warn!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
+                warn!(
+                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/"
+                );
             }
             info!(
                 concat!(
-                "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                "If it does not, you should kill this command, locally generate the files (by running without\n",
-                "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files (by running without\n",
+                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
                 ),
                 tpch_benchmark_remote_data_dir,
             );
@@ -132,6 +141,8 @@ fn main() -> ExitCode {
         args.emulate_object_store,
         args.scale_factor,
         url,
+        args.all_metrics,
+        args.export_spans,
     ))
 }
 
@@ -145,6 +156,8 @@ async fn bench_main(
     emulate_object_store: bool,
     scale_factor: u8,
     url: Url,
+    display_all_metrics: bool,
+    export_spans: bool,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -170,7 +183,10 @@ async fn bench_main(
     let mut row_counts = Vec::new();
     let mut measurements = Vec::new();
 
+    let mut metrics = MetricsSet::new();
+
     for format in formats.iter().copied() {
+        let mut plans = Vec::new();
         // Load datasets
         let ctx = load_datasets(&url, format, emulate_object_store)
             .await
@@ -192,9 +208,23 @@ async fn bench_main(
             }
 
             for i in 0..2 {
-                let row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await;
+                let (row_count, plan) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 if i == 0 {
                     row_counts.push((query_idx, format, row_count));
+                    // gather metrics
+                    for (idx, m) in VortexMetricsFinder::find_all(plan.as_ref())
+                        .into_iter()
+                        .enumerate()
+                    {
+                        metrics.merge_all_with_label(
+                            m,
+                            &[
+                                Label::new("query_idx", query_idx.to_string()),
+                                Label::new("vortex_exec_idx", idx.to_string()),
+                            ],
+                        );
+                    }
+                    plans.push((query_idx, plan));
                 }
             }
 
@@ -226,6 +256,11 @@ async fn bench_main(
             });
 
             progress.inc(1);
+        }
+        if export_spans {
+            if let Err(e) = export_plan_spans(format, plans).await {
+                warn!("failed to export spans {e}");
+            }
         }
     }
 
@@ -271,6 +306,12 @@ async fn bench_main(
 
     match display_format {
         DisplayFormat::Table => {
+            if !display_all_metrics {
+                metrics = metrics.aggregate();
+            }
+            for m in metrics.timestamps_removed().sorted_for_display().iter() {
+                println!("{}", m);
+            }
             render_table(measurements, &formats, RatioMode::Time).unwrap();
         }
         DisplayFormat::GhJson => {

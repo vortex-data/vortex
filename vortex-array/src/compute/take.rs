@@ -1,11 +1,11 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A> {
     /// Create a new array by taking the values from the `array` at the
@@ -14,62 +14,51 @@ pub trait TakeFn<A> {
     /// # Panics
     ///
     /// Using `indices` that are invalid for the given `array` will cause a panic.
-    fn take(&self, array: &A, indices: &Array) -> VortexResult<Array>;
-
-    /// Create a new array by taking the values from the `array` at the
-    /// given `indices`.
-    ///
-    /// # Safety
-    ///
-    /// This take variant will not perform bounds checking on indices, so it is the caller's
-    /// responsibility to ensure that the `indices` are all valid for the provided `array`.
-    /// Failure to do so could result in out of bounds memory access or UB.
-    unsafe fn take_unchecked(&self, array: &A, indices: &Array) -> VortexResult<Array> {
-        self.take(array, indices)
-    }
+    fn take(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef>;
 
     /// Has the same semantics as `Self::take` but materializes the result into the provided
     /// builder.
     fn take_into(
         &self,
-        array: &A,
-        indices: &Array,
+        array: A,
+        indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        builder.extend_from_array(self.take(array, indices)?)
+        builder.extend_from_array(&self.take(array, indices)?)
     }
 }
 
-impl<E: Encoding> TakeFn<Array> for E
+impl<E: Encoding> TakeFn<&dyn Array> for E
 where
-    E: TakeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> TakeFn<&'a E::Array>,
 {
-    fn take(&self, array: &Array, indices: &Array) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        TakeFn::take(encoding, array_ref, indices)
+    fn take(&self, array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        TakeFn::take(self, array_ref, indices)
     }
 
     fn take_into(
         &self,
-        array: &Array,
-        indices: &Array,
+        array: &dyn Array,
+        indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        TakeFn::take_into(encoding, array_ref, indices, builder)
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        TakeFn::take_into(self, array_ref, indices, builder)
     }
 }
 
-pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
     //  the filter function since they're typically optimised for this case.
     // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
     //  such that canonicalize does less work.
-
-    let array = array.as_ref();
-    let indices = indices.as_ref();
-
     if indices.all_invalid()? {
         return Ok(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
@@ -84,23 +73,17 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         );
     }
 
-    // If the indices are all within bounds, we can skip bounds checking.
-    let checked_indices = indices
-        .statistics()
-        .get_as_bound::<Max, usize>()
-        .is_some_and(|max| max < array.len());
-
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let derived_stats = (!array.must_be_constant()).then(|| derive_take_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
 
-    let taken = take_impl(array, indices, checked_indices)?;
+    let taken = take_impl(array, indices)?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = taken.stats_set();
+        let mut stats = taken.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            taken.set_stat(stat, val)
+            taken.statistics().set_stat(stat, val)
         }
     }
 
@@ -129,12 +112,13 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 }
 
 pub fn take_into(
-    array: impl AsRef<Array>,
-    indices: impl AsRef<Array>,
+    array: &dyn Array,
+    indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
-    let array = array.as_ref();
-    let indices = indices.as_ref();
+    if array.is_empty() && !indices.is_empty() {
+        vortex_bail!("Cannot take_into from an empty array");
+    }
 
     #[cfg(debug_assertions)]
     {
@@ -176,8 +160,8 @@ pub fn take_into(
     Ok(())
 }
 
-fn derive_take_stats(arr: &Array) -> StatsSet {
-    let stats = arr.stats_set();
+fn derive_take_stats(arr: &dyn Array) -> StatsSet {
+    let stats = arr.statistics().stats_set();
 
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
 
@@ -195,39 +179,27 @@ fn derive_take_stats(arr: &Array) -> StatsSet {
     stats
 }
 
-fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {
+fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.vtable().take_fn() {
-        let result = if checked_indices {
-            // SAFETY: indices are all inbounds per stats.
-            // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
-            unsafe { take_fn.take_unchecked(array, indices) }
-        } else {
-            take_fn.take(array, indices)
-        }?;
-        return Ok(result);
+        return take_fn.take(array, indices);
     }
 
     // Otherwise, flatten and try again.
     log::debug!("No take implementation found for {}", array.encoding());
-    let canonical = array.clone().into_canonical()?.into_array();
-    let canonical_take_fn = canonical
-        .vtable()
+    let canonical = array.to_canonical()?.into_array();
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 
-    if checked_indices {
-        // SAFETY: indices are known to be in-bound from stats
-        unsafe { canonical_take_fn.take_unchecked(&canonical, indices) }
-    } else {
-        canonical_take_fn.take(&canonical, indices)
-    }
+    canonical_take_fn.take(&canonical, indices)
 }
 
 fn take_into_impl(
-    array: &Array,
-    indices: &Array,
+    array: &dyn Array,
+    indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
     let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
@@ -246,9 +218,9 @@ fn take_into_impl(
 
     // Otherwise, flatten and try again.
     log::debug!("No take_into implementation found for {}", array.encoding());
-    let canonical = array.clone().into_canonical()?.into_array();
-    let canonical_take_fn = canonical
-        .vtable()
+    let canonical = array.to_canonical()?.into_array();
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 

@@ -1,37 +1,28 @@
 use std::cmp::Ordering;
-use std::ops::Deref;
 
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
+use crate::Array;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
 use crate::compute::scalar_at;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
-use crate::Array;
 
-impl StatisticsVTable<VarBinArray> for VarBinEncoding {
+impl StatisticsVTable<&VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
         compute_varbin_statistics(array, stat)
     }
 }
 
-pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>(
+pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
     array: &T,
     stat: Stat,
 ) -> VortexResult<StatsSet> {
-    if stat == Stat::UncompressedSizeInBytes {
-        return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
-    }
-
-    if array.is_empty()
-        || stat == Stat::TrueCount
-        || stat == Stat::RunCount
-        || stat == Stat::BitWidthFreq
-        || stat == Stat::TrailingZeroFreq
-    {
-        return Ok(StatsSet::default());
+    if array.is_empty() {
+        return Ok(StatsSet::empty_array());
     }
 
     Ok(match stat {
@@ -52,7 +43,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
+                StatsSet::constant(scalar_at(array, 0)?, array.len())
             } else {
                 StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
             }
@@ -76,22 +67,20 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
             }
             stats
         }
-        Stat::UncompressedSizeInBytes
-        | Stat::TrueCount
-        | Stat::RunCount
-        | Stat::BitWidthFreq
-        | Stat::TrailingZeroFreq
-        | Stat::Min
-        | Stat::Max => {
+        Stat::UncompressedSizeInBytes => StatsSet::of(stat, Precision::exact(array.nbytes())),
+        Stat::RunCount | Stat::BitWidthFreq | Stat::TrailingZeroFreq => StatsSet::default(),
+        Stat::Min | Stat::Max => {
+            // Min and max are automatically dispatched to min_max compute function.
             vortex_panic!(
                 "Unreachable, stat {} should have already been handled",
                 stat
             )
         }
+        Stat::Sum => unreachable!("Sum is not supported for VarBinArray"),
     })
 }
 
-fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
+pub(super) fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     let Some(first_value) = iter.next() else {
         return true; // empty array is constant
     };
@@ -110,6 +99,7 @@ mod test {
     use vortex_buffer::{BufferString, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::varbin::VarBinArray;
 
     fn array(dtype: DType) -> VarBinArray {

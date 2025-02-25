@@ -8,13 +8,13 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, Field, FieldMask};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, COLUMNAR_LAYOUT_ID};
+use crate::{COLUMNAR_LAYOUT_ID, LayoutId};
 
 #[derive(Debug)]
 pub struct StructLayout;

@@ -1,14 +1,14 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
+    IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, try_cast,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef};
 
 mod binary_numeric;
 mod boolean;
@@ -16,70 +16,76 @@ mod compare;
 mod fill_null;
 mod filter;
 mod invert;
+mod is_constant;
 mod mask;
 mod min_max;
 mod scalar_at;
 mod slice;
+mod sum;
 mod take;
 
 impl ComputeVTable for ChunkedEncoding {
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<Array>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
         Some(self)
     }
 
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)
     }
 
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl CastFn<ChunkedArray> for ChunkedEncoding {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<Array> {
+impl CastFn<&ChunkedArray> for ChunkedEncoding {
+    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
-            cast_chunks.push(try_cast(&chunk, dtype)?);
+            cast_chunks.push(try_cast(chunk, dtype)?);
         }
 
-        Ok(ChunkedArray::try_new_unchecked(cast_chunks, dtype.clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array())
     }
 }
 
@@ -88,9 +94,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::IntoArray;
+    use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
-    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {
@@ -118,7 +126,7 @@ mod test {
                 &DType::Primitive(PType::U64, Nullability::NonNullable)
             )
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<u64>(),
             &[0u64, 1, 2, 3],

@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
-use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::layouts::stats::StatsLayout;
+use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::{LayoutStrategy, LayoutVTableRef};
@@ -53,7 +53,7 @@ impl StatsLayoutWriter {
         options: StatsLayoutOptions,
     ) -> VortexResult<Self> {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
-        let stats_accumulator = StatsAccumulator::new(dtype.clone(), present_stats);
+        let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
 
         Ok(Self {
             options,
@@ -68,9 +68,15 @@ impl StatsLayoutWriter {
 }
 
 impl LayoutWriter for StatsLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         if chunk.len() > self.options.block_size {
-            vortex_bail!("Chunks passed to StatsLayoutWriter must be block_size in length, except the final block. Use RepartitionWriter to split chunks into blocks.");
+            vortex_bail!(
+                "Chunks passed to StatsLayoutWriter must be block_size in length, except the final block. Use RepartitionWriter to split chunks into blocks."
+            );
         }
         if self.final_block {
             vortex_bail!(
@@ -113,7 +119,7 @@ impl LayoutWriter for StatsLayoutWriter {
 
         Ok(Layout::new_owned(
             "stats".into(),
-            LayoutVTableRef::from_static(&StatsLayout),
+            LayoutVTableRef::new_ref(&StatsLayout),
             self.dtype.clone(),
             // We report our child data's row count, not the stats table.
             child.row_count(),

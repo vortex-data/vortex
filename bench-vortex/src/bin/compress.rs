@@ -1,21 +1,20 @@
-#![allow(dead_code)]
-use bench_vortex::compress::bench::{benchmark_compress, CompressMeasurements};
+use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
+use bench_vortex::datasets::BenchmarkDataset;
 use bench_vortex::datasets::public_bi_data::PBIDataset::{
     AirlineSentiment, Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags,
 };
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::datasets::BenchmarkDataset;
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
-use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
-use vortex::{IntoArray, IntoCanonical};
+use vortex::{Array, ArrayExt};
 
 feature_flagged_allocator!();
 
@@ -118,16 +117,13 @@ fn compress(
                 || {
                     let vx_array =
                         runtime.block_on(async { dataset_handle.to_vortex_array().await });
-                    ChunkedArray::from_iter(
-                        ChunkedArray::maybe_from(vx_array)
-                            .unwrap()
-                            .chunks()
-                            .map(|c| {
-                                let mut builder = builder_with_capacity(c.dtype(), c.len());
-                                c.canonicalize_into(builder.as_mut()).unwrap();
-                                builder.finish()
-                            }),
-                    )
+                    ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
+                        |c| {
+                            let mut builder = builder_with_capacity(c.dtype(), c.len());
+                            c.append_to_builder(builder.as_mut()).unwrap();
+                            builder.finish()
+                        },
+                    ))
                     .into_array()
                 },
             )

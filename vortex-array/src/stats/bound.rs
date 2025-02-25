@@ -105,8 +105,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
         })
     }
 
-    fn as_exact(&self) -> Option<&T> {
-        self.0.as_exact()
+    fn to_exact(&self) -> Option<&T> {
+        self.0.to_exact()
     }
 }
 
@@ -124,17 +124,9 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
     fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         match &self.0 {
             Exact(lhs) => lhs.partial_cmp(other),
-            Inexact(lhs) => {
-                lhs.partial_cmp(other).and_then(
-                    |o| {
-                        if o == Ordering::Less {
-                            None
-                        } else {
-                            Some(o)
-                        }
-                    },
-                )
-            }
+            Inexact(lhs) => lhs
+                .partial_cmp(other)
+                .and_then(|o| if o == Ordering::Less { None } else { Some(o) }),
         }
     }
 }
@@ -214,8 +206,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
         })
     }
 
-    fn as_exact(&self) -> Option<&T> {
-        self.0.as_exact()
+    fn to_exact(&self) -> Option<&T> {
+        self.0.to_exact()
     }
 }
 
@@ -246,7 +238,6 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::stats::bound::IntersectionResult;
     use crate::stats::{Precision, StatBound, UpperBound};
 

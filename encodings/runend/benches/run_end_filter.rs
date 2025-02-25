@@ -2,11 +2,11 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
-use vortex_runend::RunEndArray;
 use vortex_runend::_benchmarking::{filter_run_end, take_indices_unchecked};
+use vortex_runend::RunEndArray;
 
 fn main() {
     divan::main();

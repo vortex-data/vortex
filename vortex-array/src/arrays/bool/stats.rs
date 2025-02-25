@@ -6,11 +6,13 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
-impl StatisticsVTable<BoolArray> for BoolEncoding {
+impl StatisticsVTable<&BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -18,17 +20,17 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
 
         if array.is_empty() {
             return Ok(StatsSet::new_unchecked(vec![
-                (Stat::TrueCount, Precision::exact(0)),
+                (Stat::Sum, Precision::exact(0)),
                 (Stat::NullCount, Precision::exact(0)),
                 (Stat::RunCount, Precision::exact(0)),
             ]));
         }
 
         match array.validity_mask()? {
-            Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
+            Mask::AllTrue(_) => self.compute_statistics(array.boolean_buffer(), stat),
             Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
             Mask::Values(values) => self.compute_statistics(
-                &NullableBools(&array.boolean_buffer(), values.boolean_buffer()),
+                &NullableBools(array.boolean_buffer(), values.boolean_buffer()),
                 stat,
             ),
         }
@@ -37,14 +39,14 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
 
 struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
-impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
+impl StatisticsVTable<&NullableBools<'_>> for BoolEncoding {
     fn compute_statistics(&self, array: &NullableBools<'_>, stat: Stat) -> VortexResult<StatsSet> {
         // Fast-path if we just want the true-count
         if matches!(
             stat,
-            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
+            Stat::Sum | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
-            return Ok(StatsSet::bools_with_true_and_null_count(
+            return Ok(StatsSet::bools_with_sum_and_null_count(
                 array.0.bitand(array.1).count_set_bits(),
                 array.1.len() - array.1.count_set_bits(),
                 array.0.len(),
@@ -79,14 +81,14 @@ impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
     }
 }
 
-impl StatisticsVTable<BooleanBuffer> for BoolEncoding {
+impl StatisticsVTable<&BooleanBuffer> for BoolEncoding {
     fn compute_statistics(&self, buffer: &BooleanBuffer, stat: Stat) -> VortexResult<StatsSet> {
         // Fast-path if we just want the true-count
         if matches!(
             stat,
-            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
+            Stat::Sum | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
-            return Ok(StatsSet::bools_with_true_and_null_count(
+            return Ok(StatsSet::bools_with_sum_and_null_count(
                 buffer.count_set_bits(),
                 0,
                 buffer.len(),
@@ -168,10 +170,12 @@ impl BoolStatsAccumulator {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_dtype::Nullability;
 
+    use crate::ArrayVariants;
+    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::stats::{Stat, Statistics};
+    use crate::validity::Validity;
 
     #[test]
     fn bool_stats() {
@@ -183,7 +187,7 @@ mod test {
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 4);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 4);
     }
 
     #[test]
@@ -226,7 +230,7 @@ mod test {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 3);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 2);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 2);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 3);
     }
 
@@ -239,20 +243,20 @@ mod test {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 1);
     }
 
     #[test]
     fn empty_array() {
-        let bool_arr = BoolArray::new(BooleanBuffer::new_set(0), Nullability::NonNullable);
+        let bool_arr = BoolArray::new(BooleanBuffer::new_set(0), Validity::NonNullable);
         assert!(bool_arr.statistics().compute_is_strict_sorted().is_none());
         assert!(bool_arr.statistics().compute_is_sorted().is_none());
         assert!(bool_arr.statistics().compute_is_constant().is_none());
         assert!(bool_arr.statistics().compute_min::<bool>().is_none());
         assert!(bool_arr.statistics().compute_max::<bool>().is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 0);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
     }
 
@@ -265,7 +269,7 @@ mod test {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
     }
 
@@ -275,10 +279,10 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert!(bool_arr.compute_stat(Stat::Min).is_none());
-        assert!(bool_arr.compute_stat(Stat::Max).is_none());
+        assert!(bool_arr.compute_stat(Stat::Min).unwrap().is_none());
+        assert!(bool_arr.compute_stat(Stat::Max).unwrap().is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);
     }
 }

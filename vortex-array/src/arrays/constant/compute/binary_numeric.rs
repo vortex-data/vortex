@@ -1,17 +1,17 @@
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::BinaryNumericOperator;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::BinaryNumericFn;
-use crate::{Array, IntoArray as _};
+use crate::{Array, ArrayRef};
 
-impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
+impl BinaryNumericFn<&ConstantArray> for ConstantEncoding {
     fn binary_numeric(
         &self,
         array: &ConstantArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -21,7 +21,7 @@ impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
                 array
                     .scalar()
                     .as_primitive()
-                    .checked_binary_numeric(rhs.as_primitive(), op)?
+                    .checked_binary_numeric(&rhs.as_primitive(), op)
                     .ok_or_else(|| vortex_err!("numeric overflow"))?,
                 array.len(),
             )

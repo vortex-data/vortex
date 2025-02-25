@@ -1,11 +1,12 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
+use crate::Array;
 use crate::arrays::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
-impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
+impl StatisticsVTable<&ChunkedArray> for ChunkedEncoding {
     fn compute_statistics(&self, array: &ChunkedArray, stat: Stat) -> VortexResult<StatsSet> {
         // for UncompressedSizeInBytes, we end up with sum of chunk uncompressed sizes
         // this ignores the `chunk_offsets` array child, so it won't exactly match self.nbytes()
@@ -26,7 +27,7 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
                     }
                 }
                 _ => s
-                    .compute_stat(stat)
+                    .compute_stat(stat)?
                     .map(|s| StatsSet::of(stat, Precision::exact(s))),
             }
             .unwrap_or_default();

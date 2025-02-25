@@ -1,8 +1,8 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{get_item, pack, ExprRef, Select};
+use crate::{ExprRef, Select, get_item, pack};
 
 /// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
@@ -61,7 +61,7 @@ mod tests {
     use vortex_dtype::{DType, StructDType};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{ident, select, Pack};
+    use crate::{Pack, ident, select};
 
     #[test]
     fn test_remove_select() {

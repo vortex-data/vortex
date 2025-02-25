@@ -1,21 +1,21 @@
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
+impl StatisticsVTable<&ByteBoolArray> for ByteBoolEncoding {
     fn compute_statistics(&self, array: &ByteBoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
-        let bools = array.as_ref().clone().into_bool()?;
+        let bools = array.to_bool()?;
         Ok(bools
             .statistics()
-            .compute_stat(stat)
+            .compute_stat(stat)?
             .map(|value| StatsSet::of(stat, Precision::exact(value)))
             .unwrap_or_default())
     }
@@ -23,6 +23,7 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayVariants;
 
     use super::*;
 
@@ -36,7 +37,7 @@ mod tests {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 4);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 4);
     }
 
     #[test]
@@ -79,7 +80,7 @@ mod tests {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 3);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 2);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 2);
     }
 
     #[test]
@@ -88,9 +89,21 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert!(bool_arr.statistics().compute_stat(Stat::Min).is_none());
-        assert!(bool_arr.statistics().compute_stat(Stat::Max).is_none());
+        assert!(
+            bool_arr
+                .statistics()
+                .compute_stat(Stat::Min)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            bool_arr
+                .statistics()
+                .compute_stat(Stat::Max)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
-        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
     }
 }

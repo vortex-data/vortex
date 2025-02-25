@@ -7,12 +7,12 @@ use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
-use crate::half::f16;
-use crate::nullability::Nullability::NonNullable;
 use crate::DType;
 use crate::DType::*;
+use crate::half::f16;
+use crate::nullability::Nullability::NonNullable;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
@@ -179,6 +179,30 @@ macro_rules! match_each_native_ptype {
             PType::U16 => __with_integer__! { u16 },
             PType::U32 => __with_integer__! { u32 },
             PType::U64 => __with_integer__! { u64 },
+            PType::F16 => __with_floating_point__! { f16 },
+            PType::F32 => __with_floating_point__! { f32 },
+            PType::F64 => __with_floating_point__! { f64 },
+        }
+    });
+    ($self:expr,
+     unsigned: | $_:tt $unsigned_enc:ident | { $($unsigned_body:tt)* }
+     signed: | $_1:tt $signed_enc:ident | { $($signed_body:tt)* }
+     floating: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
+    ) => ({
+        macro_rules! __with_unsigned__ {( $_ $unsigned_enc:ident ) => ( { $($unsigned_body)* } )}
+        macro_rules! __with_signed__ {( $_ $signed_enc:ident ) => ( { $($signed_body)* } )}
+        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+        use $crate::PType;
+        use $crate::half::f16;
+        match $self {
+            PType::U8 => __with_unsigned__! { u8 },
+            PType::U16 => __with_unsigned__! { u16 },
+            PType::U32 => __with_unsigned__! { u32 },
+            PType::U64 => __with_unsigned__! { u64 },
+            PType::I8 => __with_signed__! { i8 },
+            PType::I16 => __with_signed__! { i16 },
+            PType::I32 => __with_signed__! { i32 },
+            PType::I64 => __with_signed__! { i64 },
             PType::F16 => __with_floating_point__! { f16 },
             PType::F32 => __with_floating_point__! { f32 },
             PType::F64 => __with_floating_point__! { f64 },

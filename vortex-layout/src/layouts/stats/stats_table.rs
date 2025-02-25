@@ -2,14 +2,13 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
-use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
+use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ArrayVariants, ToCanonical};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -18,7 +17,7 @@ use vortex_scalar::Scalar;
 #[derive(Clone)]
 pub struct StatsTable {
     // The struct array backing the stats table
-    array: Array,
+    array: ArrayRef,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
@@ -26,7 +25,7 @@ pub struct StatsTable {
 impl StatsTable {
     /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
     /// structure for given list of stats
-    pub fn try_new(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> VortexResult<Self> {
+    pub fn try_new(column_dtype: DType, array: ArrayRef, stats: Arc<[Stat]>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -34,7 +33,7 @@ impl StatsTable {
     }
 
     /// Create StatsTable without validating return array against expected stats
-    pub fn unchecked_new(array: Array, stats: Arc<[Stat]>) -> Self {
+    pub fn unchecked_new(array: ArrayRef, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 
@@ -42,15 +41,18 @@ impl StatsTable {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
-                (stat.name(), stat.dtype(column_dtype).as_nullable())
-            }))),
+            Arc::new(StructDType::from_iter(present_stats.iter().filter_map(
+                |stat| {
+                    stat.dtype(column_dtype)
+                        .map(|dtype| (stat.name(), dtype.as_nullable()))
+                },
+            ))),
             Nullability::NonNullable,
         )
     }
 
     /// The struct array backing the stats table
-    pub fn array(&self) -> &Array {
+    pub fn array(&self) -> &ArrayRef {
         &self.array
     }
 
@@ -70,17 +72,17 @@ impl StatsTable {
             // Different stats need different aggregations
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
-                Stat::Min | Stat::Max => {
-                    if let Some(s) = array.compute_stat(*stat) {
+                Stat::Min | Stat::Max | Stat::Sum => {
+                    if let Some(s) = array.statistics().compute_stat(*stat)? {
                         stats_set.set(*stat, Precision::exact(s))
                     }
                 }
                 // These stats sum up
-                Stat::TrueCount | Stat::NullCount | Stat::UncompressedSizeInBytes => {
+                Stat::NullCount | Stat::UncompressedSizeInBytes => {
                     // TODO(ngates): use Stat::Sum when we add it.
                     let parray =
-                        try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
-                            .into_primitive()?;
+                        try_cast(&array, &DType::Primitive(PType::U64, Nullability::Nullable))?
+                            .to_primitive()?;
                     let validity = parray.validity_mask()?;
 
                     let sum: u64 = parray
@@ -104,10 +106,10 @@ impl StatsTable {
     }
 
     /// Return the array for a given stat.
-    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<Array>> {
+    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
         Ok(self
             .array
-            .as_struct_array()
+            .as_struct_typed()
             .vortex_expect("Stats table must be a struct array")
             .maybe_null_field_by_name(stat.name())
             .ok())
@@ -127,13 +129,17 @@ pub struct StatsAccumulator {
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: DType, stats: Arc<[Stat]>) -> Self {
-        let builders = stats
+    pub fn new(dtype: DType, stats: &[Stat]) -> Self {
+        let (stats, builders): (Vec<Stat>, _) = stats
             .iter()
-            .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
-            .collect();
+            .filter_map(|s| {
+                s.dtype(&dtype)
+                    .map(|stat_dtype| (*s, builder_with_capacity(&stat_dtype.as_nullable(), 1024)))
+            })
+            .unzip();
+
         Self {
-            stats,
+            stats: stats.into(),
             builders,
             length: 0,
         }
@@ -143,10 +149,10 @@ impl StatsAccumulator {
         &self.stats
     }
 
-    pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.compute_stat(*s) {
-                builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
+            if let Some(v) = array.statistics().compute_stat(*s)? {
+                builder.append_scalar_value(v)?;
             } else {
                 builder.append_null();
             }
@@ -169,7 +175,7 @@ impl StatsAccumulator {
             .iter()
             .zip(self.builders.iter_mut())
             // We sort the stats so the DType is deterministic based on which stats are present.
-            .sorted_unstable_by_key(|(&s, _builder)| s)
+            .sorted_unstable_by_key(|&(&s, _)| s)
         {
             let values = builder.finish();
 

@@ -1,10 +1,10 @@
 include "vortex-array/array.fbs";
 include "vortex-layout/layout.fbs";
 
-// [file layout]
-/// The `FileLayout` stores the root `Layout` as well as location information for each referenced segment.
-table FileLayout {
-    root_layout: Layout;
+// [footer]
+/// The `Footer` stores the root `Layout` as well as location information for each referenced segment.
+table Footer {
+    layout: Layout;
     segments: [Segment];
     statistics: [ArrayStats];
 }
@@ -20,15 +20,17 @@ struct Segment {
     _compression: uint8;
     _encryption: uint16;
 }
-// [file layout]
+// [footer]
 
 // [postscript]
 /// The `Postscript` is guaranteed by the file format to never exceed
 /// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
 /// followed by an 8-byte `EndOfFile` struct.
+/// The initial read of a Vortex file is always at least 64KB (u16::MAX bytes) and therefore
+/// is guaranteed to cover at least the Postscript.
 table Postscript {
     dtype: Segment;
-    file_layout: Segment;
+    footer: Segment;
 }
 // [postscript]
 
@@ -41,5 +43,5 @@ table Postscript {
 //     magic: [uint8; 4]; // "VTXF"
 // }
 
-root_type Layout;
+root_type Footer;
 root_type Postscript;

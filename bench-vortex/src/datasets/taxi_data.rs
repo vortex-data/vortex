@@ -2,15 +2,15 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use tokio::fs::File;
+use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
-use vortex::Array;
 
-use crate::datasets::data_downloads::download_data;
 use crate::datasets::BenchmarkDataset;
+use crate::datasets::data_downloads::download_data;
 use crate::parquet_reader::parquet_to_vortex;
-use crate::{idempotent_async, IdempotentPath};
+use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
 
@@ -20,7 +20,7 @@ impl BenchmarkDataset for TaxiData {
         "taxi"
     }
 
-    async fn to_vortex_array(&self) -> Array {
+    async fn to_vortex_array(&self) -> ArrayRef {
         fetch_taxi_data().await
     }
 }
@@ -32,7 +32,7 @@ pub fn taxi_data_parquet() -> PathBuf {
     download_data(taxi_parquet_fpath, taxi_data_url)
 }
 
-pub async fn fetch_taxi_data() -> Array {
+pub async fn fetch_taxi_data() -> ArrayRef {
     let vortex_data = taxi_data_vortex().await;
     VortexOpenOptions::file(TokioFile::open(vortex_data).unwrap())
         .open()

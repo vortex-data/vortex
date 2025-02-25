@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, Canonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
@@ -96,8 +96,8 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_canonical()?;
         let Canonical::Struct(array) = array else {
             vortex_bail!("Expected Canonical::Struct, found {:?}", array);
         };
@@ -117,7 +117,7 @@ impl ArrayBuilder for StructBuilder {
             })
             .zip_eq(self.builders.iter_mut())
         {
-            a.canonicalize_into(builder.as_mut())?;
+            a.append_to_builder(builder.as_mut())?;
         }
 
         match array.validity() {
@@ -128,14 +128,14 @@ impl ArrayBuilder for StructBuilder {
                 self.validity.append_values(false, array.len());
             }
             Validity::Array(validity) => {
-                validity.canonicalize_into(&mut self.validity)?;
+                validity.append_to_builder(&mut self.validity)?;
             }
         }
 
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         let len = self.len();
         let fields = self
             .builders
@@ -175,8 +175,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_scalar::Scalar;
 
-    use crate::builders::struct_::StructBuilder;
     use crate::builders::ArrayBuilder;
+    use crate::builders::struct_::StructBuilder;
 
     #[test]
     fn test_struct_builder() {

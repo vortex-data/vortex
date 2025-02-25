@@ -1,8 +1,8 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{get_item, pack, ExprRef, Merge, VortexExpr};
+use crate::{ExprRef, Merge, VortexExpr, get_item, pack};
 
 /// Replaces [Merge] with combination of [GetItem] and [Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
@@ -71,7 +71,7 @@ mod tests {
     use vortex_dtype::{DType, StructDType};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{get_item, ident, merge, Pack};
+    use crate::{Pack, get_item, ident, merge};
 
     #[test]
     fn test_remove_merge() {

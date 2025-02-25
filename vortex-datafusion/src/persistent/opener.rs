@@ -6,7 +6,7 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
-use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_array::{ContextRef, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -14,7 +14,7 @@ use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::{InstrumentedReadAt, ObjectStoreReadAt};
 use vortex_metrics::VortexMetrics;
 
-use super::cache::FileLayoutCache;
+use super::cache::FooterCache;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
@@ -23,7 +23,7 @@ pub(crate) struct VortexFileOpener {
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
-    pub(crate) file_layout_cache: FileLayoutCache,
+    pub(crate) footer_cache: FooterCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
@@ -37,7 +37,7 @@ impl VortexFileOpener {
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
         filter: Option<Arc<dyn VortexExpr>>,
-        file_layout_cache: FileLayoutCache,
+        footer_cache: FooterCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
@@ -48,7 +48,7 @@ impl VortexFileOpener {
             object_store,
             projection,
             filter,
-            file_layout_cache,
+            footer_cache,
             projected_arrow_schema,
             batch_size,
             metrics,
@@ -73,7 +73,7 @@ impl FileOpener for VortexFileOpener {
         let filter = self.filter.clone();
         let projection = self.projection.clone();
         let ctx = self.ctx.clone();
-        let file_layout_cache = self.file_layout_cache.clone();
+        let footer_cache = self.footer_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
@@ -86,7 +86,11 @@ impl FileOpener for VortexFileOpener {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_metrics(file_metrics)
-                .with_file_layout(file_layout)
+                .with_footer(
+                    footer_cache
+                        .try_get(&file_meta.object_meta, object_store)
+                        .await?,
+                )
                 .open()
                 .await?;
 
@@ -109,7 +113,7 @@ impl FileOpener for VortexFileOpener {
             Ok(scan
                 .into_array_stream()?
                 .map(move |array| {
-                    let st = array?.into_struct()?;
+                    let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
                 })
                 .boxed())

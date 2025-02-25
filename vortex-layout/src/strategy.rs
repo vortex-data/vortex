@@ -9,8 +9,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
-use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 

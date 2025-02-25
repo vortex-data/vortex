@@ -1,7 +1,7 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use serde::{Deserialize, Serialize};
 use vortex_error::{VortexError, VortexExpect as _};
-use vortex_flatbuffers::{scalar as fb, WriteFlatBuffer};
+use vortex_flatbuffers::{WriteFlatBuffer, scalar as fb};
 
 use crate::{Scalar, ScalarValue};
 

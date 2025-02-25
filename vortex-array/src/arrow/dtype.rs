@@ -16,7 +16,7 @@ use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, Sch
 use vortex_datetime_dtype::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use vortex_datetime_dtype::is_temporal_ext_type;
 use vortex_dtype::{DType, FieldName, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrow::{FromArrowType, TryFromArrowType};
 

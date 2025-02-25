@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, StructArray as ArrowStructArray};
+use arrow_array::{ArrayRef, StructArray as ArrowStructArray};
 use arrow_schema::{DataType, Field, Fields};
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
+use crate::Array;
 use crate::arrays::{StructArray, StructEncoding};
-use crate::compute::{to_arrow, ToArrowFn};
+use crate::compute::{ToArrowFn, to_arrow};
 use crate::variants::StructArrayTrait;
 
-impl ToArrowFn<StructArray> for StructEncoding {
+impl ToArrowFn<&StructArray> for StructEncoding {
     fn to_arrow(
         &self,
         array: &StructArray,
@@ -82,7 +83,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrow::IntoArrowArray;
     use crate::validity::Validity;
-    use crate::IntoArray as _;
 
     #[test]
     fn nullable_non_null_to_arrow() {

@@ -1,5 +1,5 @@
 use bytes::Buf;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
 

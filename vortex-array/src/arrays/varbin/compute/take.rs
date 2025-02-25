@@ -1,21 +1,21 @@
 use arrow_buffer::NullBuffer;
 use num_traits::PrimInt;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err, vortex_panic};
 
-use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, ToCanonical};
 
-impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(&self, array: &VarBinArray, indices: &Array) -> VortexResult<Array> {
-        let offsets = array.offsets().into_primitive()?;
+impl TakeFn<&VarBinArray> for VarBinEncoding {
+    fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
@@ -23,7 +23,7 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
                     offsets.as_slice::<$O>(),
                     data.as_slice(),
                     indices.as_slice::<$I>(),
-                    array.validity(),
+                    array.validity().clone(),
                 )?.into_array())
             })
         })
