@@ -15,6 +15,8 @@ use vortex_flatbuffers::{
 };
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
 
+use crate::Registry;
+
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
@@ -49,13 +51,17 @@ impl Footer {
     /// Read the [`Footer`] from a flatbuffer.
     pub fn read_flatbuffer(
         flatbuffer: FlatBuffer,
-        ctx: &LayoutContextRef,
         dtype: DType,
+        registry: &Registry,
     ) -> VortexResult<Self> {
         let fb = root::<fb::Footer>(&flatbuffer)?;
         let fb_root_layout = fb
             .layout()
             .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
+
+        // Create a LayoutContext from the registry.
+        let layout_ids = fb.layouts
+        registry.new_layout_context()
 
         let root_encoding = ctx
             .lookup_layout(LayoutId(fb_root_layout.encoding()))

@@ -18,7 +18,9 @@ use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::{
+    Registry, VortexFile, DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION,
+};
 
 pub trait FileType: Sized {
     type Options: Clone;
@@ -40,10 +42,8 @@ pub struct VortexOpenOptions<F: FileType> {
     read: F::Read,
     /// File-specific options
     pub(crate) options: F::Options,
-    /// The Vortex Array encoding context.
-    ctx: ContextRef,
-    /// The Vortex Layout encoding context.
-    layout_ctx: LayoutContextRef,
+    /// The registry of encodings.
+    registry: Arc<Registry>,
     /// An optional, externally provided, file size.
     file_size: Option<u64>,
     /// An optional, externally provided, DType.
@@ -61,8 +61,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         Self {
             read,
             options,
-            ctx: ALL_ENCODINGS_CONTEXT.clone(),
-            layout_ctx: Arc::new(Default::default()),
+            registry: DEFAULT_REGISTRY.clone(),
             file_size: None,
             dtype: None,
             footer: None,
@@ -72,15 +71,9 @@ impl<F: FileType> VortexOpenOptions<F> {
         }
     }
 
-    /// Configure a Vortex Array context.
-    pub fn with_ctx(mut self, ctx: ContextRef) -> Self {
-        self.ctx = ctx;
-        self
-    }
-
-    /// Configure a layout context.
-    pub fn with_layouts(mut self, layout_ctx: LayoutContextRef) -> Self {
-        self.layout_ctx = layout_ctx;
+    /// Configure a Vortex registry.
+    pub fn with_registry(mut self, registry: Arc<Registry>) -> Self {
+        self.registry = registry;
         self
     }
 
@@ -145,6 +138,8 @@ impl<F: FileType> VortexOpenOptions<F> {
             None => self.read_footer().await?,
             Some(footer) => footer,
         };
+
+        // TODO(ngates): construct layout and array context from the footer + registry.
 
         Ok(VortexFile {
             read: self.read,
@@ -293,7 +288,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
         let bytes =
             FlatBuffer::align_from(initial_read.slice(offset..offset + (segment.length as usize)));
-        Footer::read_flatbuffer(bytes, &self.layout_ctx, dtype)
+        Footer::read_flatbuffer(bytes, dtype, &self.registry)
     }
 
     /// Populate segments in the cache that were covered by the initial read.

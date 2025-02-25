@@ -12,9 +12,16 @@ pub struct LayoutContext {
     layout_refs: HashMap<LayoutId, LayoutVTableRef>,
 }
 
+// TODO(ngates): internally Arc
 pub type LayoutContextRef = std::sync::Arc<LayoutContext>;
 
 impl LayoutContext {
+    pub fn empty() -> Self {
+        Self {
+            layout_refs: HashMap::new(),
+        }
+    }
+
     pub fn new(layout_refs: HashMap<LayoutId, LayoutVTableRef>) -> Self {
         Self { layout_refs }
     }
