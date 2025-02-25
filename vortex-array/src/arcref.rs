@@ -56,7 +56,7 @@ impl<T: ?Sized> Deref for ArcRef<T> {
 
     fn deref(&self) -> &Self::Target {
         match &self.0 {
-            Inner::Arc(arc) => arc.deref(),
+            Inner::Arc(arc) => &*arc,
             Inner::Ref(r) => r,
         }
     }
@@ -111,6 +111,6 @@ where
 
 impl<T: ?Sized + 'static> AsRef<T> for ArcRef<T> {
     fn as_ref(&self) -> &T {
-        self.deref()
+        &*self
     }
 }
