@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.4.0
 
       - name: Python Lint - Format
         run: uv run ruff format --check .
@@ -53,7 +53,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.4.0
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - PyVortex
