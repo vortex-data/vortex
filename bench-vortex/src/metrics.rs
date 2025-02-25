@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
-use datafusion_physical_plan::{accept, ExecutionPlan, ExecutionPlanVisitor, Metric};
+use datafusion_physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
 use itertools::Itertools;
 use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
-use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
 use crate::{Format, GIT_COMMIT_ID};

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::metrics::{export_plan_spans, MetricsSetExt};
+use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
 use bench_vortex::tpch::{
