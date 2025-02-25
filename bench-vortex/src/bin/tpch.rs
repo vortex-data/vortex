@@ -1,16 +1,16 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
+use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
 use bench_vortex::tpch::{
-    load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10,
-    TPC_H_ROW_COUNT_ARRAY_LENGTH,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
+    run_tpch_query, tpch_queries,
 };
-use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::{Parser, ValueEnum};
 use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
@@ -113,13 +113,15 @@ fn main() -> ExitCode {
             //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                warn!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
+                warn!(
+                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/"
+                );
             }
             info!(
                 concat!(
-                "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                "If it does not, you should kill this command, locally generate the files (by running without\n",
-                "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files (by running without\n",
+                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
                 ),
                 tpch_benchmark_remote_data_dir,
             );

@@ -4,7 +4,7 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -15,15 +15,15 @@ use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
-use vortex_buffer::{buffer, Buffer, ByteBufferMut};
+use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::{
-    InMemoryVortexFile, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE,
-    VERSION,
+    InMemoryVortexFile, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions,
+    VortexWriteOptions,
 };
 
 #[test]
@@ -224,13 +224,15 @@ async fn unequal_batches() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::in_memory(buf)
-        .open()
-        .await
-        .unwrap()
-        .scan()
-        .into_array_stream()
-        .unwrap());
+    let mut stream = pin!(
+        VortexOpenOptions::in_memory(buf)
+            .open()
+            .await
+            .unwrap()
+            .scan()
+            .into_array_stream()
+            .unwrap()
+    );
 
     let mut item_count = 0;
 
@@ -285,13 +287,15 @@ async fn write_chunked() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::in_memory(buf)
-        .open()
-        .await
-        .unwrap()
-        .scan()
-        .into_array_stream()
-        .unwrap());
+    let mut stream = pin!(
+        VortexOpenOptions::in_memory(buf)
+            .open()
+            .await
+            .unwrap()
+            .scan()
+            .into_array_stream()
+            .unwrap()
+    );
     let mut array_len: usize = 0;
     while let Some(array) = stream.next().await {
         array_len += array.unwrap().len();
@@ -984,6 +988,36 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
     let result = vxf.scan().into_array().await?.to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_excluding_dtype() -> VortexResult<()> {
+    let array = ChunkedArray::from_iter([
+        buffer![0, 1, 2].into_array(),
+        buffer![3, 4, 5].into_array(),
+        buffer![6, 7, 8].into_array(),
+    ])
+    .into_array();
+    let dtype = array.dtype().clone();
+
+    let buffer: Bytes = VortexWriteOptions::default()
+        .exclude_dtype()
+        .write(vec![], array.to_array_stream())
+        .await?
+        .into();
+
+    // Fail to open without DType.
+    let vxf = VortexOpenOptions::in_memory(buffer.clone()).open().await;
+    assert!(vxf.is_err(), "Opening without DType should fail");
+
+    let vxf = VortexOpenOptions::in_memory(buffer)
+        .with_dtype(dtype.clone())
+        .open()
+        .await?;
+    assert_eq!(vxf.dtype(), &dtype);
+    assert_eq!(vxf.row_count(), 9);
 
     Ok(())
 }

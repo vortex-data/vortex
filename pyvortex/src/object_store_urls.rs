@@ -8,7 +8,7 @@ use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use url::Url;
-use vortex::error::{vortex_bail, VortexResult};
+use vortex::error::{VortexResult, vortex_bail};
 use vortex::io::ObjectStoreReadAt;
 
 fn better_parse_url(

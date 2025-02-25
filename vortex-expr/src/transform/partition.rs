@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::transform::immediate_access::{immediate_scope_accesses, FieldAccesses};
+use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{get_item, ident, pack, ExprRef, GetItem, Identity};
+use crate::{ExprRef, GetItem, Identity, get_item, ident, pack};
 
 /// Partition an expression over the fields of the scope.
 ///
@@ -247,7 +247,7 @@ mod tests {
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{and, get_item, ident, lit, pack, select, Pack};
+    use crate::{Pack, and, get_item, ident, lit, pack, select};
 
     fn dtype() -> DType {
         DType::Struct(

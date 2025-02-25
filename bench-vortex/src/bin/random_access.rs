@@ -2,14 +2,14 @@ use std::process::ExitCode;
 
 use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
-use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use tokio::runtime::{Builder, Runtime};
-use vortex::buffer::{buffer, Buffer};
+use vortex::buffer::{Buffer, buffer};
 
 feature_flagged_allocator!();
 

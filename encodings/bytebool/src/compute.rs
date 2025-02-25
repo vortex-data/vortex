@@ -4,8 +4,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_dtype::{match_each_integer_ptype, Nullability};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{Nullability, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -147,7 +147,7 @@ impl FillForwardFn<&ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::compute::{compare, scalar_at, slice, Operator};
+    use vortex_array::compute::{Operator, compare, scalar_at, slice};
 
     use super::*;
 

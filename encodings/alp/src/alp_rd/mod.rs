@@ -18,8 +18,8 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_fastlanes::bitpack_encode_unchecked;
 
 use crate::match_each_alp_float_ptype;

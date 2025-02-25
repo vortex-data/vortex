@@ -6,11 +6,11 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
-use crate::Array;
 
 impl StatisticsVTable<&BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -171,11 +171,11 @@ impl BoolStatsAccumulator {
 mod test {
     use arrow_buffer::BooleanBuffer;
 
+    use crate::ArrayVariants;
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::stats::{Stat, Statistics};
     use crate::validity::Validity;
-    use crate::ArrayVariants;
 
     #[test]
     fn bool_stats() {

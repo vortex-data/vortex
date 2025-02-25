@@ -19,6 +19,7 @@ pub use metadata::*;
 
 pub mod accessor;
 pub mod aliases;
+pub mod arcref;
 mod array;
 pub mod arrays;
 pub mod arrow;
@@ -29,7 +30,6 @@ pub mod compute;
 mod context;
 mod encoding;
 pub mod iter;
-mod macros;
 mod metadata;
 pub mod nbytes;
 mod partial_ord;

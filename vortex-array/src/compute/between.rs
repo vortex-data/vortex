@@ -1,7 +1,7 @@
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::compute::{binary_boolean, compare, BinaryOperator, Operator};
+use crate::compute::{BinaryOperator, Operator, binary_boolean, compare};
 use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 
 pub trait BetweenFn<A> {

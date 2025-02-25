@@ -3,12 +3,12 @@ mod compare;
 use vortex_array::arrays::varbin_scalar;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 

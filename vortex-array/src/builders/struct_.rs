@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::{Array, ArrayRef, Canonical};
@@ -175,8 +175,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_scalar::Scalar;
 
-    use crate::builders::struct_::StructBuilder;
     use crate::builders::ArrayBuilder;
+    use crate::builders::struct_::StructBuilder;
 
     #[test]
     fn test_struct_builder() {

@@ -3,11 +3,11 @@ use std::fmt::Debug;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::compute::{
-    scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
+    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide, scalar_at,
 };
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

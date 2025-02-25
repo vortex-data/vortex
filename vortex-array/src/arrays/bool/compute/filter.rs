@@ -1,4 +1,4 @@
-use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, bit_util};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
@@ -74,8 +74,8 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::array::Array;
-    use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
     use crate::arrays::BoolArray;
+    use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
     use crate::canonical::ToCanonical;
     use crate::compute::filter;
 

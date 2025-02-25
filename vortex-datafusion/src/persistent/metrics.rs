@@ -6,7 +6,7 @@ use datafusion_physical_plan::metrics::{
     MetricValue as DatafusionMetricValue, MetricsSet,
 };
 use datafusion_physical_plan::{
-    accept, ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric,
+    ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
 use vortex_metrics::{DefaultTags, Metric, MetricId, Tags, VortexMetrics};
 

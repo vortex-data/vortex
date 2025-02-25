@@ -53,8 +53,8 @@ impl SerdeVTable<&RunEndArray> for RunEndEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::SerdeMetadata;
+    use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
     use super::*;

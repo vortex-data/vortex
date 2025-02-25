@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, CompareFn, Operator};
+use vortex_array::compute::{CompareFn, Operator, compare};
 use vortex_array::{Array, ArrayRef};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
+use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 // TODO(joe): add fuzzing.
 
@@ -95,9 +95,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{compare, Operator};
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+    use vortex_array::compute::{Operator, compare};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -265,9 +265,11 @@ mod tests {
         assert!(encoded.patches().is_some());
 
         // Not supported!
-        assert!(alp_scalar_compare(&encoded, 1_000_000.9_f32, Operator::Eq)
-            .unwrap()
-            .is_none())
+        assert!(
+            alp_scalar_compare(&encoded, 1_000_000.9_f32, Operator::Eq)
+                .unwrap()
+                .is_none()
+        )
     }
 
     #[test]

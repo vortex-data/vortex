@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
 use crate::compute::MaskFn;
 use crate::{Array, ArrayRef};
 

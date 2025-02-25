@@ -2,15 +2,15 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use tokio::fs::File;
+use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
-use vortex::ArrayRef;
 
-use crate::datasets::data_downloads::download_data;
 use crate::datasets::BenchmarkDataset;
+use crate::datasets::data_downloads::download_data;
 use crate::parquet_reader::parquet_to_vortex;
-use crate::{idempotent_async, IdempotentPath};
+use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
 

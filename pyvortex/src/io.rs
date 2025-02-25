@@ -10,7 +10,7 @@ use vortex::stream::ArrayStreamArrayExt;
 use crate::arrays::PyArray;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
-use crate::{install_module, TOKIO_RUNTIME};
+use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;

@@ -8,7 +8,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -145,7 +145,7 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{vortex_bail, vortex_err, VortexResult};
+    use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 

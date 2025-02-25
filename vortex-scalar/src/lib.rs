@@ -34,7 +34,7 @@ pub use pvalue::*;
 pub use scalarvalue::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -202,7 +202,7 @@ impl Scalar {
 
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
-        if self.dtype != other.dtype {
+        if !self.dtype.eq_ignore_nullability(&other.dtype) {
             return false;
         }
 
@@ -223,10 +223,9 @@ impl Eq for Scalar {}
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.dtype() != other.dtype() {
+        if !self.dtype().eq_ignore_nullability(other.dtype()) {
             return None;
         }
-
         match self.dtype() {
             DType::Null => Some(Ordering::Equal),
             DType::Bool(_) => self.as_bool().partial_cmp(&other.as_bool()),

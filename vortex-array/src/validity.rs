@@ -5,7 +5,7 @@ use std::ops::{BitAnd, Not};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
@@ -477,7 +477,7 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 

@@ -1,4 +1,4 @@
-use std::future::{ready, Future};
+use std::future::{Future, ready};
 use std::io::{self, Cursor, Write};
 
 use vortex_buffer::ByteBufferMut;

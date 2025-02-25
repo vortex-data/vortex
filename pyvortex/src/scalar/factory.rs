@@ -9,7 +9,7 @@ use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
-use crate::scalar::{bool, PyScalar};
+use crate::scalar::{PyScalar, bool};
 
 #[allow(unused_variables)]
 #[pyfunction(name = "scalar")]

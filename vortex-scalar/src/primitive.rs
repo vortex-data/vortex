@@ -5,25 +5,33 @@ use std::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{
-    vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult, VortexUnwrap,
+    VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
 };
 
 use crate::pvalue::PValue;
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
 }
 
-/// Ord is not implemented since it's undefined for different nullability
+impl PartialEq for PrimitiveScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype.eq_ignore_nullability(other.dtype) && self.pvalue == other.pvalue
+    }
+}
+
+impl Eq for PrimitiveScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different PTypes
 impl PartialOrd for PrimitiveScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.dtype() != other.dtype() {
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
         self.pvalue.partial_cmp(&other.pvalue)

@@ -63,7 +63,7 @@ pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     where
         Self: Sized,
     {
-        VTableRef::from_static(self)
+        VTableRef::new_ref(self)
     }
 }
 
@@ -113,7 +113,7 @@ pub mod encoding_ids {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use super::{encoding_ids, EncodingId};
+    use super::{EncodingId, encoding_ids};
     use crate::aliases::hash_set::HashSet;
 
     #[test]

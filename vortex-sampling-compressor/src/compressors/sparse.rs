@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_sparse::{SparseArray, SparseEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct SparseCompressor;

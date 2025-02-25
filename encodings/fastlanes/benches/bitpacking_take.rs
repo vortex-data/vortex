@@ -4,12 +4,12 @@
 use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{rng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_fastlanes::{find_best_bit_width, BitPackedArray};
+use vortex_fastlanes::{BitPackedArray, find_best_bit_width};
 
 fn main() {
     divan::main();

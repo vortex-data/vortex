@@ -5,7 +5,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult};
 
-use crate::{timestamp, DateTimePartsArray};
+use crate::{DateTimePartsArray, timestamp};
 
 pub struct TemporalParts {
     pub days: ArrayRef,
@@ -70,7 +70,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 
-    use crate::{split_temporal, TemporalParts};
+    use crate::{TemporalParts, split_temporal};
 
     #[rstest]
     #[case(Validity::NonNullable)]

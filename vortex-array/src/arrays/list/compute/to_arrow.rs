@@ -3,11 +3,11 @@ use std::sync::Arc;
 use arrow_array::ArrayRef;
 use arrow_schema::{DataType, Field, FieldRef};
 use vortex_dtype::PType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
-use crate::compute::{try_cast, ToArrowFn};
+use crate::compute::{ToArrowFn, try_cast};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 

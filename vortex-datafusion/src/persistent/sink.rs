@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -11,12 +11,12 @@ use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::{StreamExt, TryStreamExt};
 use rand::distr::{Alphanumeric, SampleString};
+use vortex_array::TryIntoArray;
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::TryIntoArray;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
-use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
+use vortex_file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_io::{ObjectStoreWriter, VortexWrite};
 
 pub struct VortexSink {
@@ -120,7 +120,7 @@ mod tests {
     use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use tempfile::TempDir;
 
-    use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
+    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
     #[tokio::test]
     async fn test_insert_into() {

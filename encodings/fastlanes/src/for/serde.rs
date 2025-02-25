@@ -5,7 +5,7 @@ use vortex_array::{
     EmptyMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FoRArray, FoREncoding};

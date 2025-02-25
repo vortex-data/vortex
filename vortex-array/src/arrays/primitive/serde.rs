@@ -1,6 +1,6 @@
 use vortex_buffer::{Alignment, Buffer};
-use vortex_dtype::{match_each_native_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, PType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::serde::ArrayParts;

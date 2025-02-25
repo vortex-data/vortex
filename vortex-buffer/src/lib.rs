@@ -1,7 +1,6 @@
 #![deny(missing_docs)]
 #![feature(min_specialization)]
 #![feature(trusted_len)]
-#![feature(unsigned_is_multiple_of)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!

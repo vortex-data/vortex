@@ -7,7 +7,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 
 use crate::{ALPArray, ALPEncoding, Exponents};
 

@@ -1,4 +1,4 @@
-use vortex_array::compute::{fill_null, take, TakeFn};
+use vortex_array::compute::{TakeFn, fill_null, take};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
@@ -57,11 +57,13 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         assert!(encoded.left_parts_patches().is_some());
-        assert!(encoded
-            .left_parts_patches()
-            .unwrap()
-            .dtype()
-            .is_unsigned_int());
+        assert!(
+            encoded
+                .left_parts_patches()
+                .unwrap()
+                .dtype()
+                .is_unsigned_int()
+        );
 
         let taken = take(&encoded, &PrimitiveArray::from_iter([0, 2]))
             .unwrap()
@@ -79,11 +81,13 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         assert!(encoded.left_parts_patches().is_some());
-        assert!(encoded
-            .left_parts_patches()
-            .unwrap()
-            .dtype()
-            .is_unsigned_int());
+        assert!(
+            encoded
+                .left_parts_patches()
+                .unwrap()
+                .dtype()
+                .is_unsigned_int()
+        );
 
         let taken = take(
             &encoded,

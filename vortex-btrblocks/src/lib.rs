@@ -132,7 +132,10 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         .nbytes();
     let before = sample.source().nbytes();
 
-    log::debug!("estimate_compression_ratio_with_sampling(compressor={compressor:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}", before as f64 / after as f64);
+    log::debug!(
+        "estimate_compression_ratio_with_sampling(compressor={compressor:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}",
+        before as f64 / after as f64
+    );
 
     Ok(before as f64 / after as f64)
 }

@@ -4,7 +4,7 @@ use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
@@ -115,8 +115,8 @@ impl Dispatch for TokioDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;

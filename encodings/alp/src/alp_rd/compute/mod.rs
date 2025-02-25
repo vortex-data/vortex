@@ -1,6 +1,6 @@
+use vortex_array::Array;
 use vortex_array::compute::{FilterFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::Array;
 
 use crate::ALPRDEncoding;
 

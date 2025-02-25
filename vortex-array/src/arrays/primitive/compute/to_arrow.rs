@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
 use arrow_array::types::{
-    Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-    UInt32Type, UInt64Type, UInt8Type,
+    Float16Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type,
+    UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray as ArrowPrimitiveArray};
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::DataType;
 use vortex_dtype::PType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
+use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::ToArrowFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::Array;
 
 impl ToArrowFn<&PrimitiveArray> for PrimitiveEncoding {
     fn to_arrow(

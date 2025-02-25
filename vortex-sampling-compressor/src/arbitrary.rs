@@ -3,7 +3,7 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 use vortex_array::aliases::hash_set::HashSet;
 
 use crate::compressors::{CompressorRef, EncodingCompressor};
-use crate::{SamplingCompressor, DEFAULT_COMPRESSORS};
+use crate::{DEFAULT_COMPRESSORS, SamplingCompressor};
 
 impl<'a, 'b: 'a> Arbitrary<'a> for SamplingCompressor<'b> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {

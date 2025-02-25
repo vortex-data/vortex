@@ -3,7 +3,7 @@
 use std::future::Future;
 
 use futures::channel::oneshot;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};

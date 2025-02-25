@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
+    DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType, flatbuffers as fb,
 };
 
 mod project;
@@ -321,7 +321,7 @@ mod test {
 
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
-    use crate::{flatbuffers as fb, DType, PType, StructDType};
+    use crate::{DType, PType, StructDType, flatbuffers as fb};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();

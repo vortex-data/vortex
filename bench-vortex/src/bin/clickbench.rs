@@ -2,12 +2,12 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
+use bench_vortex::clickbench::{self, HITS_SCHEMA, clickbench_queries};
+use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
-    default_env_filter, execute_physical_plan, feature_flagged_allocator, get_session_with_cache,
-    idempotent, physical_plan, Format, IdempotentPath as _,
+    Format, IdempotentPath as _, default_env_filter, execute_physical_plan,
+    feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -18,7 +18,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
-use vortex::error::{vortex_panic, VortexExpect};
+use vortex::error::{VortexExpect, vortex_panic};
 
 feature_flagged_allocator!();
 

@@ -8,9 +8,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::arrays::VarBinViewEncoding;
 use crate::compute::{
     CastFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };
@@ -87,6 +87,7 @@ impl MaskFn<&VarBinViewArray> for VarBinViewEncoding {
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
@@ -94,7 +95,6 @@ mod tests {
     use crate::canonical::ToCanonical;
     use crate::compute::test_harness::test_mask;
     use crate::compute::{take, take_into};
-    use crate::IntoArray;
 
     #[test]
     fn take_nullable() {

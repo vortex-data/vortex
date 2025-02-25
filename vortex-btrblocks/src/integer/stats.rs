@@ -7,7 +7,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::PValue;
 
@@ -248,7 +248,7 @@ where
         let (&top_value, &top_count) = loop_state
             .distinct_values
             .iter()
-            .max_by_key(|(_, &count)| count)
+            .max_by_key(|&(_, &count)| count)
             .vortex_expect("non-empty");
         (top_value, top_count)
     } else {

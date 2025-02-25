@@ -1,7 +1,7 @@
-use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};

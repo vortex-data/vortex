@@ -1,10 +1,10 @@
 use std::io;
 use std::ops::Range;
 
+use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, SetBufInit};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
-use compio::BufResult;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 

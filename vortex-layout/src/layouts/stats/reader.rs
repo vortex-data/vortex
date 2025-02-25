@@ -2,17 +2,17 @@ use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use async_once_cell::OnceCell;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_dtype::TryFromBytes;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::stats::stats_table::StatsTable;
 use crate::layouts::stats::StatsLayout;
+use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};

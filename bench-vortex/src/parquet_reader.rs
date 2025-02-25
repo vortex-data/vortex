@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 use arrow_array::RecordBatchReader;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use vortex::TryIntoArray;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
-use vortex::TryIntoArray;
 
 pub async fn parquet_to_vortex(parquet_path: PathBuf) -> VortexResult<impl ArrayStream> {
     let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?.build()?;

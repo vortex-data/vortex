@@ -1,4 +1,4 @@
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::ScalarValue;
 

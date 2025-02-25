@@ -1,7 +1,7 @@
-use vortex_array::compute::{try_cast, CastFn};
+use vortex_array::compute::{CastFn, try_cast};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 

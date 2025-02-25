@@ -2,8 +2,8 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbin::VarBinArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, TryFromArrayRef};
 

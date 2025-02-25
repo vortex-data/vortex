@@ -4,13 +4,13 @@ use std::ops::AddAssign;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
-    filter, scalar_at, search_sorted, slice, take, CompareFn, FilterFn, ScalarAtFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
+    CompareFn, FilterFn, ScalarAtFn, SearchResult, SearchSortedFn, SearchSortedSide, SliceFn,
+    TakeFn, filter, scalar_at, search_sorted, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar};
@@ -146,7 +146,7 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
+    use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at, search_sorted};
 
     use crate::for_compress;
 

@@ -4,9 +4,9 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::SumFn;
-use crate::Array;
 
 impl SumFn<&BoolArray> for BoolEncoding {
     fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {

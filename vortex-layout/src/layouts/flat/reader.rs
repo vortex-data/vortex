@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_once_cell::OnceCell;
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayRef, ContextRef};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
