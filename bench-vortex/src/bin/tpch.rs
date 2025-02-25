@@ -182,9 +182,9 @@ async fn bench_main(
     let mut measurements = Vec::new();
 
     let mut metrics = MetricsSet::new();
-    let mut plans = Vec::new();
 
     for format in formats.iter().copied() {
+        let mut plans = Vec::new();
         // Load datasets
         let ctx = load_datasets(&url, format, emulate_object_store)
             .await
@@ -255,6 +255,11 @@ async fn bench_main(
 
             progress.inc(1);
         }
+        if export_spans {
+            if let Err(e) = export_plan_spans(format, plans).await {
+                warn!("failed to export spans {e}");
+            }
+        }
     }
 
     let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
@@ -295,12 +300,6 @@ async fn bench_main(
                     }
                 }
             })
-    }
-
-    if export_spans {
-        if let Err(e) = export_plan_spans("tpch", plans).await {
-            warn!("failed to export spans {e}");
-        }
     }
 
     match display_format {

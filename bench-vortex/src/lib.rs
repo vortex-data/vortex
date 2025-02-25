@@ -85,7 +85,7 @@ impl Display for Format {
 }
 
 impl Format {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
             Format::Arrow => "arrow",
