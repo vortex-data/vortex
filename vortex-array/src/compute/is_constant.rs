@@ -27,8 +27,10 @@ where
     }
 }
 
+/// Configuration for [`is_constant_opts`] operations.
 #[derive(Clone)]
 pub struct IsConstantOpts {
+    /// Should the operation make an effort to canonicalize the target array if its encoding doesn't implement [`IsConstantFn`].
     pub canonicalize: bool,
 }
 
