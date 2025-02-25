@@ -11,7 +11,7 @@ use vortex::arrays::ChunkedArray;
 use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{ident, ExprRef, Select};
+use vortex::expr::{ExprRef, Select, ident};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
@@ -21,7 +21,7 @@ use crate::arrays::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
 use crate::record_batch_reader::VortexRecordBatchReader;
-use crate::{install_module, TOKIO_RUNTIME};
+use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;

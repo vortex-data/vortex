@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::compute::is_constant;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
@@ -79,19 +80,32 @@ pub fn binary_boolean(
     op: BinaryOperator,
 ) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
+        vortex_bail!(
+            "Boolean operations aren't supported on arrays of different lengths: {} and {}",
+            lhs.len(),
+            rhs.len()
+        )
     }
-    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
-        vortex_bail!("Boolean operations are only supported on boolean arrays")
+    if !lhs.dtype().is_boolean()
+        || !rhs.dtype().is_boolean()
+        || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
+    {
+        vortex_bail!(
+            "Boolean operations are only supported on boolean arrays: {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        )
     }
 
+    let rhs_is_constant = is_constant(rhs)?;
+
     // If LHS is constant, then we make sure it's on the RHS.
-    if lhs.is_constant() && !rhs.is_constant() {
+    if is_constant(lhs)? && !rhs_is_constant {
         return binary_boolean(rhs, lhs, op);
     }
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-    if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
+    if lhs.is_arrow() && (rhs.is_arrow() || rhs_is_constant) {
         return arrow_boolean(lhs.to_array(), rhs.to_array(), op);
     }
 

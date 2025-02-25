@@ -17,7 +17,7 @@ pub fn downscale_integer_array(array: &dyn Array) -> VortexResult<ArrayRef> {
         return Ok(array.to_array());
     }
     let array = array
-        .maybe_as::<PrimitiveArray>()
+        .as_opt::<PrimitiveArray>()
         .vortex_expect("Checked earlier");
 
     let min = array.compute_stat(Stat::Min)?;

@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_dtype::{ExtDType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
 
-use crate::temporal::{TemporalMetadata, DATE_ID, TIMESTAMP_ID, TIME_ID};
+use crate::temporal::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use crate::unit::TimeUnit;
 
 /// Construct an extension type from the provided temporal Arrow type.

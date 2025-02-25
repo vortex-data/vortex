@@ -1,6 +1,6 @@
 use std::fmt::{self};
 
-use humansize::{format_size, DECIMAL};
+use humansize::{DECIMAL, format_size};
 
 use crate::arrays::ChunkedEncoding;
 use crate::nbytes::NBytes;

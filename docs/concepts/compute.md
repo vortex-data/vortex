@@ -35,3 +35,9 @@ codes.
     * Take the specified nullable indices from the array.
 * `filter(Array, mask: Mask) -> Array`
     * Filter the array based on the given mask.
+
+## Type Coercion
+
+To maximise compatibility with compute engines, Vortex does not perform any implicit type coercion in its compute
+functions or expressions. The exception to this is upcasting the nullability of input data types. For example,
+it is valid to compare a `u32` and `u32?` array, resulting in a `bool?` array.

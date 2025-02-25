@@ -5,7 +5,7 @@ use rand::distr::Uniform;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{compare, Operator};
+use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 

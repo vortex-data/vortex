@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::MaskFn;
 use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayRef};

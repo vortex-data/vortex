@@ -5,11 +5,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::extension::ExtensionArray;
 use crate::arrays::ExtensionEncoding;
+use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    filter, min_max, scalar_at, slice, sum, take, CastFn, CompareFn, FilterFn, MinMaxFn,
-    MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    CastFn, CompareFn, FilterFn, IsConstantFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumFn,
+    TakeFn, ToArrowFn, filter, is_constant, min_max, scalar_at, slice, sum, take,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -28,6 +28,10 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
@@ -107,5 +111,11 @@ impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
                 max: Scalar::extension(array.ext_dtype().clone(), max),
             }),
         )
+    }
+}
+
+impl IsConstantFn<&ExtensionArray> for ExtensionEncoding {
+    fn is_constant(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
+        is_constant(array.storage()).map(Some)
     }
 }

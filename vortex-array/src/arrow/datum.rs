@@ -1,5 +1,5 @@
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef, Datum as ArrowDatum};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};

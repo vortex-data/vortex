@@ -1,6 +1,6 @@
 //! Field mask represents a field projection, which leads to a set of field paths under a given layout.
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{Field, FieldPath};
 

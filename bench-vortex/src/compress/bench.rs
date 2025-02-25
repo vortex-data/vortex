@@ -10,12 +10,12 @@ use vortex::arrays::ChunkedArray;
 use vortex::nbytes::NBytes;
 use vortex::{ArrayExt, ArrayRef};
 
+use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
 use crate::measurements::{CustomUnitMeasurement, ThroughputMeasurement};
-use crate::Format;
 
 #[derive(Default)]
 pub struct CompressMeasurements {

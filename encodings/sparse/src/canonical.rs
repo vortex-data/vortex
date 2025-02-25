@@ -3,7 +3,7 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayCanonicalImpl, Canonical};
 use vortex_buffer::buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 

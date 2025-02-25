@@ -11,8 +11,8 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 #[cfg(test)]
 mod tests {
     use jiff::Span;
-    use vortex_array::arrays::BooleanBuffer;
     use vortex_array::Array;
+    use vortex_array::arrays::BooleanBuffer;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_sampling_compressor::ALL_COMPRESSORS;

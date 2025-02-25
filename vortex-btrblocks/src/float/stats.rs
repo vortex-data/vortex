@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
@@ -106,6 +106,33 @@ fn typed_float_stats<T: NativePType + Float + ToBits>(
 where
     DistinctValues<T::Target>: Into<ErasedDistinctValues>,
 {
+    // Special case: empty array
+    if array.is_empty() {
+        return FloatStats {
+            src: array.clone(),
+            null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            distinct_values: DistinctValues {
+                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        };
+    } else if array.all_invalid().vortex_expect("all_invalid") {
+        return FloatStats {
+            src: array.clone(),
+            null_count: array.len().try_into().vortex_expect("null_count"),
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            distinct_values: DistinctValues {
+                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        };
+    }
+
     let validity = array.validity_mask().vortex_expect("logical_validity");
     let null_count = validity.false_count();
     let value_count = validity.true_count();
@@ -167,8 +194,8 @@ mod tests {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
-    use crate::float::stats::FloatStats;
     use crate::CompressorStats;
+    use crate::float::stats::FloatStats;
 
     #[test]
     fn test_float_stats() {

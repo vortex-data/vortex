@@ -7,16 +7,16 @@ use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, take,
-    try_cast, SearchResult, SearchSortedSide,
+    SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, search_sorted_usize,
+    search_sorted_usize_many, slice, take, try_cast,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};

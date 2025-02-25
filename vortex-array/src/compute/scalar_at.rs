@@ -1,8 +1,8 @@
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::encoding::Encoding;
 use crate::Array;
+use crate::encoding::Encoding;
 
 /// Implementation of scalar_at for an encoding.
 ///

@@ -1,5 +1,6 @@
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
+use crate::compute::is_constant;
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
@@ -47,7 +48,8 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let derived_stats = (!array.is_constant()).then(|| derive_sliced_stats(array));
+    let array_is_constant = is_constant(array)?;
+    let derived_stats = (!array_is_constant).then(|| derive_sliced_stats(array));
 
     let sliced = array
         .vtable()
@@ -130,10 +132,10 @@ fn check_slice_bounds(array: &dyn Array, start: usize, stop: usize) -> VortexRes
 mod tests {
     use vortex_scalar::Scalar;
 
+    use crate::Array;
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
-    use crate::Array;
+    use crate::stats::{Precision, STATS_TO_WRITE, Stat, Statistics};
 
     #[test]
     fn test_slice_primitive() {

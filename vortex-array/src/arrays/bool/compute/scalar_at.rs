@@ -1,9 +1,9 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ScalarAtFn;
-use crate::Array;
 
 impl ScalarAtFn<&BoolArray> for BoolEncoding {
     fn scalar_at(&self, array: &BoolArray, index: usize) -> VortexResult<Scalar> {

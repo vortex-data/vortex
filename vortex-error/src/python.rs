@@ -1,8 +1,8 @@
 //! Python bindings for Vortex errors.
 
+use pyo3::PyErr;
 #[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
-use pyo3::PyErr;
 
 use crate::VortexError;
 

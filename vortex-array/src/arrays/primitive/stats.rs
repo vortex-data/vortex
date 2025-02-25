@@ -5,19 +5,19 @@ use std::mem::size_of;
 use arrow_buffer::buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
-use crate::arrays::primitive::PrimitiveArray;
+use crate::Array;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::min_max;
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
-use crate::Array;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>

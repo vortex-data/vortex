@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexExpect};
+use vortex_error::{VortexExpect, vortex_err};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// A trait for types that support asynchronous reads.

@@ -1,11 +1,11 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
+    IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, try_cast,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -16,6 +16,7 @@ mod compare;
 mod fill_null;
 mod filter;
 mod invert;
+mod is_constant;
 mod mask;
 mod min_max;
 mod scalar_at;
@@ -49,6 +50,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
@@ -89,11 +94,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
-    use crate::IntoArray;
 
     #[test]
     fn test_cast_chunked() {

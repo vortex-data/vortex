@@ -6,7 +6,7 @@ mod validity;
 mod variants;
 mod visitor;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 
 use crate::arrays::{
@@ -246,19 +246,8 @@ pub trait ArrayExt: Array {
     }
 
     /// Returns the array downcast to the given `A`.
-    fn maybe_as<A: Array + 'static>(&self) -> Option<&A> {
+    fn as_opt<A: Array + 'static>(&self) -> Option<&A> {
         self.as_any().downcast_ref::<A>()
-    }
-
-    /// Returns the array downcast to the given `A`.
-    fn try_as<A: Array + 'static>(&self) -> VortexResult<&A> {
-        self.as_any().downcast_ref::<A>().ok_or_else(|| {
-            vortex_err!(
-                "Failed to downcast {} to {}",
-                self.encoding(),
-                type_name::<A>()
-            )
-        })
     }
 }
 
@@ -283,7 +272,7 @@ macro_rules! try_from_array_ref {
             type Error = vortex_error::VortexError;
 
             fn try_from(value: $crate::ArrayRef) -> Result<Self, Self::Error> {
-                Ok(Arc::unwrap_or_clone(
+                Ok(::std::sync::Arc::unwrap_or_clone(
                     value.as_any_arc().downcast::<Self>().map_err(|_| {
                         vortex_error::vortex_err!(
                             "Cannot downcast to {}",

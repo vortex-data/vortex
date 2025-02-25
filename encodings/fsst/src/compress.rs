@@ -7,7 +7,7 @@ use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 
 use crate::FSSTArray;
 

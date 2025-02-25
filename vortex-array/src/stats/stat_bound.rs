@@ -28,8 +28,8 @@ pub trait StatBound<T>: Sized {
     /// A.k.a. the `join` of the bound.
     fn intersection(&self, other: &Self) -> Option<IntersectionResult<Self>>;
 
-    // Returns the exact value from the bound, if that value is exact, otherwise `None`.
-    fn as_exact(&self) -> Option<&T>;
+    /// Returns the exact value from the bound if that value is exact, otherwise `None`.
+    fn to_exact(&self) -> Option<&T>;
 }
 
 /// This allows a stat with a `Precision` to be interpreted as a bound.
@@ -81,7 +81,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
         })
     }
 
-    fn as_exact(&self) -> Option<&T> {
+    fn to_exact(&self) -> Option<&T> {
         match self {
             Precision::Exact(val) => Some(val),
             _ => None,

@@ -3,10 +3,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
-use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
+use vortex_fastlanes::{DeltaArray, DeltaEncoding, delta_compress};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct DeltaCompressor;
@@ -22,7 +22,7 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports ints
         if !parray.ptype().is_unsigned_int() {

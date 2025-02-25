@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::constant::ConstantArray;
 use crate::arrays::ConstantEncoding;
+use crate::arrays::constant::ConstantArray;
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterFn, InvertFn, ScalarAtFn,
     SearchSortedFn, SliceFn, TakeFn,

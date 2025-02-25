@@ -5,10 +5,10 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_fastlanes::{for_compress, FoRArray, FoREncoding};
+use vortex_fastlanes::{FoRArray, FoREncoding, for_compress};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct FoRCompressor;
@@ -24,7 +24,7 @@ impl EncodingCompressor for FoRCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports integers
         if !parray.ptype().is_int() {

@@ -11,13 +11,13 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
-    RkyvMetadata,
+    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, encoding_ids,
+    try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
@@ -202,7 +202,7 @@ impl BitPackedArray {
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
     pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
-        if let Some(parray) = array.maybe_as::<PrimitiveArray>() {
+        if let Some(parray) = array.as_opt::<PrimitiveArray>() {
             bitpack_encode(parray, bit_width)
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");
@@ -230,7 +230,7 @@ impl ArrayImpl for BitPackedArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&BitPackedEncoding)
+        VTableRef::new_ref(&BitPackedEncoding)
     }
 }
 

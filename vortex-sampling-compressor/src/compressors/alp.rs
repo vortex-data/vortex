@@ -1,4 +1,4 @@
-use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
+use vortex_alp::{ALPArray, ALPEncoding, ALPRDEncoding, alp_encode_components};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -9,7 +9,7 @@ use vortex_fastlanes::BitPackedEncoding;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ALPCompressor;
@@ -25,7 +25,7 @@ impl EncodingCompressor for ALPCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {

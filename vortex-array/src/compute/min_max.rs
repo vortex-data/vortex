@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat};
@@ -43,11 +43,11 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
     let min = array
         .statistics()
         .get_scalar(Stat::Min, array.dtype())
-        .and_then(Precision::some_exact);
+        .and_then(Precision::as_exact);
     let max = array
         .statistics()
         .get_scalar(Stat::Max, array.dtype())
-        .and_then(Precision::some_exact);
+        .and_then(Precision::as_exact);
 
     if let Some((min, max)) = min.zip(max) {
         return Ok(Some(MinMaxResult { min, max }));
@@ -112,7 +112,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
-    use crate::compute::{min_max, MinMaxResult};
+    use crate::compute::{MinMaxResult, min_max};
     use crate::validity::Validity;
 
     #[test]

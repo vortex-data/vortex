@@ -1,16 +1,16 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::{CheckedAdd, Float, ToPrimitive};
-use vortex_dtype::{match_each_native_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::SumFn;
 use crate::stats::Stat;
 use crate::variants::PrimitiveArrayTrait;
-use crate::Array;
 
 impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {

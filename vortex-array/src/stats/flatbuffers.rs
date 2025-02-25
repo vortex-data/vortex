@@ -17,27 +17,27 @@ impl WriteFlatBuffer for StatsSet {
     ) -> WIPOffset<Self::Target<'fb>> {
         let trailing_zero_freq = self
             .get_as::<Vec<u64>>(Stat::TrailingZeroFreq)
-            .map(|v| v.some_exact().iter().flatten().copied().collect_vec())
+            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
             .map(|v| fbb.create_vector(v.as_slice()));
 
         let bit_width_freq = self
             .get_as::<Vec<u64>>(Stat::BitWidthFreq)
-            .map(|v| v.some_exact().iter().flatten().copied().collect_vec())
+            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
             .map(|v| fbb.create_vector(v.as_slice()));
 
         let min = self
             .get(Stat::Min)
-            .and_then(Precision::some_exact)
+            .and_then(Precision::as_exact)
             .map(|min| min.write_flatbuffer(fbb));
 
         let max = self
             .get(Stat::Max)
-            .and_then(Precision::some_exact)
+            .and_then(Precision::as_exact)
             .map(|max| max.write_flatbuffer(fbb));
 
         let sum = self
             .get(Stat::Sum)
-            .and_then(Precision::some_exact)
+            .and_then(Precision::as_exact)
             .map(|max| max.write_flatbuffer(fbb));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
@@ -46,24 +46,24 @@ impl WriteFlatBuffer for StatsSet {
             sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             is_strict_sorted: self
                 .get_as::<bool>(Stat::IsStrictSorted)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             run_count: self
                 .get_as::<u64>(Stat::RunCount)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             bit_width_freq,
             trailing_zero_freq,
             uncompressed_size_in_bytes: self
                 .get_as::<u64>(Stat::UncompressedSizeInBytes)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
         };
 
         crate::flatbuffers::ArrayStats::create(fbb, stat_args)

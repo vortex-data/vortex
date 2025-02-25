@@ -1,8 +1,8 @@
-use enum_iterator::{all, Sequence};
+use enum_iterator::{Sequence, all};
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
@@ -66,7 +66,6 @@ impl StatsSet {
     // A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::Sum, Precision::exact(0)),
             (Stat::RunCount, Precision::exact(0)),
             (Stat::NullCount, Precision::exact(0)),
         ])
@@ -433,7 +432,7 @@ impl StatsSet {
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) = m1.zip(m2).some_exact().and_then(|(s1, s2)| {
+                if let Some(scalar_value) = m1.zip(m2).as_exact().and_then(|(s1, s2)| {
                     s1.as_primitive()
                         .checked_add(&s2.as_primitive())
                         .map(|pscalar| {
@@ -589,9 +588,9 @@ mod test {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::Array;
     use crate::arrays::PrimitiveArray;
     use crate::stats::{Precision, Stat, StatsSet};
-    use crate::Array;
 
     #[test]
     fn test_iter() {

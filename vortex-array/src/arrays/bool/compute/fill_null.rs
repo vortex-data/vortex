@@ -1,4 +1,4 @@
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};

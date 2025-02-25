@@ -1,13 +1,13 @@
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::Array;
 use crate::encoding::Encoding;
 use crate::stats::{Stat, StatsSet};
-use crate::Array;
 
 /// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array> {
+pub trait StatisticsVTable<A> {
     /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: Array, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, _array: A, _stat: Stat) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
     }
 }

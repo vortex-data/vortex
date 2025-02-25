@@ -7,18 +7,18 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use futures::{stream, StreamExt, TryStreamExt};
-use tokio::fs::{create_dir_all, OpenOptions};
+use futures::{StreamExt, TryStreamExt, stream};
+use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::info;
+use vortex::TryIntoArray;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexError};
-use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
+use vortex::error::{VortexError, vortex_err};
+use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::stream::ArrayStreamAdapter;
-use vortex::TryIntoArray;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{idempotent_async, CTX};
+use crate::{CTX, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;

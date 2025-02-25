@@ -1,5 +1,5 @@
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, Nullability};
+use vortex_dtype::{Nullability, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
@@ -58,8 +58,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::array::Array;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::fill_forward;
     use crate::validity::Validity;

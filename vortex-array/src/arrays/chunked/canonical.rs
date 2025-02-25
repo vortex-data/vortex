@@ -1,7 +1,7 @@
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, PType, StructDType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::chunked::ChunkedArray;
@@ -268,6 +268,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
+    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::chunked::canonical::pack_views;
@@ -275,7 +276,6 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::ToCanonical;
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])

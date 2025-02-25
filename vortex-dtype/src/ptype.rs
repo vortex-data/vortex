@@ -7,12 +7,12 @@ use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
-use crate::half::f16;
-use crate::nullability::Nullability::NonNullable;
 use crate::DType;
 use crate::DType::*;
+use crate::half::f16;
+use crate::nullability::Nullability::NonNullable;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]

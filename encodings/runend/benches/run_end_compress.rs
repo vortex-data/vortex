@@ -2,12 +2,12 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
+use vortex_array::Array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::Array;
 use vortex_buffer::Buffer;
-use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
+use vortex_runend::compress::runend_encode;
 
 fn main() {
     divan::main();

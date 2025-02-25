@@ -2,17 +2,19 @@ pub use min_max::compute_min_max;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::varbin::{varbin_scalar, VarBinArray};
+use crate::Array;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::{VarBinArray, varbin_scalar};
 use crate::compute::{
-    CastFn, CompareFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    CastFn, CompareFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::Array;
 
 mod cast;
 mod compare;
 mod filter;
+mod is_constant;
 mod mask;
 mod min_max;
 mod slice;
@@ -29,6 +31,10 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 

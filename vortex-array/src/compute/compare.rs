@@ -4,11 +4,12 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use super::is_constant;
 use crate::arrays::ConstantArray;
-use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -97,12 +98,13 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
     }
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
         vortex_bail!(
-            "Compare operations only support arrays of the same type: {} != {}",
+            "Cannot compare different DTypes {} and {}",
             left.dtype(),
             right.dtype()
         );
     }
 
+    // TODO(ngates): no reason why not
     if left.dtype().is_struct() {
         vortex_bail!(
             "Compare does not support arrays with Struct DType, got: {} and {}",
@@ -124,8 +126,11 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
     }
 
+    let left_is_constant = is_constant(left)?;
+    let right_is_constant = is_constant(right)?;
+
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left.is_constant() && !right.is_constant() {
+    if left_is_constant && !right_is_constant {
         return compare(right, left, operator.swap());
     }
 
@@ -151,7 +156,7 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
 
     // Only log missing compare implementation if there's possibly better one than arrow,
     // i.e. lhs isn't arrow or rhs isn't arrow or constant
-    if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
+    if !(left.is_arrow() && (right.is_arrow() || right_is_constant)) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
             right.encoding(),
@@ -253,9 +258,9 @@ mod tests {
     use itertools::Itertools;
 
     use super::*;
+    use crate::ToCanonical;
     use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::ToCanonical;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

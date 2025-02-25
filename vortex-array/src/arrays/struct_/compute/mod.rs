@@ -2,19 +2,19 @@ mod to_arrow;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::struct_::StructArray;
 use crate::arrays::StructEncoding;
+use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    filter, scalar_at, slice, take, try_cast, CastFn, FilterFn, MaskFn, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    CastFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn, filter, is_constant, scalar_at, slice, take, try_cast,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ArrayVisitor};
 
 impl ComputeVTable for StructEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
@@ -22,6 +22,10 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
@@ -168,6 +172,23 @@ impl MinMaxFn<&StructArray> for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
+    }
+}
+
+impl IsConstantFn<&StructArray> for StructEncoding {
+    fn is_constant(&self, array: &StructArray) -> VortexResult<Option<bool>> {
+        let children = array.children();
+        if children.is_empty() {
+            return Ok(None);
+        }
+
+        for child in children.iter() {
+            if !is_constant(child)? {
+                return Ok(Some(false));
+            }
+        }
+
+        Ok(Some(true))
     }
 }
 

@@ -6,14 +6,14 @@ use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{all, cardinality, Sequence};
+use enum_iterator::{Sequence, all, cardinality};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
@@ -459,7 +459,7 @@ pub fn trailing_zeros(array: &dyn Array) -> u8 {
     tz_freq
         .iter()
         .enumerate()
-        .find_or_first(|(_, &v)| v > 0)
+        .find_or_first(|&(_, &v)| v > 0)
         .map(|(i, _)| i)
         .unwrap_or(0)
         .try_into()

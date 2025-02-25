@@ -3,7 +3,7 @@ use std::ops::Deref;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
@@ -33,28 +33,6 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
             array.dtype().with_nullability(
                 (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
             ),
-            validity,
-        )?
-        .into_array())
-    }
-
-    unsafe fn take_unchecked(
-        &self,
-        array: &VarBinViewArray,
-        indices: &dyn Array,
-    ) -> VortexResult<ArrayRef> {
-        // Compute the new validity
-        let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive()?;
-
-        let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            take_views_unchecked(array.views(), indices.as_slice::<$I>())
-        });
-
-        Ok(VarBinViewArray::try_new(
-            views_buffer,
-            array.buffers().to_vec(),
-            array.dtype().clone(),
             validity,
         )?
         .into_array())
@@ -121,17 +99,4 @@ fn take_views<I: AsPrimitive<usize>>(
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
     Buffer::<BinaryView>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
-}
-
-fn take_views_unchecked<I: AsPrimitive<usize>>(
-    views: &Buffer<BinaryView>,
-    indices: &[I],
-) -> Buffer<BinaryView> {
-    // NOTE(ngates): this deref is not actually trivial, so we run it once.
-    let views_ref = views.deref();
-    Buffer::from_iter(
-        indices
-            .iter()
-            .map(|i| unsafe { *views_ref.get_unchecked(i.as_()) }),
-    )
 }

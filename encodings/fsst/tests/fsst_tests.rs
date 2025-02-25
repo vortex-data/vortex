@@ -5,7 +5,7 @@ use vortex_array::compute::{filter, scalar_at, slice, take};
 use vortex_array::{Array, ArrayRef, Encoding, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
+use vortex_fsst::{FSSTEncoding, fsst_compress, fsst_train_compressor};
 use vortex_mask::Mask;
 
 macro_rules! assert_nth_scalar {

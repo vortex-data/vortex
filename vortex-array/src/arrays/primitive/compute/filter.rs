@@ -3,8 +3,8 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};

@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{ready, Poll};
+use std::task::{Poll, ready};
 
 use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
@@ -8,7 +8,7 @@ use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayRef, ContextRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::messages::{AsyncMessageReader, DecoderMessage, EncoderMessage, MessageEncoder};
 

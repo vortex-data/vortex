@@ -5,7 +5,7 @@ use futures::channel::mpsc;
 use futures::{SinkExt, Stream};
 use oneshot;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::segments::SegmentRequest;

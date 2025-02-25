@@ -9,6 +9,8 @@ use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::PType;
 use vortex_error::vortex_panic;
+use vortex_sampling_compressor::SamplingCompressor;
+use vortex_sampling_compressor::compressors::CompressorRef;
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::alp_rd::ALPRDCompressor;
 use vortex_sampling_compressor::compressors::bitpacked::{
@@ -19,8 +21,6 @@ use vortex_sampling_compressor::compressors::dict::DictCompressor;
 use vortex_sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex_sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use vortex_sampling_compressor::compressors::zigzag::ZigZagCompressor;
-use vortex_sampling_compressor::compressors::CompressorRef;
-use vortex_sampling_compressor::SamplingCompressor;
 
 fn main() {
     divan::main();
@@ -85,9 +85,9 @@ fn fixture(ptype: PType) -> ArrayRef {
 mod varbinview {
     use rand::distr::Alphanumeric;
     use rand::prelude::IndexedRandom;
+    use vortex_array::Array;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::nbytes::NBytes;
-    use vortex_array::Array;
     use vortex_dict::builders::dict_encode;
     use vortex_fsst::{fsst_compress, fsst_train_compressor};
 

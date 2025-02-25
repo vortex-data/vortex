@@ -1,14 +1,14 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
-use crate::compute::{fill_null, TakeFn};
+use crate::compute::{TakeFn, fill_null};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
@@ -31,32 +31,6 @@ impl TakeFn<&BoolArray> for BoolEncoding {
         });
 
         Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
-    }
-
-    unsafe fn take_unchecked(
-        &self,
-        array: &BoolArray,
-        indices: &dyn Array,
-    ) -> VortexResult<ArrayRef> {
-        let indices_nulls_zeroed = match indices.validity_mask()? {
-            Mask::AllTrue(_) => indices.to_array(),
-            Mask::AllFalse(_) => {
-                return Ok(ConstantArray::new(
-                    Scalar::null(array.dtype().as_nullable()),
-                    indices.len(),
-                )
-                .into_array())
-            }
-            Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
-        };
-        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
-        let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {
-            take_valid_indices_unchecked::<$I>(array, &indices_nulls_zeroed)
-        });
-
-        // SAFETY: caller enforces indices are valid for array, and array has same len as validity.
-        let validity = unsafe { array.validity().take_unchecked(indices)? };
-        Ok(BoolArray::new(buffer, validity).into_array())
     }
 
     fn take_into(
@@ -83,32 +57,9 @@ fn take_valid_indices<I: AsPrimitive<usize> + NativePType>(
     }
 }
 
-fn take_valid_indices_unchecked<I: AsPrimitive<usize> + NativePType>(
-    array: &BoolArray,
-    indices: &PrimitiveArray,
-) -> BooleanBuffer {
-    // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
-    // the overhead to convert to a Vec<bool>.
-    if array.len() <= 4096 {
-        let bools = array.boolean_buffer().into_iter().collect_vec();
-        take_byte_bool_unchecked(bools, indices.as_slice::<I>())
-    } else {
-        take_bool_unchecked(array.boolean_buffer(), indices.as_slice::<I>())
-    }
-}
-
 fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BooleanBuffer {
     BooleanBuffer::collect_bool(indices.len(), |idx| {
         bools[unsafe { (*indices.get_unchecked(idx)).as_() }]
-    })
-}
-
-fn take_byte_bool_unchecked<I: AsPrimitive<usize>>(
-    bools: Vec<bool>,
-    indices: &[I],
-) -> BooleanBuffer {
-    BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
-        *bools.get_unchecked((*indices.get_unchecked(idx)).as_())
     })
 }
 
@@ -119,24 +70,14 @@ fn take_bool<I: AsPrimitive<usize>>(bools: &BooleanBuffer, indices: &[I]) -> Boo
     })
 }
 
-fn take_bool_unchecked<I: AsPrimitive<usize>>(
-    bools: &BooleanBuffer,
-    indices: &[I],
-) -> BooleanBuffer {
-    BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
-        // We can always take from the indices unchecked since collect_bool just iterates len.
-        bools.value_unchecked((*indices.get_unchecked(idx)).as_())
-    })
-}
-
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};

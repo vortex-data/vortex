@@ -8,7 +8,7 @@ use vortex_array::{
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
@@ -104,9 +104,9 @@ impl SerdeVTable<&ALPRDArray> for ALPRDEncoding {
 }
 #[cfg(test)]
 mod test {
+    use vortex_array::SerdeMetadata;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::alp_rd::serde::ALPRDMetadata;

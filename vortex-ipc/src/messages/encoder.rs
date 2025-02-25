@@ -1,11 +1,11 @@
 use bytes::{Bytes, BytesMut};
 use flatbuffers::FlatBufferBuilder;
-use vortex_array::serde::SerializeOptions;
 use vortex_array::Array;
+use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
-use vortex_flatbuffers::{message as fb, FlatBuffer, WriteFlatBufferExt};
+use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt, message as fb};
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {

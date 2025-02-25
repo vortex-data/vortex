@@ -15,7 +15,7 @@ use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskCon
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use futures::{ready, Stream};
+use futures::{Stream, ready};
 use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
@@ -23,7 +23,7 @@ use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
-use vortex_error::{vortex_err, vortex_panic, VortexError};
+use vortex_error::{VortexError, vortex_err, vortex_panic};
 use vortex_expr::{ExprRef, VortexExprExt};
 
 /// Physical plan operator that applies a set of [filters][Expr] against the input, producing a
@@ -402,7 +402,7 @@ mod test {
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;
 
-    use crate::memory::plans::{RowIndicesStream, ROW_SELECTOR_SCHEMA_REF};
+    use crate::memory::plans::{ROW_SELECTOR_SCHEMA_REF, RowIndicesStream};
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]

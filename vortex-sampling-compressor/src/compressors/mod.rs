@@ -8,10 +8,10 @@ use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, ArrayRef, EncodingId};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
-use crate::compressors::formatter::IndentFormatter;
 use crate::SamplingCompressor;
+use crate::compressors::formatter::IndentFormatter;
 
 pub mod alp;
 pub mod alp_rd;

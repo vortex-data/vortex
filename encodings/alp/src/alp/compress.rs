@@ -6,12 +6,12 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::ScalarType;
 
-use crate::alp::{ALPArray, ALPFloat};
 use crate::Exponents;
+use crate::alp::{ALPArray, ALPFloat};
 
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
@@ -124,7 +124,7 @@ mod tests {
 
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_scalar::Scalar;
 
     use super::*;

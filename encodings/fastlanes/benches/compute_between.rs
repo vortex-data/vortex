@@ -1,7 +1,7 @@
 use num_traits::NumCast;
-use rand::rngs::StdRng;
 use rand::Rng;
-use vortex_alp::{alp_encode, ALPArray};
+use rand::rngs::StdRng;
+use vortex_alp::{ALPArray, alp_encode};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::NativePType;
@@ -57,18 +57,18 @@ const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
 mod primitive {
     use divan::Bencher;
     use num_traits::NumCast;
-    use rand::prelude::StdRng;
     use rand::SeedableRng;
+    use rand::prelude::StdRng;
+    use vortex_array::Array;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
     };
-    use vortex_array::Array;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{generate_primitive_array, BENCH_ARGS};
+    use crate::{BENCH_ARGS, generate_primitive_array};
 
     #[divan::bench(
         types = [i32, i64, u32, u64, f32, f64],
@@ -127,17 +127,17 @@ mod primitive {
 mod bitpack {
     use divan::Bencher;
     use num_traits::NumCast;
-    use rand::prelude::StdRng;
     use rand::SeedableRng;
+    use rand::prelude::StdRng;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{generate_bit_pack_primitive_array, BENCH_ARGS};
+    use crate::{BENCH_ARGS, generate_bit_pack_primitive_array};
 
     #[divan::bench(
         types = [i16, i32, i64],
@@ -195,17 +195,17 @@ mod alp {
 
     use divan::Bencher;
     use num_traits::NumCast;
-    use rand::prelude::StdRng;
     use rand::SeedableRng;
+    use rand::prelude::StdRng;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{generate_alp_bit_pack_primitive_array, BENCH_ARGS};
+    use crate::{BENCH_ARGS, generate_alp_bit_pack_primitive_array};
 
     #[divan::bench(
         types = [f32, f64],

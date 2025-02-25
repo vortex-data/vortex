@@ -6,7 +6,7 @@ use vortex_array::{
     DeserializeMetadata, RkyvMetadata,
 };
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{SparseArray, SparseEncoding};

@@ -2,11 +2,11 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::BoolArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::{Array, ArrayRef, Canonical};
 
 pub struct BoolBuilder {
@@ -105,11 +105,11 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
 
+    use crate::ArrayRef;
     use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
-    use crate::ArrayRef;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);

@@ -1,4 +1,4 @@
-use vortex_array::compute::{slice, SliceFn};
+use vortex_array::compute::{SliceFn, slice};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -27,9 +27,9 @@ impl SliceFn<&ALPRDArray> for ALPRDEncoding {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
-    use vortex_array::ToCanonical;
 
     use crate::{ALPRDFloat, RDEncoder};
 

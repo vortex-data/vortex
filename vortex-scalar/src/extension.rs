@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::{Scalar, ScalarValue};
 
@@ -13,15 +13,16 @@ pub struct ExtScalar<'a> {
 
 impl PartialEq for ExtScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.ext_dtype == other.ext_dtype && self.storage() == other.storage()
+        self.ext_dtype.eq_ignore_nullability(other.ext_dtype) && self.storage() == other.storage()
     }
 }
 
 impl Eq for ExtScalar<'_> {}
 
+// Ord is not implemented since it's undefined for different Extension DTypes
 impl PartialOrd for ExtScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.ext_dtype != other.ext_dtype {
+        if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
             return None;
         }
         self.storage().partial_cmp(&other.storage())

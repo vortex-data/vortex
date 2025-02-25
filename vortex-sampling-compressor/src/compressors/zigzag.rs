@@ -4,10 +4,10 @@ use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
-use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
+use vortex_zigzag::{ZigZagArray, ZigZagEncoding, zigzag_encode};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ZigZagCompressor;
@@ -23,7 +23,7 @@ impl EncodingCompressor for ZigZagCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports signed integers
         if !parray.ptype().is_signed_int() {

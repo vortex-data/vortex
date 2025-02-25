@@ -1,15 +1,15 @@
 use std::cmp::Ordering;
 
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
+use crate::Array;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
 use crate::compute::scalar_at;
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
-use crate::Array;
 
 impl StatisticsVTable<&VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -80,7 +80,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
     })
 }
 
-fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
+pub(super) fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     let Some(first_value) = iter.next() else {
         return true; // empty array is constant
     };

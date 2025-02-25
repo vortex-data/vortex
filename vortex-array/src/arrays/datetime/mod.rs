@@ -3,9 +3,9 @@ mod test;
 
 use std::sync::Arc;
 
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
+use vortex_datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_err, vortex_panic, VortexError};
+use vortex_error::{VortexError, vortex_err, vortex_panic};
 
 use crate::arrays::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;

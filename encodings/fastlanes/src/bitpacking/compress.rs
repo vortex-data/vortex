@@ -11,10 +11,10 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
-    match_each_unsigned_integer_ptype, NativePType, PType,
+    NativePType, PType, match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
+    match_each_unsigned_integer_ptype,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -525,8 +525,8 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use rand::rngs::StdRng;
     use rand::Rng as _;
+    use rand::rngs::StdRng;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -565,8 +565,8 @@ pub mod test_harness {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use rand::rngs::StdRng;
     use rand::SeedableRng as _;
+    use rand::rngs::StdRng;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::compute::slice;
     use vortex_array::{ArrayExt, ToCanonical as _};

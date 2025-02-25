@@ -1,16 +1,16 @@
 #![no_main]
 
-use libfuzzer_sys::{fuzz_target, Corpus};
+use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{
     BoolEncoding, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
 use vortex_array::compute::{
-    filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
+    SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, slice, take,
 };
 use vortex_array::{Array, ArrayRef, Encoding};
-use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
+use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
 

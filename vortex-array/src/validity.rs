@@ -5,7 +5,7 @@ use std::ops::{BitAnd, Not};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
@@ -150,36 +150,6 @@ impl Validity {
                 // Null indices invalidite that position.
                 let is_valid = fill_null(&maybe_is_valid, Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
-            }
-        }
-    }
-
-    /// Take the validity buffer at the provided indices.
-    ///
-    /// # Safety
-    ///
-    /// It is assumed the caller has checked that all indices are <= the length of this validity
-    /// buffer.
-    ///
-    /// Failure to do so may result in UB.
-    pub unsafe fn take_unchecked(&self, indices: &dyn Array) -> VortexResult<Self> {
-        match self {
-            v @ Self::NonNullable | v @ Self::AllValid => {
-                match indices.validity_mask()?.boolean_buffer() {
-                    AllOr::All => Ok(v.clone()),
-                    AllOr::None => Ok(Self::AllInvalid),
-                    AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
-                }
-            }
-            Self::AllInvalid => Ok(Self::AllInvalid),
-            Self::Array(a) => {
-                let taken = if let Some(take_fn) = a.vtable().take_fn() {
-                    unsafe { take_fn.take_unchecked(a, indices) }
-                } else {
-                    take(a, indices)
-                };
-
-                taken.map(Self::Array)
             }
         }
     }
@@ -507,7 +477,7 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 

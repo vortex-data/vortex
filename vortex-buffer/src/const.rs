@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use vortex_error::{vortex_bail, VortexError};
+use vortex_error::{VortexError, vortex_bail};
 
 use crate::{Alignment, Buffer};
 

@@ -1,17 +1,17 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEncoder};
+use vortex_alp::{ALPRDEncoding, RDEncoder as ALPRDEncoder, match_each_alp_float_ptype};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::PType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_fastlanes::BitPackedEncoding;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncoderMetadata, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ALPRDCompressor;
@@ -33,7 +33,7 @@ impl EncodingCompressor for ALPRDCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = array.maybe_as::<PrimitiveArray>()?;
+        let parray = array.as_opt::<PrimitiveArray>()?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {

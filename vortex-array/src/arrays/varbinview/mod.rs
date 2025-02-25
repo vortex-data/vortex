@@ -11,7 +11,7 @@ use arrow_buffer::ScalarBuffer;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -22,8 +22,8 @@ use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, TryFromArrayRef,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId, TryFromArrayRef, try_from_array_ref,
 };
 
 mod accessor;
@@ -32,7 +32,7 @@ mod serde;
 mod stats;
 mod variants;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
 pub struct Inlined {
     size: u32,
@@ -444,7 +444,7 @@ impl ArrayImpl for VarBinViewArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&VarBinViewEncoding)
+        VTableRef::new_ref(&VarBinViewEncoding)
     }
 }
 
@@ -553,10 +553,10 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 mod test {
     use vortex_scalar::Scalar;
 
+    use crate::Canonical;
     use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
     use crate::compute::{scalar_at, slice};
-    use crate::Canonical;
 
     #[test]
     pub fn varbin_view() {

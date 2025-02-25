@@ -2,9 +2,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use DType::*;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
-use DType::*;
 
 use crate::nullability::Nullability;
 use crate::{ExtDType, PType, StructDType};

@@ -1,8 +1,8 @@
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{min_max, MinMaxFn, MinMaxResult};
+use crate::compute::{MinMaxFn, MinMaxResult, min_max};
 use crate::partial_ord::{partial_max, partial_min};
 
 impl MinMaxFn<&ChunkedArray> for ChunkedEncoding {

@@ -62,7 +62,7 @@ impl ArrayImpl for ConstantArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ConstantEncoding)
+        VTableRef::new_ref(&ConstantEncoding)
     }
 }
 
