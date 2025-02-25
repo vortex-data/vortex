@@ -34,7 +34,7 @@ impl<F: FileType> VortexFile<F> {
         &self.file_layout
     }
 
-    pub fn file_stats(&self) -> &[StatsSet] {
+    pub fn file_stats(&self) -> Option<&Arc<[StatsSet]>> {
         self.file_layout.statistics()
     }
 

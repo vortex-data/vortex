@@ -202,18 +202,32 @@ impl FileFormat for VortexFormat {
             .open()
             .await?;
 
-        // Evaluate the statistics for each column that we are able to return to DataFusion.
         let struct_dtype = vxf
             .dtype()
             .as_struct()
             .vortex_expect("dtype is not a struct");
+
+        // Evaluate the statistics for each column that we are able to return to DataFusion.
+        let Some(file_stats) = vxf.file_stats() else {
+            // If the file has no column stats, the best we can do is return a row count.
+            return Ok(Statistics {
+                num_rows: Precision::Exact(
+                    usize::try_from(vxf.row_count())
+                        .map_err(|_| vortex_err!("Row count overflow"))
+                        .vortex_expect("Row count overflow"),
+                ),
+                total_byte_size: Precision::Absent,
+                column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
+            });
+        };
+
         let stats = table_schema
             .fields()
             .iter()
             .map(|field| struct_dtype.find(field.name()).ok())
             .map(|idx| match idx {
                 None => StatsSet::default(),
-                Some(id) => vxf.file_stats()[id].clone(),
+                Some(id) => file_stats[id].clone(),
             })
             .collect_vec();
 

@@ -61,7 +61,7 @@ impl VortexWriteOptions {
         let mut layout_writer = FileStatsLayoutWriter::new(
             self.strategy.new_writer(stream.dtype())?,
             stream.dtype(),
-            self.file_statistics.unwrap_or_default().into(),
+            self.file_statistics.clone().unwrap_or_default().into(),
         )?;
 
         // First we write the magic number
@@ -104,7 +104,8 @@ impl VortexWriteOptions {
                     layout,
                     segments.into(),
                     self.file_statistics
-                        .map(|_| layout_writer.into_stats_sets().into()),
+                        .is_some()
+                        .then(|| layout_writer.into_stats_sets().into()),
                 ),
             )
             .await?;
