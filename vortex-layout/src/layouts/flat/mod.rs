@@ -13,7 +13,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
-use crate::{Layout, LayoutId, FLAT_LAYOUT_ID};
+use crate::{FLAT_LAYOUT_ID, Layout, LayoutId};
 
 #[derive(Debug)]
 pub struct FlatLayout;

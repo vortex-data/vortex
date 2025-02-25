@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -22,7 +23,7 @@ pub struct RepartitionWriterOptions {
 /// multiple of `block_len_multiple` rows.
 pub struct RepartitionWriter {
     dtype: DType,
-    chunks: VecDeque<Array>,
+    chunks: VecDeque<ArrayRef>,
     row_count: usize,
     nbytes: usize,
     writer: Box<dyn LayoutWriter>,
@@ -81,8 +82,8 @@ impl RepartitionWriter {
 
             // Combine the chunks to and flush them to the layout.
             assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::try_new_unchecked(chunks, self.dtype.clone())
-                .into_canonical()?
+            let chunk = ChunkedArray::new_unchecked(chunks, self.dtype.clone())
+                .to_canonical()?
                 .into_array();
 
             self.writer.push_chunk(segments, chunk)?;
@@ -93,9 +94,13 @@ impl RepartitionWriter {
 }
 
 impl LayoutWriter for RepartitionWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         // We make sure the chunks are canonical so our nbytes measurement is accurate.
-        let chunk = chunk.into_canonical()?.into_array();
+        let chunk = chunk.to_canonical()?.into_array();
 
         // Split chunks into 8192 blocks to make sure we don't over-size them.
         let mut offset = 0;
@@ -115,8 +120,8 @@ impl LayoutWriter for RepartitionWriter {
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let chunk =
-            ChunkedArray::try_new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
-                .into_canonical()?
+            ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
+                .to_canonical()?
                 .into_array();
         self.writer.push_chunk(segments, chunk)?;
         self.writer.finish(segments)

@@ -6,8 +6,8 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_array::{Array, ToCanonical};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::PValue;
 
@@ -141,14 +141,12 @@ impl CompressorStats for IntegerStats {
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self {
         let sampled = sample(self.src.clone(), sample_size, sample_count)
-            .into_primitive()
+            .to_primitive()
             .vortex_expect("primitive");
 
         Self::generate_opts(&sampled, opts)
     }
 }
-
-// const MAX_DICT_SIZE: u32 = 4096;
 
 fn typed_int_stats<T: NativePType + Hash + PrimInt>(
     array: &PrimitiveArray,
@@ -162,6 +160,22 @@ where
         return IntegerStats {
             src: array.clone(),
             null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: T::max_value(),
+                max: T::min_value(),
+                top_value: T::default(),
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        };
+    } else if array.all_invalid().vortex_expect("all_invalid") {
+        return IntegerStats {
+            src: array.clone(),
+            null_count: array.len().try_into().vortex_expect("null_count"),
             value_count: 0,
             average_run_length: 0,
             distinct_values_count: 0,
@@ -234,7 +248,7 @@ where
         let (&top_value, &top_count) = loop_state
             .distinct_values
             .iter()
-            .max_by_key(|(_, &count)| count)
+            .max_by_key(|&(_, &count)| count)
             .vortex_expect("non-empty");
         (top_value, top_count)
     } else {

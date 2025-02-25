@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::Stat;
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
@@ -45,7 +45,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
     let array = fixture(n, run_step, valid_density).into_array();
 
-    bencher.with_inputs(|| &array).bench_refs(|array| {
+    bencher.with_inputs(|| array.clone()).bench_refs(|array| {
         array
             .vtable()
             .compute_statistics(array, Stat::NullCount)
@@ -63,7 +63,7 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
         .into_array();
 
     let values = PrimitiveArray::from_option_iter(
-        (0..ends.len()).map(|x| rng.gen_bool(valid_density).then_some(x as u64)),
+        (0..ends.len()).map(|x| rng.random_bool(valid_density).then_some(x as u64)),
     )
     .into_array();
 

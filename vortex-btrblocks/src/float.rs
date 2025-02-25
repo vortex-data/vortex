@@ -1,22 +1,23 @@
 mod dictionary;
 mod stats;
 
-use vortex_alp::{alp_encode, ALPArray, RDEncoder};
+use vortex_alp::{ALPArray, RDEncoder, alp_encode};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
-use vortex_runend::compress::runend_encode;
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_runend::RunEndArray;
+use vortex_runend::compress::runend_encode;
 
 use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
+use crate::patches::compress_patches;
 use crate::{
-    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
-    GenerateStatsOptions, Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
@@ -101,8 +102,8 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
-        Ok(stats.source().clone().into_array())
+    ) -> VortexResult<ArrayRef> {
+        Ok(stats.source().to_array())
     }
 }
 
@@ -145,7 +146,7 @@ impl Scheme for ConstantScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let scalar = stats
             .source()
             .as_constant()
@@ -184,14 +185,6 @@ impl Scheme for ALPScheme {
             return Ok(0.0);
         }
 
-        // If Dict/RLE is feasible, we want to do that before ALP, and then only ALP encode
-        // the values.
-        if stats.average_run_length >= RUN_END_THRESHOLD
-            || stats.distinct_values_count < stats.value_count / 2
-        {
-            return Ok(0.0);
-        }
-
         estimate_compression_ratio_with_sampling(
             self,
             stats,
@@ -207,9 +200,9 @@ impl Scheme for ALPScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let alp = alp_encode(stats.source())?;
-        let alp_ints = alp.encoded().into_primitive()?;
+        let alp_ints = alp.encoded().to_primitive()?;
 
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
@@ -225,7 +218,9 @@ impl Scheme for ALPScheme {
         let compressed_alp_ints =
             IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &int_excludes)?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches())?.into_array())
+        let patches = alp.patches().map(compress_patches).transpose()?;
+
+        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
     }
 }
 
@@ -263,14 +258,22 @@ impl Scheme for ALPRDScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let encoder = match stats.source().ptype() {
             PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
             PType::F64 => RDEncoder::new(stats.source().as_slice::<f64>()),
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        Ok(encoder.encode(stats.source()).into_array())
+        let mut alp_rd = encoder.encode(stats.source());
+
+        let patches = alp_rd
+            .left_parts_patches()
+            .map(compress_patches)
+            .transpose()?;
+        alp_rd.replace_left_parts_patches(patches);
+
+        Ok(alp_rd.into_array())
     }
 }
 
@@ -314,12 +317,12 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let dict_array = dictionary_encode(stats)?;
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().into_primitive()?,
+            &dict_array.codes().to_primitive()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -338,7 +341,7 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().into_primitive()?,
+            &dict_array.values().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
@@ -382,7 +385,7 @@ impl Scheme for RunEndScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let (ends, values) = runend_encode(stats.source())?;
         // Integer compress the ends, leave the values uncompressed.
         let compressed_ends = IntCompressor::compress(
@@ -402,7 +405,7 @@ impl Scheme for RunEndScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer_mut;
 
     use crate::float::FloatCompressor;
@@ -419,7 +422,7 @@ mod tests {
             values[i] = (i % 50) as f32;
         }
 
-        let floats = values.into_array().into_primitive().unwrap();
+        let floats = values.into_array().to_primitive().unwrap();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
         println!("compressed: {}", compressed.tree_display())
     }

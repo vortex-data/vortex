@@ -4,15 +4,15 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef};
 
 /// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {
@@ -161,8 +161,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?.into_primitive()?;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_canonical()?.into_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
         }
@@ -174,7 +174,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         self.finish_into_primitive().into_array()
     }
 }

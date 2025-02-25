@@ -1,5 +1,5 @@
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_io::VortexWrite;
 use vortex_layout::segments::{SegmentId, SegmentWriter};
 

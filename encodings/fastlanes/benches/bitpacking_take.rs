@@ -2,14 +2,14 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use rand::distributions::Uniform;
+use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{thread_rng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_fastlanes::{find_best_bit_width, BitPackedArray};
+use vortex_fastlanes::{BitPackedArray, find_best_bit_width};
 
 fn main() {
     divan::main();
@@ -19,104 +19,86 @@ fn main() {
 fn take_10_stratified(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn take_10_contiguous(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter(0..10);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
-    let range = Uniform::new(0, values.len());
+    let range = Uniform::new(0, values.len()).unwrap();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     let rng = StdRng::seed_from_u64(0);
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn take_10k_contiguous(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter(0..10_000);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn take_200k_dispersed(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn take_200k_first_chunk_only(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 fn fixture(len: usize, bits: usize) -> Buffer<u32> {
-    let rng = thread_rng();
-    let range = Uniform::new(0_u32, 2_u32.pow(bits as u32));
+    let rng = rng();
+    let range = Uniform::new(0_u32, 2_u32.pow(bits as u32)).unwrap();
     rng.sample_iter(range).take(len).collect()
 }
 
@@ -140,11 +122,8 @@ const NUM_EXCEPTIONS: u32 = 10000;
 fn patched_take_10_stratified(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     assert!(packed.patches().is_some());
     assert_eq!(
@@ -155,19 +134,16 @@ fn patched_take_10_stratified(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_10_contiguous(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     assert!(packed.patches().is_some());
     assert_eq!(
@@ -178,54 +154,45 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(0..10);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_10k_random(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     let rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0, values.len());
+    let range = Uniform::new(0, values.len()).unwrap();
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0u32..NUM_EXCEPTIONS).cycle().take(10000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_10k_contiguous_patches(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     assert!(packed.patches().is_some());
     assert_eq!(
@@ -237,51 +204,42 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_200k_dispersed(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_200k_first_chunk_only(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
 fn patched_take_10k_adversarial(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = BitPackedArray::encode(
-        uncompressed.as_ref(),
-        find_best_bit_width(&uncompressed).unwrap(),
-    )
-    .unwrap();
+    let packed =
+        BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
     let per_chunk_count = 100;
     let indices = PrimitiveArray::from_iter(
         (0..(NUM_EXCEPTIONS + 1024) / 1024)
@@ -292,6 +250,6 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
     );
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }

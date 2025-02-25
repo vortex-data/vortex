@@ -1,8 +1,8 @@
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::{Stat, STATS_TO_WRITE};
-use vortex_array::Array;
+use vortex_array::stats::{STATS_TO_WRITE, Stat};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
@@ -49,7 +49,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &Array, stats: &[Stat]) {
+fn retain_only_stats(array: &dyn Array, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -57,7 +57,11 @@ fn retain_only_stats(array: &Array, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
@@ -72,7 +76,7 @@ impl LayoutWriter for FlatLayoutWriter {
 
         self.layout = Some(Layout::new_owned(
             "flat".into(),
-            LayoutVTableRef::from_static(&FlatLayout),
+            LayoutVTableRef::new_ref(&FlatLayout),
             self.dtype.clone(),
             row_count,
             vec![segment_id],
@@ -94,17 +98,17 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stats::{Stat, Statistics};
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
+    use crate::RowMask;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::RowMask;
 
     #[test]
     fn flat_stats() {
@@ -124,8 +128,13 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(result.get_stat(Stat::BitWidthFreq).is_none());
-            assert!(result.get_stat(Stat::TrailingZeroFreq).is_none());
+            assert!(result.statistics().get_stat(Stat::BitWidthFreq).is_none());
+            assert!(
+                result
+                    .statistics()
+                    .get_stat(Stat::TrailingZeroFreq)
+                    .is_none()
+            );
         })
     }
 }

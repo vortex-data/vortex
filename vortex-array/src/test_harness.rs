@@ -1,8 +1,7 @@
 use std::io::Write;
 
-use goldenfile::differs::binary_diff;
 use goldenfile::Mint;
-use vortex_error::VortexExpect;
+use goldenfile::differs::binary_diff;
 
 use crate::{DeserializeMetadata, SerializeMetadata};
 
@@ -16,10 +15,7 @@ where
     T: DeserializeMetadata,
 {
     let mut mint = Mint::new("goldenfiles/");
-    if let Some(meta) = metadata
-        .serialize()
-        .vortex_expect("Failed to serialize metadata")
-    {
+    if let Some(meta) = metadata.serialize() {
         let mut f = mint
             .new_goldenfile_with_differ(name, Box::new(binary_diff))
             .unwrap();

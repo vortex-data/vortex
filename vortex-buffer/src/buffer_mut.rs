@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
 use crate::spec_extend::SpecExtend;
@@ -420,6 +420,16 @@ impl<T> Extend<T> for BufferMut<T> {
     }
 }
 
+impl<'a, T> Extend<&'a T> for BufferMut<T>
+where
+    T: Copy + 'a,
+{
+    #[inline]
+    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+        self.spec_extend(iter.into_iter())
+    }
+}
+
 impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.
@@ -533,7 +543,7 @@ impl AlignedBytesMut for BytesMut {
 mod test {
     use bytes::{Buf, BufMut};
 
-    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
+    use crate::{Alignment, BufferMut, ByteBufferMut, buffer_mut};
 
     #[test]
     fn capacity() {

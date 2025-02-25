@@ -1,10 +1,11 @@
-use enum_iterator::{all, Sequence};
+use enum_iterator::{Sequence, all};
 use itertools::{EitherOrBoth, Itertools};
+use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType};
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -40,7 +41,7 @@ impl StatsSet {
         // Add any DType-specific stats.
         match dtype {
             DType::Bool(_) => {
-                stats.set(Stat::TrueCount, Precision::exact(0));
+                stats.set(Stat::Sum, Precision::exact(0));
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
@@ -65,7 +66,6 @@ impl StatsSet {
     // A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::TrueCount, Precision::exact(0)),
             (Stat::RunCount, Precision::exact(0)),
             (Stat::NullCount, Precision::exact(0)),
         ])
@@ -100,19 +100,15 @@ impl StatsSet {
             let true_count = bool_val
                 .map(|b| if b { length as u64 } else { 0 })
                 .unwrap_or(0);
-            stats.set(Stat::TrueCount, Precision::exact(true_count));
+            stats.set(Stat::Sum, Precision::exact(true_count));
         }
 
         stats
     }
 
-    pub fn bools_with_true_and_null_count(
-        true_count: usize,
-        null_count: usize,
-        len: usize,
-    ) -> Self {
+    pub fn bools_with_sum_and_null_count(true_count: usize, null_count: usize, len: usize) -> Self {
         StatsSet::new_unchecked(vec![
-            (Stat::TrueCount, Precision::exact(true_count)),
+            (Stat::Sum, Precision::exact(true_count)),
             (Stat::NullCount, Precision::exact(null_count)),
             (Stat::Min, Precision::exact(true_count == len)),
             (Stat::Max, Precision::exact(true_count > 0)),
@@ -290,8 +286,8 @@ impl StatsSet {
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
-                Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
             }
@@ -315,10 +311,12 @@ impl StatsSet {
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
-                Stat::TrueCount => self.merge_true_count(other),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
-                _ => vortex_panic!("Unrecognized commutative stat {}", s),
+                Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => {
+                    unreachable!("not commutative")
+                }
             }
         }
 
@@ -427,6 +425,37 @@ impl StatsSet {
         }
     }
 
+    fn merge_sum(&mut self, other: &Self, dtype: &DType) {
+        match (
+            self.get_scalar_bound::<Sum>(dtype.clone()),
+            other.get_scalar_bound::<Sum>(dtype.clone()),
+        ) {
+            (Some(m1), Some(m2)) => {
+                // If the combine sum is exact, then we can sum them.
+                if let Some(scalar_value) = m1.zip(m2).as_exact().and_then(|(s1, s2)| {
+                    s1.as_primitive()
+                        .checked_add(&s2.as_primitive())
+                        .map(|pscalar| {
+                            pscalar
+                                .pvalue()
+                                .map(|pvalue| {
+                                    Scalar::primitive_value(
+                                        pvalue,
+                                        pscalar.ptype(),
+                                        pscalar.dtype().nullability(),
+                                    )
+                                    .into_value()
+                                })
+                                .unwrap_or_else(ScalarValue::null)
+                        })
+                }) {
+                    self.set(Stat::Sum, Precision::Exact(scalar_value));
+                }
+            }
+            _ => self.clear(Stat::Sum),
+        }
+    }
+
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         let self_const = self.get_as(Stat::IsConstant);
         let other_const = other.get_as(Stat::IsConstant);
@@ -483,10 +512,6 @@ impl StatsSet {
             }
         }
         self.clear(stat);
-    }
-
-    fn merge_true_count(&mut self, other: &Self) {
-        self.merge_sum_stat(Stat::TrueCount, other)
     }
 
     fn merge_null_count(&mut self, other: &Self) {
@@ -563,9 +588,9 @@ mod test {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::{Precision, Stat, Statistics, StatsSet};
-    use crate::IntoArray as _;
+    use crate::stats::{Precision, Stat, StatsSet};
 
     #[test]
     fn test_iter() {
@@ -690,30 +715,30 @@ mod test {
 
     #[test]
     fn merge_into_scalar() {
-        let first = StatsSet::of(Stat::TrueCount, Precision::exact(42)).merge_ordered(
+        let first = StatsSet::of(Stat::Sum, Precision::exact(42)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert!(first.get(Stat::TrueCount).is_none());
+        assert!(first.get(Stat::Sum).is_none());
     }
 
     #[test]
     fn merge_from_scalar() {
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::TrueCount, Precision::exact(42)),
+            &StatsSet::of(Stat::Sum, Precision::exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert!(first.get(Stat::TrueCount).is_none());
+        assert!(first.get(Stat::Sum).is_none());
     }
 
     #[test]
     fn merge_scalars() {
-        let first = StatsSet::of(Stat::TrueCount, Precision::exact(37)).merge_ordered(
-            &StatsSet::of(Stat::TrueCount, Precision::exact(42)),
+        let first = StatsSet::of(Stat::Sum, Precision::exact(37)).merge_ordered(
+            &StatsSet::of(Stat::Sum, Precision::exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert_eq!(
-            first.get_as::<usize>(Stat::TrueCount),
+            first.get_as::<usize>(Stat::Sum),
             Some(Precision::exact(79usize))
         );
     }
@@ -850,12 +875,11 @@ mod test {
     #[test]
     fn merge_unordered() {
         let array =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None])
-                .into_array();
+            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
         let all_stats = all::<Stat>()
-            .filter(|s| !matches!(s, Stat::TrueCount))
+            .filter(|s| !matches!(s, Stat::Sum))
             .collect_vec();
-        array.compute_all(&all_stats).unwrap();
+        array.statistics().compute_all(&all_stats).unwrap();
 
         let stats = array.statistics().stats_set();
         for stat in &all_stats {
@@ -914,7 +938,7 @@ mod test {
         let set = StatsSet::from_iter([
             (Stat::Max, Precision::exact(100)),
             (Stat::Min, Precision::exact(50)),
-            (Stat::TrueCount, Precision::inexact(10)),
+            (Stat::Sum, Precision::inexact(10)),
         ]);
 
         let set = set.keep_inexact_stats(&[Stat::Min, Stat::Max]);
@@ -922,7 +946,7 @@ mod test {
         assert_eq!(set.len(), 2);
         assert_eq!(set.get_as::<i32>(Stat::Max), Some(Precision::inexact(100)));
         assert_eq!(set.get_as::<i32>(Stat::Min), Some(Precision::inexact(50)));
-        assert_eq!(set.get_as::<i32>(Stat::TrueCount), None);
+        assert_eq!(set.get_as::<i32>(Stat::Sum), None);
     }
 
     #[test]

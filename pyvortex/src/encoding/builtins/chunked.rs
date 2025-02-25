@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use pyo3::{pyclass, pymethods, Bound, PyRef, PyResult};
+use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
 use vortex::arrays::ChunkedEncoding;
 
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
@@ -23,7 +23,8 @@ impl PyChunkedEncoding {
         self_
             .as_array_ref()
             .chunks()
-            .map(|chunk| PyArray::init(self_.py(), chunk))
+            .iter()
+            .map(|chunk| PyArray::init(self_.py(), chunk.clone()))
             .try_collect()
     }
 }

@@ -17,7 +17,7 @@ use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, Defau
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_physical_plan::{collect, ExecutionPlan};
+use datafusion_physical_plan::{ExecutionPlan, collect};
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -27,7 +27,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{ContextRef, IntoArray};
+use vortex::{Array, ContextRef, Encoding};
 
 pub mod bench_run;
 pub mod blob;
@@ -36,6 +36,7 @@ pub mod compress;
 pub mod datasets;
 pub mod display;
 pub mod measurements;
+pub mod metrics;
 pub mod parquet_reader;
 pub mod random_access;
 pub mod tpch;
@@ -59,7 +60,7 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         (*(ALL_ENCODINGS_CONTEXT.clone()))
             .clone()
-            .with_encoding(DeltaEncoding::vtable()),
+            .with_encoding(DeltaEncoding.vtable()),
     )
 });
 
@@ -84,7 +85,7 @@ impl Display for Format {
 }
 
 impl Format {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
             Format::Arrow => "arrow",
@@ -197,12 +198,15 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
     }
 }
 
-pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
+pub async fn execute_query(
+    ctx: &SessionContext,
+    query: &str,
+) -> VortexResult<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
-    Ok(result)
+    Ok((result, physical_plan))
 }
 
 pub async fn execute_physical_plan(
@@ -282,7 +286,7 @@ pub fn generate_struct_of_list_of_ints_array(
             let fields = (0u32..num_columns)
                 .map(|_| {
                     let elements = PrimitiveArray::from_iter(
-                        (0u32..chunk_row_count).map(|_| rng.gen::<i64>()),
+                        (0u32..chunk_row_count).map(|_| rng.random::<i64>()),
                     );
                     let offsets = PrimitiveArray::from_iter(0u32..=chunk_row_count);
                     ListArray::try_new(

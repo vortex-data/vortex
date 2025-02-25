@@ -1,7 +1,7 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::validity::Validity;
@@ -89,7 +89,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
-    pub fn append_validity(&mut self, validity: Validity, length: usize) -> VortexResult<()> {
+    pub fn append_validity(&mut self, validity: &Validity, length: usize) -> VortexResult<()> {
         self.append_validity_mask(validity.to_logical(length)?);
         Ok(())
     }

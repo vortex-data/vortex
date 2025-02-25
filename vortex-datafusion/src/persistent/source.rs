@@ -5,7 +5,7 @@ use arrow_schema::SchemaRef;
 use datafusion::datasource::data_source::FileSource;
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig};
-use datafusion_common::{internal_datafusion_err, Result as DFResult, Statistics};
+use datafusion_common::{Result as DFResult, Statistics, internal_datafusion_err};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::{ObjectStore, ObjectStoreScheme};
@@ -14,9 +14,9 @@ use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
 
-use super::cache::FileLayoutCache;
+use super::cache::FooterCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
-use super::metrics::{VortexExecMetrics, PARTITION_LABEL};
+use super::metrics::{PARTITION_LABEL, VortexExecMetrics};
 use super::opener::VortexFileOpener;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
@@ -25,7 +25,7 @@ use super::opener::VortexFileOpener;
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) ctx: ContextRef,
-    pub(crate) initial_read_cache: FileLayoutCache,
+    pub(crate) footer_cache: FooterCache,
     pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
     pub(crate) projection: Option<Arc<dyn VortexExpr>>,
     pub(crate) batch_size: Option<usize>,
@@ -37,12 +37,12 @@ pub struct VortexSource {
 impl VortexSource {
     pub(crate) fn new(
         ctx: ContextRef,
-        initial_read_cache: FileLayoutCache,
+        footer_cache: FooterCache,
         metrics: VortexExecMetrics,
     ) -> Self {
         Self {
             ctx,
-            initial_read_cache,
+            footer_cache,
             metrics,
             projection: None,
             batch_size: None,
@@ -87,7 +87,7 @@ impl FileSource for VortexSource {
             object_store,
             self.projection.clone().unwrap_or_else(Identity::new_expr),
             self.predicate.clone(),
-            self.initial_read_cache.clone(),
+            self.footer_cache.clone(),
             self.arrow_schema
                 .clone()
                 .vortex_expect("We should have a schema here"),
@@ -241,9 +241,11 @@ mod tests {
 
         repartition_by_size(file_groups, 2);
 
-        let file_groups = vec![(0..100)
-            .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
-            .collect()];
+        let file_groups = vec![
+            (0..100)
+                .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
+                .collect(),
+        ];
 
         repartition_by_size(file_groups, 16);
     }

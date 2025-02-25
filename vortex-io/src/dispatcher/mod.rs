@@ -10,9 +10,9 @@ use std::sync::{Arc, LazyLock};
 use std::task::Poll;
 
 use cfg_if::cfg_if;
-use futures::channel::oneshot;
 use futures::FutureExt;
-use vortex_error::{vortex_err, VortexResult};
+use futures::channel::oneshot;
+use vortex_error::{VortexResult, vortex_err};
 
 static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
@@ -150,11 +150,11 @@ impl Dispatch for IoDispatcher {
     {
         match self.0.as_ref() {
             #[cfg(not(target_arch = "wasm32"))]
-            Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.dispatch(task),
+            Inner::Tokio(tokio_dispatch) => tokio_dispatch.dispatch(task),
             #[cfg(feature = "compio")]
-            Inner::Compio(ref compio_dispatch) => compio_dispatch.dispatch(task),
+            Inner::Compio(compio_dispatch) => compio_dispatch.dispatch(task),
             #[cfg(target_arch = "wasm32")]
-            Inner::Wasm(ref wasm_dispatch) => wasm_dispatch.dispatch(task),
+            Inner::Wasm(wasm_dispatch) => wasm_dispatch.dispatch(task),
         }
     }
 

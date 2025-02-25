@@ -1,16 +1,16 @@
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef};
 
-impl CastFn<PrimitiveArray> for PrimitiveEncoding {
-    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Array> {
+impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
+    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);
         };
@@ -18,17 +18,19 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = if array.dtype().nullability() == new_nullability {
-            array.validity()
+            array.validity().clone()
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
-            array.validity().into_nullable()
+            array.validity().clone().into_nullable()
         } else if new_nullability == Nullability::NonNullable
             && array.validity().to_logical(array.len())?.all_true()
         {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
         } else {
-            vortex_bail!("invalid cast from nullable to non-nullable, since source array actually contains nulls");
+            vortex_bail!(
+                "invalid cast from nullable to non-nullable, since source array actually contains nulls"
+            );
         };
 
         // If the bit width is the same, we can short-circuit and simply update the validity
@@ -71,10 +73,11 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn cast_u32_u8() {
@@ -83,42 +86,42 @@ mod test {
         // cast from u32 to u8
         let p = try_cast(&arr, PType::U8.into())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::AllValid);
+        assert_eq!(p.validity(), &Validity::AllValid);
 
         // back to non-nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable u32
         let p = try_cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
-        assert_eq!(p.validity(), Validity::AllValid);
+        assert_eq!(p.validity(), &Validity::AllValid);
 
         // to non-nullable u8
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
     }
 
     #[test]
@@ -126,7 +129,7 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = try_cast(&arr, PType::F32.into())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
@@ -143,11 +146,14 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
-        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]).into_array();
+        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = try_cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()
         };
-        assert_eq!(s.to_string(), "invalid cast from nullable to non-nullable, since source array actually contains nulls");
+        assert_eq!(
+            s.to_string(),
+            "invalid cast from nullable to non-nullable, since source array actually contains nulls"
+        );
     }
 }

@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -15,9 +15,9 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
+use vortex_array::TryIntoArray;
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_file::VortexWriteOptions;
 use vortex_io::{ObjectStoreWriter, VortexWrite};
@@ -97,7 +97,7 @@ impl FileSink for VortexSink {
 
             let stream = ReceiverStream::new(rx).map(|rb| {
                 row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
-                Array::try_from(rb)
+                rb.try_into_array()
             });
             let dtype = DType::from_arrow(self.config.output_schema.as_ref());
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
@@ -129,7 +129,7 @@ mod tests {
     use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use tempfile::TempDir;
 
-    use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
+    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
     #[tokio::test]
     async fn test_insert_into() {
@@ -153,7 +153,7 @@ mod tests {
 
         let my_tbl = session.table("my_tbl").await.unwrap();
 
-        // Its valuable to have two insert code paths because they actually behave slightly differently
+        // It's valuable to have two insert code paths because they actually behave slightly differently
         let values = Values {
             schema: Arc::new(my_tbl.schema().clone()),
             values: vec![vec![

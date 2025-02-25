@@ -5,11 +5,12 @@ use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
+use vortex::stream::ArrayStreamArrayExt;
 
 use crate::arrays::PyArray;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
-use crate::{install_module, TOKIO_RUNTIME};
+use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -215,7 +216,7 @@ pub fn write_path(array: PyArray, path: &str) -> PyResult<()> {
 
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
-            .write(File::create(path).await?, array.into_array_stream())
+            .write(File::create(path).await?, array.to_array_stream())
             .await
     })?;
 

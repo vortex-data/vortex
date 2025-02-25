@@ -6,18 +6,18 @@ use arrow::array::{RecordBatch, RecordBatchReader};
 use arrow::datatypes::SchemaRef;
 use arrow::error::ArrowError;
 use futures::StreamExt;
+use vortex::ArrayRef;
 use vortex::arrow::infer_schema;
 use vortex::error::{VortexError, VortexResult};
 use vortex::stream::ArrayStream;
-use vortex::Array;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
 }
 
-fn vortex_to_arrow(result: VortexResult<Array>) -> Result<RecordBatch, ArrowError> {
+fn vortex_to_arrow(result: VortexResult<ArrayRef>) -> Result<RecordBatch, ArrowError> {
     result
-        .and_then(RecordBatch::try_from)
+        .and_then(|a| RecordBatch::try_from(a.as_ref()))
         .map_err(vortex_to_arrow_error)
 }
 

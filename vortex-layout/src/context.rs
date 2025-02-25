@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_map::HashMap;
 
+use crate::LayoutId;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::vtable::LayoutVTableRef;
-use crate::LayoutId;
 
 #[derive(Debug, Clone)]
 pub struct LayoutContext {
@@ -39,10 +39,10 @@ impl Default for LayoutContext {
     fn default() -> Self {
         Self::new(
             [
-                LayoutVTableRef::from_static(&ChunkedLayout),
-                LayoutVTableRef::from_static(&FlatLayout),
-                LayoutVTableRef::from_static(&StructLayout),
-                LayoutVTableRef::from_static(&StatsLayout),
+                LayoutVTableRef::new_ref(&ChunkedLayout),
+                LayoutVTableRef::new_ref(&FlatLayout),
+                LayoutVTableRef::new_ref(&StructLayout),
+                LayoutVTableRef::new_ref(&StatsLayout),
             ]
             .into_iter()
             .map(|l| (l.id(), l))

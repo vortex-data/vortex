@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
-use crate::{flatbuffers as fb, DType, StructDType};
+use crate::{DType, StructDType, flatbuffers as fb};
 
 /// Convert name references in projection list into index references.
 ///

@@ -1,4 +1,5 @@
 mod cast;
+mod is_constant;
 mod min_max;
 mod take;
 mod to_arrow;
@@ -7,58 +8,62 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::arrays::VarBinViewEncoding;
-use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{
+    CastFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+};
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
+impl ScalarAtFn<&VarBinViewArray> for VarBinViewEncoding {
     fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
         Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 }
 
-impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
-    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<Array> {
+impl SliceFn<&VarBinViewArray> for VarBinViewEncoding {
+    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let views = array.views().slice(start..stop);
 
         Ok(VarBinViewArray::try_new(
             views,
-            (0..array.nbuffers())
-                .map(|i| array.buffer(i))
-                .collect::<Vec<_>>(),
+            array.buffers().to_vec(),
             array.dtype().clone(),
             array.validity().slice(start, stop)?,
         )?
@@ -66,15 +71,15 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
     }
 }
 
-impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
-    fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<Array> {
-        VarBinViewArray::try_new(
-            array.views(),
-            array.buffers().collect(),
+impl MaskFn<&VarBinViewArray> for VarBinViewEncoding {
+    fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<ArrayRef> {
+        Ok(VarBinViewArray::try_new(
+            array.views().clone(),
+            array.buffers().to_vec(),
             array.dtype().as_nullable(),
             array.validity().mask(&mask)?,
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array())
     }
 }
 
@@ -82,12 +87,14 @@ impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
+    use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::canonical::ToCanonical;
     use crate::compute::test_harness::test_mask;
     use crate::compute::{take, take_into};
-    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn take_nullable() {
@@ -100,12 +107,12 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr, buffer![0, 3].into_array()).unwrap();
+        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
             taken
-                .into_varbinview()
+                .to_varbinview()
                 .unwrap()
                 .with_iterator(|it| it
                     .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
@@ -117,20 +124,17 @@ mod tests {
 
     #[test]
     fn take_mask_var_bin_view_array() {
-        test_mask(
-            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
-        );
+        test_mask(&VarBinViewArray::from_iter_str([
+            "one", "two", "three", "four", "five",
+        ]));
 
-        test_mask(
-            VarBinViewArray::from_iter_nullable_str([
-                Some("one"),
-                None,
-                Some("three"),
-                Some("four"),
-                Some("five"),
-            ])
-            .into_array(),
-        );
+        test_mask(&VarBinViewArray::from_iter_nullable_str([
+            Some("one"),
+            None,
+            Some("three"),
+            Some("four"),
+            Some("five"),
+        ]));
     }
 
     #[test]
@@ -146,13 +150,13 @@ mod tests {
 
         let mut builder = VarBinViewBuilder::with_capacity(arr.dtype().clone(), arr.len());
 
-        take_into(arr, buffer![0, 3].into_array(), &mut builder).unwrap();
+        take_into(&arr, &buffer![0, 3].into_array(), &mut builder).unwrap();
 
         let taken = builder.finish();
         assert!(taken.dtype().is_nullable());
         assert_eq!(
             taken
-                .into_varbinview()
+                .to_varbinview()
                 .unwrap()
                 .with_iterator(|it| it
                     .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))

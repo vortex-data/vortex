@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use vortex::arrays::ChunkedArray;
 use vortex::dtype::FieldName;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::{Array, ArrayExt, ArrayRef, ToCanonical};
 
 use crate::datasets::BenchmarkDataset;
 use crate::tpch;
@@ -15,14 +15,14 @@ impl BenchmarkDataset for TPCHLCommentChunked {
         "TPC-H l_comment chunked"
     }
 
-    async fn to_vortex_array(&self) -> Array {
+    async fn to_vortex_array(&self) -> ArrayRef {
         let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
         let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;
 
-        let lineitem_chunked = ChunkedArray::maybe_from(lineitem_vortex).unwrap();
-        let comment_chunks = lineitem_chunked.chunks().map(|chunk| {
+        let lineitem_chunked = lineitem_vortex.as_::<ChunkedArray>();
+        let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
             chunk
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .project(&[FieldName::from("l_comment")])
                 .unwrap()
@@ -39,11 +39,11 @@ impl BenchmarkDataset for TPCHLCommentCanonical {
         "TPC-H l_comment canonical"
     }
 
-    async fn to_vortex_array(&self) -> Array {
+    async fn to_vortex_array(&self) -> ArrayRef {
         let comments_canonical = TPCHLCommentChunked
             .to_vortex_array()
             .await
-            .into_struct()
+            .to_struct()
             .unwrap()
             .into_array();
         ChunkedArray::from_iter([comments_canonical]).into_array()

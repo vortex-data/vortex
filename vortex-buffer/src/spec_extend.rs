@@ -85,6 +85,17 @@ where
     }
 }
 
+impl<'a, T: 'a, I> SpecExtend<&'a T, I> for BufferMut<T>
+where
+    I: Iterator<Item = &'a T>,
+    T: Clone,
+{
+    #[track_caller]
+    default fn spec_extend(&mut self, iterator: I) {
+        self.spec_extend(iterator.cloned())
+    }
+}
+
 impl<'a, T: 'a> SpecExtend<&'a T, slice::Iter<'a, T>> for BufferMut<T>
 where
     T: Copy,

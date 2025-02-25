@@ -5,10 +5,11 @@ use std::sync::Arc;
 use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{VarBinEncoding, VarBinViewEncoding};
-use vortex_array::{Encoding, EncodingId, IntoArray};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding};
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_fsst::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 use super::bitpacked::BITPACK_WITH_PATCHES;
 use super::delta::DeltaCompressor;
@@ -16,7 +17,7 @@ use super::r#for::FoRCompressor;
 use super::varbin::VarBinCompressor;
 use super::{CompressedArray, CompressionTree, EncoderMetadata, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct FSSTCompressor;
@@ -39,7 +40,7 @@ impl EncodingCompressor for FSSTCompressor {
         constants::FSST_COST
     }
 
-    fn can_compress(&self, array: &vortex_array::Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // FSST arrays must have DType::Utf8.
         //
         // Note that while it can accept binary data, it is unlikely to perform well.
@@ -57,7 +58,7 @@ impl EncodingCompressor for FSSTCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &vortex_array::Array,
+        array: &dyn Array,
         // TODO(aduffy): reuse compressor from sample run if we have saved it off.
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
@@ -67,7 +68,7 @@ impl EncodingCompressor for FSSTCompressor {
         //
         // It's not worth running a full compression step unless the array is large enough.
         if array.nbytes() < 5 * FSST_SYMTAB_MAX_SIZE {
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
         let compressor = like
@@ -101,7 +102,7 @@ impl EncodingCompressor for FSSTCompressor {
                 &FoRCompressor,
                 &BITPACK_WITH_PATCHES,
             ])
-            .compress(&codes, like.as_ref().and_then(|l| l.child(2)))?;
+            .compress(codes, like.as_ref().and_then(|l| l.child(2)))?;
 
         // Compress the uncompressed_lengths array.
         let uncompressed_lengths = ctx
@@ -115,8 +116,8 @@ impl EncodingCompressor for FSSTCompressor {
         Ok(CompressedArray::compressed(
             FSSTArray::try_new(
                 fsst_array.dtype().clone(),
-                fsst_array.symbols(),
-                fsst_array.symbol_lengths(),
+                fsst_array.symbols().clone(),
+                fsst_array.symbol_lengths().clone(),
                 compressed_codes.array,
                 uncompressed_lengths.array,
             )?

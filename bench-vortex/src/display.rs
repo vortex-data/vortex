@@ -4,8 +4,8 @@ use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::aliases::hash_map::HashMap;
 
-use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};
 use crate::Format;
+use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};
 
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DisplayFormat {

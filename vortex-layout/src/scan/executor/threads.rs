@@ -1,12 +1,12 @@
 use std::future::Future;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::{FutureExt as _, TryFutureExt as _};
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
 
 use super::Executor;
 

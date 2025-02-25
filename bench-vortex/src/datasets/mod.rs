@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use vortex::Array;
+use vortex::ArrayRef;
 
 pub mod data_downloads;
 pub mod public_bi_data;
@@ -11,5 +11,5 @@ pub mod tpch_l_comment;
 pub trait BenchmarkDataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> Array;
+    async fn to_vortex_array(&self) -> ArrayRef;
 }

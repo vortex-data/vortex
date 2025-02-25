@@ -2,21 +2,21 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::IntoArrayVariant as _;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
+use vortex_array::{Array, ToCanonical as _};
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl StatisticsVTable<RunEndArray> for RunEndEncoding {
+impl StatisticsVTable<&RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::Min | Stat::Max => array.values().compute_stat(stat),
+            Stat::Min | Stat::Max => array.values().statistics().compute_stat(stat)?,
             Stat::IsSorted => Some(ScalarValue::from(
                 array
                     .values()
@@ -25,10 +25,6 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .unwrap_or(false)
                     && array.validity_mask()?.all_true(),
             )),
-            Stat::TrueCount => match array.dtype() {
-                DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
-                _ => None,
-            },
             Stat::NullCount => Some(ScalarValue::from(array.null_count()?)),
             _ => None,
         };
@@ -42,13 +38,17 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 }
 
 impl RunEndArray {
+    // TODO(ngates): this should be re-used for impl SumFn.
+    #[allow(dead_code)]
     fn true_count(&self) -> VortexResult<u64> {
-        let ends = self.ends().into_primitive()?;
-        let values = self.values().into_bool()?.boolean_buffer();
+        let ends = self.ends().to_primitive()?;
+        let values = self.values().to_bool()?.boolean_buffer().clone();
 
         match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count(ends.as_slice::<$P>(), values))
     }
 
+    // TODO(ngates): this should be re-used for impl SumFn.
+    #[allow(dead_code)]
     fn typed_true_count<P: NativePType + Into<u64>>(
         &self,
         decompressed_ends: &[P],
@@ -102,7 +102,7 @@ impl RunEndArray {
     }
 
     fn null_count(&self) -> VortexResult<u64> {
-        let ends = self.ends().into_primitive()?;
+        let ends = self.ends().to_primitive()?;
         let null_count = match self.values().validity_mask()? {
             Mask::AllTrue(_) => 0u64,
             Mask::AllFalse(_) => self.len() as u64,
@@ -151,7 +151,7 @@ mod tests {
     use vortex_array::compute::slice;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
@@ -177,11 +177,10 @@ mod tests {
     fn test_runend_bool_stats() {
         let arr = RunEndArray::try_new(
             buffer![2u32, 5, 10].into_array(),
-            BoolArray::try_new(
+            BoolArray::new(
                 BooleanBuffer::from_iter([true, true, false]),
                 Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
             )
-            .unwrap()
             .into_array(),
         )
         .unwrap();
@@ -193,12 +192,8 @@ mod tests {
             3
         );
         assert!(!arr.statistics().compute_as::<bool>(Stat::IsSorted).unwrap());
-        assert_eq!(
-            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
-            2
-        );
 
-        let sliced = slice(arr, 4, 7).unwrap();
+        let sliced = slice(&arr, 4, 7).unwrap();
 
         assert!(!sliced.statistics().compute_as::<bool>(Stat::Min).unwrap());
         assert!(!sliced.statistics().compute_as::<bool>(Stat::Max).unwrap());
@@ -210,16 +205,11 @@ mod tests {
             1
         );
         // Not sorted because null must come last
-        assert!(!sliced
-            .statistics()
-            .compute_as::<bool>(Stat::IsSorted)
-            .unwrap());
-        assert_eq!(
-            sliced
+        assert!(
+            !sliced
                 .statistics()
-                .compute_as::<u64>(Stat::TrueCount)
-                .unwrap(),
-            0
+                .compute_as::<bool>(Stat::IsSorted)
+                .unwrap()
         );
     }
 
@@ -231,10 +221,6 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        assert_eq!(
-            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
-            0
-        );
         assert_eq!(
             arr.statistics().compute_as::<u64>(Stat::NullCount).unwrap(),
             10

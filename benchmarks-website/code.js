@@ -47,13 +47,13 @@ window.initAndRender = (function () {
             if (!benchmark_result["commit"]) {
                 missing_commits.add(commit_id)
                 benchmark_result["commit"] = commit_metadata[commit_id] = {
-                    "author":{"email":"daniel.zidan.king@gmail.com","name":"Dan King"},
-                    "committer":{"email":"noreply@github.com","name":"GitHub"},
-                    "id":commit_id,
-                    "message":"!! This commit is missing from commits.json !!",
-                    "timestamp":"1970-01-01T00:00:00Z",
-                    "tree_id":null,
-                    "url":"https://github.com/spiraldb/vortex/commit/" + commit_id
+                    "author": {"email": "daniel.zidan.king@gmail.com", "name": "Dan King"},
+                    "committer": {"email": "noreply@github.com", "name": "GitHub"},
+                    "id": commit_id,
+                    "message": "!! This commit is missing from commits.json !!",
+                    "timestamp": "1970-01-01T00:00:00Z",
+                    "tree_id": null,
+                    "url": "https://github.com/spiraldb/vortex/commit/" + commit_id
                 }
             }
 
@@ -194,8 +194,8 @@ window.initAndRender = (function () {
             }
 
             if (name.includes("DECOMPRESS") && name.includes("THROUGHPUT") && dataset.unit === "MiB/s") {
-                y_axis_scale.suggestedMax = 4096;
-                y_axis_scale.max = 4096;
+                y_axis_scale.suggestedMax = 8192;
+                y_axis_scale.max = 8192;
             }
 
             const options = {
@@ -279,7 +279,12 @@ window.initAndRender = (function () {
         function renderBenchSet(name, benchSet, main, toc, groupFilterSettings) {
             const {keptCharts, hiddenDatasets, removedDatasets, renamedDatasets} = (
                 groupFilterSettings === undefined
-                    ? {keptCharts: undefined, hiddenDatasets: undefined, removedDatasets: undefined, renamedDatasets: undefined}
+                    ? {
+                        keptCharts: undefined,
+                        hiddenDatasets: undefined,
+                        removedDatasets: undefined,
+                        renamedDatasets: undefined
+                    }
                     : groupFilterSettings);
             const setElem = document.createElement('div');
             setElem.className = 'benchmark-set';

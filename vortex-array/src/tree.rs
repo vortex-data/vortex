@@ -1,30 +1,28 @@
 use std::fmt::{self};
 
-use humansize::{format_size, DECIMAL};
-use serde::ser::Error;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult};
+use humansize::{DECIMAL, format_size};
 
 use crate::arrays::ChunkedEncoding;
-use crate::visitor::ArrayVisitor;
+use crate::nbytes::NBytes;
 use crate::vtable::EncodingVTable;
-use crate::Array;
+use crate::{Array, ArrayRef, ArrayVisitor};
 
-impl Array {
-    pub fn tree_display(&self) -> impl fmt::Display + use<'_> {
-        TreeDisplayWrapper(self)
+impl dyn Array + '_ {
+    pub fn tree_display(&self) -> impl fmt::Display {
+        TreeDisplayWrapper(self.to_array())
     }
 }
 
-struct TreeDisplayWrapper<'a>(&'a Array);
+struct TreeDisplayWrapper(ArrayRef);
 
-impl fmt::Display for TreeDisplayWrapper<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let array = self.0;
-        let mut array_fmt = TreeFormatter::new(f, "".to_string());
-        array_fmt
-            .visit_child("root", array)
-            .map_err(fmt::Error::custom)
+impl fmt::Display for TreeDisplayWrapper {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut array_fmt = TreeFormatter {
+            fmt,
+            indent: "".to_string(),
+            total_size: None,
+        };
+        array_fmt.format("root", self.0.clone())
     }
 }
 
@@ -34,8 +32,8 @@ pub struct TreeFormatter<'a, 'b: 'a> {
     total_size: Option<usize>,
 }
 
-impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
-    fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
+impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
+    fn format(&mut self, name: &str, array: ArrayRef) -> fmt::Result {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);
         writeln!(
@@ -46,10 +44,22 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             format_size(nbytes, DECIMAL),
             100f64 * nbytes as f64 / total_size as f64
         )?;
+
         self.indent(|i| {
             write!(i, "metadata: ")?;
-            array.vtable().display_metadata(array, i.fmt)?;
-            writeln!(i.fmt)
+            array.metadata_fmt(i.fmt)?;
+            writeln!(i.fmt)?;
+
+            for buffer in array.buffers() {
+                writeln!(
+                    i,
+                    "buffer (align={}): {}",
+                    buffer.alignment(),
+                    format_size(buffer.len(), DECIMAL)
+                )?;
+            }
+
+            Ok(())
         })?;
 
         let old_total_size = self.total_size;
@@ -60,33 +70,22 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             self.total_size = Some(total_size);
         }
 
-        self.indent(|i| array.vtable().accept(array, i).map_err(fmt::Error::custom))
-            .map_err(VortexError::from)?;
+        self.indent(|i| {
+            for (name, child) in array
+                .children_names()
+                .into_iter()
+                .zip(array.children().into_iter())
+            {
+                i.format(&name, child)?;
+            }
+            Ok(())
+        })?;
 
         self.total_size = old_total_size;
         Ok(())
     }
 
-    fn visit_buffer(&mut self, buffer: &ByteBuffer) -> VortexResult<()> {
-        Ok(writeln!(
-            self,
-            "buffer (align={}): {}",
-            buffer.alignment(),
-            format_size(buffer.len(), DECIMAL)
-        )?)
-    }
-}
-
-impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
-    pub fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
-        TreeFormatter {
-            fmt,
-            indent,
-            total_size: None,
-        }
-    }
-
-    pub fn indent<F>(&mut self, indented: F) -> fmt::Result
+    fn indent<F>(&mut self, indented: F) -> fmt::Result
     where
         F: FnOnce(&mut TreeFormatter) -> fmt::Result,
     {
@@ -97,7 +96,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         res
     }
 
-    pub fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
+    fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
         write!(self.fmt, "{}{}", self.indent, fmt)
     }
 }

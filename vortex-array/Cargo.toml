@@ -31,11 +31,11 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
-backtrace = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
 futures-util = { workspace = true }
+getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }

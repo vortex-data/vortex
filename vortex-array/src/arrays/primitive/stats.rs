@@ -5,14 +5,16 @@ use std::mem::size_of;
 use arrow_buffer::buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
-use crate::arrays::primitive::PrimitiveArray;
+use crate::Array;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::min_max;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
@@ -30,7 +32,7 @@ impl<T> PStatsType for T where
 {
 }
 
-impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
+impl StatisticsVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -65,7 +67,7 @@ impl PrimitiveEncoding {
     }
 }
 
-impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
+impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
@@ -86,7 +88,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
                 array.iter().skip(1).for_each(|next| stats.next(*next));
                 stats.finish()
             }
-            Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
+            Stat::UncompressedSizeInBytes => StatsSet::default(),
             _ => unreachable!("already handled above"),
         })
     }
@@ -94,14 +96,14 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
 
 struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 
-impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncoding {
+impl<T: PStatsType> StatisticsVTable<&NullableValues<'_, T>> for PrimitiveEncoding {
     fn compute_statistics(
         &self,
         nulls: &NullableValues<'_, T>,
         stat: Stat,
     ) -> VortexResult<StatsSet> {
         let values = nulls.0;
-        if values.is_empty() || stat == Stat::TrueCount || stat == Stat::UncompressedSizeInBytes {
+        if values.is_empty() || stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::default());
         }
 
@@ -311,6 +313,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::stats::{Stat, Statistics};
 
@@ -374,8 +377,8 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min = arr.compute_stat(Stat::Min);
-        let max = arr.compute_stat(Stat::Max);
+        let min = arr.compute_stat(Stat::Min).unwrap();
+        let max = arr.compute_stat(Stat::Max).unwrap();
         assert!(min.is_none());
         assert!(max.is_none());
     }

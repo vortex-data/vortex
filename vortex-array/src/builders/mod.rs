@@ -15,15 +15,15 @@ pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use varbinview::*;
-use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, StructScalar,
-    Utf8Scalar,
+    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
+    StructScalar, Utf8Scalar,
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::Array;
+use crate::{Array, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -55,7 +55,7 @@ pub trait ArrayBuilder: Send {
     fn append_nulls(&mut self, n: usize);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()>;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
     /// Constructs an Array from the builder components.
     ///
@@ -66,7 +66,7 @@ pub trait ArrayBuilder: Send {
     /// builders have interfaces that may be misued. For example, if the number of values in a
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
-    fn finish(&mut self) -> Array;
+    fn finish(&mut self) -> ArrayRef;
 }
 
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
@@ -100,9 +100,19 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 }
 
 pub trait ArrayBuilderExt: ArrayBuilder {
+    /// A generic function to append a scalar value to the builder.
+    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
+        if value.is_null() {
+            self.append_null();
+            Ok(())
+        } else {
+            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
+        }
+    }
+
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if !scalar.dtype().eq_ignore_nullability(self.dtype()) {
+        if scalar.dtype() != self.dtype() {
             vortex_bail!(
                 "Builder has dtype {:?}, scalar has {:?}",
                 self.dtype(),
