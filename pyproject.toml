@@ -4,10 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 authors = [{ name = "Nicholas Gates", email = "nick@nickgates.com" }]
 requires-python = ">= 3.10"
-dependencies = [
-    "vortex-array",
-    "docs",
-]
+dependencies = ["vortex-array", "docs"]
 
 [build-system]
 requires = ["hatchling"]
@@ -18,6 +15,7 @@ packages = ["dummy"] # Required for workspace project
 
 [tool.uv]
 managed = true
+required-version = ">=0.5.0"
 # Currently, all dev dependencies live in the root since uv doesn't have transitive dev dependencies.
 #  See: https://github.com/astral-sh/uv/issues/7541
 dev-dependencies = [
