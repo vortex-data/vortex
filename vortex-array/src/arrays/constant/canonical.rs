@@ -2,15 +2,17 @@ use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, Scalar, ScalarValue, Utf8Scalar,
+    BinaryScalar, BoolScalar, ExtScalar, ListScalar, Scalar, ScalarValue, StructScalar, Utf8Scalar,
 };
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{BinaryView, BoolArray, ExtensionArray, ListArray, NullArray, VarBinViewArray};
+use crate::arrays::{
+    BinaryView, BoolArray, ExtensionArray, ListArray, NullArray, StructArray, VarBinViewArray,
+};
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
 use crate::{Array, Canonical, IntoArray};
@@ -63,7 +65,21 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let const_value = value.as_ref().map(|v| v.as_slice());
                 Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
             }
-            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
+            DType::Struct(..) => {
+                let value = StructScalar::try_from(scalar)?;
+                let fields = value.fields().map(|fields| {
+                    fields
+                        .into_iter()
+                        .map(|s| ConstantArray::new(s, self.len()).into_array())
+                        .collect::<Vec<_>>()
+                });
+                Canonical::Struct(StructArray::try_new(
+                    value.struct_dtype().names().clone(),
+                    fields.unwrap_or_default(),
+                    self.len(),
+                    validity,
+                )?)
+            }
             DType::List(..) => {
                 let value = ListScalar::try_from(scalar)?;
                 Canonical::List(canonical_list_array(
