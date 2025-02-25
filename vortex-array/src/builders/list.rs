@@ -138,7 +138,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         )?;
         self.index_builder.extend_from_array(&offsets)?;
 
-        if list.len() != 0 {
+        if !list.is_empty() {
             let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
             self.value_builder.extend_from_array(&slice(
                 list.elements(),
