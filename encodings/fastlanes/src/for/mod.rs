@@ -7,12 +7,14 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, encoding_ids,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, encoding_ids,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+
+use crate::r#for::serde::ScalarValueMetadata;
 
 mod compress;
 mod compute;
@@ -29,7 +31,7 @@ pub struct FoREncoding;
 impl Encoding for FoREncoding {
     const ID: EncodingId = EncodingId::new("fastlanes.for", encoding_ids::FL_FOR);
     type Array = FoRArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = ScalarValueMetadata;
 }
 
 impl FoRArray {

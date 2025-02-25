@@ -5,6 +5,7 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
     DeserializeMetadata, RkyvMetadata,
 };
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -19,7 +20,11 @@ pub struct SparseMetadata {
 
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
     fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = self.fill_value.value().to_flexbytes().into_inner();
+        let fill_value_buffer = self
+            .fill_value
+            .value()
+            .to_flexbytes::<ByteBufferMut>()
+            .freeze();
         visitor.visit_buffer(&fill_value_buffer);
     }
 
