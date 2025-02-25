@@ -57,16 +57,19 @@ Unlike many columnar formats, the `DType` of a Vortex file is not required to be
 valid to store a `Float64` array, a `Boolean` array, or any other root data type.
 :::
 
-### File Layout
+### Footer
 
-The file layout is a flat buffer serialized `FileLayout` object. This object contains all the information required to
+The footer is a flat buffer serialized `Footer` object. This object contains all the information required to
 load the root `Layout` object into a usable `LayoutReader`. For example, it contains the locations, compression schemes,
 encryption schemes, and required alignment of all segments in the file.
 
 :::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
-:start-after: [file layout]
-:end-before: [file layout]
+:start-after: [footer]
+:end-before: [footer]
 :::
+
+The footer is separated from the Data Type such that large schemas can be omitted from the file if they can be
+shared or fetched from an external source.
 
 ## Backward Compatibility
 

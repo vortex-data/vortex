@@ -83,7 +83,7 @@ impl FileOpener for VortexFileOpener {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_metrics(file_metrics)
-                .with_file_layout(
+                .with_footer(
                     file_layout_cache
                         .try_get(&file_meta.object_meta, object_store)
                         .await?,

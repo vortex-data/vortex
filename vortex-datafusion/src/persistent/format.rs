@@ -46,7 +46,7 @@ pub struct VortexFormat {
 /// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
-    /// The size of the in-memory [`vortex_file::FileLayout`] cache.
+    /// The size of the in-memory [`vortex_file::Footer`] cache.
     pub cache_size_mb: usize,
 }
 
@@ -198,7 +198,7 @@ impl FileFormat for VortexFormat {
             .await?;
 
         let vxf = VortexOpenOptions::file(read_at)
-            .with_file_layout(file_layout)
+            .with_footer(file_layout)
             .open()
             .await?;
 

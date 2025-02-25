@@ -7,7 +7,7 @@ use vortex_dtype::DType;
 use vortex_layout::scan::ScanBuilder;
 use vortex_metrics::VortexMetrics;
 
-use crate::footer::FileLayout;
+use crate::footer::Footer;
 use crate::open::FileType;
 use crate::segments::SegmentCache;
 
@@ -15,7 +15,7 @@ pub struct VortexFile<F: FileType> {
     pub(crate) read: F::Read,
     pub(crate) options: F::Options,
     pub(crate) ctx: ContextRef,
-    pub(crate) file_layout: FileLayout,
+    pub(crate) file_layout: Footer,
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
     pub(crate) metrics: VortexMetrics,
     pub(crate) _marker: PhantomData<F>,
@@ -30,7 +30,7 @@ impl<F: FileType> VortexFile<F> {
         self.file_layout.dtype()
     }
 
-    pub fn file_layout(&self) -> &FileLayout {
+    pub fn file_layout(&self) -> &Footer {
         &self.file_layout
     }
 
@@ -46,10 +46,6 @@ impl<F: FileType> VortexFile<F> {
             self.segment_cache.clone(),
             self.metrics.clone(),
         );
-        ScanBuilder::new(
-            driver,
-            self.file_layout.root_layout().clone(),
-            self.ctx.clone(),
-        )
+        ScanBuilder::new(driver, self.file_layout.layout().clone(), self.ctx.clone())
     }
 }

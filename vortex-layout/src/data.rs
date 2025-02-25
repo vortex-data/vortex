@@ -5,10 +5,9 @@ use std::sync::Arc;
 use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{layout as fb, layout, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::context::LayoutContextRef;
 use crate::reader::LayoutReader;
@@ -45,7 +44,7 @@ struct ViewedLayout {
     name: Arc<str>,
     vtable: LayoutVTableRef,
     dtype: DType,
-    flatbuffer: ByteBuffer,
+    flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
     ctx: LayoutContextRef,
 }
@@ -84,7 +83,7 @@ impl Layout {
         name: Arc<str>,
         vtable: LayoutVTableRef,
         dtype: DType,
-        flatbuffer: ByteBuffer,
+        flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> VortexResult<Self> {
@@ -122,7 +121,7 @@ impl Layout {
         name: Arc<str>,
         encoding: LayoutVTableRef,
         dtype: DType,
-        flatbuffer: ByteBuffer,
+        flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> Self {
@@ -286,8 +285,7 @@ impl Layout {
             Inner::Owned(owned) => owned.metadata.clone(),
             Inner::Viewed(viewed) => viewed.flatbuffer().metadata().map(|m| {
                 // Return the metadata bytes zero-copy by finding them in the flatbuffer.
-                let bytes = viewed.flatbuffer.clone().into_inner();
-                bytes.slice_ref(m.bytes())
+                viewed.flatbuffer.as_ref().inner().slice_ref(m.bytes())
             }),
         }
     }

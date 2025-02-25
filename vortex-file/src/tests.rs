@@ -989,6 +989,36 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn file_excluding_dtype() -> VortexResult<()> {
+    let array = ChunkedArray::from_iter([
+        buffer![0, 1, 2].into_array(),
+        buffer![3, 4, 5].into_array(),
+        buffer![6, 7, 8].into_array(),
+    ])
+    .into_array();
+    let dtype = array.dtype().clone();
+
+    let buffer: Bytes = VortexWriteOptions::default()
+        .exclude_dtype()
+        .write(vec![], array.to_array_stream())
+        .await?
+        .into();
+
+    // Fail to open without DType.
+    let vxf = VortexOpenOptions::in_memory(buffer.clone()).open().await;
+    assert!(vxf.is_err(), "Opening without DType should fail");
+
+    let vxf = VortexOpenOptions::in_memory(buffer)
+        .with_dtype(dtype.clone())
+        .open()
+        .await?;
+    assert_eq!(vxf.dtype(), &dtype);
+    assert_eq!(vxf.row_count(), 9);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;
     let result = vxf

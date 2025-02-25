@@ -7,7 +7,7 @@ use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{FileLayout, Segment, VortexOpenOptions};
+use vortex::file::{Footer, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
@@ -57,24 +57,24 @@ impl From<u16> for Encoding {
 /// The pointer wraps an InitialRead.
 pub struct LayoutCursor {
     path: Vec<usize>,
-    file_layout: FileLayout,
+    file_layout: Footer,
     layout: Layout,
     #[allow(unused)]
     segment_map: Arc<[Segment]>,
 }
 
 impl LayoutCursor {
-    pub fn new(layout: FileLayout) -> Self {
+    pub fn new(layout: Footer) -> Self {
         Self {
             path: Vec::new(),
-            layout: layout.root_layout().clone(),
+            layout: layout.layout().clone(),
             segment_map: Arc::clone(layout.segment_map()),
             file_layout: layout,
         }
     }
 
-    pub fn new_with_path(file_layout: FileLayout, path: Vec<usize>) -> Self {
-        let mut layout = file_layout.root_layout().clone();
+    pub fn new_with_path(file_layout: Footer, path: Vec<usize>) -> Self {
+        let mut layout = file_layout.layout().clone();
         let mut dtype = file_layout.dtype().clone();
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {

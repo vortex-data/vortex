@@ -1,7 +1,7 @@
-mod file_layout;
+mod footer;
 mod postscript;
 mod segment;
 
-pub use file_layout::*;
+pub use footer::*;
 pub(crate) use postscript::*;
 pub use segment::*;

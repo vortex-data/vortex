@@ -10,13 +10,13 @@ use vortex_array::stats::{Precision, Stat};
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use vortex_file::{FileLayout, Segment, VortexOpenOptions};
+use vortex_file::{Footer, Segment, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_layout::segments::SegmentId;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
-    inner: Cache<Key, FileLayout, DefaultHashBuilder>,
+    inner: Cache<Key, Footer, DefaultHashBuilder>,
     context: ContextRef,
 }
 
@@ -36,7 +36,7 @@ impl From<&ObjectMeta> for Key {
 }
 
 /// Approximate the in-memory size of a layout
-fn estimate_layout_size(file_layout: &FileLayout) -> usize {
+fn estimate_layout_size(file_layout: &Footer) -> usize {
     let segments_size = file_layout.segment_map().len() * size_of::<Segment>();
     let stats_size = file_layout
         .statistics()
@@ -48,7 +48,7 @@ fn estimate_layout_size(file_layout: &FileLayout) -> usize {
         })
         .sum::<usize>();
 
-    let root_layout = file_layout.root_layout();
+    let root_layout = file_layout.layout();
     let layout_size = size_of::<DType>()
         + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
         + root_layout.nsegments() * size_of::<SegmentId>();
@@ -60,7 +60,7 @@ impl FileLayoutCache {
     pub fn new(size_mb: usize, context: ContextRef) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
-            .eviction_listener(|k: Arc<Key>, _v: FileLayout, cause| {
+            .eviction_listener(|k: Arc<Key>, _v: Footer, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
             })
             .weigher(|_k, file_layout| {
@@ -77,7 +77,7 @@ impl FileLayoutCache {
         &self,
         object: &ObjectMeta,
         object_store: Arc<dyn ObjectStore>,
-    ) -> VortexResult<FileLayout> {
+    ) -> VortexResult<Footer> {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at =
