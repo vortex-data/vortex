@@ -66,9 +66,15 @@ jobs:
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          TEST_SECRET_1: ${{ secrets.TEST_SECRET }}
+          TEST_SECRET_2: "${{ secrets.TEST_SECRET }}"
+          TEST_SECRET_2: '${{ secrets.TEST_SECRET }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
           if [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT}" ]; then echo "empty"; else echo "not empty"; fi;
+          if [ -z "${TEST_SECRET_1}" ]; then echo "empty"; else echo "not empty"; fi;
+          if [ -z "${TEST_SECRET_2}" ]; then echo "empty"; else echo "not empty"; fi;
+          if [ -z "${TEST_SECRET_3}" ]; then echo "empty"; else echo "not empty"; fi;
           echo "OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}"
         
       - name: Run ${{ matrix.name }} benchmark
