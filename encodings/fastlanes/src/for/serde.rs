@@ -72,7 +72,7 @@ impl DeserializeMetadata for ScalarValueMetadata {
 
     fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
         Self::deserialize(metadata)
-            .map(|value| write!(f, "{:?}", value))
+            .map(|value| write!(f, "{}", value))
             .unwrap_or_else(|_| write!(f, "<unknown>"))
     }
 }
