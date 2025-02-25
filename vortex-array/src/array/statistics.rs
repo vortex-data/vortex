@@ -14,13 +14,15 @@ pub trait ArrayStatistics {
     /// Make a best effort attempt to try and figure out if the array is constant, without canonicalizing it.
     fn is_constant(&self) -> bool;
 
-    /// If [`ArrayStatistics::is_constant`]
+    /// If [`ArrayStatistics::is_constant`] is true, return the actual constant value as a [`Scalar`].
     fn as_constant(&self) -> Option<Scalar>;
 }
 
 impl<A: Array + 'static> ArrayStatistics for A {
     fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts::default();
+        let opts = IsConstantOpts {
+            canonicalize: false,
+        };
         is_constant_opts(self, &opts)
             .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
             .ok()
