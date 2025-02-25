@@ -98,7 +98,15 @@ impl ArrayCanonicalImpl for DictArray {
                 let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
                 take(&canonical_values, self.codes())?.to_canonical()
             }
-            _ => take(self.values(), self.codes())?.to_canonical(),
+            _ => {
+                if let Some(take_from_fn) = self.codes().vtable().take_from_fn() {
+                    take_from_fn
+                        .take_from(self.codes(), self.values())?
+                        .to_canonical()
+                } else {
+                    take(self.values(), self.codes())?.to_canonical()
+                }
+            }
         }
     }
 

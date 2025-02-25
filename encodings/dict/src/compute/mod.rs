@@ -112,11 +112,10 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at, slice, take, take_from};
+    use vortex_array::compute::{Operator, compare, scalar_at, slice};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
-    use vortex_runend::RunEndArray;
     use vortex_scalar::Scalar;
 
     use crate::DictArray;
@@ -262,34 +261,25 @@ mod test {
     }
 
     #[test]
-    fn test_dict_with_runend() {
-        let values = buffer![100u32, 200, 300].into_array();
-        let indices = buffer![0u32, 0, 2, 2, 2, 2, 2, 1, 1, 1].into_array();
-
-        let runend = RunEndArray::try_new(
+    fn test_dict_array_runend_decode() {
+        let run_end_codes = vortex_runend::RunEndArray::try_new(
             buffer![2u32, 7, 10].into_array(),
             buffer![0u32, 2, 1].into_array(),
         )
         .unwrap();
 
-        let dict = DictArray::try_new(indices, values).unwrap();
+        let dict_values = buffer![100u32, 200, 300].into_array();
+        let dict_array = DictArray::try_new(run_end_codes.into_array(), dict_values).unwrap();
+        let canonical = dict_array.to_canonical().unwrap();
 
-        let taken = take_from(
-            &runend.clone().into_array(),
-            &dict.values().clone().into_array(),
-        )
-        .unwrap();
-
-        let taken2 = take(&dict, &runend.into_array()).unwrap();
-
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<u32>(),
-            &[100u32, 100, 300, 300, 300, 300, 300, 200, 200, 200]
-        );
+        let expected = buffer![100u32, 100, 300, 300, 300, 300, 300, 200, 200, 200]
+            .into_array()
+            .to_canonical()
+            .unwrap();
 
         assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<u32>(),
-            taken2.to_primitive().unwrap().as_slice::<u32>()
+            canonical.into_primitive().unwrap().as_slice::<u32>(),
+            expected.into_primitive().unwrap().as_slice::<u32>()
         );
     }
 }
