@@ -53,9 +53,6 @@ impl Deref for VTableRef {
 /// It is split into multiple sub-traits to make it easier for consumers to break up the
 /// implementation, as well as to allow for optional implementation of certain features, for example
 /// compute functions.
-///
-/// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
-/// array encoding.
 pub trait EncodingVTable:
     'static
     + Sync
