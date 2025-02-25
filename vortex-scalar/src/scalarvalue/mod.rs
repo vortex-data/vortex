@@ -36,7 +36,7 @@ pub(crate) enum InnerScalarValue {
 
 #[cfg(feature = "flatbuffers")]
 impl ScalarValue {
-    pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
+    pub fn to_flexbytes<B: Default + for<'a> Extend<&'a u8>>(&self) -> B {
         use serde::Serialize;
         use vortex_error::VortexExpect;
 
@@ -44,7 +44,11 @@ impl ScalarValue {
         self.0
             .serialize(&mut ser)
             .vortex_expect("Failed to serialize ScalarValue");
-        vortex_flatbuffers::FlatBuffer::copy_from(ser.view())
+        let view = ser.view();
+
+        let mut buf = B::default();
+        buf.extend(view);
+        buf
     }
 
     pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
