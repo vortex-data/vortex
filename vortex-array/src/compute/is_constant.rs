@@ -27,17 +27,18 @@ where
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct IsConstantOpts {
-    pub fallback_to_canonicalize: bool,
+    pub canonicalize: bool,
 }
 
-pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
-    let opts = IsConstantOpts::default();
-    is_constant_opts(array, &opts)
+impl Default for IsConstantOpts {
+    fn default() -> Self {
+        Self { canonicalize: true }
+    }
 }
 
-/// Computes whether an array has constant values.
+/// Computes whether an array has constant values. If the array's encoding doesn't implement the relevant VTable, it'll try and canonicalize in order to make a determination.
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has one elements.
 /// 1. Its encoded as a [`ConstantArray`] or [`NullArray`]
@@ -47,6 +48,14 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
 ///
 /// If the array has some null values but is not all null, it'll never be constant.
 /// **Please note:** Might return false negatives if a specific encoding couldn't make a determination.
+pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
+    let opts = IsConstantOpts::default();
+    is_constant_opts(array, &opts)
+}
+
+/// Computes whether an array has constant values. Configurable by [`IsConstantOpts`].
+///
+/// Please see [`is_constant`] for a more detailed explanation of its behavior.
 pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<bool> {
     match array.len() {
         // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
@@ -106,7 +115,7 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
             array.encoding()
         );
 
-        if opts.fallback_to_canonicalize {
+        if opts.canonicalize {
             let array = array.to_canonical()?;
 
             if let Some(is_constant_fn) = array.as_ref().vtable().is_constant_fn() {

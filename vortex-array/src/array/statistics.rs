@@ -3,37 +3,31 @@ use std::sync::RwLock;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::compute::{is_constant_opts, min_max, scalar_at, sum, IsConstantOpts, MinMaxResult};
+use crate::compute::{
+    is_constant, is_constant_opts, min_max, scalar_at, sum, IsConstantOpts, MinMaxResult,
+};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {
-    fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts::default();
-        self.is_constant_opts(&opts)
-    }
+    /// Make a best effort attempt to try and figure out if the array is constant, without canonicalizing it.
+    fn is_constant(&self) -> bool;
 
-    fn is_constant_opts(&self, opts: &IsConstantOpts) -> bool;
-
-    fn as_constant(&self) -> Option<Scalar> {
-        let opts = IsConstantOpts::default();
-        self.as_constant_opts(&opts)
-    }
-
-    fn as_constant_opts(&self, opts: &IsConstantOpts) -> Option<Scalar>;
+    fn as_constant(&self) -> Option<Scalar>;
 }
 
 impl<A: Array + 'static> ArrayStatistics for A {
-    fn is_constant_opts(&self, opts: &IsConstantOpts) -> bool {
-        is_constant_opts(self, opts)
+    fn is_constant(&self) -> bool {
+        let opts = IsConstantOpts::default();
+        is_constant_opts(self, &opts)
             .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
             .ok()
             .unwrap_or_default()
     }
 
-    fn as_constant_opts(&self, opts: &IsConstantOpts) -> Option<Scalar> {
-        self.is_constant_opts(opts)
+    fn as_constant(&self) -> Option<Scalar> {
+        self.is_constant()
             .then(|| scalar_at(self, 0).ok())
             .flatten()
     }
@@ -99,15 +93,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
                 if self.is_empty() {
                     None
                 } else {
-                    Some(
-                        is_constant_opts(
-                            self,
-                            &IsConstantOpts {
-                                fallback_to_canonicalize: true,
-                            },
-                        )?
-                        .into(),
-                    )
+                    Some(is_constant(self)?.into())
                 }
             }
             _ => {

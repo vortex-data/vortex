@@ -3,7 +3,6 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
-use crate::compute::is_constant;
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
@@ -76,8 +75,7 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let array_is_constant = is_constant(array)?;
-    let derived_stats = (!array_is_constant).then(|| derive_take_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
 
     let taken = take_impl(array, indices)?;
 
