@@ -6,6 +6,7 @@ use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{Corpus, fuzz_target};
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrow::IntoArrowArray;
@@ -18,11 +19,10 @@ use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
     let array_data = array_data.0;
 
-    if !array_data.dtype().is_struct() {
-        return Corpus::Reject;
-    }
-
-    if has_nullable_struct(array_data.dtype()) {
+    if !array_data.dtype().is_struct()
+        || has_nullable_struct(array_data.dtype())
+        || has_duplicate_field_names(array_data.dtype())
+    {
         return Corpus::Reject;
     }
 
@@ -120,5 +120,16 @@ fn has_nullable_struct(dtype: &DType) -> bool {
         || dtype
             .as_struct()
             .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
+            .unwrap_or(false)
+}
+
+fn has_duplicate_field_names(dtype: &DType) -> bool {
+    let Some(struct_dtype) = dtype.as_struct() else {
+        return false;
+    };
+    HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len()
+        || dtype
+            .as_struct()
+            .map(|sdt| sdt.fields().any(|dtype| has_duplicate_field_names(&dtype)))
             .unwrap_or(false)
 }

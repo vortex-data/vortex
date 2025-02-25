@@ -1,8 +1,9 @@
 use itertools::Itertools;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::iter::ArrayIteratorArrayExt;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::LayoutVTableRef;
 use crate::data::Layout;
@@ -19,18 +20,26 @@ pub struct StructLayoutWriter {
 }
 
 impl StructLayoutWriter {
-    pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
-        let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
+    pub fn try_new(
+        dtype: DType,
+        column_layout_writers: Vec<Box<dyn LayoutWriter>>,
+    ) -> VortexResult<Self> {
+        let struct_dtype = dtype
+            .as_struct()
+            .ok_or_else(|| vortex_err!("expected StructDType"))?;
+        if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
+            vortex_bail!("StructLayout must have unique field names")
+        }
         if struct_dtype.fields().len() != column_layout_writers.len() {
-            vortex_panic!(
+            vortex_bail!(
                 "number of fields in struct dtype does not match number of column layout writers"
             );
         }
-        Self {
+        Ok(Self {
             column_strategies: column_layout_writers,
             dtype,
             row_count: 0,
-        }
+        })
     }
 
     pub fn try_new_with_factory<F: LayoutStrategy>(
@@ -38,14 +47,16 @@ impl StructLayoutWriter {
         dtype: &DType,
         factory: F,
     ) -> VortexResult<Self> {
-        let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
-        Ok(Self::new(
+        let struct_dtype = dtype
+            .as_struct()
+            .ok_or_else(|| vortex_err!("expected StructDType"))?;
+        Self::try_new(
             dtype.clone(),
             struct_dtype
                 .fields()
                 .map(|dtype| factory.new_writer(ctx, &dtype))
                 .try_collect()?,
-        ))
+        )
     }
 }
 
@@ -96,5 +107,50 @@ impl LayoutWriter for StructLayoutWriter {
             column_layouts,
             None,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::ArrayContext;
+    use vortex_dtype::{DType, Nullability, PType};
+
+    use crate::LayoutWriterExt;
+    use crate::layouts::flat::writer::{FlatLayoutOptions, FlatLayoutWriter};
+    use crate::layouts::struct_::writer::StructLayoutWriter;
+
+    #[test]
+    #[should_panic]
+    fn fails_on_duplicate_field() {
+        StructLayoutWriter::try_new(
+            DType::Struct(
+                Arc::new(
+                    [
+                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                Nullability::NonNullable,
+            ),
+            vec![
+                FlatLayoutWriter::new(
+                    ArrayContext::empty(),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    FlatLayoutOptions::default(),
+                )
+                .boxed(),
+                FlatLayoutWriter::new(
+                    ArrayContext::empty(),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    FlatLayoutOptions::default(),
+                )
+                .boxed(),
+            ],
+        )
+        .unwrap();
     }
 }
