@@ -28,8 +28,8 @@ pub use scalar_at::{ScalarAtFn, scalar_at};
 pub use search_sorted::*;
 pub use slice::{SliceFn, slice};
 pub use sum::*;
-pub use take::{take, take_into, TakeFn};
-pub use take_from::{take_from, TakeFromFn};
+pub use take::{TakeFn, take, take_into};
+pub use take_from::{TakeFromFn, take_from};
 pub use to_arrow::*;
 
 mod between;
