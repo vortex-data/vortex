@@ -1,36 +1,23 @@
-mod builtins;
-mod compressed;
-mod fastlanes;
 mod from_arrow;
 mod typed;
 
 use std::ops::Deref;
 
-use arrow::array::{Array as ArrowArray, ArrayRef};
+use arrow::array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList};
+use pyo3::types::{PyDict, PyList};
 use pyo3::PyClass;
-use vortex::array::ChunkedArray;
+use vortex::arrays::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::dtype::{DType, PType};
-use vortex::error::{VortexError, VortexExpect};
+use vortex::error::VortexExpect;
 use vortex::mask::Mask;
-use vortex::{Array, Encoding};
+use vortex::nbytes::NBytes;
+use vortex::{Array, ArrayExt, ArrayRef, Encoding};
 
-use crate::arrays::builtins::{
-    PyBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray, PyNullArray,
-    PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
-};
-use crate::arrays::compressed::{
-    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySparseArray, PyZigZagArray,
-};
-use crate::arrays::fastlanes::{
-    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesForArray,
-};
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
     PyFloat32TypeArray, PyFloat64TypeArray, PyInt16TypeArray, PyInt32TypeArray, PyInt64TypeArray,
@@ -43,7 +30,7 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "arrays")?;
+    let m = PyModule::new(py, "arrays")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.arrays", &m)?;
 
@@ -68,33 +55,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStructTypeArray>()?;
     m.add_class::<PyListTypeArray>()?;
     m.add_class::<PyExtensionTypeArray>()?;
-
-    // Canonical encodings
-    m.add_class::<PyConstantArray>()?;
-    m.add_class::<PyChunkedArray>()?;
-    m.add_class::<PyNullArray>()?;
-    m.add_class::<PyBoolArray>()?;
-    m.add_class::<PyPrimitiveArray>()?;
-    m.add_class::<PyVarBinArray>()?;
-    m.add_class::<PyVarBinViewArray>()?;
-    m.add_class::<PyStructArray>()?;
-    m.add_class::<PyListArray>()?;
-    m.add_class::<PyExtensionArray>()?;
-
-    // Compressed encodings
-    m.add_class::<PyAlpArray>()?;
-    m.add_class::<PyAlpRdArray>()?;
-    m.add_class::<PyDateTimePartsArray>()?;
-    m.add_class::<PyDictArray>()?;
-    m.add_class::<PyFsstArray>()?;
-    m.add_class::<PyRunEndArray>()?;
-    m.add_class::<PySparseArray>()?;
-    m.add_class::<PyZigZagArray>()?;
-
-    // Fastlanes encodings
-    m.add_class::<PyFastLanesBitPackedArray>()?;
-    m.add_class::<PyFastLanesDeltaArray>()?;
-    m.add_class::<PyFastLanesForArray>()?;
 
     Ok(())
 }
@@ -163,12 +123,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///        false,
 ///        true
 ///     ]
-#[pyclass(name = "Array", module = "vortex", sequence, subclass)]
+#[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
 #[derive(Clone)]
-pub struct PyArray(Array);
+pub struct PyArray(ArrayRef);
 
 impl Deref for PyArray {
-    type Target = Array;
+    type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -176,9 +136,9 @@ impl Deref for PyArray {
 }
 
 impl PyArray {
-    /// Initialize a [`PyArray`] from a Vortex [`Array`], ensuring we return the correct typed
+    /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
-    pub fn init(py: Python, array: Array) -> PyResult<Bound<PyArray>> {
+    pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyArray>> {
         match array.dtype() {
             DType::Null => Self::with_subclass(py, array, PyNullTypeArray),
             DType::Bool(_) => Self::with_subclass(py, array, PyBoolTypeArray),
@@ -203,9 +163,27 @@ impl PyArray {
         }
     }
 
+    /// Initialize a [`PyArray`] with an [`EncodingSubclass`].
+    pub fn init_encoding<S: EncodingSubclass>(
+        array: Bound<PyArray>,
+        subclass: S,
+    ) -> PyResult<Bound<S>> {
+        if array.get().deref().encoding() != <<S as EncodingSubclass>::Encoding as Encoding>::ID {
+            return Err(PyValueError::new_err(format!(
+                "Array has encoding {}, expected {}",
+                array.get().deref().encoding(),
+                <<S as EncodingSubclass>::Encoding as Encoding>::ID
+            )));
+        }
+        Bound::new(
+            array.py(),
+            PyClassInitializer::from(array.get().clone()).add_subclass(subclass),
+        )
+    }
+
     fn with_subclass<S: PyClass<BaseType = PyArray>>(
         py: Python,
-        array: Array,
+        array: ArrayRef,
         subclass: S,
     ) -> PyResult<Bound<PyArray>> {
         Ok(Bound::new(
@@ -216,11 +194,11 @@ impl PyArray {
         .downcast_into::<PyArray>()?)
     }
 
-    pub fn inner(&self) -> &Array {
+    pub fn inner(&self) -> &ArrayRef {
         &self.0
     }
 
-    pub fn into_inner(self) -> Array {
+    pub fn into_inner(self) -> ArrayRef {
         self.0
     }
 }
@@ -268,29 +246,34 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.0;
 
-        if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
+        if let Some(chunked_array) = vortex.as_opt::<ChunkedArray>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;
 
-            let chunks: Vec<ArrayRef> = chunked_array
+            let chunks = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow(&arrow_dtype)?) })
-                .collect::<PyResult<Vec<ArrayRef>>>()?;
+                .iter()
+                .map(|chunk| PyResult::Ok(chunk.clone().into_arrow(&arrow_dtype)?))
+                .collect::<PyResult<Vec<ArrowArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
             }
+
             let pa_data_type = chunks[0].data_type().clone().to_pyarrow(py)?;
-            let chunks: PyResult<Vec<PyObject>> = chunks
+            let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let kwargs =
+                PyDict::from_sequence(&PyList::new(py, vec![("type", pa_data_type)])?.into_any())?;
 
             // Combine into a chunked array
-            PyModule::import_bound(py, "pyarrow")?.call_method(
+            PyModule::import(py, "pyarrow")?.call_method(
                 "chunked_array",
-                (PyList::new_bound(py, chunks?),),
-                Some(&[("type", pa_data_type)].into_py_dict_bound(py)),
+                (PyList::new(py, chunks)?,),
+                Some(&kwargs),
             )
         } else {
             Ok(vortex
@@ -421,7 +404,7 @@ impl PyArray {
     ///     ]
     fn filter(&self, mask: &Bound<PyArray>) -> PyResult<PyArray> {
         let mask = mask.borrow();
-        let inner = vortex::compute::filter(&self.0, &Mask::try_from(mask.0.clone())?)?;
+        let inner = vortex::compute::filter(&self.0, &Mask::try_from(mask.0.as_ref())?)?;
         Ok(PyArray(inner))
     }
 
@@ -615,7 +598,7 @@ impl PyArray {
     ///
     ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(3, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     []
     ///
     /// Unlike Python, it is an error to slice outside the bounds of the array:
@@ -657,12 +640,12 @@ impl PyArray {
     ///     >>> import vortex as vx
     ///     >>> arr = vx.array([1, 2, None, 3])
     ///     >>> print(arr.tree_display())
-    ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=36 B (100.00%)
-    ///       metadata: PrimitiveMetadata { validity: Array }
+    ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=34 B (100.00%)
+    ///       metadata: EmptyMetadata
     ///       buffer (align=8): 32 B
-    ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=3 B (8.33%)
-    ///     metadata: BoolMetadata { validity: NonNullable, first_byte_bit_offset: 0 }
-    ///     buffer (align=1): 1 B
+    ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=2 B (5.88%)
+    ///         metadata: BoolMetadata { offset: 0 }
+    ///         buffer (align=1): 1 B
     ///     <BLANKLINE>
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
@@ -672,7 +655,7 @@ impl PyArray {
 }
 
 /// A marker trait indicating a PyO3 class is a subclass of Vortex `Array`.
-pub trait ArraySubclass: PyClass<BaseType = PyArray> {
+pub trait EncodingSubclass: PyClass<BaseType = PyArray> {
     type Encoding: Encoding;
 }
 
@@ -681,12 +664,12 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<A: ArraySubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
-where
-    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a Array, Error = VortexError>,
-{
+impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A> {
     fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
-        <&<A::Encoding as Encoding>::Array>::try_from(self.as_super().inner())
+        self.as_super()
+            .inner()
+            .as_any()
+            .downcast_ref::<<A::Encoding as Encoding>::Array>()
             .vortex_expect("Failed to downcast array")
     }
 }

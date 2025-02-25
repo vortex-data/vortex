@@ -1,85 +1,186 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{cardinality, Sequence};
+use enum_iterator::{all, cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-pub use statsset::*;
-use vortex_dtype::Nullability::NonNullable;
+pub use stats_set::*;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
 
+mod bound;
 pub mod flatbuffers;
-mod statsset;
+mod precision;
+mod stat_bound;
+mod stats_set;
+
+pub use bound::{LowerBound, UpperBound};
+pub use precision::Precision;
+pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+/// Sum is included for boolean arrays.
+pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::Sum, Stat::NullCount];
 
 /// Stats to keep when serializing arrays to layouts
 pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
     Stat::Max,
-    Stat::TrueCount,
     Stat::NullCount,
     Stat::RunCount,
+    Stat::Sum,
     Stat::IsConstant,
     Stat::IsSorted,
     Stat::IsStrictSorted,
     Stat::UncompressedSizeInBytes,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Sequence,
+    IntoPrimitive,
+    TryFromPrimitive,
+)]
 #[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
-    BitWidthFreq,
+    BitWidthFreq = 0,
     /// Frequency of each trailing zero (nulls are treated as 0)
-    TrailingZeroFreq,
+    TrailingZeroFreq = 1,
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
-    IsConstant,
+    IsConstant = 2,
     /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
-    IsSorted,
+    IsSorted = 3,
     /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
-    IsStrictSorted,
+    IsStrictSorted = 4,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
-    Max,
+    Max = 5,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
-    Min,
+    Min = 6,
     /// The number of runs in the array (ignoring nulls)
-    RunCount,
-    /// The number of true values in the array (nulls are treated as false)
-    TrueCount,
+    RunCount = 7,
+    /// The sum of the non-null values of the array.
+    Sum = 8,
     /// The number of null values in the array
-    NullCount,
+    NullCount = 9,
     /// The uncompressed size of the array in bytes
-    UncompressedSizeInBytes,
+    UncompressedSizeInBytes = 10,
+}
+
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+pub struct Max;
+pub struct Min;
+pub struct Sum;
+pub struct BitWidthFreq;
+pub struct TrailingZeroFreq;
+pub struct IsConstant;
+pub struct IsSorted;
+pub struct IsStrictSorted;
+pub struct RunCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::BitWidthFreq;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrailingZeroFreq;
+}
+
+impl StatType<bool> for IsConstant {
+    type Bound = Precision<bool>;
+
+    const STAT: Stat = Stat::IsConstant;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsStrictSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for RunCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::RunCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for NullCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Max {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
+    type Bound = LowerBound<T>;
+
+    const STAT: Stat = Stat::Min;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Sum {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::Sum;
 }
 
 impl Stat {
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not
     pub fn is_commutative(&self) -> bool {
-        matches!(
-            self,
+        // NOTE: we prefer this syntax to force a compile error if we add a new stat
+        match self {
             Stat::BitWidthFreq
-                | Stat::TrailingZeroFreq
-                | Stat::IsConstant
-                | Stat::Max
-                | Stat::Min
-                | Stat::TrueCount
-                | Stat::NullCount
-                | Stat::UncompressedSizeInBytes
-        )
+            | Stat::TrailingZeroFreq
+            | Stat::IsConstant
+            | Stat::Max
+            | Stat::Min
+            | Stat::NullCount
+            | Stat::Sum
+            | Stat::UncompressedSizeInBytes => true,
+            Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => false,
+        }
     }
 
     /// Whether the statistic has the same dtype as the array it's computed on
@@ -87,8 +188,8 @@ impl Stat {
         matches!(self, Stat::Min | Stat::Max)
     }
 
-    pub fn dtype(&self, data_type: &DType) -> DType {
-        match self {
+    pub fn dtype(&self, data_type: &DType) -> Option<DType> {
+        Some(match self {
             Stat::BitWidthFreq => DType::List(
                 Arc::new(DType::Primitive(PType::U64, NonNullable)),
                 NonNullable,
@@ -103,10 +204,36 @@ impl Stat {
             Stat::Max => data_type.clone(),
             Stat::Min => data_type.clone(),
             Stat::RunCount => DType::Primitive(PType::U64, NonNullable),
-            Stat::TrueCount => DType::Primitive(PType::U64, NonNullable),
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-        }
+            Stat::Sum => {
+                // Any array that cannot be summed has a sum DType of null.
+                // Any array that can be summed, but overflows, has a sum _value_ of null.
+                // Therefore, we make integer sum stats nullable.
+                match data_type {
+                    DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
+                    DType::Primitive(ptype, _) => match ptype {
+                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
+                            DType::Primitive(PType::U64, Nullable)
+                        }
+                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
+                            DType::Primitive(PType::I64, Nullable)
+                        }
+                        PType::F16 | PType::F32 | PType::F64 => {
+                            // Float sums cannot overflow, so it's non-nullable
+                            DType::Primitive(PType::F64, NonNullable)
+                        }
+                    },
+                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
+                    // Unsupported types
+                    DType::Null
+                    | DType::Utf8(_)
+                    | DType::Binary(_)
+                    | DType::Struct(..)
+                    | DType::List(..) => return None,
+                }
+            }
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -119,9 +246,9 @@ impl Stat {
             Self::Max => "max",
             Self::Min => "min",
             Self::RunCount => "run_count",
-            Self::TrueCount => "true_count",
             Self::NullCount => "null_count",
             Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
+            Stat::Sum => "sum",
         }
     }
 }
@@ -166,49 +293,47 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<ScalarValue>;
+    fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
-    fn to_set(&self) -> StatsSet;
+    fn stats_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: ScalarValue);
+    fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
-    fn clear(&self, stat: Stat);
+    fn clear_stat(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present.
+    /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute(&self, stat: Stat) -> Option<ScalarValue>;
+    fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
+    // [deprecated]
+    // TODO(joe): replace with `compute_statistics`
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for stat in stats {
-            if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, s)
+            if let Some(s) = self.compute_stat(*stat)? {
+                stats_set.set(*stat, Precision::exact(s))
             }
         }
         Ok(stats_set)
     }
 
     fn retain_only(&self, stats: &[Stat]);
-}
 
-impl Array {
-    pub fn statistics(&self) -> &(dyn Statistics + '_) {
-        self
-    }
-
-    // FIXME(ngates): this is really slow...
-    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The to_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
+    fn inherit(&self, parent: &dyn Statistics) {
+        for stat in all::<Stat>() {
+            if let Some(s) = parent.get_stat(stat) {
+                // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
+                //  so we don't have to take lots of write locks.
+                // TODO(ngates): depending on statistic, this should choose the more precise one.
+                self.set_stat(stat, s);
+            }
         }
     }
 }
@@ -223,9 +348,9 @@ impl dyn Statistics + '_ {
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<U> {
-        self.get(stat)
-            .map(|s| U::try_from(&s))
+    ) -> Option<Precision<U>> {
+        self.get_stat(stat)
+            .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
                 vortex_panic!(
@@ -235,6 +360,18 @@ impl dyn Statistics + '_ {
                     std::any::type_name::<U>()
                 )
             })
+    }
+
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+    }
+
+    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
+        self.get_stat(stat).map(|s| s.into_scalar(dtype.clone()))
     }
 
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
@@ -247,7 +384,10 @@ impl dyn Statistics + '_ {
         &self,
         stat: Stat,
     ) -> Option<U> {
-        self.compute(stat)
+        self.compute_stat(stat)
+            .inspect_err(|e| log::warn!("Failed to compute stat {}: {}", stat, e))
+            .ok()
+            .flatten()
             .map(|s| U::try_from(&s))
             .transpose()
             .unwrap_or_else(|err| {
@@ -290,10 +430,6 @@ impl dyn Statistics + '_ {
         self.compute_as(Stat::IsConstant)
     }
 
-    pub fn compute_true_count(&self) -> Option<usize> {
-        self.compute_as(Stat::TrueCount)
-    }
-
     pub fn compute_null_count(&self) -> Option<usize> {
         self.compute_as(Stat::NullCount)
     }
@@ -315,7 +451,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &Array) -> u8 {
+pub fn trailing_zeros(array: &dyn Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()
@@ -334,7 +470,8 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 mod test {
     use enum_iterator::all;
 
-    use crate::array::PrimitiveArray;
+    use crate::array::Array;
+    use crate::arrays::PrimitiveArray;
     use crate::stats::Stat;
 
     #[test]
@@ -344,21 +481,6 @@ mod test {
             .compute_as::<i64>(Stat::Min);
 
         assert_eq!(min, None);
-    }
-
-    #[test]
-    fn commutativity() {
-        assert!(Stat::BitWidthFreq.is_commutative());
-        assert!(Stat::TrailingZeroFreq.is_commutative());
-        assert!(Stat::IsConstant.is_commutative());
-        assert!(Stat::Min.is_commutative());
-        assert!(Stat::Max.is_commutative());
-        assert!(Stat::TrueCount.is_commutative());
-        assert!(Stat::NullCount.is_commutative());
-
-        assert!(!Stat::IsStrictSorted.is_commutative());
-        assert!(!Stat::IsSorted.is_commutative());
-        assert!(!Stat::RunCount.is_commutative());
     }
 
     #[test]

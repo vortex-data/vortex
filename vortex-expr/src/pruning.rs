@@ -8,12 +8,11 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::field::DisplayFieldName;
 use crate::{
     and, eq, get_item, gt, ident, lit, not, or, BinaryExpr, ExprRef, GetItem, Identity, Literal,
     Not, Operator, VortexExprExt,
@@ -131,10 +130,10 @@ impl PruningPredicate {
     /// Returns Ok(None) if any of the required statistics are not present in metadata.
     /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
     /// metadata, and a true value means the chunk _can_ be pruned.
-    pub fn evaluate(&self, metadata: &Array) -> VortexResult<Option<Array>> {
+    pub fn evaluate(&self, metadata: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let known_stats = HashSet::from_iter(
             metadata
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("metadata must be struct array")
                 .names()
                 .iter()
@@ -412,7 +411,7 @@ impl FieldOrIdentity {
 impl Display for FieldOrIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldOrIdentity::Field(field) => write!(f, "{}", DisplayFieldName(field)),
+            FieldOrIdentity::Field(field) => write!(f, "{}", field),
             FieldOrIdentity::Identity => write!(f, "$[]"),
         }
     }
@@ -652,7 +651,7 @@ mod tests {
 
         assert_eq!(
             PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
-            "PruningPredicate(([].$a_min >= 42_i32), {$a: {min}})"
+            "PruningPredicate(($.a_min >= 42_i32), {a: {min}})"
         );
     }
 

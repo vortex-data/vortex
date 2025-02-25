@@ -1,8 +1,7 @@
-use std::hash::RandomState;
-
 use async_trait::async_trait;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
+use rustc_hash::FxBuildHasher;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::SegmentId;
@@ -32,12 +31,10 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
-pub(crate) struct InMemorySegmentCache(Cache<SegmentId, ByteBuffer>);
+pub(crate) struct InMemorySegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
 
 impl InMemorySegmentCache {
-    pub fn new(
-        builder: CacheBuilder<SegmentId, ByteBuffer, Cache<SegmentId, ByteBuffer, RandomState>>,
-    ) -> Self {
+    pub fn new(builder: CacheBuilder<SegmentId, ByteBuffer, Cache<SegmentId, ByteBuffer>>) -> Self {
         Self(
             builder
                 // Weight each segment by the number of bytes in the buffer.
@@ -47,7 +44,7 @@ impl InMemorySegmentCache {
                 // We configure LRU instead of LFU since we're likely to re-read segments between
                 // filter and projection.
                 .eviction_policy(EvictionPolicy::lru())
-                .build(),
+                .build_with_hasher(FxBuildHasher),
         )
     }
 }
@@ -64,7 +61,7 @@ impl SegmentCache for InMemorySegmentCache {
     }
 
     async fn remove(&self, id: SegmentId) -> VortexResult<()> {
-        self.0.remove(&id).await;
+        self.0.invalidate(&id).await;
         Ok(())
     }
 }

@@ -2,6 +2,7 @@ use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::datasource::physical_plan::FileSinkConfig;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
@@ -9,10 +10,10 @@ use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::{StreamExt, TryStreamExt};
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::Array;
+use vortex_array::TryIntoArray;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
@@ -20,11 +21,12 @@ use vortex_io::{ObjectStoreWriter, VortexWrite};
 
 pub struct VortexSink {
     config: FileSinkConfig,
+    schema: SchemaRef,
 }
 
 impl VortexSink {
-    pub fn new(config: FileSinkConfig) -> Self {
-        Self { config }
+    pub fn new(config: FileSinkConfig, schema: SchemaRef) -> Self {
+        Self { config, schema }
     }
 }
 
@@ -54,6 +56,11 @@ impl DataSink for VortexSink {
         None
     }
 
+    /// Returns the sink schema
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
     async fn write_all(
         &self,
         data: SendableRecordBatchStream,
@@ -71,7 +78,7 @@ impl DataSink for VortexSink {
         let path = if single_file_output {
             base_output_path.prefix().to_owned()
         } else {
-            let filename = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+            let filename = Alphanumeric.sample_string(&mut rand::rng(), 16);
             base_output_path
                 .prefix()
                 .child(format!("{filename}.{}", VORTEX_FILE_EXTENSION))
@@ -85,7 +92,7 @@ impl DataSink for VortexSink {
         let dtype = DType::from_arrow(data.schema());
         let stream = data
             .map_err(VortexError::from)
-            .map(|rb| rb.and_then(Array::try_from))
+            .map(|rb| rb.and_then(|rb| rb.try_into_array()))
             .map_ok(|rb| {
                 row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
                 rb

@@ -2,7 +2,8 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::Array;
+use vortex_array::{Array, ArrayRef};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -20,7 +21,7 @@ impl Identity {
 
 impl Display for Identity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[]")
+        write!(f, "$")
     }
 }
 
@@ -29,8 +30,8 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
-        Ok(batch.clone())
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+        Ok(batch.to_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -40,6 +41,10 @@ impl VortexExpr for Identity {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        Ok(scope_dtype.clone())
     }
 }
 

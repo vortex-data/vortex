@@ -1,24 +1,26 @@
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::{Stat, StatsSet};
 use crate::Array;
 
 /// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array: ?Sized> {
+pub trait StatisticsVTable<A> {
     /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, _array: A, _stat: Stat) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
     }
 }
 
-impl<E: Encoding + 'static> StatisticsVTable<Array> for E
+impl<'a, E: Encoding> StatisticsVTable<&'a dyn Array> for E
 where
-    E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: StatisticsVTable<&'a E::Array>,
 {
-    fn compute_statistics(&self, array: &Array, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
+    fn compute_statistics(&self, array: &'a dyn Array, stat: Stat) -> VortexResult<StatsSet> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        StatisticsVTable::compute_statistics(self, array_ref, stat)
     }
 }

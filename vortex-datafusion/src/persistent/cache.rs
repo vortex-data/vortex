@@ -1,17 +1,23 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
+use vortex_array::aliases::DefaultHashBuilder;
+use vortex_array::stats::{Precision, Stat};
 use vortex_array::ContextRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use vortex_file::{FileLayout, VortexOpenOptions};
+use vortex_file::{FileLayout, Segment, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
+use vortex_layout::segments::SegmentId;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
-    inner: Cache<Key, FileLayout>,
+    inner: Cache<Key, FileLayout, DefaultHashBuilder>,
+    context: ContextRef,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -29,36 +35,63 @@ impl From<&ObjectMeta> for Key {
     }
 }
 
+/// Approximate the in-memory size of a layout
+fn estimate_layout_size(file_layout: &FileLayout) -> usize {
+    let segments_size = file_layout.segment_map().len() * size_of::<Segment>();
+    let stats_size = file_layout
+        .statistics()
+        .iter()
+        .map(|v| {
+            v.iter()
+                .map(|_| size_of::<Stat>() + size_of::<Precision<ScalarValue>>())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+
+    let root_layout = file_layout.root_layout();
+    let layout_size = size_of::<DType>()
+        + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
+        + root_layout.nsegments() * size_of::<SegmentId>();
+
+    segments_size + stats_size + layout_size
+}
+
 impl FileLayoutCache {
-    pub fn new(size_mb: usize) -> Self {
+    pub fn new(size_mb: usize, context: ContextRef) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
-            .eviction_listener(|k: Arc<Key>, _v, cause| {
+            .eviction_listener(|k: Arc<Key>, _v: FileLayout, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
             })
-            .build();
+            .weigher(|_k, file_layout| {
+                let size = estimate_layout_size(file_layout);
+                u32::try_from(size).unwrap_or(u32::MAX)
+            })
+            .build_with_hasher(DefaultHashBuilder::default());
 
-        Self { inner }
+        Self { inner, context }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
-        store: Arc<dyn ObjectStore>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> VortexResult<FileLayout> {
         self.inner
             .try_get_with(Key::from(object), async {
-                let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-                let vxf = VortexOpenOptions::new(ContextRef::default())
+                let os_read_at =
+                    ObjectStoreReadAt::new(object_store, object.location.clone(), None);
+                let vxf = VortexOpenOptions::file(os_read_at)
+                    .with_ctx(self.context.clone())
                     .with_file_size(object.size as u64)
-                    .open(os_read_at)
+                    .open()
                     .await?;
-                VortexResult::Ok(vxf.file_layout().clone())
+                Ok(vxf.file_layout().clone())
             })
             .await
-            .map_err(|e: Arc<VortexError>| match Arc::try_unwrap(e) {
-                Ok(e) => e,
-                Err(e) => vortex_err!("{}", e.to_string()),
+            .map_err(|e: Arc<VortexError>| {
+                Arc::try_unwrap(e).unwrap_or_else(|e| vortex_err!("{}", e.to_string()))
             })
     }
 }

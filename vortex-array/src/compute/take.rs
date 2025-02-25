@@ -1,8 +1,12 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
+use crate::arrays::ConstantArray;
+use crate::builders::ArrayBuilder;
+use crate::compute::is_constant;
 use crate::encoding::Encoding;
-use crate::stats::Stat;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A> {
     /// Create a new array by taking the values from the `array` at the
@@ -11,55 +15,79 @@ pub trait TakeFn<A> {
     /// # Panics
     ///
     /// Using `indices` that are invalid for the given `array` will cause a panic.
-    fn take(&self, array: &A, indices: &Array) -> VortexResult<Array>;
+    fn take(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef>;
 
-    /// Create a new array by taking the values from the `array` at the
-    /// given `indices`.
-    ///
-    /// # Safety
-    ///
-    /// This take variant will not perform bounds checking on indices, so it is the caller's
-    /// responsibility to ensure that the `indices` are all valid for the provided `array`.
-    /// Failure to do so could result in out of bounds memory access or UB.
-    unsafe fn take_unchecked(&self, array: &A, indices: &Array) -> VortexResult<Array> {
-        self.take(array, indices)
+    /// Has the same semantics as `Self::take` but materializes the result into the provided
+    /// builder.
+    fn take_into(
+        &self,
+        array: A,
+        indices: &dyn Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(&self.take(array, indices)?)
     }
 }
 
-impl<E: Encoding> TakeFn<Array> for E
+impl<E: Encoding> TakeFn<&dyn Array> for E
 where
-    E: TakeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> TakeFn<&'a E::Array>,
 {
-    fn take(&self, array: &Array, indices: &Array) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        TakeFn::take(encoding, array_ref, indices)
+    fn take(&self, array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        TakeFn::take(self, array_ref, indices)
+    }
+
+    fn take_into(
+        &self,
+        array: &dyn Array,
+        indices: &dyn Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        TakeFn::take_into(self, array_ref, indices, builder)
     }
 }
 
-pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
     //  the filter function since they're typically optimised for this case.
     // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
     //  such that canonicalize does less work.
+    if indices.all_invalid()? {
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                .into_array(),
+        );
+    }
 
-    let array = array.as_ref();
-    let indices = indices.as_ref();
-
-    if !indices.dtype().is_int() || indices.dtype().is_nullable() {
+    if !indices.dtype().is_int() {
         vortex_bail!(
-            "Take indices must be a non-nullable integer type, got {}",
+            "Take indices must be an integer type, got {}",
             indices.dtype()
         );
     }
 
-    // If the indices are all within bounds, we can skip bounds checking.
-    let checked_indices = indices
-        .statistics()
-        .get_as::<usize>(Stat::Max)
-        .is_some_and(|max| max < array.len());
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    let array_is_constant = is_constant(array)?;
+    let derived_stats = (!array_is_constant).then(|| derive_take_stats(array));
 
-    let taken = take_impl(array, indices, checked_indices)?;
+    let taken = take_impl(array, indices)?;
+
+    if let Some(derived_stats) = derived_stats {
+        let mut stats = taken.statistics().stats_set();
+        stats.combine_sets(&derived_stats, array.dtype())?;
+        for (stat, val) in stats.into_iter() {
+            taken.statistics().set_stat(stat, val)
+        }
+    }
 
     debug_assert_eq!(
         taken.len(),
@@ -67,50 +95,136 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         "Take length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
-        array.dtype(),
-        taken.dtype(),
-        "Take dtype mismatch {}",
-        array.encoding()
-    );
+    #[cfg(debug_assertions)]
+    {
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
+        assert_eq!(
+            taken.dtype(),
+            &array.dtype().with_nullability(expected_nullability),
+            "Take result ({}) should be nullable if either the indices ({}) or the array ({}) are nullable. ({})",
+            taken.dtype(),
+            indices.dtype().nullability().verbose_display(),
+            array.dtype().nullability().verbose_display(),
+            array.encoding(),
+        );
+    }
 
     Ok(taken)
 }
 
-fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {
+pub fn take_into(
+    array: &dyn Array,
+    indices: &dyn Array,
+    builder: &mut dyn ArrayBuilder,
+) -> VortexResult<()> {
+    if array.is_empty() && !indices.is_empty() {
+        vortex_bail!("Cannot take_into from an empty array");
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
+        assert_eq!(
+            builder.dtype(),
+            &array.dtype().with_nullability(expected_nullability),
+            "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array ({}) are nullable. ({})",
+            builder.dtype(),
+            indices.dtype().nullability().verbose_display(),
+            array.dtype().nullability().verbose_display(),
+            array.encoding(),
+        );
+    }
+
+    if !indices.dtype().is_int() {
+        vortex_bail!(
+            "Take indices must be an integer type, got {}",
+            indices.dtype()
+        );
+    }
+
+    let before_len = builder.len();
+
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    take_into_impl(array, indices, builder)?;
+
+    let after_len = builder.len();
+
+    debug_assert_eq!(
+        after_len - before_len,
+        indices.len(),
+        "Take_into length mismatch {}",
+        array.encoding()
+    );
+
+    Ok(())
+}
+
+fn derive_take_stats(arr: &dyn Array) -> StatsSet {
+    let stats = arr.statistics().stats_set();
+
+    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+
+    let mut stats = stats.keep_inexact_stats(&[
+        // Cannot create values smaller than min or larger than max
+        Stat::Min,
+        Stat::Max,
+    ]);
+
+    if is_constant == Some(Precision::Exact(true)) {
+        // Any combination of elements from a constant array is still const
+        stats.set(Stat::IsConstant, Precision::exact(true));
+    }
+
+    stats
+}
+
+fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.vtable().take_fn() {
-        let result = if checked_indices {
-            // SAFETY: indices are all inbounds per stats.
-            // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
-            unsafe { take_fn.take_unchecked(array, indices) }
-        } else {
-            take_fn.take(array, indices)
-        }?;
-        if array.dtype() != result.dtype() {
-            vortex_bail!(
-                "TakeFn {} changed array dtype from {} to {}",
-                array.encoding(),
-                array.dtype(),
-                result.dtype()
-            );
-        }
-        return Ok(result);
+        return take_fn.take(array, indices);
     }
 
     // Otherwise, flatten and try again.
     log::debug!("No take implementation found for {}", array.encoding());
-    let canonical = array.clone().into_canonical()?.into_array();
-    let canonical_take_fn = canonical
-        .vtable()
+    let canonical = array.to_canonical()?.into_array();
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 
-    if checked_indices {
-        // SAFETY: indices are known to be in-bound from stats
-        unsafe { canonical_take_fn.take_unchecked(&canonical, indices) }
-    } else {
-        canonical_take_fn.take(&canonical, indices)
+    canonical_take_fn.take(&canonical, indices)
+}
+
+fn take_into_impl(
+    array: &dyn Array,
+    indices: &dyn Array,
+    builder: &mut dyn ArrayBuilder,
+) -> VortexResult<()> {
+    let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
+    let result_dtype = array.dtype().with_nullability(result_nullability);
+    if &result_dtype != builder.dtype() {
+        vortex_bail!(
+            "TakeIntoFn {} had a builder with a different dtype {} to the resulting array dtype {}",
+            array.encoding(),
+            builder.dtype(),
+            result_dtype,
+        );
     }
+    if let Some(take_fn) = array.vtable().take_fn() {
+        return take_fn.take_into(array, indices, builder);
+    }
+
+    // Otherwise, flatten and try again.
+    log::debug!("No take_into implementation found for {}", array.encoding());
+    let canonical = array.to_canonical()?.into_array();
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
+        .take_fn()
+        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
+
+    canonical_take_fn.take_into(&canonical, indices, builder)
 }

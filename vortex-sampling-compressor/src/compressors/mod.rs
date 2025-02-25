@@ -1,14 +1,16 @@
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::tree::TreeFormatter;
-use vortex_array::{Array, EncodingId};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, ArrayRef, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
+use crate::compressors::formatter::IndentFormatter;
 use crate::SamplingCompressor;
 
 pub mod alp;
@@ -20,6 +22,7 @@ pub mod date_time_parts;
 pub mod delta;
 pub mod dict;
 pub mod r#for;
+mod formatter;
 pub mod fsst;
 pub mod list;
 pub mod runend;
@@ -33,11 +36,11 @@ pub trait EncodingCompressor: Sync + Send + Debug {
 
     fn cost(&self) -> u8;
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor>;
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor>;
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
@@ -67,7 +70,7 @@ pub struct CompressionTree<'a> {
 }
 
 impl Debug for CompressionTree<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -76,13 +79,13 @@ impl Debug for CompressionTree<'_> {
 ///
 /// This enables codecs to cache trained parameters from the sampling runs to reuse for
 /// the large run.
-pub trait EncoderMetadata {
+pub trait EncoderMetadata: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
 }
 
 impl Display for CompressionTree<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut fmt = TreeFormatter::new(f, "".to_string());
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut fmt = IndentFormatter::new(f, "".to_string());
         visit_child("root", Some(self), &mut fmt)
     }
 }
@@ -90,8 +93,8 @@ impl Display for CompressionTree<'_> {
 fn visit_child(
     name: &str,
     child: Option<&CompressionTree>,
-    fmt: &mut TreeFormatter,
-) -> std::fmt::Result {
+    fmt: &mut IndentFormatter,
+) -> fmt::Result {
     fmt.indent(|f| {
         if let Some(child) = child {
             writeln!(f, "{name}: {}", child.compressor.id())?;
@@ -144,7 +147,7 @@ impl<'a> CompressionTree<'a> {
     /// Compresses array with our compressor without verifying that the compressor can compress this array
     pub fn compress_unchecked(
         &self,
-        array: &Array,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         self.compressor.compress(
@@ -156,7 +159,7 @@ impl<'a> CompressionTree<'a> {
 
     pub fn compress(
         &self,
-        array: &Array,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> Option<VortexResult<CompressedArray<'a>>> {
         self.compressor
@@ -192,22 +195,20 @@ impl<'a> CompressionTree<'a> {
 
 #[derive(Debug, Clone)]
 pub struct CompressedArray<'a> {
-    array: Array,
+    array: ArrayRef,
     path: Option<CompressionTree<'a>>,
 }
 
 impl<'a> CompressedArray<'a> {
-    pub fn uncompressed(array: Array) -> Self {
+    pub fn uncompressed(array: ArrayRef) -> Self {
         Self { array, path: None }
     }
 
     pub fn compressed(
-        compressed: Array,
+        compressed: ArrayRef,
         path: Option<CompressionTree<'a>>,
-        uncompressed: impl AsRef<Array>,
+        uncompressed: &dyn Array,
     ) -> Self {
-        let uncompressed = uncompressed.as_ref();
-
         // Sanity check the compressed array
         assert_eq!(
             compressed.len(),
@@ -227,7 +228,7 @@ impl<'a> CompressedArray<'a> {
         let _ = uncompressed
             .statistics()
             .compute_uncompressed_size_in_bytes();
-        compressed.inherit_statistics(uncompressed.statistics());
+        compressed.statistics().inherit(uncompressed.statistics());
 
         let compressed = Self {
             array: compressed,
@@ -241,7 +242,7 @@ impl<'a> CompressedArray<'a> {
         self.validate_children(self.path.as_ref(), &self.array)
     }
 
-    fn validate_children(&self, path: Option<&CompressionTree>, array: &Array) {
+    fn validate_children(&self, path: Option<&CompressionTree>, array: &dyn Array) {
         if let Some(path) = path.as_ref() {
             path.children
                 .iter()
@@ -265,12 +266,12 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn array(&self) -> &Array {
+    pub fn array(&self) -> &ArrayRef {
         &self.array
     }
 
     #[inline]
-    pub fn into_array(self) -> Array {
+    pub fn into_array(self) -> ArrayRef {
         self.array
     }
 
@@ -285,7 +286,7 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn into_parts(self) -> (Array, Option<CompressionTree<'a>>) {
+    pub fn into_parts(self) -> (ArrayRef, Option<CompressionTree<'a>>) {
         (self.array, self.path)
     }
 
@@ -296,8 +297,8 @@ impl<'a> CompressedArray<'a> {
     }
 }
 
-impl AsRef<Array> for CompressedArray<'_> {
-    fn as_ref(&self) -> &Array {
+impl AsRef<dyn Array> for CompressedArray<'_> {
+    fn as_ref(&self) -> &(dyn Array + 'static) {
         &self.array
     }
 }

@@ -1,21 +1,20 @@
-mod binary;
 mod bool;
 mod extension;
+mod lazy_validity_builder;
 mod list;
 mod null;
 mod primitive;
 mod struct_;
-mod utf8;
+mod varbinview;
 
 use std::any::Any;
 
-pub use binary::*;
 pub use bool::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;
-pub use utf8::*;
+pub use varbinview::*;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::{
@@ -24,7 +23,7 @@ use vortex_scalar::{
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::Array;
+use crate::{Array, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -55,7 +54,19 @@ pub trait ArrayBuilder: Send {
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
 
-    fn finish(&mut self) -> VortexResult<Array>;
+    /// Extends the array with the provided array, canonicalizing if necessary.
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
+
+    /// Constructs an Array from the builder components.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic if the builder's methods are called with invalid arguments. If only
+    /// the methods on this interface are used, the builder should not panic. However, specific
+    /// builders have interfaces that may be misued. For example, if the number of values in a
+    /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
+    /// the PrimitiveBuilder's [Self::finish] will panic.
+    fn finish(&mut self) -> ArrayRef;
 }
 
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
@@ -67,8 +78,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 Box::new(PrimitiveBuilder::<$P>::with_capacity(*n, capacity))
             })
         }
-        DType::Utf8(n) => Box::new(Utf8Builder::with_capacity(*n, capacity)),
-        DType::Binary(n) => Box::new(BinaryBuilder::with_capacity(*n, capacity)),
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+            DType::Binary(*n),
+            capacity,
+        )),
         DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
             struct_dtype.clone(),
             *n,
@@ -119,12 +133,12 @@ pub trait ArrayBuilderExt: ArrayBuilder {
             }
             DType::Utf8(_) => self
                 .as_any_mut()
-                .downcast_mut::<Utf8Builder>()
+                .downcast_mut::<VarBinViewBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append utf8 scalar to non-utf8 builder"))?
                 .append_option(Utf8Scalar::try_from(scalar)?.value()),
             DType::Binary(_) => self
                 .as_any_mut()
-                .downcast_mut::<BinaryBuilder>()
+                .downcast_mut::<VarBinViewBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append binary scalar to non-binary builder"))?
                 .append_option(BinaryScalar::try_from(scalar)?.value()),
             DType::Struct(..) => self

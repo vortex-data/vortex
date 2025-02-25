@@ -61,9 +61,8 @@ impl Scalar {
         &self.dtype
     }
 
-    /// Only the scalar crate should access the ScalarValue directly.
     #[inline]
-    pub(crate) fn value(&self) -> &ScalarValue {
+    pub fn value(&self) -> &ScalarValue {
         &self.value
     }
 
@@ -109,7 +108,7 @@ impl Scalar {
         }
     }
 
-    pub fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
+    fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
         assert!(!matches!(target, DType::Extension(..)));
         if self.is_null() {
             if target.is_nullable() {

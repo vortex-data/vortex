@@ -4,10 +4,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
-use vortex_dtype::FieldNames;
+use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
@@ -50,7 +50,7 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -72,7 +72,7 @@ impl VortexExpr for Merge {
             }
 
             let struct_array = value_array
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("merge expects struct input");
 
             for (i, field_name) in struct_array.names().iter().enumerate() {
@@ -90,13 +90,13 @@ impl VortexExpr for Merge {
             }
         }
 
-        StructArray::try_new(
+        Ok(StructArray::try_new(
             FieldNames::from(field_names),
             arrays,
             len,
             Validity::NonNullable,
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -106,18 +106,50 @@ impl VortexExpr for Merge {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         Self::new_expr(children)
     }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let mut field_names = Vec::new();
+        let mut arrays = Vec::new();
+
+        for value in self.values.iter() {
+            let dtype = value.return_dtype(scope_dtype)?;
+            if !dtype.is_struct() {
+                vortex_bail!("merge expects non-nullable struct input");
+            }
+
+            let struct_dtype = dtype
+                .as_struct()
+                .vortex_expect("merge expects struct input");
+
+            for i in 0..struct_dtype.nfields() {
+                let field_name = struct_dtype.field_name(i).vortex_expect("never OOB");
+                let field_dtype = struct_dtype.field_by_index(i).vortex_expect("never OOB");
+                if let Some(idx) = field_names.iter().position(|name| name == field_name) {
+                    arrays[idx] = field_dtype;
+                } else {
+                    field_names.push(field_name.clone());
+                    arrays.push(field_dtype);
+                }
+            }
+        }
+
+        Ok(DType::Struct(
+            Arc::new(StructDType::new(FieldNames::from(field_names), arrays)),
+            Nullability::NonNullable,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{PrimitiveArray, StructArray};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant};
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 
-    fn primitive_field(array: &Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -125,19 +157,17 @@ mod tests {
         };
 
         let mut array = array
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("expected a struct"))?
-            .maybe_null_field_by_name(field)
-            .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
+            .maybe_null_field_by_name(field)?;
 
         for field in field_path {
             array = array
-                .as_struct_array()
+                .as_struct_typed()
                 .ok_or_else(|| vortex_err!("expected a struct"))?
-                .maybe_null_field_by_name(field)
-                .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
+                .maybe_null_field_by_name(field)?;
         }
-        Ok(array.into_primitive().unwrap())
+        Ok(array.to_primitive().unwrap())
     }
 
     #[test]
@@ -182,7 +212,7 @@ mod tests {
         let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()].into()
         );
 
@@ -227,7 +257,7 @@ mod tests {
             .into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.as_struct_array().unwrap().nfields(), 0);
+        assert_eq!(actual_array.as_struct_typed().unwrap().nfields(), 0);
     }
 
     #[test]
@@ -272,11 +302,11 @@ mod tests {
 
         assert_eq!(
             actual_array
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .maybe_null_field_by_name("a")
                 .unwrap()
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .names()
                 .iter()
@@ -318,7 +348,7 @@ mod tests {
         let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_array().unwrap().names(),
+            actual_array.as_struct_typed().unwrap().names(),
             &["a".into(), "c".into(), "b".into(), "d".into()].into()
         );
     }

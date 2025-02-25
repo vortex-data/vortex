@@ -1,12 +1,14 @@
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::iter::ArrayIteratorArrayExt;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::data::Layout;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::strategy::LayoutStrategy;
+use crate::writer::LayoutWriter;
 use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
@@ -19,7 +21,7 @@ pub struct StructLayoutWriter {
 impl StructLayoutWriter {
     pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
-        if struct_dtype.dtypes().len() != column_layout_writers.len() {
+        if struct_dtype.fields().len() != column_layout_writers.len() {
             vortex_panic!(
                 "number of fields in struct dtype does not match number of column layout writers"
             );
@@ -39,7 +41,7 @@ impl StructLayoutWriter {
         Ok(Self::new(
             dtype.clone(),
             struct_dtype
-                .dtypes()
+                .fields()
                 .map(|dtype| factory.new_writer(&dtype))
                 .try_collect()?,
         ))
@@ -47,9 +49,13 @@ impl StructLayoutWriter {
 }
 
 impl LayoutWriter for StructLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         let struct_array = chunk
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
 
         if struct_array.nfields() != self.column_strategies.len() {
@@ -62,12 +68,12 @@ impl LayoutWriter for StructLayoutWriter {
         for i in 0..struct_array.nfields() {
             // TODO(joe): handle struct validity
             let column = chunk
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("batch is a struct array")
                 .maybe_null_field_by_idx(i)
                 .vortex_expect("bounds already checked");
 
-            for column_chunk in column.into_array_iterator() {
+            for column_chunk in column.to_array_iterator() {
                 self.column_strategies[i].push_chunk(segments, column_chunk?)?;
             }
         }
@@ -81,11 +87,12 @@ impl LayoutWriter for StructLayoutWriter {
             column_layouts.push(writer.finish(segments)?);
         }
         Ok(Layout::new_owned(
+            "struct".into(),
             LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,
-            None,
-            Some(column_layouts),
+            vec![],
+            column_layouts,
             None,
         ))
     }

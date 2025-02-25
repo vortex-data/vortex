@@ -1,44 +1,143 @@
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use enum_iterator::all;
+use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
-use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_error::VortexError;
+use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer};
+use vortex_scalar::ScalarValue;
 
-use crate::stats::{Stat, Statistics};
+use crate::stats::{Precision, Stat, StatsSet};
 
-impl WriteFlatBuffer for &dyn Statistics {
+impl WriteFlatBuffer for StatsSet {
     type Target<'t> = crate::flatbuffers::ArrayStats<'t>;
 
+    /// All statistics written must be exact
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let trailing_zero_freq = self
             .get_as::<Vec<u64>>(Stat::TrailingZeroFreq)
-            .map(|v| v.iter().copied().collect_vec())
+            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
             .map(|v| fbb.create_vector(v.as_slice()));
 
         let bit_width_freq = self
             .get_as::<Vec<u64>>(Stat::BitWidthFreq)
-            .map(|v| v.iter().copied().collect_vec())
+            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
             .map(|v| fbb.create_vector(v.as_slice()));
 
-        let min = self.get(Stat::Min).map(|min| min.write_flatbuffer(fbb));
+        let min = self
+            .get(Stat::Min)
+            .and_then(Precision::as_exact)
+            .map(|min| min.write_flatbuffer(fbb));
 
-        let max = self.get(Stat::Max).map(|max| max.write_flatbuffer(fbb));
+        let max = self
+            .get(Stat::Max)
+            .and_then(Precision::as_exact)
+            .map(|max| max.write_flatbuffer(fbb));
+
+        let sum = self
+            .get(Stat::Sum)
+            .and_then(Precision::as_exact)
+            .map(|max| max.write_flatbuffer(fbb));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
             max,
-            is_sorted: self.get_as::<bool>(Stat::IsSorted),
-            is_strict_sorted: self.get_as::<bool>(Stat::IsStrictSorted),
-            is_constant: self.get_as::<bool>(Stat::IsConstant),
-            run_count: self.get_as::<u64>(Stat::RunCount),
-            true_count: self.get_as::<u64>(Stat::TrueCount),
-            null_count: self.get_as::<u64>(Stat::NullCount),
+            sum,
+            is_sorted: self
+                .get_as::<bool>(Stat::IsSorted)
+                .and_then(Precision::as_exact),
+            is_strict_sorted: self
+                .get_as::<bool>(Stat::IsStrictSorted)
+                .and_then(Precision::as_exact),
+            is_constant: self
+                .get_as::<bool>(Stat::IsConstant)
+                .and_then(Precision::as_exact),
+            run_count: self
+                .get_as::<u64>(Stat::RunCount)
+                .and_then(Precision::as_exact),
+            null_count: self
+                .get_as::<u64>(Stat::NullCount)
+                .and_then(Precision::as_exact),
             bit_width_freq,
             trailing_zero_freq,
-            uncompressed_size_in_bytes: self.get_as::<u64>(Stat::UncompressedSizeInBytes),
+            uncompressed_size_in_bytes: self
+                .get_as::<u64>(Stat::UncompressedSizeInBytes)
+                .and_then(Precision::as_exact),
         };
 
         crate::flatbuffers::ArrayStats::create(fbb, stat_args)
+    }
+}
+
+impl ReadFlatBuffer for StatsSet {
+    type Source<'a> = crate::flatbuffers::ArrayStats<'a>;
+    type Error = VortexError;
+
+    fn read_flatbuffer<'buf>(
+        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
+    ) -> Result<Self, Self::Error> {
+        let mut stats_set = StatsSet::default();
+
+        for stat in all::<Stat>() {
+            match stat {
+                Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
+                    // Not implemented
+                }
+                Stat::IsConstant => {
+                    if let Some(is_constant) = fb.is_constant() {
+                        stats_set.set(Stat::IsConstant, Precision::Exact(is_constant.into()));
+                    }
+                }
+                Stat::IsSorted => {
+                    if let Some(is_sorted) = fb.is_sorted() {
+                        stats_set.set(Stat::IsSorted, Precision::Exact(is_sorted.into()));
+                    }
+                }
+                Stat::IsStrictSorted => {
+                    if let Some(is_strict_sorted) = fb.is_strict_sorted() {
+                        stats_set.set(
+                            Stat::IsStrictSorted,
+                            Precision::Exact(is_strict_sorted.into()),
+                        );
+                    }
+                }
+                Stat::Max => {
+                    if let Some(max) = fb.max() {
+                        stats_set.set(Stat::Max, Precision::Exact(ScalarValue::try_from(max)?));
+                    }
+                }
+                Stat::Min => {
+                    if let Some(min) = fb.min() {
+                        stats_set.set(Stat::Min, Precision::Exact(ScalarValue::try_from(min)?));
+                    }
+                }
+                Stat::RunCount => {
+                    if let Some(run_count) = fb.run_count() {
+                        stats_set.set(Stat::RunCount, Precision::Exact(run_count.into()));
+                    }
+                }
+                Stat::NullCount => {
+                    if let Some(null_count) = fb.null_count() {
+                        stats_set.set(Stat::NullCount, Precision::Exact(null_count.into()));
+                    }
+                }
+                Stat::UncompressedSizeInBytes => {
+                    if let Some(uncompressed_size_in_bytes) = fb.uncompressed_size_in_bytes() {
+                        stats_set.set(
+                            Stat::UncompressedSizeInBytes,
+                            Precision::Exact(uncompressed_size_in_bytes.into()),
+                        );
+                    }
+                }
+                Stat::Sum => {
+                    if let Some(sum) = fb.sum() {
+                        stats_set.set(Stat::Sum, Precision::Exact(ScalarValue::try_from(sum)?));
+                    }
+                }
+            }
+        }
+
+        Ok(stats_set)
     }
 }

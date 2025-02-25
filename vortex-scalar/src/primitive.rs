@@ -1,14 +1,13 @@
 use std::any::type_name;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
-use std::ops::Sub;
+use std::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-    VortexUnwrap,
+    vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult, VortexUnwrap,
 };
 
 use crate::pvalue::PValue;
@@ -133,10 +132,6 @@ impl<'a> PrimitiveScalar<'a> {
             }?)),
         }
     }
-
-    pub fn checked_sub(self, other: PrimitiveScalar<'a>) -> VortexResult<Option<Self>> {
-        self.checked_binary_numeric(other, BinaryNumericOperator::Sub)
-    }
 }
 
 pub trait FromPrimitiveOrF16: FromPrimitive {
@@ -153,6 +148,7 @@ macro_rules! from_primitive_or_f16_for_non_floating_point {
     };
 }
 
+from_primitive_or_f16_for_non_floating_point!(usize);
 from_primitive_or_f16_for_non_floating_point!(u8);
 from_primitive_or_f16_for_non_floating_point!(u16);
 from_primitive_or_f16_for_non_floating_point!(u32);
@@ -189,11 +185,32 @@ impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
 }
 
 impl Sub for PrimitiveScalar<'_> {
-    type Output = VortexResult<Self>;
+    type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        self.checked_sub(rhs)?
-            .ok_or_else(|| vortex_err!("PrimitiveScalar subtract: overflow or underflow"))
+        self.checked_sub(&rhs)
+            .vortex_expect("PrimitiveScalar subtract: overflow or underflow")
+    }
+}
+
+impl CheckedSub for PrimitiveScalar<'_> {
+    fn checked_sub(&self, rhs: &Self) -> Option<Self> {
+        self.checked_binary_numeric(rhs, BinaryNumericOperator::Sub)
+    }
+}
+
+impl Add for PrimitiveScalar<'_> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.checked_add(&rhs)
+            .vortex_expect("PrimitiveScalar add: overflow or underflow")
+    }
+}
+
+impl CheckedAdd for PrimitiveScalar<'_> {
+    fn checked_add(&self, rhs: &Self) -> Option<Self> {
+        self.checked_binary_numeric(rhs, BinaryNumericOperator::Add)
     }
 }
 
@@ -364,12 +381,12 @@ impl<'a> PrimitiveScalar<'a> {
     ///
     /// If either value is null, the result is null.
     pub fn checked_binary_numeric(
-        self,
-        other: PrimitiveScalar<'a>,
+        &self,
+        other: &PrimitiveScalar<'a>,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<PrimitiveScalar<'a>>> {
+    ) -> Option<PrimitiveScalar<'a>> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
-            vortex_bail!("types must match: {} {}", self.dtype(), other.dtype());
+            vortex_panic!("types must match: {} {}", self.dtype(), other.dtype());
         }
         let result_dtype = if self.dtype().is_nullable() {
             self.dtype()
@@ -378,7 +395,7 @@ impl<'a> PrimitiveScalar<'a> {
         };
         let ptype = self.ptype();
 
-        Ok(match_each_native_ptype!(
+        match_each_native_ptype!(
             self.ptype(),
             integral: |$P| {
                 self.checked_integeral_numeric_operator::<$P>(other, result_dtype, ptype, op)
@@ -399,7 +416,7 @@ impl<'a> PrimitiveScalar<'a> {
                 };
                 Some(Self { dtype: result_dtype, ptype: ptype, pvalue: value_or_null.map(PValue::from) })
             }
-        ))
+        )
     }
 
     fn checked_integeral_numeric_operator<
@@ -410,8 +427,8 @@ impl<'a> PrimitiveScalar<'a> {
             + CheckedMul
             + CheckedDiv,
     >(
-        self,
-        other: PrimitiveScalar<'a>,
+        &self,
+        other: &PrimitiveScalar<'a>,
         result_dtype: &'a DType,
         ptype: PType,
         op: BinaryNumericOperator,
@@ -443,8 +460,8 @@ impl<'a> PrimitiveScalar<'a> {
 
 #[cfg(test)]
 mod tests {
+    use num_traits::CheckedSub;
     use vortex_dtype::{DType, Nullability, PType};
-    use vortex_error::VortexError;
 
     use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
 
@@ -461,21 +478,15 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(4))),
         )
         .unwrap();
-        let pscalar_or_overflow = p_scalar1.checked_sub(p_scalar2).unwrap();
+        let pscalar_or_overflow = p_scalar1.checked_sub(&p_scalar2);
         let value_or_null_or_type_error = pscalar_or_overflow.unwrap().as_::<i32>();
         assert_eq!(value_or_null_or_type_error.unwrap().unwrap(), 1);
 
-        assert_eq!(
-            (p_scalar1 - p_scalar2)
-                .unwrap()
-                .as_::<i32>()
-                .unwrap()
-                .unwrap(),
-            1
-        );
+        assert_eq!((p_scalar1 - p_scalar2).as_::<i32>().unwrap().unwrap(), 1);
     }
 
     #[test]
+    #[should_panic(expected = "PrimitiveScalar subtract: overflow or underflow")]
     #[allow(clippy::assertions_on_constants)]
     fn test_integer_subtract_overflow() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
@@ -489,14 +500,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32::MAX))),
         )
         .unwrap();
-        let pscalar_or_error = p_scalar1 - p_scalar2;
-        match pscalar_or_error {
-            Err(VortexError::InvalidArgument(message, _)) => assert_eq!(
-                message.as_ref(),
-                "PrimitiveScalar subtract: overflow or underflow"
-            ),
-            res => assert!(false, "expected overflow error but got: {:?}", res),
-        }
+        let _ = p_scalar1 - p_scalar2;
     }
 
     #[test]
@@ -512,16 +516,12 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::F32(1.0f32))),
         )
         .unwrap();
-        let pscalar_or_overflow = p_scalar1.checked_sub(p_scalar2).unwrap();
-        let value_or_null_or_type_error = pscalar_or_overflow.unwrap().as_::<f32>();
+        let pscalar_or_overflow = p_scalar1.checked_sub(&p_scalar2).unwrap();
+        let value_or_null_or_type_error = pscalar_or_overflow.as_::<f32>();
         assert_eq!(value_or_null_or_type_error.unwrap().unwrap(), 0.99f32);
 
         assert_eq!(
-            (p_scalar1 - p_scalar2)
-                .unwrap()
-                .as_::<f32>()
-                .unwrap()
-                .unwrap(),
+            (p_scalar1 - p_scalar2).as_::<f32>().unwrap().unwrap(),
             0.99f32
         );
     }

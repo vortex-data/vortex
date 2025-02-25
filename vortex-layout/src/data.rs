@@ -16,7 +16,7 @@ use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
 use crate::LayoutId;
 
-/// [`Layout`] is the lazy equivalent to [`vortex_array::Array`], providing a hierarchical
+/// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
 /// structure.
 #[derive(Debug, Clone)]
 pub struct Layout(Inner);
@@ -30,17 +30,19 @@ enum Inner {
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
 pub struct OwnedLayout {
+    name: Arc<str>,
     vtable: LayoutVTableRef,
     dtype: DType,
     row_count: u64,
-    segments: Option<Vec<SegmentId>>,
-    children: Option<Vec<Layout>>,
+    segments: Vec<SegmentId>,
+    children: Vec<Layout>,
     metadata: Option<Bytes>,
 }
 
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
 struct ViewedLayout {
+    name: Arc<str>,
     vtable: LayoutVTableRef,
     dtype: DType,
     flatbuffer: ByteBuffer,
@@ -58,14 +60,16 @@ impl ViewedLayout {
 impl Layout {
     /// Create a new owned layout.
     pub fn new_owned(
+        name: Arc<str>,
         vtable: LayoutVTableRef,
         dtype: DType,
         row_count: u64,
-        segments: Option<Vec<SegmentId>>,
-        children: Option<Vec<Layout>>,
+        segments: Vec<SegmentId>,
+        children: Vec<Layout>,
         metadata: Option<Bytes>,
     ) -> Self {
         Self(Inner::Owned(OwnedLayout {
+            name,
             vtable,
             dtype,
             row_count,
@@ -77,6 +81,7 @@ impl Layout {
 
     /// Create a new viewed layout from a flatbuffer root message.
     pub fn try_new_viewed(
+        name: Arc<str>,
         vtable: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
@@ -99,6 +104,7 @@ impl Layout {
         }
 
         Ok(Self(Inner::Viewed(ViewedLayout {
+            name,
             vtable,
             dtype,
             flatbuffer,
@@ -113,6 +119,7 @@ impl Layout {
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
+        name: Arc<str>,
         encoding: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
@@ -120,12 +127,21 @@ impl Layout {
         ctx: LayoutContextRef,
     ) -> Self {
         Self(Inner::Viewed(ViewedLayout {
+            name,
             vtable: encoding,
             dtype,
             flatbuffer,
             flatbuffer_loc,
             ctx,
         }))
+    }
+
+    /// Returns the human-readable name of the layout.
+    pub fn name(&self) -> &str {
+        match &self.0 {
+            Inner::Owned(owned) => owned.name.as_ref(),
+            Inner::Viewed(viewed) => viewed.name.as_ref(),
+        }
     }
 
     /// Returns the [`crate::LayoutVTable`] for this layout.
@@ -163,7 +179,7 @@ impl Layout {
     /// Returns the number of children of the layout.
     pub fn nchildren(&self) -> usize {
         match &self.0 {
-            Inner::Owned(owned) => owned.children.as_ref().map_or(0, |children| children.len()),
+            Inner::Owned(owned) => owned.children.len(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .children()
@@ -176,19 +192,19 @@ impl Layout {
     /// ## Panics
     ///
     /// Panics if the child index is out of bounds.
-    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<Layout> {
+    pub fn child(&self, i: usize, dtype: DType, name: impl AsRef<str>) -> VortexResult<Layout> {
         if i >= self.nchildren() {
             vortex_panic!("child index out of bounds");
         }
         match &self.0 {
             Inner::Owned(o) => {
-                let child = o
-                    .children
-                    .as_ref()
-                    .vortex_expect("child bounds already checked")[i]
-                    .clone();
+                let child = o.children[i].clone();
                 if child.dtype() != &dtype {
-                    vortex_bail!("child dtype mismatch");
+                    vortex_bail!(
+                        "Child has dtype {}, but was requested with {}",
+                        child.dtype(),
+                        dtype
+                    );
                 }
                 Ok(child)
             }
@@ -205,6 +221,7 @@ impl Layout {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
                     })?;
                 Ok(Self(Inner::Viewed(ViewedLayout {
+                    name: format!("{}.{}", v.name, name.as_ref()).into(),
                     vtable: encoding,
                     dtype,
                     flatbuffer: v.flatbuffer.clone(),
@@ -225,11 +242,7 @@ impl Layout {
             vortex_panic!("child index out of bounds");
         }
         match &self.0 {
-            Inner::Owned(o) => o
-                .children
-                .as_ref()
-                .vortex_expect("child bounds already checked")[i]
-                .row_count(),
+            Inner::Owned(o) => o.children[i].row_count(),
             Inner::Viewed(v) => v
                 .flatbuffer()
                 .children()
@@ -242,7 +255,7 @@ impl Layout {
     /// Returns the number of segments in the layout.
     pub fn nsegments(&self) -> usize {
         match &self.0 {
-            Inner::Owned(owned) => owned.segments.as_ref().map_or(0, |segments| segments.len()),
+            Inner::Owned(owned) => owned.segments.len(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .segments()
@@ -253,10 +266,7 @@ impl Layout {
     /// Fetch the i'th segment id of the layout.
     pub fn segment_id(&self, i: usize) -> Option<SegmentId> {
         match &self.0 {
-            Inner::Owned(owned) => owned
-                .segments
-                .as_ref()
-                .and_then(|msgs| msgs.get(i).copied()),
+            Inner::Owned(owned) => owned.segments.get(i).copied(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .segments()
@@ -285,10 +295,10 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        segments: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, segments)
+        self.encoding().reader(self.clone(), ctx, segment_reader)
     }
 
     /// Register splits for this layout.
@@ -315,17 +325,22 @@ impl WriteFlatBuffer for Layout {
         match &self.0 {
             Inner::Owned(layout) => {
                 let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(b));
-                let children = layout.children.as_ref().map(|children| {
-                    children
+                let children = (!layout.children.is_empty()).then(|| {
+                    layout
+                        .children
                         .iter()
                         .map(|c| c.write_flatbuffer(fbb))
                         .collect::<Vec<_>>()
                 });
                 let children = children.map(|c| fbb.create_vector(&c));
-                let segments = layout
-                    .segments
-                    .as_ref()
-                    .map(|m| m.iter().map(|s| s.deref()).copied().collect::<Vec<u32>>());
+                let segments = (!layout.segments.is_empty()).then(|| {
+                    layout
+                        .segments
+                        .iter()
+                        .map(|s| s.deref())
+                        .copied()
+                        .collect::<Vec<u32>>()
+                });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
                 layout::Layout::create(

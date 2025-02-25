@@ -108,7 +108,7 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
-    pub fn null() -> Self {
+    pub const fn null() -> Self {
         ScalarValue(InnerScalarValue::Null)
     }
 
@@ -166,7 +166,7 @@ impl InnerScalarValue {
             }
             (InnerScalarValue::List(values), DType::Struct(structdt, _)) => values
                 .iter()
-                .zip(structdt.dtypes())
+                .zip(structdt.fields())
                 .all(|(v, dt)| v.is_instance_of(&dt)),
             (InnerScalarValue::Null, dtype) => dtype.is_nullable(),
             (_, DType::Extension(ext_dtype)) => self.is_instance_of(ext_dtype.storage_dtype()),

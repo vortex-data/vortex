@@ -8,6 +8,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::debug::TruncatedDebug;
+use crate::spec_extend::SpecExtend;
 use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
@@ -413,31 +414,9 @@ impl<T> AsMut<[T]> for BufferMut<T> {
 }
 
 impl<T> Extend<T> for BufferMut<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        let mut iterator = iter.into_iter();
-
-        // Attempt to reserve enough memory up-front, although this is only a lower bound.
-        let (lower, _upper) = iterator.size_hint();
-        self.reserve(lower);
-
-        let remaining = self.capacity() - self.len();
-
-        let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        let mut consumed = 0;
-        while consumed < remaining {
-            if let Some(item) = iterator.next() {
-                // SAFETY: We know we have enough capacity to write the item.
-                unsafe { dst.add(consumed).write(item) };
-                consumed += 1;
-            } else {
-                break;
-            }
-        }
-
-        self.length += consumed;
-        unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
-
-        iterator.for_each(|item| self.push(item));
+        <Self as SpecExtend<T, I::IntoIter>>::spec_extend(self, iter.into_iter())
     }
 }
 

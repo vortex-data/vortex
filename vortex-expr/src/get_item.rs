@@ -3,11 +3,10 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::Array;
-use vortex_dtype::FieldName;
+use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::field::DisplayFieldName;
 use crate::{ident, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -32,6 +31,10 @@ impl GetItem {
     pub fn child(&self) -> &ExprRef {
         &self.child
     }
+
+    pub fn is(expr: &ExprRef) -> bool {
+        expr.as_any().is::<Self>()
+    }
 }
 
 pub fn col(field: impl Into<FieldName>) -> ExprRef {
@@ -48,7 +51,7 @@ pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
 
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, DisplayFieldName(&self.field))
+        write!(f, "{}.{}", self.child, &self.field)
     }
 }
 
@@ -57,14 +60,13 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let child = self.child.evaluate(batch)?;
         child
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
             // TODO(joe): apply struct validity
             .maybe_null_field_by_name(self.field())
-            .ok_or_else(|| vortex_err!("Field {} not found", self.field))
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -74,6 +76,14 @@ impl VortexExpr for GetItem {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.field().clone(), children[0].clone())
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let input = self.child.return_dtype(scope_dtype)?;
+        input
+            .as_struct()
+            .ok_or_else(|| vortex_err!("GetItem: child dtype is not a struct"))?
+            .field(self.field())
     }
 }
 
@@ -85,7 +95,7 @@ impl PartialEq for GetItem {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -106,7 +116,7 @@ mod tests {
     pub fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", ident());
-        let item = get_item.evaluate(st.as_ref()).unwrap();
+        let item = get_item.evaluate(&st).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -114,6 +124,6 @@ mod tests {
     pub fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", ident());
-        assert!(get_item.evaluate(st.as_ref()).is_err());
+        assert!(get_item.evaluate(&st).is_err());
     }
 }

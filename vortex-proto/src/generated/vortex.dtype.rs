@@ -79,7 +79,7 @@ pub mod d_type {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Field {
-    #[prost(oneof = "field::FieldType", tags = "1, 2")]
+    #[prost(oneof = "field::FieldType", tags = "1")]
     pub field_type: ::core::option::Option<field::FieldType>,
 }
 /// Nested message and enum types in `Field`.
@@ -88,8 +88,6 @@ pub mod field {
     pub enum FieldType {
         #[prost(string, tag = "1")]
         Name(::prost::alloc::string::String),
-        #[prost(uint64, tag = "2")]
-        Index(u64),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Field, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, Nullability, StructDType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
@@ -71,30 +71,34 @@ impl<'a> StructScalar<'a> {
         self.fields.is_none()
     }
 
-    pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
+    pub fn field(&self, name: impl AsRef<str>) -> VortexResult<Scalar> {
+        let DType::Struct(st, _) = self.dtype() else {
+            unreachable!()
+        };
+        let idx = st.find(name)?;
+        self.field_by_idx(idx)
+    }
+
+    pub fn field_by_idx(&self, idx: usize) -> VortexResult<Scalar> {
         let DType::Struct(st, nullability) = self.dtype() else {
             unreachable!()
         };
 
-        let field_dtype = st.field_dtype(idx).ok()?.with_nullability(*nullability);
+        let mut field_dtype = st.field_by_index(idx)?;
+        if matches!(nullability, Nullability::Nullable) {
+            field_dtype = field_dtype.with_nullability(Nullability::Nullable);
+        }
 
-        Some(
-            self.fields
-                .and_then(|values| values.get(idx))
-                .map(|value| Scalar {
-                    dtype: field_dtype.clone(),
+        Ok(match self.fields {
+            None => Scalar::null(field_dtype),
+            Some(fields) => {
+                let value = &fields[idx];
+                Scalar {
+                    dtype: field_dtype,
                     value: value.clone(),
-                })
-                .unwrap_or_else(|| Scalar::null(field_dtype)),
-        )
-    }
-
-    pub fn field_by_name(&self, name: &str) -> Option<Scalar> {
-        let DType::Struct(st, _) = self.dtype() else {
-            unreachable!()
-        };
-
-        st.find_name(name).and_then(|idx| self.field_by_idx(idx))
+                }
+            }
+        })
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
@@ -122,11 +126,11 @@ impl<'a> StructScalar<'a> {
             unreachable!()
         };
 
-        if st.dtypes().len() != own_st.dtypes().len() {
+        if st.fields().len() != own_st.fields().len() {
             vortex_bail!(
                 "Cannot cast between structs with different number of fields: {} and {}",
-                own_st.dtypes().len(),
-                st.dtypes().len()
+                own_st.fields().len(),
+                st.fields().len()
             );
         }
 
@@ -136,10 +140,10 @@ impl<'a> StructScalar<'a> {
                 .enumerate()
                 .map(|(i, f)| {
                     Scalar {
-                        dtype: own_st.field_dtype(i)?,
+                        dtype: own_st.field_by_index(i)?,
                         value: f.clone(),
                     }
-                    .cast(&st.field_dtype(i)?)
+                    .cast(&st.field_by_index(i)?)
                     .map(|s| s.value)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
@@ -157,20 +161,14 @@ impl<'a> StructScalar<'a> {
             .dtype
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
-        let projected_dtype = struct_dtype.project(
-            projection
-                .iter()
-                .map(|f| Field::Name(f.clone()))
-                .collect_vec()
-                .as_slice(),
-        )?;
+        let projected_dtype = struct_dtype.project(projection)?;
         let new_fields = if let Some(fs) = self.field_values() {
             ScalarValue(InnerScalarValue::List(
                 projection
                     .iter()
                     .map(|name| {
                         struct_dtype
-                            .find_name(name)
+                            .find(name)
                             .vortex_expect("DType has been successfully projected already")
                     })
                     .map(|i| fs[i].clone())
@@ -240,13 +238,13 @@ mod tests {
         let scalar = Scalar::null(dtype);
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
-        assert!(scalar_f0.is_some());
+        assert!(scalar_f0.is_ok());
         let scalar_f0 = scalar_f0.unwrap();
         assert_eq!(scalar_f0, Scalar::null(f0_dt_null.clone()));
         assert_eq!(scalar_f0.dtype(), &f0_dt_null);
 
         let scalar_f1 = scalar.as_struct().field_by_idx(1);
-        assert!(scalar_f1.is_some());
+        assert!(scalar_f1.is_ok());
         let scalar_f1 = scalar_f1.unwrap();
         assert_eq!(scalar_f1, Scalar::null(f1_dt_null.clone()));
         assert_eq!(scalar_f1.dtype(), &f1_dt_null);
@@ -265,13 +263,13 @@ mod tests {
         let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
-        assert!(scalar_f0.is_some());
+        assert!(scalar_f0.is_ok());
         let scalar_f0 = scalar_f0.unwrap();
         assert_eq!(scalar_f0, f0_val_null);
         assert_eq!(scalar_f0.dtype(), &f0_dt_null);
 
         let scalar_f1 = scalar.as_struct().field_by_idx(1);
-        assert!(scalar_f1.is_some());
+        assert!(scalar_f1.is_ok());
         let scalar_f1 = scalar_f1.unwrap();
         assert_eq!(scalar_f1, f1_val_null);
         assert_eq!(scalar_f1.dtype(), &f1_dt_null);

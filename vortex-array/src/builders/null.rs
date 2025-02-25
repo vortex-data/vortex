@@ -3,9 +3,9 @@ use std::any::Any;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::array::NullArray;
+use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef};
 
 pub struct NullBuilder {
     length: usize,
@@ -48,7 +48,13 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        Ok(NullArray::new(self.length).into_array())
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert_eq!(array.dtype(), &DType::Null);
+        self.append_nulls(array.len());
+        Ok(())
+    }
+
+    fn finish(&mut self) -> ArrayRef {
+        NullArray::new(self.length).into_array()
     }
 }

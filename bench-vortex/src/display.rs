@@ -4,7 +4,8 @@ use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::aliases::hash_map::HashMap;
 
-use crate::{Format, Measurement};
+use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};
+use crate::Format;
 
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DisplayFormat {
@@ -13,15 +14,30 @@ pub enum DisplayFormat {
     GhJson,
 }
 
-pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> anyhow::Result<()> {
-    let mut measurements: HashMap<Format, Vec<Measurement>> = HashMap::default();
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RatioMode {
+    Time,
+    Throughput,
+}
+
+pub fn render_table<T: ToTable>(
+    all_measurements: Vec<T>,
+    formats: &[Format],
+    mode: RatioMode,
+) -> anyhow::Result<()> {
+    let mut measurements: HashMap<Format, Vec<TableValue>> =
+        HashMap::with_capacity(all_measurements.len().div_ceil(formats.len()));
 
     for m in all_measurements.into_iter() {
-        measurements.entry(m.format).or_default().push(m);
+        let generic = m.to_table();
+        measurements
+            .entry(generic.format)
+            .or_default()
+            .push(generic);
     }
 
     measurements.values_mut().for_each(|v| {
-        v.sort_by_key(|m| m.query_idx);
+        v.sort_unstable();
     });
 
     // The first format serves as the baseline
@@ -31,27 +47,25 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
     let mut table_builder = Builder::default();
     let mut colors = vec![];
 
-    let mut header = vec!["Query".to_string()];
-    header.extend(formats.iter().map(|f| format!("{:?}", f)));
+    let mut header = vec!["Benchmark"];
+    header.extend(formats.iter().map(|f| f.name()));
     table_builder.push_record(header);
 
-    for (query_idx, baseline_measure) in baseline.iter().enumerate() {
-        let query_baseline = baseline_measure.time.as_micros();
-        let mut row = vec![(baseline_measure.query_idx).to_string()];
+    for (idx, baseline_measure) in baseline.iter().enumerate() {
+        let query_baseline = baseline_measure.value;
+        let mut row = vec![baseline_measure.name.clone()];
         for (col_idx, format) in formats.iter().enumerate() {
-            let time_us = measurements[format][query_idx].time.as_micros();
+            let measurement = &measurements[format][idx];
+            let value = measurement.value;
 
             if format != baseline_format {
-                let color = color(query_baseline, time_us);
+                let color = color(query_baseline, value, mode);
 
-                colors.push(Colorization::exact(
-                    vec![color],
-                    (query_idx + 1, col_idx + 1),
-                ))
+                colors.push(Colorization::exact(vec![color], (idx + 1, col_idx + 1)))
             }
 
-            let ratio = time_us as f64 / query_baseline as f64;
-            row.push(format!("{time_us} us ({ratio:.2})"));
+            let ratio = value / query_baseline;
+            row.push(format!("{value:.2} {} ({ratio:.2})", measurement.unit));
         }
         table_builder.push_record(row);
     }
@@ -68,20 +82,34 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
     Ok(())
 }
 
-pub fn print_measurements_json(all_measurements: Vec<Measurement>) -> anyhow::Result<()> {
+pub fn print_measurements_json<T: ToJson>(all_measurements: Vec<T>) -> anyhow::Result<()> {
     for measurement in all_measurements {
+        // This has to be `println!` and go to stdout, because we capture it from there.
         println!("{}", serde_json::to_string(&measurement.to_json())?)
     }
 
     Ok(())
 }
 
-fn color(baseline_time: u128, test_time: u128) -> Color {
-    if test_time > (baseline_time + baseline_time / 2) {
-        Color::BG_RED
-    } else if test_time > (baseline_time + baseline_time / 10) {
-        Color::BG_YELLOW
-    } else {
-        Color::BG_BRIGHT_GREEN
+fn color(baseline: MeasurementValue, value: MeasurementValue, mode: RatioMode) -> Color {
+    match mode {
+        RatioMode::Time => {
+            if value > (baseline + baseline / 2) {
+                Color::BG_RED
+            } else if value > (baseline + baseline / 10) {
+                Color::BG_YELLOW
+            } else {
+                Color::BG_BRIGHT_GREEN
+            }
+        }
+        RatioMode::Throughput => {
+            if value < (baseline - baseline / 2) {
+                Color::BG_RED
+            } else if value < (baseline - baseline / 10) {
+                Color::BG_YELLOW
+            } else {
+                Color::BG_BRIGHT_GREEN
+            }
+        }
     }
 }

@@ -1,15 +1,14 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
-};
+use itertools::Itertools;
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::flatbuffers::ViewedDType;
-use crate::{DType, Field, FieldName, FieldNames};
+use crate::{DType, FieldName, FieldNames};
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldDType {
     inner: FieldDTypeInner,
@@ -55,34 +54,6 @@ impl PartialEq for FieldDTypeInner {
                 let view = DType::try_from(view.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
                 owned == &view
-            }
-        }
-    }
-}
-
-impl PartialOrd for FieldDTypeInner {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (FieldDTypeInner::Owned(lhs), FieldDTypeInner::Owned(rhs)) => lhs.partial_cmp(rhs),
-            (FieldDTypeInner::View(lhs), FieldDTypeInner::View(rhs)) => {
-                let lhs = DType::try_from(lhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-                let rhs = DType::try_from(rhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-
-                lhs.partial_cmp(&rhs)
-            }
-            (FieldDTypeInner::Owned(dtype), FieldDTypeInner::View(viewed_dtype)) => {
-                let rhs = DType::try_from(viewed_dtype.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-
-                dtype.partial_cmp(&rhs)
-            }
-            (FieldDTypeInner::View(viewed_dtype), FieldDTypeInner::Owned(dtype)) => {
-                let lhs = DType::try_from(viewed_dtype.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-
-                lhs.partial_cmp(dtype)
             }
         }
     }
@@ -177,22 +148,11 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 }
 
 /// A struct dtype is a list of names and corresponding dtypes
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructDType {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
-}
-
-/// Information about a field in a struct dtype
-#[derive(Debug)]
-pub struct FieldInfo {
-    /// The position index of the field within the enclosing struct
-    pub index: usize,
-    /// The name of the field
-    pub name: Arc<str>,
-    /// The dtype of the field
-    pub dtype: FieldDType,
 }
 
 impl StructDType {
@@ -238,60 +198,63 @@ impl StructDType {
         &self.names
     }
 
-    /// Find the index of a field.
-    pub fn find(&self, field: &Field) -> Option<usize> {
-        match field {
-            Field::Name(name) => self.find_name(name),
-            Field::Index(idx) => Some(*idx),
-        }
+    /// Returns the number of fields in the struct
+    pub fn nfields(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Returns the name of the field at the given index
+    pub fn field_name(&self, index: usize) -> VortexResult<&FieldName> {
+        self.names
+            .get(index)
+            .ok_or_else(|| vortex_err!("field index out of bounds"))
     }
 
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
-    pub fn find_name(&self, name: &str) -> Option<usize> {
-        self.names.iter().position(|n| n.as_ref() == name)
+    pub fn find(&self, name: impl AsRef<str>) -> VortexResult<usize> {
+        let name = name.as_ref();
+        self.names
+            .iter()
+            .position(|n| n.as_ref() == name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Field {} not found in {}",
+                    name,
+                    self.names.iter().join(", ")
+                )
+            })
     }
 
-    /// Get information about the referenced field, either by name or index
-    /// Returns an error if the field is not found
-    pub fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
-        let index = match field {
-            Field::Name(name) => self
-                .find_name(name)
-                .ok_or_else(|| vortex_err!("Unknown field: {name}"))?,
-            Field::Index(index) => *index,
-        };
-        if index >= self.names.len() {
-            vortex_bail!("field index out of bounds: {index}")
-        }
-        Ok(FieldInfo {
-            index,
-            name: self.names[index].clone(),
-            dtype: self.dtypes[index].clone(),
-        })
-    }
-
-    /// Get the type of specific field by index
-    pub fn field_dtype(&self, index: usize) -> VortexResult<DType> {
+    /// Get the [`DType`] of a field.
+    pub fn field(&self, name: impl AsRef<str>) -> VortexResult<DType> {
+        let index = self.find(name)?;
         self.dtypes[index].value()
     }
 
+    /// Get the [`DType`] of a field by index.
+    pub fn field_by_index(&self, index: usize) -> VortexResult<DType> {
+        self.dtypes
+            .get(index)
+            .ok_or_else(|| vortex_err!("Field index out of bounds"))?
+            .value()
+    }
+
     /// Returns an ordered iterator over the members of Self.
-    pub fn dtypes(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
+    pub fn fields(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
         self.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
     }
 
     /// Project a subset of fields from the struct
     /// Returns an error if any of the referenced fields are not found
-    pub fn project(&self, projection: &[Field]) -> VortexResult<Self> {
+    pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
         let mut names = Vec::with_capacity(projection.len());
         let mut dtypes = Vec::with_capacity(projection.len());
 
         for field in projection.iter() {
-            let FieldInfo { name, dtype, .. } = self.field_info(field)?;
-
-            names.push(name.clone());
-            dtypes.push(dtype.clone());
+            let idx = self.find(field)?;
+            names.push(self.names[idx].clone());
+            dtypes.push(self.dtypes[idx].clone());
         }
 
         Ok(StructDType::from_fields(names.into(), dtypes))
@@ -308,14 +271,13 @@ where
             .into_iter()
             .map(|(name, dtype)| (name.into(), dtype.into()))
             .unzip();
-        StructDType::from_fields(names.into(), dtypes.into_iter().map(Into::into).collect())
+        StructDType::from_fields(names.into(), dtypes.into_iter().collect())
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::dtype::DType;
-    use crate::field::Field;
     use crate::{Nullability, PType, StructDType};
 
     #[test]
@@ -347,34 +309,20 @@ mod test {
 
         let sdt = dtype.as_struct().unwrap();
         assert_eq!(sdt.names().len(), 2);
-        assert_eq!(sdt.dtypes().len(), 2);
+        assert_eq!(sdt.fields().len(), 2);
         assert_eq!(sdt.names()[0], "A".into());
         assert_eq!(sdt.names()[1], "B".into());
-        assert_eq!(sdt.field_dtype(0).unwrap(), a_type);
-        assert_eq!(sdt.field_dtype(1).unwrap(), b_type);
+        assert_eq!(sdt.field_by_index(0).unwrap(), a_type);
+        assert_eq!(sdt.field_by_index(1).unwrap(), b_type);
 
-        let proj = sdt
-            .project(&[Field::Index(1), Field::Name("A".into())])
-            .unwrap();
+        let proj = sdt.project(&["B".into(), "A".into()]).unwrap();
         assert_eq!(proj.names()[0], "B".into());
-        assert_eq!(proj.field_dtype(0).unwrap(), b_type);
+        assert_eq!(proj.field_by_index(0).unwrap(), b_type);
         assert_eq!(proj.names()[1], "A".into());
-        assert_eq!(proj.field_dtype(1).unwrap(), a_type);
+        assert_eq!(proj.field_by_index(1).unwrap(), a_type);
 
-        let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
-        assert_eq!(field_info.index, 1);
-        assert_eq!(field_info.name, "B".into());
-        assert_eq!(field_info.dtype.value().unwrap(), b_type);
-
-        let field_info = sdt.field_info(&Field::Index(0)).unwrap();
-        assert_eq!(field_info.index, 0);
-        assert_eq!(field_info.name, "A".into());
-        assert_eq!(field_info.dtype.value().unwrap(), a_type);
-
-        assert!(sdt.field_info(&Field::Index(2)).is_err());
-
-        assert_eq!(sdt.find_name("A"), Some(0));
-        assert_eq!(sdt.find_name("B"), Some(1));
-        assert_eq!(sdt.find_name("C"), None);
+        assert_eq!(sdt.find("A").unwrap(), 0);
+        assert_eq!(sdt.find("B").unwrap(), 1);
+        assert!(sdt.find("C").is_err());
     }
 }

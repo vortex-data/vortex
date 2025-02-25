@@ -183,6 +183,30 @@ macro_rules! match_each_native_ptype {
             PType::F32 => __with_floating_point__! { f32 },
             PType::F64 => __with_floating_point__! { f64 },
         }
+    });
+    ($self:expr,
+     unsigned: | $_:tt $unsigned_enc:ident | { $($unsigned_body:tt)* }
+     signed: | $_1:tt $signed_enc:ident | { $($signed_body:tt)* }
+     floating: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
+    ) => ({
+        macro_rules! __with_unsigned__ {( $_ $unsigned_enc:ident ) => ( { $($unsigned_body)* } )}
+        macro_rules! __with_signed__ {( $_ $signed_enc:ident ) => ( { $($signed_body)* } )}
+        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+        use $crate::PType;
+        use $crate::half::f16;
+        match $self {
+            PType::U8 => __with_unsigned__! { u8 },
+            PType::U16 => __with_unsigned__! { u16 },
+            PType::U32 => __with_unsigned__! { u32 },
+            PType::U64 => __with_unsigned__! { u64 },
+            PType::I8 => __with_signed__! { i8 },
+            PType::I16 => __with_signed__! { i16 },
+            PType::I32 => __with_signed__! { i32 },
+            PType::I64 => __with_signed__! { i64 },
+            PType::F16 => __with_floating_point__! { f16 },
+            PType::F32 => __with_floating_point__! { f32 },
+            PType::F64 => __with_floating_point__! { f64 },
+        }
     })
 }
 
@@ -201,6 +225,27 @@ macro_rules! match_each_integer_ptype {
             PType::U16 => __with__! { u16 },
             PType::U32 => __with__! { u32 },
             PType::U64 => __with__! { u64 },
+            other => panic!("Unsupported ptype {other}")
+        }
+    })
+}
+
+/// Macro to match over each integer PType, binding the corresponding native type (from
+/// `NativePType`) and the corresponding unsigned type (also a `NativePType`).
+#[macro_export]
+macro_rules! match_each_integer_ptype_with_unsigned_type {
+    ($self:expr, | $_:tt $enc:ident, $_2:tt $unsigned:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $enc:ident, $_2 $unsigned:ident ) => ( $($body)* )}
+        use $crate::PType;
+        match $self {
+            PType::I8 => __with__! { i8, u8 },
+            PType::I16 => __with__! { i16, u16 },
+            PType::I32 => __with__! { i32, u32 },
+            PType::I64 => __with__! { i64, u64 },
+            PType::U8 => __with__! { u8, u8 },
+            PType::U16 => __with__! { u16, u16 },
+            PType::U32 => __with__! { u32, u32 },
+            PType::U64 => __with__! { u64, u64 },
             other => panic!("Unsupported ptype {other}")
         }
     })
@@ -234,6 +279,30 @@ macro_rules! match_each_float_ptype {
             PType::F32 => __with__! { f32 },
             PType::F64 => __with__! { f64 },
             other => panic!("Unsupported ptype {other}"),
+        }
+    })
+}
+
+/// Macro to match over each SIMD capable `PType`, binding the corresponding native type (from `NativePType`)
+///
+/// Note: The match will panic in case of `PType::F16`.
+#[macro_export]
+macro_rules! match_each_native_simd_ptype {
+    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+        use $crate::PType;
+        match $self {
+            PType::I8 => __with__! { i8 },
+            PType::I16 => __with__! { i16 },
+            PType::I32 => __with__! { i32 },
+            PType::I64 => __with__! { i64 },
+            PType::U8 => __with__! { u8 },
+            PType::U16 => __with__! { u16 },
+            PType::U32 => __with__! { u32 },
+            PType::U64 => __with__! { u64 },
+            PType::F16 => panic!("f16 does not implement simd::SimdElement"),
+            PType::F32 => __with__! { f32 },
+            PType::F64 => __with__! { f64 },
         }
     })
 }
@@ -381,7 +450,9 @@ macro_rules! try_from_bytes {
 
         impl TryFromBytes for $T {
             fn try_from_le_bytes(bytes: &[u8]) -> VortexResult<Self> {
-                Ok(<$T>::from_le_bytes(bytes.try_into()?))
+                Ok(<$T>::from_le_bytes(bytes.try_into().map_err(|_| {
+                    vortex_err!("Failed to convert bytes into {}", stringify!($T))
+                })?))
             }
         }
     };

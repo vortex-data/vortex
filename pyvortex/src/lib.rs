@@ -9,10 +9,12 @@ mod arrays;
 mod compress;
 mod dataset;
 mod dtype;
+mod encoding;
 mod expr;
 mod io;
 mod object_store_urls;
 mod python_repr;
+mod record_batch_reader;
 pub(crate) mod scalar;
 
 use log::LevelFilter;
@@ -43,6 +45,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     compress::init(py, m)?;
     dataset::init(py, m)?;
     dtype::init(py, m)?;
+    encoding::init(py, m)?;
     expr::init(py, m)?;
     io::init(py, m)?;
     scalar::init(py, m)?;
@@ -75,7 +78,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module
         .py()
-        .import_bound("sys")?
+        .import("sys")?
         .getattr("modules")?
         .set_item(name, module)?;
     // needs to be set *after* `add_submodule()`

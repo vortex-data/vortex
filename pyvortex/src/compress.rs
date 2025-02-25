@@ -5,7 +5,7 @@ use crate::arrays::PyArray;
 use crate::install_module;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "compress")?;
+    let m = PyModule::new(py, "compress")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.compress", &m)?;
 
@@ -48,6 +48,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
     let compressor = SamplingCompressor::default();
-    let inner = compressor.compress(&array.borrow(), None)?.into_array();
+    let inner = compressor
+        .compress(array.borrow().as_ref(), None)?
+        .into_array();
     PyArray::init(array.py(), inner)
 }

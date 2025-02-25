@@ -9,7 +9,7 @@ use crate::install_module;
 use crate::scalar::factory::scalar_helper;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "expr")?;
+    let m = PyModule::new(py, "expr")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.expr", &m)?;
 
@@ -159,7 +159,7 @@ fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
         Ok(value.clone())
     } else if let Ok(value) = value.downcast::<PyNone>() {
         scalar(DType::Null, value)
-    } else if let Ok(value) = value.downcast::<PyLong>() {
+    } else if let Ok(value) = value.downcast::<PyInt>() {
         scalar(DType::Primitive(PType::I64, nonnull), value)
     } else if let Ok(value) = value.downcast::<PyFloat>() {
         scalar(DType::Primitive(PType::F64, nonnull), value)

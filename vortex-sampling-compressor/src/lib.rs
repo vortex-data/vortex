@@ -9,11 +9,11 @@ use compressors::struct_::StructCompressor;
 use compressors::varbin::VarBinCompressor;
 use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::array::{
+use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::{Context, ContextRef};
+use vortex_array::{Context, ContextRef, Encoding};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -84,27 +84,27 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
-        ALPEncoding::vtable(),
-        ALPRDEncoding::vtable(),
-        BitPackedEncoding::vtable(),
-        BoolEncoding::vtable(),
-        ByteBoolEncoding::vtable(),
-        ChunkedEncoding::vtable(),
-        ConstantEncoding::vtable(),
-        DateTimePartsEncoding::vtable(),
-        DeltaEncoding::vtable(),
-        DictEncoding::vtable(),
-        FoREncoding::vtable(),
-        FSSTEncoding::vtable(),
-        ListEncoding::vtable(),
-        NullEncoding::vtable(),
-        PrimitiveEncoding::vtable(),
-        RunEndEncoding::vtable(),
-        SparseEncoding::vtable(),
-        StructEncoding::vtable(),
-        VarBinEncoding::vtable(),
-        VarBinViewEncoding::vtable(),
-        ZigZagEncoding::vtable(),
+        ALPEncoding.vtable(),
+        ALPRDEncoding.vtable(),
+        BitPackedEncoding.vtable(),
+        BoolEncoding.vtable(),
+        ByteBoolEncoding.vtable(),
+        ChunkedEncoding.vtable(),
+        ConstantEncoding.vtable(),
+        DateTimePartsEncoding.vtable(),
+        DeltaEncoding.vtable(),
+        DictEncoding.vtable(),
+        FoREncoding.vtable(),
+        FSSTEncoding.vtable(),
+        ListEncoding.vtable(),
+        NullEncoding.vtable(),
+        PrimitiveEncoding.vtable(),
+        RunEndEncoding.vtable(),
+        SparseEncoding.vtable(),
+        StructEncoding.vtable(),
+        VarBinEncoding.vtable(),
+        VarBinViewEncoding.vtable(),
+        ZigZagEncoding.vtable(),
     ]))
 });
 
@@ -142,11 +142,6 @@ pub struct CompressConfig {
     max_cost: u8,
     // Are we minimizing size or maximizing performance?
     objective: Objective,
-
-    // Target chunk size in bytes
-    target_block_bytesize: usize,
-    // Target chunk size in row count
-    target_block_size: usize,
 }
 
 impl CompressConfig {
@@ -163,16 +158,12 @@ impl CompressConfig {
 
 impl Default for CompressConfig {
     fn default() -> Self {
-        let kib = 1 << 10;
-        let mib = 1 << 20;
         Self {
             // Sample length should always be multiple of 1024
             sample_size: 64,
             sample_count: 16,
             max_cost: constants::DEFAULT_MAX_COST,
             objective: Objective::MinSize,
-            target_block_bytesize: 16 * mib,
-            target_block_size: 64 * kib,
             rng_seed: 0,
         }
     }

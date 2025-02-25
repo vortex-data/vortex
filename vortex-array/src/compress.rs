@@ -1,17 +1,21 @@
+// FIXME(ngates): move this file into the compressor
 use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
-use crate::{Array, EncodingId};
+use crate::{Array, ArrayRef, EncodingId};
 
+/// Extendable compression interface, allowing implementations to explore different choices.
 pub trait CompressionStrategy {
-    fn compress(&self, array: &Array) -> VortexResult<Array>;
+    /// Compress input array.
+    fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
+    /// A set of the IDs of the encodings the compressor can choose from.
     fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
 /// Check that compression did not alter the length of the validity array.
-pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_validity_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -19,11 +23,11 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
         use vortex_error::VortexExpect;
 
         let old_validity = arr
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity")
             .len();
         let new_validity = compressed
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity ")
             .len();
 
@@ -37,7 +41,7 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
 }
 
 /// Check that compression did not alter the dtype
-pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_dtype_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -54,42 +58,36 @@ pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
 }
 
 // Check that compression preserved the statistics.
-pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use vortex_scalar::Scalar;
-
         use crate::stats::Stat;
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr
             .statistics()
-            .to_set()
+            .stats_set()
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
-            let compressed_scalar = compressed
-                .statistics()
-                .get(stat)
-                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
-            debug_assert_eq!(
-                compressed_scalar,
-                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
-                "Compression changed {stat} from {value} to {}",
-                compressed_scalar
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string()),
-            );
+            if let Some(dtype) = stat.dtype(compressed.dtype()) {
+                let compressed_scalar = compressed.statistics().get_scalar(stat, &dtype);
+                debug_assert_eq!(
+                    compressed_scalar,
+                    Some(value.clone().into_scalar(dtype)),
+                    "Compression changed {stat} from {value} to {:?}",
+                    compressed_scalar.as_ref(),
+                );
+            }
         }
     }
 }
 
 /// Eagerly compute certain statistics (i.e., pruning stats plus UncompressedSizeInBytes) for an array.
 /// This function is intended to be called in compressors, immediately before compression occurs.
-pub fn compute_precompression_stats(arr: &Array) -> VortexResult<()> {
+pub fn compute_precompression_stats(arr: &dyn Array) -> VortexResult<()> {
     arr.statistics().compute_uncompressed_size_in_bytes();
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

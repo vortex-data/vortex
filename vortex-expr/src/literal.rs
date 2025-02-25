@@ -2,8 +2,9 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::array::ConstantArray;
-use vortex_array::{Array, IntoArray};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::{Array, ArrayRef};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -24,6 +25,10 @@ impl Literal {
     pub fn value(&self) -> &Scalar {
         &self.value
     }
+
+    pub fn maybe_from(expr: &ExprRef) -> Option<&Literal> {
+        expr.as_any().downcast_ref::<Literal>()
+    }
 }
 
 impl Display for Literal {
@@ -37,7 +42,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 
@@ -49,6 +54,10 @@ impl VortexExpr for Literal {
         assert_eq!(children.len(), 0);
         self
     }
+
+    fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
+        Ok(self.value.dtype().clone())
+    }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.
@@ -57,7 +66,7 @@ impl VortexExpr for Literal {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::PrimitiveArray;
+/// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
 /// use vortex_expr::{lit, Literal};
 /// use vortex_scalar::Scalar;

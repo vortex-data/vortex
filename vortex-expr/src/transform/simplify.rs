@@ -1,5 +1,7 @@
 use vortex_error::VortexResult;
 
+use crate::transform::match_between::find_between;
+// use crate::transform::match_between::find_between;
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{ExprRef, GetItem, Pack};
 
@@ -8,7 +10,8 @@ use crate::{ExprRef, GetItem, Pack};
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
     let mut folder = Simplify;
-    e.transform(&mut folder).map(|e| e.result)
+    let e = e.transform(&mut folder).map(|e| e.result)?;
+    Ok(find_between(e.clone()))
 }
 
 struct Simplify;

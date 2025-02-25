@@ -1,14 +1,17 @@
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use super::is_constant;
+use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -57,44 +60,39 @@ impl Operator {
             Operator::Lte => Operator::Gte,
         }
     }
-
-    pub fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
-        match self {
-            Operator::Eq => |l, r| l == r,
-            Operator::NotEq => |l, r| l != r,
-            Operator::Gt => |l, r| l > r,
-            Operator::Gte => |l, r| l >= r,
-            Operator::Lt => |l, r| l < r,
-            Operator::Lte => |l, r| l <= r,
-        }
-    }
 }
 
 pub trait CompareFn<A> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
-    fn compare(&self, lhs: &A, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>>;
+    fn compare(
+        &self,
+        lhs: A,
+        rhs: &dyn Array,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> CompareFn<Array> for E
+impl<E: Encoding> CompareFn<&dyn Array> for E
 where
-    E: CompareFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> CompareFn<&'a E::Array>,
 {
-    fn compare(&self, lhs: &Array, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>> {
-        let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
-        CompareFn::compare(encoding, lhs_ref, rhs, operator)
+    fn compare(
+        &self,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+
+        CompareFn::compare(self, array_ref, rhs, operator)
     }
 }
 
-pub fn compare(
-    left: impl AsRef<Array>,
-    right: impl AsRef<Array>,
-    operator: Operator,
-) -> VortexResult<Array> {
-    let left = left.as_ref();
-    let right = right.as_ref();
-
+pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
     if left.len() != right.len() {
         vortex_bail!("Compare operations only support arrays of the same length");
     }
@@ -122,8 +120,17 @@ pub fn compare(
         return Ok(Canonical::empty(&result_dtype).into_array());
     }
 
+    let left_constant_null = left.as_constant().map(|l| l.is_null()).unwrap_or(false);
+    let right_constant_null = right.as_constant().map(|r| r.is_null()).unwrap_or(false);
+    if left_constant_null || right_constant_null {
+        return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
+    }
+
+    let left_is_constant = is_constant(left)?;
+    let right_is_constant = is_constant(right)?;
+
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left.is_constant() && !right.is_constant() {
+    if left_is_constant && !right_is_constant {
         return compare(right, left, operator.swap());
     }
 
@@ -149,7 +156,7 @@ pub fn compare(
 
     // Only log missing compare implementation if there's possibly better one than arrow,
     // i.e. lhs isn't arrow or rhs isn't arrow or constant
-    if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
+    if !(left.is_arrow() && (right.is_arrow() || right_is_constant)) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
             right.encoding(),
@@ -164,11 +171,33 @@ pub fn compare(
     Ok(result)
 }
 
+/// Helper function to compare empty values with arrays that have external value length information
+/// like `VarBin`.
+pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
+where
+    P: NativePType,
+    I: Iterator<Item = P>,
+{
+    // All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
+    let cmp_fn = match op {
+        Operator::Eq | Operator::Lte => |v| v == P::zero(),
+        Operator::NotEq | Operator::Gt => |v| v != P::zero(),
+        Operator::Gte => |_| true,
+        Operator::Lt => |_| false,
+    };
+
+    lengths.map(cmp_fn).collect::<BooleanBuffer>()
+}
+
 /// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(left: &Array, right: &Array, operator: Operator) -> VortexResult<Array> {
+fn arrow_compare(
+    left: &dyn Array,
+    right: &dyn Array,
+    operator: Operator,
+) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_new(left.clone())?;
-    let rhs = Datum::try_new(right.clone())?;
+    let lhs = Datum::try_new(left.to_array())?;
+    let rhs = Datum::try_new(right.to_array())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -182,7 +211,7 @@ fn arrow_compare(left: &Array, right: &Array, operator: Operator) -> VortexResul
 }
 
 #[inline(always)]
-fn check_compare_result(result: &Array, lhs: &Array, rhs: &Array) {
+fn check_compare_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -229,9 +258,9 @@ mod tests {
     use itertools::Itertools;
 
     use super::*;
-    use crate::array::{BoolArray, ConstantArray};
+    use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::ToCanonical;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();
@@ -254,55 +283,51 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::try_new(
+        let arr = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
-        )
-        .unwrap()
-        .into_array();
+        );
 
         let matches = compare(&arr, &arr, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
         let matches = compare(&arr, &arr, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
-        let other = BoolArray::try_new(
+        let other = BoolArray::new(
             BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
-        )
-        .unwrap()
-        .into_array();
+        );
 
         let matches = compare(&arr, &other, Operator::Lte)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&arr, &other, Operator::Lt)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
 
         let matches = compare(&other, &arr, Operator::Gte)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&other, &arr, Operator::Gt)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
     }
@@ -312,7 +337,7 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(left.clone(), right.clone(), Operator::Gt).unwrap();
+        let compare = compare(&left, &right, Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
@@ -321,5 +346,19 @@ mod tests {
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
+    }
+
+    #[rstest::rstest]
+    #[case(Operator::Eq, vec![false, false, false, true])]
+    #[case(Operator::NotEq, vec![true, true, true, false])]
+    #[case(Operator::Gt, vec![true, true, true, false])]
+    #[case(Operator::Gte, vec![true, true, true, true])]
+    #[case(Operator::Lt, vec![false, false, false, false])]
+    #[case(Operator::Lte, vec![false, false, false, true])]
+    fn test_cmp_to_empty(#[case] op: Operator, #[case] expected: Vec<bool>) {
+        let lengths: Vec<i32> = vec![1, 5, 7, 0];
+
+        let output = compare_lengths_to_empty(lengths.iter().copied(), op);
+        assert_eq!(Vec::from_iter(output.iter()), expected);
     }
 }
