@@ -6235,8 +6235,6 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build",
- "tokio",
- "url",
  "xshell",
 ]
 

@@ -17,11 +17,9 @@ readme = "README.md"
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
 xshell = { workspace = true }
-tokio = { workspace = true }
-url = { workspace = true }
 
 [lints]
 workspace = true
