@@ -1408,7 +1408,6 @@ wheels = [
 
 [[package]]
 name = "vortex-array"
-version = "0.24.0"
 source = { editable = "pyvortex" }
 dependencies = [
     { name = "pyarrow" },
