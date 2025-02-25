@@ -184,14 +184,6 @@ impl Scheme for ALPScheme {
             return Ok(0.0);
         }
 
-        // If Dict/RLE is feasible, we want to do that before ALP, and then only ALP encode
-        // the values.
-        if stats.average_run_length >= RUN_END_THRESHOLD
-            || stats.distinct_values_count < stats.value_count / 2
-        {
-            return Ok(0.0);
-        }
-
         estimate_compression_ratio_with_sampling(
             self,
             stats,
