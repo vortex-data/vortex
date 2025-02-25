@@ -6233,7 +6233,6 @@ name = "xtask"
 version = "0.24.0"
 dependencies = [
  "anyhow",
- "bench-vortex",
  "clap",
  "prost-build",
  "tokio",

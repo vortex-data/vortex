@@ -20,7 +20,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 prost-build = { workspace = true }
 xshell = { workspace = true }
-bench-vortex = { path = "../bench-vortex" } 
 tokio = { workspace = true }
 url = { workspace = true }
 

@@ -1,11 +1,4 @@
-use std::path::PathBuf;
-
-use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
-use bench_vortex::tpch::load_datasets;
-use bench_vortex::Format;
 use clap::Parser;
-use tokio::runtime::Builder;
-use url::Url;
 use xshell::{cmd, Shell};
 
 static FLATC_BIN: &str = "flatc";
@@ -22,15 +15,6 @@ enum Commands {
     GenerateFlatbuffers,
     #[command(name = "generate-proto")]
     GenerateProto,
-    #[command(name = "generate-tpch-csvs")]
-    GenerateTpchCsvs {
-        scale_factor: Option<u8>,
-        output_dir: Option<PathBuf>,
-    },
-    #[command(name = "tpch-csv-to-parquet")]
-    TpchCsvToParquet { base_dir: Option<PathBuf> },
-    #[command(name = "tpch-csv-to-vortex")]
-    TpchCsvToVortex { base_dir: Option<PathBuf> },
 }
 
 fn execute_generate_fbs() -> anyhow::Result<()> {
@@ -80,50 +64,11 @@ fn execute_generate_proto() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn execute_generate_tpch_csv(
-    scale_factor: Option<u8>,
-    base_dir: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    let default = DuckdbTpchOptions::default();
-    let conf = DuckdbTpchOptions {
-        scale_factor: scale_factor.unwrap_or(default.scale_factor),
-        base_dir: base_dir.unwrap_or(default.base_dir),
-    };
-    generate_tpch(conf)?;
-    Ok(())
-}
-
-fn execute_from_tpch_csv(base_dir: Option<PathBuf>, format: Format) -> anyhow::Result<()> {
-    let runtime = Builder::new_multi_thread().enable_all().build()?;
-    let base_dir = base_dir.unwrap_or_else(|| DuckdbTpchOptions::default().csvs_dir());
-    // add a trailing slash to bse_dir so path concat works as expected
-    let base_url = Url::parse(
-        ("file:".to_owned()
-            + base_dir
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("must be utf8"))?
-            + "/")
-            .as_ref(),
-    )?;
-    runtime.block_on(load_datasets(&base_url, format, false))?;
-    Ok(())
-}
-
 fn main() -> anyhow::Result<()> {
     let cli = Xtask::parse();
     match cli.command {
         Commands::GenerateFlatbuffers => execute_generate_fbs()?,
         Commands::GenerateProto => execute_generate_proto()?,
-        Commands::GenerateTpchCsvs {
-            scale_factor,
-            output_dir,
-        } => execute_generate_tpch_csv(scale_factor, output_dir)?,
-        Commands::TpchCsvToParquet { base_dir } => {
-            execute_from_tpch_csv(base_dir, Format::Parquet)?
-        }
-        Commands::TpchCsvToVortex { base_dir } => {
-            execute_from_tpch_csv(base_dir, Format::OnDiskVortex)?
-        }
     }
     Ok(())
 }
