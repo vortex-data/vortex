@@ -11,12 +11,6 @@ enum Inner<T: ?Sized + 'static> {
     Ref(&'static T),
 }
 
-impl<T> ArcRef<T> {
-    pub fn new(t: T) -> Self {
-        ArcRef(Inner::Arc(Arc::new(t)))
-    }
-}
-
 impl<T: ?Sized> ArcRef<T> {
     pub fn new_arc(t: Arc<T>) -> Self
     where
@@ -112,15 +106,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.deref().fmt(f)
-    }
-}
-
-impl<T> Default for ArcRef<T>
-where
-    T: ?Sized + 'static + Default,
-{
-    fn default() -> Self {
-        ArcRef(Inner::Arc(Arc::new(T::default())))
     }
 }
 
