@@ -9,7 +9,6 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ArrayVariants, ToCanonical};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -153,11 +152,7 @@ impl StatsAccumulator {
     pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.statistics().compute_stat(*s)? {
-                builder.append_scalar(&Scalar::new(
-                    s.dtype(array.dtype())
-                        .vortex_expect("non-empty stat must therefore be supported for this dtype"),
-                    v,
-                ))?;
+                builder.append_scalar_value(v)?;
             } else {
                 builder.append_null();
             }
