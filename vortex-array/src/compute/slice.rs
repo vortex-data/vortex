@@ -63,9 +63,8 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
     if let Some(derived_stats) = derived_stats {
         let mut stats = sliced.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
-        for (stat, val) in stats.into_iter() {
-            sliced.statistics().set_stat(stat, val)
-        }
+
+        sliced.statistics().set_stats_iter(stats.into_iter());
     }
 
     debug_assert_eq!(

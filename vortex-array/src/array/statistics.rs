@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::compute::{
     IsConstantOpts, MinMaxResult, is_constant, is_constant_opts, min_max, scalar_at, sum,
 };
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, Statistics, StatsSet, StatsSetIntoIter};
 use crate::{Array, ArrayImpl};
 
 /// Extension functions for arrays that provide statistics.
@@ -60,6 +60,14 @@ impl<A: Array + ArrayImpl> Statistics for A {
             .write()
             .vortex_expect("poisoned lock")
             .set(stat, value);
+    }
+
+    fn set_stats_iter(&self, stats_iter: StatsSetIntoIter) {
+        let mut stats = self._stats_set().write().vortex_expect("poisoned lock");
+
+        for (stat, value) in stats_iter {
+            stats.set(stat, value);
+        }
     }
 
     fn clear_stat(&self, stat: Stat) {

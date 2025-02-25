@@ -301,6 +301,9 @@ pub trait Statistics {
     /// Set the value of the statistic
     fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>);
 
+    /// Set multiple stats at once from an iter.
+    fn set_stats_iter(&self, stats_iter: StatsSetIntoIter);
+
     /// Clear the value of the statistic
     fn clear_stat(&self, stat: Stat);
 
@@ -327,13 +330,8 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 
     fn inherit(&self, parent: &dyn Statistics) {
-        let parent_stats_set = parent.stats_set();
-        for (stat, value) in parent_stats_set.into_iter() {
-            // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
-            //  so we don't have to take lots of write locks.
-            // TODO(ngates): depending on statistic, this should choose the more precise one.
-            self.set_stat(stat, value);
-        }
+        // TODO(ngates): depending on statistic, this should choose the more precise one.
+        self.set_stats_iter(parent.stats_set().into_iter());
     }
 }
 

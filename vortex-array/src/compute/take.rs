@@ -82,9 +82,8 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if let Some(derived_stats) = derived_stats {
         let mut stats = taken.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
-        for (stat, val) in stats.into_iter() {
-            taken.statistics().set_stat(stat, val)
-        }
+
+        taken.statistics().set_stats_iter(stats.into_iter());
     }
 
     debug_assert_eq!(

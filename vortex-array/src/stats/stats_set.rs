@@ -323,7 +323,7 @@ impl StatsSet {
         self
     }
 
-    // given two sets of stats (of differing precision) for the same array, combine them
+    /// given two sets of stats (of differing precision) for the same array, combine them.
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         self.combine_max(other, dtype)?;
         self.combine_min(other, dtype)?;

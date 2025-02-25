@@ -257,9 +257,7 @@ impl ArrayParts {
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
             let decoded_statistics = decoded.statistics();
-            StatsSet::read_flatbuffer(&stats)?
-                .into_iter()
-                .for_each(|(stat, val)| decoded_statistics.set_stat(stat, val));
+            decoded_statistics.set_stats_iter(StatsSet::read_flatbuffer(&stats)?.into_iter());
         }
 
         Ok(decoded)
