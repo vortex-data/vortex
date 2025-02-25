@@ -20,6 +20,7 @@ use crate::Array;
 
 mod bound;
 pub mod flatbuffers;
+pub mod new;
 mod precision;
 mod stat_bound;
 mod stats_set;

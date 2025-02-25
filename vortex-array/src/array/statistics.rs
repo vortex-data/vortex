@@ -1,11 +1,10 @@
-use std::sync::RwLock;
-
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{
     IsConstantOpts, MinMaxResult, is_constant, is_constant_opts, min_max, scalar_at, sum,
 };
+use crate::stats::new::StatsSetRef;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
@@ -37,36 +36,24 @@ impl<A: Array + 'static> ArrayStatistics for A {
 }
 
 pub trait ArrayStatisticsImpl {
-    fn _stats_set(&self) -> &RwLock<StatsSet>;
+    fn _stats_set(&self) -> StatsSetRef;
 }
 
 impl<A: Array + ArrayImpl> Statistics for A {
     fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self._stats_set()
-            .read()
-            .vortex_expect("poisoned lock")
-            .get(stat)
+        self._stats_set().get(stat)
     }
 
     fn stats_set(&self) -> StatsSet {
-        self._stats_set()
-            .read()
-            .vortex_expect("poisoned lock")
-            .clone()
+        self._stats_set().into()
     }
 
     fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self._stats_set()
-            .write()
-            .vortex_expect("poisoned lock")
-            .set(stat, value);
+        self._stats_set().set(stat, value);
     }
 
     fn clear_stat(&self, stat: Stat) {
-        self._stats_set()
-            .write()
-            .vortex_expect("poisoned lock")
-            .clear(stat);
+        self._stats_set().clear(stat);
     }
 
     fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
@@ -103,19 +90,16 @@ impl<A: Array + ArrayImpl> Statistics for A {
                 let vtable = self.vtable();
                 let stats_set = vtable.compute_statistics(self, stat)?;
                 // Update the stats set with all the computed stats.
-                let mut w = self._stats_set().write().vortex_expect("poisoned lock");
+                let stats_ref = self._stats_set();
                 for (stat, value) in stats_set.into_iter() {
-                    w.set(stat, value);
+                    stats_ref.set(stat, value);
                 }
-                w.get(stat).and_then(|p| p.as_exact())
+                stats_ref.get(stat).and_then(|p| p.as_exact())
             }
         })
     }
 
     fn retain_only(&self, stats: &[Stat]) {
-        self._stats_set()
-            .write()
-            .vortex_expect("poisoned lock")
-            .retain_only(stats)
+        self._stats_set().retain(stats);
     }
 }
