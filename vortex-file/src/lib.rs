@@ -102,6 +102,8 @@ mod strategy;
 mod tests;
 mod writer;
 
+use std::sync::{Arc, LazyLock};
+
 pub use file::*;
 pub use footer::{Footer, Segment};
 pub use forever_constant::*;
@@ -109,7 +111,17 @@ pub use generic::*;
 pub use memory::*;
 pub use open::*;
 pub use strategy::*;
+use vortex_alp::{ALPEncoding, ALPRDEncoding};
+use vortex_array::{Context, ContextRef, Encoding};
+use vortex_bytebool::ByteBoolEncoding;
+use vortex_datetime_parts::DateTimePartsEncoding;
+use vortex_dict::DictEncoding;
+use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
+use vortex_fsst::FSSTEncoding;
 pub use vortex_layout::scan::*;
+use vortex_runend::RunEndEncoding;
+use vortex_sparse::SparseEncoding;
+use vortex_zigzag::ZigZagEncoding;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -143,3 +155,20 @@ mod forever_constant {
         }
     }
 }
+
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
+    Arc::new(Context::default().with_encodings([
+        ALPEncoding.vtable(),
+        ALPRDEncoding.vtable(),
+        BitPackedEncoding.vtable(),
+        ByteBoolEncoding.vtable(),
+        DateTimePartsEncoding.vtable(),
+        DeltaEncoding.vtable(),
+        DictEncoding.vtable(),
+        FoREncoding.vtable(),
+        FSSTEncoding.vtable(),
+        RunEndEncoding.vtable(),
+        SparseEncoding.vtable(),
+        ZigZagEncoding.vtable(),
+    ]))
+});
