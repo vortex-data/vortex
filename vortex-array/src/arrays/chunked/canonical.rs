@@ -23,7 +23,6 @@ impl ArrayCanonicalImpl for ChunkedArray {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
     use vortex_dtype::DType::{List, Primitive};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
@@ -31,35 +30,13 @@ mod tests {
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
-    use crate::arrays::chunked::canonical::pack_views;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])
-    }
-
-    #[test]
-    pub fn pack_sliced_varbin() {
-        let array1 = slice(&stringview_array(), 1, 3).unwrap();
-        let array2 = slice(&stringview_array(), 2, 4).unwrap();
-        let packed = pack_views(
-            &[array1, array2],
-            &DType::Utf8(NonNullable),
-            Validity::NonNullable,
-        )
-        .unwrap();
-        assert_eq!(packed.len(), 4);
-        let values = packed
-            .with_iterator(|iter| {
-                iter.flatten()
-                    .map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap();
-        assert_eq!(values, &["bar", "baz", "baz", "quak"]);
     }
 
     #[test]
