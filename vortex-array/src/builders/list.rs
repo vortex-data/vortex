@@ -172,7 +172,6 @@ mod tests {
     use std::sync::Arc;
 
     use Nullability::{NonNullable, Nullable};
-    use itertools::Itertools as _;
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
