@@ -752,12 +752,28 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BufferMut, buffer_mut};
+    use vortex_buffer::{Buffer, BufferMut, buffer_mut};
     use vortex_sampling_compressor::SamplingCompressor;
 
     use crate::Compressor;
     use crate::integer::IntCompressor;
+
+    #[test]
+    fn test_empty() {
+        // Make sure empty array compression does not fail
+        let result = IntCompressor::compress(
+            &PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable),
+            false,
+            3,
+            &[],
+        )
+        .unwrap();
+
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_dict_encodable() {

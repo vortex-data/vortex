@@ -168,6 +168,11 @@ pub trait Compressor {
     where
         Self::SchemeType: 'static,
     {
+        // Avoid compressing empty arrays.
+        if array.is_empty() {
+            return Ok(array.to_array());
+        }
+
         // Generate stats on the array directly.
         let stats = if excludes.contains(&Self::dict_scheme_code()) {
             Self::StatsType::generate_opts(
