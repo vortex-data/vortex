@@ -4,9 +4,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
-use crate::Array;
 
 impl MinMaxFn<&BoolArray> for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {

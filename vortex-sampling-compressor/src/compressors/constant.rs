@@ -4,7 +4,7 @@ use vortex_array::{Array, Encoding, EncodingId};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ConstantCompressor;

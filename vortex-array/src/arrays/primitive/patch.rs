@@ -1,5 +1,5 @@
 use arrow_buffer::ArrowNativeType;
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::arrays::PrimitiveArray;
@@ -55,9 +55,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::ToCanonical;
     use crate::compute::slice;
     use crate::validity::Validity;
-    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced() {

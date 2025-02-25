@@ -7,7 +7,7 @@ use vortex_runend::{RunEndArray, RunEndEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 pub const DEFAULT_RUN_END_COMPRESSOR: RunEndCompressor = RunEndCompressor { ree_threshold: 2.0 };
 

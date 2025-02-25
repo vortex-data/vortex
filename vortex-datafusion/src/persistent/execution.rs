@@ -14,7 +14,7 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Plan
 use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::{and, VortexExpr};
+use vortex_expr::{VortexExpr, and};
 
 use super::cache::FooterCache;
 use super::config::{ConfigProjection, FileScanConfigExt};

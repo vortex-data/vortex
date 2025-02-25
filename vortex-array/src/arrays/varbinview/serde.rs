@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayParts;

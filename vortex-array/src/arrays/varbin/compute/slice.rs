@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
-use crate::compute::{slice, SliceFn};
+use crate::arrays::varbin::VarBinArray;
+use crate::compute::{SliceFn, slice};
 use crate::{Array, ArrayRef};
 
 impl SliceFn<&VarBinArray> for VarBinEncoding {

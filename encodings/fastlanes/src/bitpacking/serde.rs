@@ -7,7 +7,7 @@ use vortex_array::{
     DeserializeMetadata, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use crate::{BitPackedArray, BitPackedEncoding};
 

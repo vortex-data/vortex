@@ -10,10 +10,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
-use crate::pvalue::PValue;
 use crate::ScalarType;
+use crate::pvalue::PValue;
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -248,20 +248,30 @@ mod test {
 
     #[test]
     pub fn test_is_instance_of_bool() {
-        assert!(ScalarValue(InnerScalarValue::Bool(true))
-            .is_instance_of(&DType::Bool(Nullability::Nullable)));
-        assert!(ScalarValue(InnerScalarValue::Bool(true))
-            .is_instance_of(&DType::Bool(Nullability::NonNullable)));
-        assert!(ScalarValue(InnerScalarValue::Bool(false))
-            .is_instance_of(&DType::Bool(Nullability::Nullable)));
-        assert!(ScalarValue(InnerScalarValue::Bool(false))
-            .is_instance_of(&DType::Bool(Nullability::NonNullable)));
+        assert!(
+            ScalarValue(InnerScalarValue::Bool(true))
+                .is_instance_of(&DType::Bool(Nullability::Nullable))
+        );
+        assert!(
+            ScalarValue(InnerScalarValue::Bool(true))
+                .is_instance_of(&DType::Bool(Nullability::NonNullable))
+        );
+        assert!(
+            ScalarValue(InnerScalarValue::Bool(false))
+                .is_instance_of(&DType::Bool(Nullability::Nullable))
+        );
+        assert!(
+            ScalarValue(InnerScalarValue::Bool(false))
+                .is_instance_of(&DType::Bool(Nullability::NonNullable))
+        );
     }
 
     #[test]
     pub fn test_is_instance_of_primitive() {
-        assert!(ScalarValue(InnerScalarValue::Primitive(PValue::F64(0.0)))
-            .is_instance_of(&DType::Primitive(PType::F64, Nullability::NonNullable)));
+        assert!(
+            ScalarValue(InnerScalarValue::Primitive(PValue::F64(0.0)))
+                .is_instance_of(&DType::Primitive(PType::F64, Nullability::NonNullable))
+        );
     }
 
     #[test]
@@ -326,16 +336,22 @@ mod test {
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Bool(Nullability::Nullable))
         );
-        assert!(!ScalarValue(InnerScalarValue::Null)
-            .is_instance_of(&DType::Bool(Nullability::NonNullable)));
+        assert!(
+            !ScalarValue(InnerScalarValue::Null)
+                .is_instance_of(&DType::Bool(Nullability::NonNullable))
+        );
 
-        assert!(ScalarValue(InnerScalarValue::Null)
-            .is_instance_of(&DType::Primitive(PType::U8, Nullability::Nullable)));
+        assert!(
+            ScalarValue(InnerScalarValue::Null)
+                .is_instance_of(&DType::Primitive(PType::U8, Nullability::Nullable))
+        );
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Utf8(Nullability::Nullable))
         );
-        assert!(ScalarValue(InnerScalarValue::Null)
-            .is_instance_of(&DType::Binary(Nullability::Nullable)));
+        assert!(
+            ScalarValue(InnerScalarValue::Null)
+                .is_instance_of(&DType::Binary(Nullability::Nullable))
+        );
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
                 Arc::new(StructDType::new([].into(), [].into())),

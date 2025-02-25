@@ -5,8 +5,8 @@ use vortex_array::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
     RkyvMetadata,
 };
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::{DeltaArray, DeltaEncoding};
 
@@ -79,8 +79,8 @@ impl SerdeVTable<&DeltaArray> for DeltaEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::RkyvMetadata;
+    use vortex_array::test_harness::check_metadata;
 
     use super::DeltaMetadata;
 

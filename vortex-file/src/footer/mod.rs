@@ -9,9 +9,9 @@ pub(crate) use postscript::*;
 pub use segment::*;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{
-    footer as fb, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
+    FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb,
 };
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
 
@@ -35,10 +35,12 @@ impl Footer {
         statistics: Option<Arc<[StatsSet]>>,
     ) -> Self {
         // Note this assertion is `<=` since we allow zero-length segments
-        assert!(segments
-            .iter()
-            .tuple_windows()
-            .all(|(a, b)| a.offset <= b.offset));
+        assert!(
+            segments
+                .iter()
+                .tuple_windows()
+                .all(|(a, b)| a.offset <= b.offset)
+        );
         Self {
             layout: root_layout,
             segments,

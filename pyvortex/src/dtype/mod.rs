@@ -15,8 +15,8 @@ use arrow::pyarrow::FromPyArrow;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
-    pyclass, pymethods, wrap_pyfunction, Bound, PyAny, PyClass, PyClassInitializer, PyResult,
-    Python,
+    Bound, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
+    wrap_pyfunction,
 };
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;

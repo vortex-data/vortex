@@ -5,9 +5,9 @@ use std::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{
-    vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult, VortexUnwrap,
+    VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
 };
 
 use crate::pvalue::PValue;

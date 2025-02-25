@@ -5,7 +5,7 @@ use vortex_array::{
     RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::{DictArray, DictEncoding};
 
@@ -61,8 +61,8 @@ impl SerdeVTable<&DictArray> for DictEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::RkyvMetadata;
+    use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
     use crate::serde::DictMetadata;

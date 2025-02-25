@@ -1,5 +1,5 @@
-use vortex_array::arrays::ConstantArray;
 use vortex_array::Array;
+use vortex_array::arrays::ConstantArray;
 use vortex_error::VortexResult;
 
 use crate::compute::SliceFn;

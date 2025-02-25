@@ -1,5 +1,5 @@
 use vortex_datetime_dtype::TimeUnit;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 

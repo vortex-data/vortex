@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use bytes::BytesMut;
 use futures_util::{AsyncRead, Stream};
@@ -41,11 +41,11 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                 PollRead::NeedMore(nbytes) => {
                     this.buffer.resize(nbytes, 0x00);
 
-                    match ready!(this
-                        .read
-                        .as_mut()
-                        .poll_read(cx, &mut this.buffer.as_mut()[*this.bytes_read..]))
-                    {
+                    match ready!(
+                        this.read
+                            .as_mut()
+                            .poll_read(cx, &mut this.buffer.as_mut()[*this.bytes_read..])
+                    ) {
                         Ok(0) => {
                             // End of file
                             return Poll::Ready(None);

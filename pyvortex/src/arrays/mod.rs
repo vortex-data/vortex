@@ -5,13 +5,13 @@ use std::ops::Deref;
 
 use arrow::array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow::pyarrow::ToPyArrow;
+use pyo3::PyClass;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use pyo3::PyClass;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::{infer_data_type, IntoArrowArray};
-use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
+use vortex::arrow::{IntoArrowArray, infer_data_type};
+use vortex::compute::{Operator, compare, fill_forward, scalar_at, slice, take};
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexExpect;
 use vortex::mask::Mask;
@@ -20,9 +20,9 @@ use vortex::{Array, ArrayExt, ArrayRef, Encoding};
 
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
-    PyFloat32TypeArray, PyFloat64TypeArray, PyInt16TypeArray, PyInt32TypeArray, PyInt64TypeArray,
-    PyInt8TypeArray, PyListTypeArray, PyNullTypeArray, PyStructTypeArray, PyUInt16TypeArray,
-    PyUInt32TypeArray, PyUInt64TypeArray, PyUInt8TypeArray, PyUtf8TypeArray,
+    PyFloat32TypeArray, PyFloat64TypeArray, PyInt8TypeArray, PyInt16TypeArray, PyInt32TypeArray,
+    PyInt64TypeArray, PyListTypeArray, PyNullTypeArray, PyStructTypeArray, PyUInt8TypeArray,
+    PyUInt16TypeArray, PyUInt32TypeArray, PyUInt64TypeArray, PyUtf8TypeArray,
 };
 use crate::dtype::PyDType;
 use crate::install_module;

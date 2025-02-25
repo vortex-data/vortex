@@ -4,8 +4,8 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
+use object_store::local::LocalFileSystem;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use url::Url;

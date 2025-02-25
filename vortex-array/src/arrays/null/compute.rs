@@ -1,12 +1,12 @@
-use arrow_array::{new_null_array, ArrayRef as ArrowArrayRef};
+use arrow_array::{ArrayRef as ArrowArrayRef, new_null_array};
 use arrow_schema::DataType;
-use vortex_dtype::{match_each_integer_ptype, DType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::null::NullArray;
 use crate::arrays::NullEncoding;
+use crate::arrays::null::NullArray;
 use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;

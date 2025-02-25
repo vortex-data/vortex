@@ -5,11 +5,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::extension::ExtensionArray;
 use crate::arrays::ExtensionEncoding;
+use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    filter, is_constant, min_max, scalar_at, slice, sum, take, CastFn, CompareFn, FilterFn,
-    IsConstantFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    CastFn, CompareFn, FilterFn, IsConstantFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumFn,
+    TakeFn, ToArrowFn, filter, is_constant, min_max, scalar_at, slice, sum, take,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;

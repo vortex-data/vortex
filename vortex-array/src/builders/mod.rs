@@ -15,8 +15,8 @@ pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use varbinview::*;
-use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
     StructScalar, Utf8Scalar,

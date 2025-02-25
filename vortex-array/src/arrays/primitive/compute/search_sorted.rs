@@ -1,13 +1,13 @@
 use std::cmp::Ordering;
 use std::cmp::Ordering::Less;
 
-use vortex_dtype::{match_each_native_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::Array;
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{
     IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
     SearchSortedUsizeFn,
@@ -134,9 +134,9 @@ mod test {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::search_sorted;
-    use crate::IntoArray;
 
     #[test]
     fn test_search_sorted_primitive() {

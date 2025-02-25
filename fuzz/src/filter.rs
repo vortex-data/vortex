@@ -6,7 +6,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::take::take_canonical_array;

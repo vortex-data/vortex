@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use vortex_array::compute::{filter, slice};
 use vortex_array::ArrayRef;
+use vortex_array::compute::{filter, slice};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
@@ -56,12 +56,12 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, ident, lit, Identity};
+    use vortex_expr::{Identity, gt, ident, lit};
 
+    use crate::RowMask;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::RowMask;
 
     #[test]
     fn flat_identity() {

@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use vortex_array::compute::{scalar_at, slice, ScalarAtFn, SliceFn};
+use vortex_array::compute::{ScalarAtFn, SliceFn, scalar_at, slice};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_error::VortexResult;

@@ -57,11 +57,11 @@ impl Debug for dyn EncodingVTable + '_ {
 }
 
 impl<
-        E: Encoding
-            + ComputeVTable
-            + for<'a> SerdeVTable<&'a dyn Array>
-            + for<'a> StatisticsVTable<&'a dyn Array>,
-    > EncodingVTable for E
+    E: Encoding
+        + ComputeVTable
+        + for<'a> SerdeVTable<&'a dyn Array>
+        + for<'a> StatisticsVTable<&'a dyn Array>,
+> EncodingVTable for E
 {
     fn id(&self) -> EncodingId {
         E::ID

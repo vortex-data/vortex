@@ -3,12 +3,12 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, StructArray as ArrowStructArray};
 use arrow_schema::{DataType, Field, Fields};
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{StructArray, StructEncoding};
-use crate::compute::{to_arrow, ToArrowFn};
-use crate::variants::StructArrayTrait;
 use crate::Array;
+use crate::arrays::{StructArray, StructEncoding};
+use crate::compute::{ToArrowFn, to_arrow};
+use crate::variants::StructArrayTrait;
 
 impl ToArrowFn<&StructArray> for StructEncoding {
     fn to_arrow(

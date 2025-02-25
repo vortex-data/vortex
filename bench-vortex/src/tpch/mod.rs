@@ -6,30 +6,30 @@ use std::sync::Arc;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
 use datafusion::dataframe::DataFrameWriteOptions;
+use datafusion::datasource::MemTable;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
-use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use futures::StreamExt;
 use named_locks::with_lock;
+use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
-use object_store::ObjectStore;
 use tokio::fs::OpenOptions;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
-use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
+use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::{Array, ArrayRef, TryIntoArray};
-use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
+use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{get_session_with_cache, Format, CTX};
+use crate::{CTX, Format, get_session_with_cache};
 
 pub mod dbgen;
 pub mod duckdb;

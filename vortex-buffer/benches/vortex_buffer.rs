@@ -5,7 +5,7 @@ use std::iter::Iterator;
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
 use divan::Bencher;
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_error::{vortex_err, VortexExpect};
+use vortex_error::{VortexExpect, vortex_err};
 
 fn main() {
     divan::main();

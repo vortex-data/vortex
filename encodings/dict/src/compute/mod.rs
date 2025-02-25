@@ -4,8 +4,8 @@ mod is_constant;
 mod like;
 
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, LikeFn,
-    ScalarAtFn, SliceFn, TakeFn,
+    BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, LikeFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -86,7 +86,7 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::compute::{compare, scalar_at, slice, Operator};
+    use vortex_array::compute::{Operator, compare, scalar_at, slice};
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;

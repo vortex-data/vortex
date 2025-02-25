@@ -1,7 +1,7 @@
 use std::ops::Not;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{match_each_native_ptype, Nullability};
+use vortex_dtype::{Nullability, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -50,13 +50,13 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[test]
     fn fill_null_leading_none() {

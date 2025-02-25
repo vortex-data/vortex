@@ -1,10 +1,10 @@
+use vortex_array::Array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::Array;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZagArray;
@@ -61,8 +61,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::vtable::EncodingVTable;
     use vortex_array::ToCanonical;
+    use vortex_array::vtable::EncodingVTable;
 
     use super::*;
     use crate::ZigZagEncoding;

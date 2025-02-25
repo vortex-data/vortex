@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
-use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
+use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ArrayVariants, ToCanonical};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -175,7 +175,7 @@ impl StatsAccumulator {
             .iter()
             .zip(self.builders.iter_mut())
             // We sort the stats so the DType is deterministic based on which stats are present.
-            .sorted_unstable_by_key(|(&s, _builder)| s)
+            .sorted_unstable_by_key(|&(&s, _)| s)
         {
             let values = builder.finish();
 

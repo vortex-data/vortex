@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
 use crate::compute::{binary_numeric, slice, try_cast};
 use crate::{Array, ArrayRef};
 
@@ -161,16 +161,16 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 mod tests {
     use std::sync::Arc;
 
+    use Nullability::{NonNullable, Nullable};
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
-    use Nullability::{NonNullable, Nullable};
 
+    use crate::ToCanonical;
     use crate::array::Array;
     use crate::arrays::{ListArray, OffsetPType};
-    use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::ToCanonical;
+    use crate::builders::list::ListBuilder;
 
     #[test]
     fn test_empty() {
@@ -221,9 +221,11 @@ mod tests {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
-        assert!(builder
-            .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
-            .is_err())
+        assert!(
+            builder
+                .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
+                .is_err()
+        )
     }
 
     #[test]

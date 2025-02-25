@@ -1,9 +1,9 @@
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -28,7 +28,9 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
         } else {
-            vortex_bail!("invalid cast from nullable to non-nullable, since source array actually contains nulls");
+            vortex_bail!(
+                "invalid cast from nullable to non-nullable, since source array actually contains nulls"
+            );
         };
 
         // If the bit width is the same, we can short-circuit and simply update the validity
@@ -71,11 +73,11 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[test]
     fn cast_u32_u8() {
@@ -149,6 +151,9 @@ mod test {
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()
         };
-        assert_eq!(s.to_string(), "invalid cast from nullable to non-nullable, since source array actually contains nulls");
+        assert_eq!(
+            s.to_string(),
+            "invalid cast from nullable to non-nullable, since source array actually contains nulls"
+        );
     }
 }

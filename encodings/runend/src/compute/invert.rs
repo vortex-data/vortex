@@ -1,4 +1,4 @@
-use vortex_array::compute::{invert, InvertFn};
+use vortex_array::compute::{InvertFn, invert};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 

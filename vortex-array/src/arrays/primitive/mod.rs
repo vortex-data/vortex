@@ -6,8 +6,8 @@ mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -18,8 +18,8 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray, try_from_array_ref,
 };
 
 mod compute;

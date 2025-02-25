@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
 use crate::spec_extend::SpecExtend;
@@ -533,7 +533,7 @@ impl AlignedBytesMut for BytesMut {
 mod test {
     use bytes::{Buf, BufMut};
 
-    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
+    use crate::{Alignment, BufferMut, ByteBufferMut, buffer_mut};
 
     #[test]
     fn capacity() {

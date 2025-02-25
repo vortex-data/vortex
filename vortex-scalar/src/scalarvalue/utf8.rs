@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use vortex_buffer::BufferString;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 
-use crate::scalarvalue::InnerScalarValue;
 use crate::ScalarValue;
+use crate::scalarvalue::InnerScalarValue;
 
 impl<'a> TryFrom<&'a ScalarValue> for String {
     type Error = VortexError;

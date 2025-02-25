@@ -5,12 +5,12 @@ use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId, ToCanonical,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical, encoding_ids,
+    try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use zigzag::ZigZag as ExternalZigZag;
 
@@ -140,8 +140,8 @@ impl StatisticsVTable<&ZigZagArray> for ZigZagEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::{scalar_at, slice};
     use vortex_array::IntoArray;
+    use vortex_array::compute::{scalar_at, slice};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

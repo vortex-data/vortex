@@ -10,10 +10,10 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, IntoArray};
 use vortex_dtype::PType;
 use vortex_mask::Mask;
+use vortex_sampling_compressor::SamplingCompressor;
+use vortex_sampling_compressor::compressors::EncodingCompressor;
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::bitpacked::BITPACK_NO_PATCHES;
-use vortex_sampling_compressor::compressors::EncodingCompressor;
-use vortex_sampling_compressor::SamplingCompressor;
 
 fn main() {
     divan::main();

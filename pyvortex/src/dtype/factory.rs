@@ -3,7 +3,7 @@ use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
-use pyo3::{pyfunction, Bound, PyResult, Python};
+use pyo3::{Bound, PyResult, Python, pyfunction};
 use vortex::dtype::{DType, FieldName, PType, StructDType};
 
 use crate::dtype::PyDType;

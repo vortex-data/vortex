@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::is_constant;

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use vortex_array::arcref::ArcRef;
 use vortex_array::ContextRef;
+use vortex_array::arcref::ArcRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 

@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
+use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_kleene};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -271,7 +271,7 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness, VortexExpr};
+    use crate::{VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness};
 
     #[test]
     fn dtype() {

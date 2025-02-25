@@ -3,14 +3,14 @@ use arrow_array::array::{
     BooleanArray as ArrowBooleanArray, GenericByteArray, NullArray as ArrowNullArray,
     OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
-use arrow_array::cast::{as_null_array, AsArray};
+use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
     ByteArrayType, ByteViewType, Date32Type, Date64Type, DurationMicrosecondType,
     DurationMillisecondType, DurationNanosecondType, DurationSecondType, Float16Type, Float32Type,
-    Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, Time32MillisecondType,
+    Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Time32MillisecondType,
     Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
-    UInt64Type, UInt8Type,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
+    UInt32Type, UInt64Type,
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
@@ -19,7 +19,7 @@ use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_panic, VortexExpect as _};
+use vortex_error::{VortexExpect as _, vortex_panic};
 
 use crate::arrays::{
     BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray,

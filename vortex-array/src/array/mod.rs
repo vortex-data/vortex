@@ -6,7 +6,7 @@ mod validity;
 mod variants;
 mod visitor;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 
 use crate::arrays::{

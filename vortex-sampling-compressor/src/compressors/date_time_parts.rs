@@ -3,13 +3,13 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::{Array, Encoding, EncodingId};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
-    split_temporal, DateTimePartsArray, DateTimePartsEncoding, TemporalParts,
+    DateTimePartsArray, DateTimePartsEncoding, TemporalParts, split_temporal,
 };
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct DateTimePartsCompressor;

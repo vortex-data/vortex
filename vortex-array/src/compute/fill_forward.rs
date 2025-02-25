@@ -1,4 +1,4 @@
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};

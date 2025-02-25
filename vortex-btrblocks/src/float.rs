@@ -1,22 +1,22 @@
 mod dictionary;
 mod stats;
 
-use vortex_alp::{alp_encode, ALPArray, RDEncoder};
+use vortex_alp::{ALPArray, RDEncoder, alp_encode};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
-use vortex_runend::compress::runend_encode;
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_runend::RunEndArray;
+use vortex_runend::compress::runend_encode;
 
 use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
 use crate::{
-    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
-    GenerateStatsOptions, Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 /// Threshold for the average run length in an array before we consider run-end encoding.

@@ -1,8 +1,8 @@
 //! Float-specific dictionary encoding implementation.
 
+use vortex_array::Array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::Array;
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::half::f16;
@@ -95,14 +95,14 @@ impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::Array;
     use vortex_buffer::buffer;
 
+    use crate::CompressorStats;
     use crate::float::dictionary::dictionary_encode;
     use crate::float::stats::FloatStats;
-    use crate::CompressorStats;
 
     #[test]
     fn test_float_dict_encode() {

@@ -80,8 +80,8 @@ mod test {
     use vortex_expr::Identity;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::segments::test::TestSegments;
     use crate::segments::AsyncSegmentReader;
+    use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 

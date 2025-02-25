@@ -1,8 +1,8 @@
-use enum_iterator::{all, Sequence};
+use enum_iterator::{Sequence, all};
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
@@ -588,9 +588,9 @@ mod test {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::Array;
     use crate::arrays::PrimitiveArray;
     use crate::stats::{Precision, Stat, StatsSet};
-    use crate::Array;
 
     #[test]
     fn test_iter() {

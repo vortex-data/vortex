@@ -2,12 +2,12 @@ use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
-use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
+use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::compute::{CompareFn, Operator, compare_lengths_to_empty};
 use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayRef};
 
@@ -110,9 +110,9 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, VarBinArray};
-    use crate::compute::{compare, Operator};
     use crate::ToCanonical;
+    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::compute::{Operator, compare};
 
     #[test]
     fn test_binary_compare() {

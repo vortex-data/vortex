@@ -51,7 +51,7 @@ impl FillForwardFn<&BoolArray> for BoolEncoding {
 mod test {
     use crate::arrays::BoolArray;
     use crate::validity::Validity;
-    use crate::{compute, ToCanonical};
+    use crate::{ToCanonical, compute};
 
     #[test]
     fn fill_forward() {

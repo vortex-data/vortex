@@ -1,10 +1,10 @@
 use num_traits::PrimInt;
-use vortex_dtype::{match_each_native_ptype, NativePType, PType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{NativePType, PType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{sum, SumFn};
+use crate::compute::{SumFn, sum};
 use crate::stats::Stat;
 use crate::{Array, ArrayRef};
 

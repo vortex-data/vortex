@@ -3,10 +3,10 @@ use std::sync::Arc;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
-use vortex_proto::scalar::scalar_value::Kind;
 use vortex_proto::scalar::ListValue;
+use vortex_proto::scalar::scalar_value::Kind;
 
 use crate::pvalue::PValue;
 use crate::{InnerScalarValue, Scalar, ScalarValue};
@@ -175,8 +175,8 @@ mod test {
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
-    use vortex_dtype::half::f16;
     use vortex_dtype::PType::{self, I32};
+    use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability};
     use vortex_proto::scalar as pb;
 

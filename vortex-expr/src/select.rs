@@ -5,7 +5,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
 use crate::{ExprRef, VortexExpr};

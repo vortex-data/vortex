@@ -10,7 +10,7 @@ use vortex::arrays::{
     VarBinViewArray,
 };
 use vortex::buffer::buffer;
-use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
+use vortex::datetime_dtype::{TIME_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
 use vortex::encodings::bytebool::ByteBoolArray;

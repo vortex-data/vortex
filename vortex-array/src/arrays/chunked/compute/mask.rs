@@ -4,10 +4,10 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskIter};
 use vortex_scalar::Scalar;
 
-use super::filter::{chunk_filters, find_chunk_idx, ChunkFilter};
+use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
-use crate::compute::{mask, try_cast, MaskFn};
+use crate::compute::{MaskFn, mask, try_cast};
 use crate::{Array, ArrayRef};
 
 impl MaskFn<&ChunkedArray> for ChunkedEncoding {
@@ -121,10 +121,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
-    use crate::IntoArray;
 
     #[test]
     fn test_mask_chunked_array() {

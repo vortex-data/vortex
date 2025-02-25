@@ -1,4 +1,4 @@
-use vortex_array::compute::{fill_null, FillNullFn};
+use vortex_array::compute::{FillNullFn, fill_null};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;

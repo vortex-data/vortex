@@ -1,17 +1,17 @@
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{take, TakeFn};
+use vortex_array::compute::{TakeFn, take};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
+    NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::chunked_indices;
-use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedEncoding, unpack_single_primitive};
 
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
 // all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
@@ -125,15 +125,15 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 #[allow(clippy::cast_possible_truncation)]
 mod test {
     use rand::distr::Uniform;
-    use rand::{rng, Rng};
+    use rand::{Rng, rng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
 
-    use crate::bitpacking::compute::take::take_primitive;
     use crate::BitPackedArray;
+    use crate::bitpacking::compute::take::take_primitive;
 
     #[test]
     fn take_indices() {

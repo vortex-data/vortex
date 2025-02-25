@@ -15,8 +15,8 @@ mod primitive;
 mod struct_;
 mod utf8;
 
-use pyo3::prelude::*;
 use pyo3::PyClass;
+use pyo3::prelude::*;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::scalar::Scalar;
@@ -30,7 +30,7 @@ use crate::scalar::null::PyNullScalar;
 use crate::scalar::primitive::PyPrimitiveScalar;
 use crate::scalar::struct_::PyStructScalar;
 use crate::scalar::utf8::PyUtf8Scalar;
-use crate::{install_module, PyVortex};
+use crate::{PyVortex, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scalar")?;

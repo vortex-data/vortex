@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::arrays::{ConstantArray, NullArray};
 use crate::stats::{Precision, Stat};

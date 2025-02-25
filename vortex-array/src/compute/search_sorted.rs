@@ -4,12 +4,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::Array;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
@@ -78,11 +78,7 @@ impl SearchResult {
     /// indexing into it after performing a search
     pub fn to_ends_index(self, len: usize) -> usize {
         let idx = self.to_index();
-        if idx == len {
-            idx - 1
-        } else {
-            idx
-        }
+        if idx == len { idx - 1 } else { idx }
     }
 
     /// Apply a transformation to the Found or NotFound index.
@@ -516,9 +512,9 @@ impl<T> Len for [T] {
 mod test {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::compute::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
     use crate::compute::{search_sorted, search_sorted_many};
-    use crate::IntoArray;
 
     #[test]
     fn left_side_equal() {

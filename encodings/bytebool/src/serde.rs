@@ -6,7 +6,7 @@ use vortex_array::{
     EmptyMetadata,
 };
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{ByteBoolArray, ByteBoolEncoding};
 

@@ -4,14 +4,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_fastlanes::{
-    bitpack_unchecked, count_exceptions, find_best_bit_width, find_min_patchless_bit_width,
-    gather_patches, BitPackedArray, BitPackedEncoding,
+    BitPackedArray, BitPackedEncoding, bitpack_unchecked, count_exceptions, find_best_bit_width,
+    find_min_patchless_bit_width, gather_patches,
 };
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 pub const BITPACK_WITH_PATCHES: BitPackedCompressor = BitPackedCompressor {
     allow_patches: true,
@@ -160,53 +160,65 @@ impl EncodingCompressor for BitPackedCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::ConstantArray;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;
 
-    use crate::compressors::bitpacked::{BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES};
-    use crate::compressors::EncodingCompressor;
     use crate::SamplingCompressor;
+    use crate::compressors::EncodingCompressor;
+    use crate::compressors::bitpacked::{BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES};
 
     #[test]
     fn cannot_compress() {
         // cannot compress when array contains negative values
-        assert!(BITPACK_NO_PATCHES
-            .can_compress(&buffer![-1i32, 0i32, 1i32].into_array())
-            .is_none());
+        assert!(
+            BITPACK_NO_PATCHES
+                .can_compress(&buffer![-1i32, 0i32, 1i32].into_array())
+                .is_none()
+        );
 
         // Non-integer primitive array.
-        assert!(BITPACK_NO_PATCHES
-            .can_compress(&buffer![0f32, 1f32].into_array())
-            .is_none());
+        assert!(
+            BITPACK_NO_PATCHES
+                .can_compress(&buffer![0f32, 1f32].into_array())
+                .is_none()
+        );
 
         // non-PrimitiveArray
-        assert!(BITPACK_NO_PATCHES
-            .can_compress(&ConstantArray::new(3u32, 10))
-            .is_none());
+        assert!(
+            BITPACK_NO_PATCHES
+                .can_compress(&ConstantArray::new(3u32, 10))
+                .is_none()
+        );
     }
 
     #[test]
     fn can_compress() {
         // Unsigned integers
-        assert!(BITPACK_NO_PATCHES
-            .can_compress(&buffer![0u32, 1u32, 2u32].into_array())
-            .is_some());
+        assert!(
+            BITPACK_NO_PATCHES
+                .can_compress(&buffer![0u32, 1u32, 2u32].into_array())
+                .is_some()
+        );
 
         // Signed non-negative integers
-        assert!(BITPACK_WITH_PATCHES
-            .can_compress(&buffer![0i32, 1i32, 2i32].into_array())
-            .is_some());
+        assert!(
+            BITPACK_WITH_PATCHES
+                .can_compress(&buffer![0i32, 1i32, 2i32].into_array())
+                .is_some()
+        );
     }
 
     #[test]
     fn compress_negatives_fails() {
-        assert!(BITPACK_NO_PATCHES
-            .compress(
-                &buffer![-1i32, 0i32].into_array(),
-                None,
-                SamplingCompressor::default(),
-            )
-            .is_err());
+        assert!(
+            BITPACK_NO_PATCHES
+                .compress(
+                    &buffer![-1i32, 0i32].into_array(),
+                    None,
+                    SamplingCompressor::default(),
+                )
+                .is_err()
+        );
     }
 }

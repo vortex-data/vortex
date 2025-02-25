@@ -1,5 +1,5 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{like, LikeFn, LikeOptions};
+use vortex_array::compute::{LikeFn, LikeOptions, like};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 

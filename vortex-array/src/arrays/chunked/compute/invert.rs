@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{invert, InvertFn};
+use crate::compute::{InvertFn, invert};
 use crate::{Array, ArrayRef};
 
 impl InvertFn<&ChunkedArray> for ChunkedEncoding {

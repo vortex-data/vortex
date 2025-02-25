@@ -1,10 +1,10 @@
-use vortex_array::compute::{scalar_at, ScalarAtFn};
 use vortex_array::Array;
+use vortex_array::compute::{ScalarAtFn, scalar_at};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::alp_rd::array::ALPRDArray;
 use crate::ALPRDEncoding;
+use crate::alp_rd::array::ALPRDArray;
 
 impl ScalarAtFn<&ALPRDArray> for ALPRDEncoding {
     fn scalar_at(&self, array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {

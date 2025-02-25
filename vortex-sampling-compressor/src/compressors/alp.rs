@@ -1,4 +1,4 @@
-use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
+use vortex_alp::{ALPArray, ALPEncoding, ALPRDEncoding, alp_encode_components};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -9,7 +9,7 @@ use vortex_fastlanes::BitPackedEncoding;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ALPCompressor;

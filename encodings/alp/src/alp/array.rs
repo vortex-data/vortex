@@ -7,15 +7,16 @@ use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
+    encoding_ids,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::alp::serde::ALPMetadata;
-use crate::alp::{alp_encode, decompress, Exponents};
+use crate::alp::{Exponents, alp_encode, decompress};
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
@@ -142,13 +143,13 @@ impl StatisticsVTable<&ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::SerdeMetadata;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
-    use crate::alp::serde::ALPMetadata;
     use crate::Exponents;
+    use crate::alp::serde::ALPMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]

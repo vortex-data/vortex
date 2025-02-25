@@ -4,12 +4,12 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use super::is_constant;
 use crate::arrays::ConstantArray;
-use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -258,9 +258,9 @@ mod tests {
     use itertools::Itertools;
 
     use super::*;
+    use crate::ToCanonical;
     use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::ToCanonical;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

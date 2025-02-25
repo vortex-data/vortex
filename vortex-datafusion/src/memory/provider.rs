@@ -9,7 +9,7 @@ use datafusion::prelude::*;
 use datafusion_common::{Result as DFResult, ToDFSchema};
 use datafusion_expr::utils::conjunction;
 use datafusion_expr::{TableProviderFilterPushDown, TableType};
-use datafusion_physical_expr::{create_physical_expr, EquivalenceProperties};
+use datafusion_physical_expr::{EquivalenceProperties, create_physical_expr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
@@ -17,8 +17,8 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
-use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;
+use vortex_expr::datafusion::convert_expr_to_vortex;
 
 use crate::can_be_pushed_down;
 use crate::memory::exec::VortexScanExec;
@@ -184,11 +184,11 @@ mod test {
     use datafusion::functions_aggregate::count::count_distinct;
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
-    use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
+    use datafusion_expr::{BinaryExpr, Expr, Operator, and, col, lit};
     use vortex_array::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex_array::{Array, ArrayRef};
 
-    use crate::{can_be_pushed_down, SessionContextExt as _};
+    use crate::{SessionContextExt as _, can_be_pushed_down};
 
     fn presidents_array() -> ArrayRef {
         let names = VarBinViewArray::from_iter_str([

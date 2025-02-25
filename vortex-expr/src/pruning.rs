@@ -14,8 +14,8 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{
-    and, eq, get_item, gt, ident, lit, not, or, BinaryExpr, ExprRef, GetItem, Identity, Literal,
-    Not, Operator, VortexExprExt,
+    BinaryExpr, ExprRef, GetItem, Identity, Literal, Not, Operator, VortexExprExt, and, eq,
+    get_item, gt, ident, lit, not, or,
 };
 
 #[derive(Debug, Clone)]
@@ -434,7 +434,7 @@ mod tests {
     use vortex_dtype::FieldName;
 
     use crate::pruning::{
-        convert_to_pruning_expression, stat_field_name, FieldOrIdentity, PruningPredicate,
+        FieldOrIdentity, PruningPredicate, convert_to_pruning_expression, stat_field_name,
     };
     use crate::{
         and, eq, get_item, get_item_scope, gt, gt_eq, ident, lit, lt, lt_eq, not, not_eq, or,

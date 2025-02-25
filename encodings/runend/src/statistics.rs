@@ -6,7 +6,7 @@ use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::{Array, ToCanonical as _};
-use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
@@ -205,10 +205,12 @@ mod tests {
             1
         );
         // Not sorted because null must come last
-        assert!(!sliced
-            .statistics()
-            .compute_as::<bool>(Stat::IsSorted)
-            .unwrap());
+        assert!(
+            !sliced
+                .statistics()
+                .compute_as::<bool>(Stat::IsSorted)
+                .unwrap()
+        );
     }
 
     #[test]

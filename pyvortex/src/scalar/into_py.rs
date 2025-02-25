@@ -4,7 +4,7 @@ use pyo3::{Bound, IntoPyObject, PyAny, PyErr, Python};
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
-use vortex::error::{vortex_err, VortexExpect};
+use vortex::error::{VortexExpect, vortex_err};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 use crate::PyVortex;

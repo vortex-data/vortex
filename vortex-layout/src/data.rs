@@ -6,14 +6,14 @@ use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_flatbuffers::{layout as fb, layout, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout as fb, layout};
 
+use crate::LayoutId;
 use crate::context::LayoutContextRef;
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
-use crate::LayoutId;
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
 /// structure.

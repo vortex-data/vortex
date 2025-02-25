@@ -3,22 +3,22 @@ use std::sync::Arc;
 
 use flatbuffers::root;
 use futures::stream::FuturesUnordered;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use vortex_array::ContextRef;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, FlatBuffer, ReadFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_io::VortexReadAt;
+use vortex_layout::LayoutContextRef;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::LayoutContextRef;
 use vortex_metrics::VortexMetrics;
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
 pub trait FileType: Sized {
     type Options: Clone;

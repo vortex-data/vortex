@@ -6,10 +6,10 @@ use arrow::array::{RecordBatch, RecordBatchReader};
 use arrow::datatypes::SchemaRef;
 use arrow::error::ArrowError;
 use futures::StreamExt;
+use vortex::ArrayRef;
 use vortex::arrow::infer_schema;
 use vortex::error::{VortexError, VortexResult};
 use vortex::stream::ArrayStream;
-use vortex::ArrayRef;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))

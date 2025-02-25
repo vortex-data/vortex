@@ -1,8 +1,8 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{buffer, Buffer, BufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::ArrayCanonicalImpl;
