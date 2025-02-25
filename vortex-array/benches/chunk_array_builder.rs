@@ -65,16 +65,14 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
 
-    bencher
-        .with_inputs(|| chunks.clone())
-        .bench_values(|chunk| {
-            let mut builder = VarBinViewBuilder::with_capacity(
-                DType::Utf8(chunk.dtype().nullability()),
-                len * chunk_count,
-            );
-            chunk.append_to_builder(&mut builder).vortex_unwrap();
-            builder.finish()
-        })
+    bencher.with_inputs(|| chunks.clone()).bench_refs(|chunk| {
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(chunk.dtype().nullability()),
+            len * chunk_count,
+        );
+        chunk.append_to_builder(&mut builder).vortex_unwrap();
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
