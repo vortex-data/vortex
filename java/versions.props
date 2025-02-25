@@ -1,0 +1,9 @@
+com.google.errorprone:error_prone_core = 2.36.0
+com.google.guava:failureaccess = 1.0.2
+com.google.guava:guava = 33.4.0-jre
+com.google.guava:listenablefuture = 9999.0-empty-to-avoid-conflict-with-guava
+com.jakewharton.nopen:* = 1.0.1
+net.java.dev.jna:* = 5.16.0
+
+# Test dependencies
+org.junit.jupiter:* = 5.11.4
