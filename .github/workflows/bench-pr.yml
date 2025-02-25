@@ -89,5 +89,6 @@ jobs:
   sql:
     needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
     with:
       mode: 'pr'

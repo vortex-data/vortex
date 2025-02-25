@@ -72,5 +72,6 @@ jobs:
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
     with:
       mode: 'develop'
