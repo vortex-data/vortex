@@ -29,7 +29,7 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
 
-use super::cache::FileLayoutCache;
+use super::cache::FooterCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
 use crate::can_be_pushed_down;
@@ -39,7 +39,7 @@ use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
 #[derive(Debug)]
 pub struct VortexFormat {
     context: ContextRef,
-    file_layout_cache: FileLayoutCache,
+    footer_cache: FooterCache,
     opts: VortexFormatOptions,
 }
 
@@ -117,7 +117,7 @@ impl VortexFormat {
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
+            footer_cache: FooterCache::new(opts.cache_size_mb, context.clone()),
             context,
             opts,
         }
@@ -160,10 +160,10 @@ impl FileFormat for VortexFormat {
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let cache = self.file_layout_cache.clone();
+                let cache = self.footer_cache.clone();
                 async move {
-                    let file_layout = cache.try_get(&o, store).await?;
-                    let inferred_schema = infer_schema(file_layout.dtype())?;
+                    let footer = cache.try_get(&o, store).await?;
+                    let inferred_schema = infer_schema(footer.dtype())?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })
@@ -192,13 +192,10 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
-        let file_layout = self
-            .file_layout_cache
-            .try_get(object, store.clone())
-            .await?;
+        let footer = self.footer_cache.try_get(object, store.clone()).await?;
 
         let vxf = VortexOpenOptions::file(read_at)
-            .with_footer(file_layout)
+            .with_footer(footer)
             .open()
             .await?;
 
@@ -319,7 +316,7 @@ impl FileFormat for VortexFormat {
             Default::default(),
             filters.cloned(),
             self.context.clone(),
-            self.file_layout_cache.clone(),
+            self.footer_cache.clone(),
         )?
         .into_arc();
 

@@ -28,7 +28,7 @@ pub trait FileType: Sized {
     fn scan_driver(
         read: Self::Read,
         options: Self::Options,
-        file_layout: Footer,
+        footer: Footer,
         segment_cache: Arc<dyn SegmentCache>,
         metrics: VortexMetrics,
     ) -> Self::ScanDriver;
@@ -106,7 +106,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     /// Configure a known file layout.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
-    /// Once open, the [`Footer`] can be accessed via [`VortexFile::file_layout`].
+    /// Once open, the [`Footer`] can be accessed via [`VortexFile::footer`].
     pub fn with_footer(mut self, footer: Footer) -> Self {
         self.dtype = Some(footer.layout().dtype().clone());
         self.footer = Some(footer);
@@ -141,16 +141,16 @@ impl<F: FileType> VortexOpenOptions<F> {
     /// Open the Vortex file using asynchronous IO.
     pub async fn open(mut self) -> VortexResult<VortexFile<F>> {
         // If we need to read the file layout, then do so.
-        let file_layout = match self.footer.take() {
-            None => self.read_file_layout().await?,
-            Some(file_layout) => file_layout,
+        let footer = match self.footer.take() {
+            None => self.read_footer().await?,
+            Some(footer) => footer,
         };
 
         Ok(VortexFile {
             read: self.read,
             options: self.options,
             ctx: self.ctx.clone(),
-            file_layout,
+            footer,
             segment_cache: self.segment_cache,
             metrics: self.metrics,
             _marker: PhantomData,
@@ -158,7 +158,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 
     /// Read the [`Footer`] from the file.
-    async fn read_file_layout(&self) -> VortexResult<Footer> {
+    async fn read_footer(&self) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => self.read.size().await?,
@@ -301,10 +301,10 @@ impl<F: FileType> VortexOpenOptions<F> {
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
-        file_layout: &Footer,
+        footer: &Footer,
     ) -> VortexResult<()> {
         stream::iter(
-            file_layout
+            footer
                 .segment_map()
                 .iter()
                 .enumerate()

@@ -18,7 +18,7 @@ use crate::{FileType, Footer, Segment, VortexOpenOptions};
 #[derive(Clone)]
 pub struct InMemoryVortexFile {
     buffer: ByteBuffer,
-    file_layout: Footer,
+    footer: Footer,
 }
 
 impl VortexOpenOptions<InMemoryVortexFile> {
@@ -36,13 +36,13 @@ impl FileType for InMemoryVortexFile {
     fn scan_driver(
         read: Self::Read,
         _options: Self::Options,
-        file_layout: Footer,
+        footer: Footer,
         _segment_cache: Arc<dyn SegmentCache>,
         _metrics: VortexMetrics,
     ) -> Self::ScanDriver {
         Self {
             buffer: read,
-            file_layout,
+            footer,
         }
     }
 }
@@ -61,7 +61,7 @@ impl ScanDriver for InMemoryVortexFile {
 impl AsyncSegmentReader for InMemoryVortexFile {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         let segment: &Segment = self
-            .file_layout
+            .footer
             .segment_map()
             .get(*id as usize)
             .ok_or_else(|| vortex_err!("segment not found"))?;

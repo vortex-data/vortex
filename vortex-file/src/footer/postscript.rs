@@ -42,7 +42,7 @@ impl ReadFlatBuffer for Postscript {
             dtype: fb.dtype().map(Segment::try_from).transpose()?,
             footer: Segment::try_from(
                 fb.footer()
-                    .ok_or_else(|| vortex_err!("Postscript missing file_layout segment"))?,
+                    .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
             )?,
         })
     }

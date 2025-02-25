@@ -16,7 +16,7 @@ use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{and, VortexExpr};
 
-use super::cache::FileLayoutCache;
+use super::cache::FooterCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::VortexExecMetrics;
 use crate::persistent::metrics::PARTITION_LABEL;
@@ -30,7 +30,7 @@ pub(crate) struct VortexExec {
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: ContextRef,
-    initial_read_cache: FileLayoutCache,
+    initial_read_cache: FooterCache,
     projected_arrow_schema: SchemaRef,
     projection: Arc<dyn VortexExpr>,
 }
@@ -41,7 +41,7 @@ impl VortexExec {
         metrics: VortexExecMetrics,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
-        initial_read_cache: FileLayoutCache,
+        initial_read_cache: FooterCache,
     ) -> DFResult<Self> {
         let ConfigProjection {
             arrow_schema,

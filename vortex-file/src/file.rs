@@ -15,7 +15,7 @@ pub struct VortexFile<F: FileType> {
     pub(crate) read: F::Read,
     pub(crate) options: F::Options,
     pub(crate) ctx: ContextRef,
-    pub(crate) file_layout: Footer,
+    pub(crate) footer: Footer,
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
     pub(crate) metrics: VortexMetrics,
     pub(crate) _marker: PhantomData<F>,
@@ -23,29 +23,29 @@ pub struct VortexFile<F: FileType> {
 
 impl<F: FileType> VortexFile<F> {
     pub fn row_count(&self) -> u64 {
-        self.file_layout.row_count()
+        self.footer.row_count()
     }
 
     pub fn dtype(&self) -> &DType {
-        self.file_layout.dtype()
+        self.footer.dtype()
     }
 
-    pub fn file_layout(&self) -> &Footer {
-        &self.file_layout
+    pub fn footer(&self) -> &Footer {
+        &self.footer
     }
 
     pub fn file_stats(&self) -> Option<&Arc<[StatsSet]>> {
-        self.file_layout.statistics()
+        self.footer.statistics()
     }
 
     pub fn scan(&self) -> ScanBuilder<F::ScanDriver> {
         let driver = F::scan_driver(
             self.read.clone(),
             self.options.clone(),
-            self.file_layout.clone(),
+            self.footer.clone(),
             self.segment_cache.clone(),
             self.metrics.clone(),
         );
-        ScanBuilder::new(driver, self.file_layout.layout().clone(), self.ctx.clone())
+        ScanBuilder::new(driver, self.footer.layout().clone(), self.ctx.clone())
     }
 }

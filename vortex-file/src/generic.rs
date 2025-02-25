@@ -44,14 +44,14 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     fn scan_driver(
         read: Self::Read,
         options: Self::Options,
-        file_layout: Footer,
+        footer: Footer,
         segment_cache: Arc<dyn SegmentCache>,
         metrics: VortexMetrics,
     ) -> Self::ScanDriver {
         GenericScanDriver {
             read,
             options,
-            file_layout,
+            footer,
             segment_cache,
             segment_channel: SegmentChannel::new(),
             metrics: metrics.into(),
@@ -82,7 +82,7 @@ impl Default for GenericScanOptions {
 pub struct GenericScanDriver<R> {
     read: R,
     options: GenericScanOptions,
-    file_layout: Footer,
+    footer: Footer,
     segment_cache: Arc<dyn SegmentCache>,
     segment_channel: SegmentChannel,
     metrics: CoalescingMetrics,
@@ -98,7 +98,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let io_stream = self.segment_channel.into_stream();
 
         // We map the segment requests to their respective locations within the file.
-        let segment_map = self.file_layout.segment_map().clone();
+        let segment_map = self.footer.segment_map().clone();
         let io_stream = io_stream.filter_map(move |request| {
             let segment_map = segment_map.clone();
             async move {
@@ -168,7 +168,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
 
         // Submit the coalesced requests to the I/O.
         let read = self.read.clone();
-        let segment_map = self.file_layout.segment_map().clone();
+        let segment_map = self.footer.segment_map().clone();
         let segment_cache = self.segment_cache.clone();
         let io_stream = io_stream.map(move |request| {
             let read = read.clone();
