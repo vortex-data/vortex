@@ -1,4 +1,4 @@
-use vortex_array::compute::{slice, SliceFn};
+use vortex_array::compute::{SliceFn, slice};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -34,7 +34,7 @@ impl SliceFn<&RunEndArray> for RunEndEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::{slice, SliceFn};
+    use vortex_array::compute::{SliceFn, slice};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};

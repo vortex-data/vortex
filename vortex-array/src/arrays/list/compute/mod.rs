@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    scalar_at, slice, IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
+    IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn, scalar_at, slice,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};

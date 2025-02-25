@@ -12,15 +12,15 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::ListEncoding;
-use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
+use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at};
 use vortex_array::{Array, ArrayRef, ArrayVisitorExt, Encoding, EncodingId, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
-use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
+use vortex_scalar::arbitrary::random_scalar;
 
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;

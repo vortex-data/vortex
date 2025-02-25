@@ -1,11 +1,11 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{filter, FilterFn};
+use vortex_array::compute::{FilterFn, filter};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 

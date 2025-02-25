@@ -1,11 +1,11 @@
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::Array;
 use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
-use crate::Array;
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A> {

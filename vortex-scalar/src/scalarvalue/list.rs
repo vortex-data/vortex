@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_error::{vortex_err, VortexError};
+use vortex_error::{VortexError, vortex_err};
 
-use crate::scalarvalue::InnerScalarValue;
 use crate::ScalarValue;
+use crate::scalarvalue::InnerScalarValue;
 
 impl<'a, T: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>> TryFrom<&'a ScalarValue>
     for Vec<T>

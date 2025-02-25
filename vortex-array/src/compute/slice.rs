@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::is_constant;
 use crate::encoding::Encoding;
@@ -132,10 +132,10 @@ fn check_slice_bounds(array: &dyn Array, start: usize, stop: usize) -> VortexRes
 mod tests {
     use vortex_scalar::Scalar;
 
+    use crate::Array;
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
-    use crate::Array;
+    use crate::stats::{Precision, STATS_TO_WRITE, Stat, Statistics};
 
     #[test]
     fn test_slice_primitive() {

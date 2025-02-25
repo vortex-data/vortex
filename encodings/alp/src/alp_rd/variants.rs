@@ -1,5 +1,5 @@
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::ArrayVariantsImpl;
+use vortex_array::variants::PrimitiveArrayTrait;
 
 use crate::ALPRDArray;
 

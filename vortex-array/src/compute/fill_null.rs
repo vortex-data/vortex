@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;

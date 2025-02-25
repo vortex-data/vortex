@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, BooleanArray as ArrowBoolArray};
 use arrow_schema::DataType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
+use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
-use crate::Array;
 
 impl ToArrowFn<&BoolArray> for BoolEncoding {
     fn to_arrow(&self, array: &BoolArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {

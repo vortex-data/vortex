@@ -1,14 +1,14 @@
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
-use crate::segments::SegmentWriter;
 use crate::Layout;
+use crate::segments::SegmentWriter;
 
 /// A strategy for writing chunks of an array into a layout.
 // [layout writer]
 pub trait LayoutWriter: Send {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef)
-        -> VortexResult<()>;
+    -> VortexResult<()>;
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout>;
 }

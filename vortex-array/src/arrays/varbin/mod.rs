@@ -7,7 +7,7 @@ pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
+    VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_err, vortex_panic,
 };
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -21,8 +21,8 @@ use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingId,
-    RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingId, RkyvMetadata,
+    try_from_array_ref,
 };
 
 mod accessor;
@@ -290,12 +290,12 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::ArrayRef;
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
-    use crate::ArrayRef;
 
     #[fixture]
     fn binary_array() -> ArrayRef {

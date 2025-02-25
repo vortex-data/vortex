@@ -18,7 +18,7 @@ use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::metrics::MetricsSet;
-use datafusion_physical_plan::{collect, ExecutionPlan};
+use datafusion_physical_plan::{ExecutionPlan, collect};
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;

@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::compute::{like, LikeOptions};
+use vortex_array::compute::{LikeOptions, like};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -109,11 +109,11 @@ impl PartialEq for Like {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::BoolArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{ident, lit, not, Like};
+    use crate::{Like, ident, lit, not};
 
     #[test]
     fn invert_booleans() {

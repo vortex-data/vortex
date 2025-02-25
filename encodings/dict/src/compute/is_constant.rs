@@ -1,4 +1,4 @@
-use vortex_array::compute::{is_constant, IsConstantFn};
+use vortex_array::compute::{IsConstantFn, is_constant};
 use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};

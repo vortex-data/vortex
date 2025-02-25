@@ -1,9 +1,9 @@
 use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
-use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata};
+use vortex_datetime_dtype::{TemporalMetadata, is_temporal_ext_type};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
@@ -92,7 +92,9 @@ impl Display for Scalar {
                         }
                     }
                     _ => {
-                        vortex_panic!("Expected temporal extension data type to have Primitive or Null storage type")
+                        vortex_panic!(
+                            "Expected temporal extension data type to have Primitive or Null storage type"
+                        )
                     }
                 }
             }
@@ -113,7 +115,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
+    use vortex_datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
 

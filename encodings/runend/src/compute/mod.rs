@@ -7,11 +7,11 @@ mod scalar_at;
 mod slice;
 pub(crate) mod take;
 
+use vortex_array::Array;
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::Array;
 
 use crate::RunEndEncoding;
 
@@ -51,9 +51,9 @@ impl ComputeVTable for RunEndEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::Array;
 
     use crate::RunEndArray;
 

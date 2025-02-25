@@ -1,7 +1,7 @@
 use std::io::Write;
 
-use goldenfile::differs::binary_diff;
 use goldenfile::Mint;
+use goldenfile::differs::binary_diff;
 
 use crate::{DeserializeMetadata, SerializeMetadata};
 

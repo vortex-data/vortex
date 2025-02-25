@@ -6,11 +6,11 @@ use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Encoding, EncodingId, SerdeMetadata, ToCanonical,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    Encoding, EncodingId, SerdeMetadata, ToCanonical, encoding_ids,
 };
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::serde::FSSTMetadata;

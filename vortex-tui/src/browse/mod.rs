@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use app::{create_file_app, AppState, KeyMode, Tab};
+use app::{AppState, KeyMode, Tab, create_file_app};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::widgets::ListState;
 use ratatui::DefaultTerminal;
+use ratatui::widgets::ListState;
 use ui::render_app;
 use vortex::error::{VortexExpect, VortexResult};
 

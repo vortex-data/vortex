@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{stream, Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
@@ -9,7 +9,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ArrayRef, ContextRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
+use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};

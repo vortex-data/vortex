@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
@@ -194,8 +194,8 @@ mod tests {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
-    use crate::float::stats::FloatStats;
     use crate::CompressorStats;
+    use crate::float::stats::FloatStats;
 
     #[test]
     fn test_float_stats() {

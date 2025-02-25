@@ -4,14 +4,14 @@ mod filter;
 mod take;
 
 use vortex_array::compute::{
-    scalar_at, slice, CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::timestamp::{self, TimestampParts};

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{ArrayRef, ContextRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessageReader};
 

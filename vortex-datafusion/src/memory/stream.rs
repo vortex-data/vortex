@@ -4,11 +4,11 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult};
+use datafusion_common::{DataFusionError, Result as DFResult, exec_datafusion_err};
 use datafusion_execution::RecordBatchStream;
 use futures::Stream;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::ChunkedArray;
 use vortex_dtype::FieldNames;
 
 pub(crate) struct VortexRecordBatchStream {

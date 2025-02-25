@@ -9,7 +9,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 
 use crate::builders::DictEncoder;
 
@@ -152,9 +152,9 @@ impl DictEncoder for BytesDictBuilder {
 mod test {
     use std::str;
 
+    use vortex_array::ToCanonical;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::ToCanonical;
 
     use crate::builders::dict_encode;
 

@@ -10,7 +10,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::builders::DictEncoder;
 
@@ -99,7 +99,7 @@ where
 }
 
 mod private {
-    use vortex_dtype::{half, NativePType};
+    use vortex_dtype::{NativePType, half};
 
     /// Value serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.
     ///
@@ -154,9 +154,9 @@ mod private {
 }
 #[cfg(test)]
 mod test {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::scalar_at;
-    use vortex_array::ToCanonical;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 

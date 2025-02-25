@@ -8,8 +8,8 @@ use vortex_array::arrays::{VarBinEncoding, VarBinViewEncoding};
 use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, Encoding, EncodingId};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding};
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_fsst::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 use super::bitpacked::BITPACK_WITH_PATCHES;
 use super::delta::DeltaCompressor;
@@ -17,7 +17,7 @@ use super::r#for::FoRCompressor;
 use super::varbin::VarBinCompressor;
 use super::{CompressedArray, CompressionTree, EncoderMetadata, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct FSSTCompressor;

@@ -1,11 +1,11 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
+    IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, try_cast,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -94,11 +94,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
-    use crate::IntoArray;
 
     #[test]
     fn test_cast_chunked() {

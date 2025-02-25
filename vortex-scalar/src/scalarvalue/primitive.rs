@@ -1,9 +1,9 @@
 use paste::paste;
 use vortex_dtype::half::f16;
-use vortex_error::{vortex_err, VortexError};
+use vortex_error::{VortexError, vortex_err};
 
-use crate::scalarvalue::InnerScalarValue;
 use crate::ScalarValue;
+use crate::scalarvalue::InnerScalarValue;
 
 macro_rules! primitive_scalar {
     ($T:ty) => {

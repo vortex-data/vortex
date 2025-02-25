@@ -96,7 +96,7 @@ impl TemporalMetadata {
 }
 
 use vortex_dtype::{ExtDType, ExtMetadata};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 macro_rules! impl_temporal_metadata_try_from {
     ($typ:ty) => {
@@ -199,7 +199,7 @@ mod tests {
 
     use vortex_dtype::{ExtDType, ExtMetadata, PType};
 
-    use crate::{TemporalMetadata, TimeUnit, TIMESTAMP_ID};
+    use crate::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     #[cfg_attr(miri, ignore)]
     #[test]

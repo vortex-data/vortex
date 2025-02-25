@@ -124,17 +124,9 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
     fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         match &self.0 {
             Exact(lhs) => lhs.partial_cmp(other),
-            Inexact(lhs) => {
-                lhs.partial_cmp(other).and_then(
-                    |o| {
-                        if o == Ordering::Less {
-                            None
-                        } else {
-                            Some(o)
-                        }
-                    },
-                )
-            }
+            Inexact(lhs) => lhs
+                .partial_cmp(other)
+                .and_then(|o| if o == Ordering::Less { None } else { Some(o) }),
         }
     }
 }

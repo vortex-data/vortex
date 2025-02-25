@@ -1,8 +1,8 @@
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
-use crate::compute::{slice, SliceFn};
+use crate::arrays::chunked::ChunkedArray;
+use crate::compute::{SliceFn, slice};
 use crate::{Array, ArrayRef};
 
 impl SliceFn<&ChunkedArray> for ChunkedEncoding {

@@ -4,8 +4,8 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    between, filter, scalar_at, slice, take, BetweenFn, BetweenOptions, CompareFn, FilterFn,
-    ScalarAtFn, SliceFn, StrictComparison, TakeFn,
+    BetweenFn, BetweenOptions, CompareFn, FilterFn, ScalarAtFn, SliceFn, StrictComparison, TakeFn,
+    between, filter, scalar_at, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarType};
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
+use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 impl ComputeVTable for ALPEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
@@ -183,12 +183,12 @@ where
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_array::ToCanonical;
 
-    use crate::alp::compute::between_impl;
     use crate::ALPArray;
+    use crate::alp::compute::between_impl;
 
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, options)

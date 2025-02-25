@@ -10,23 +10,23 @@ use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    config_datafusion_err, not_impl_err, ColumnStatistics, DataFusionError, GetExt,
-    Result as DFResult, ScalarValue, Statistics,
+    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue, Statistics,
+    config_datafusion_err, not_impl_err,
 };
-use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
+use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
-use datafusion_physical_plan::insert::DataSinkExec;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{stream, StreamExt as _, TryStreamExt as _};
+use datafusion_physical_plan::insert::DataSinkExec;
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::arrow::{infer_schema, FromArrowType};
+use vortex_array::arrow::{FromArrowType, infer_schema};
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::{stats, ContextRef};
+use vortex_array::{ContextRef, stats};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FooterCache;

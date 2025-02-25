@@ -4,8 +4,8 @@ use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArr
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_buffer::{buffer, Buffer, BufferMut};
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
+use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -266,9 +266,9 @@ pub fn runend_decode_typed_bool(
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use crate::compress::{runend_decode_primitive, runend_encode};

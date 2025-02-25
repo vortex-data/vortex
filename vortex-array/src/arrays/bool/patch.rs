@@ -41,9 +41,9 @@ impl BoolArray {
 mod tests {
     use arrow_buffer::BooleanBuffer;
 
+    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::compute::slice;
-    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced_bools() {

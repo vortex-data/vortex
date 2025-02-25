@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::compute::{is_constant_opts, min_max, scalar_at, sum, IsConstantOpts, MinMaxResult};
+use crate::compute::{IsConstantOpts, MinMaxResult, is_constant_opts, min_max, scalar_at, sum};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 

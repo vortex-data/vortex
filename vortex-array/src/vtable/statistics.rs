@@ -1,8 +1,8 @@
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::Array;
 use crate::encoding::Encoding;
 use crate::stats::{Stat, StatsSet};
-use crate::Array;
 
 /// Encoding VTable for computing array statistics.
 pub trait StatisticsVTable<A> {

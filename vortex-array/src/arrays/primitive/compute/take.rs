@@ -1,11 +1,11 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;

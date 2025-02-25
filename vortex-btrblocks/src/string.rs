@@ -1,8 +1,8 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_dict::builders::dict_encode;
 use vortex_dict::DictArray;
+use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
@@ -10,8 +10,8 @@ use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
-    estimate_compression_ratio_with_sampling, Compressor, CompressorStats, GenerateStatsOptions,
-    Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling,
 };
 
 #[derive(Clone)]
@@ -242,12 +242,12 @@ impl Scheme for FSSTScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::Array;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::string::StringCompressor;
     use crate::Compressor;
+    use crate::string::StringCompressor;
 
     #[test]
     fn test_strings() {

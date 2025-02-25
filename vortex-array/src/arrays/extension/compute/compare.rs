@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
-use crate::compute::{compare, CompareFn, Operator};
+use crate::compute::{CompareFn, Operator, compare};
 use crate::{Array, ArrayRef};
 
 impl CompareFn<&ExtensionArray> for ExtensionEncoding {

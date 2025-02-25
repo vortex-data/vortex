@@ -1,9 +1,9 @@
 use pyo3::exceptions::PyIndexError;
-use pyo3::{pyclass, pymethods, IntoPyObject, PyObject, PyRef, PyResult};
+use pyo3::{IntoPyObject, PyObject, PyRef, PyResult, pyclass, pymethods};
 use vortex::scalar::ListScalar;
 
-use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 use crate::PyVortex;
+use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 
 /// Concrete class for list scalars.
 #[pyclass(name = "ListScalar", module = "vortex", extends=PyScalar, frozen)]

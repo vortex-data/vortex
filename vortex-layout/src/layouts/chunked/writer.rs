@@ -4,13 +4,13 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::LayoutVTableRef;
 use crate::data::Layout;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
-use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
     /// The layout strategy for each chunk.

@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{scalar_at, ScalarAtFn};
+use crate::compute::{ScalarAtFn, scalar_at};
 
 impl ScalarAtFn<&ChunkedArray> for ChunkedEncoding {
     fn scalar_at(&self, array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
@@ -16,10 +16,10 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::scalar_at;
-    use crate::IntoArray;
 
     #[test]
     fn empty_children_both_sides() {

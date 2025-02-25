@@ -6,7 +6,7 @@ use vortex_array::compute::{filter, slice, try_cast};
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 /// A RowMask captures a set of selected rows within a range.
@@ -225,10 +225,10 @@ impl RowMask {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
 

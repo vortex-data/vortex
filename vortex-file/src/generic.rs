@@ -4,10 +4,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::stream::FuturesUnordered;
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};

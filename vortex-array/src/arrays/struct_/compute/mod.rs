@@ -2,15 +2,15 @@ mod to_arrow;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::struct_::StructArray;
 use crate::arrays::StructEncoding;
+use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    filter, is_constant, scalar_at, slice, take, try_cast, CastFn, FilterFn, IsConstantFn, MaskFn,
-    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    CastFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn, filter, is_constant, scalar_at, slice, take, try_cast,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;

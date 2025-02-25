@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures_util::{ready, Stream};
+use futures_util::{Stream, ready};
 use pin_project::pin_project;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedSide};
+use crate::compute::{SearchSortedSide, search_sorted_usize, slice, sub_scalar, take};
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;

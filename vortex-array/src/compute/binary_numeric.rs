@@ -1,9 +1,9 @@
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
@@ -104,7 +104,7 @@ pub fn binary_numeric(
     }
     if !matches!(lhs.dtype(), DType::Primitive(_, _))
         || !matches!(rhs.dtype(), DType::Primitive(_, _))
-        || lhs.dtype() != rhs.dtype()
+        || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
     {
         vortex_bail!(
             "Numeric operations are only supported on two arrays sharing the same primitive-type: {} {}",
@@ -116,16 +116,14 @@ pub fn binary_numeric(
     // Check if LHS supports the operation directly.
     if let Some(fun) = lhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
-            check_numeric_result(&result, lhs, rhs);
-            return Ok(result);
+            return Ok(check_numeric_result(result, lhs, rhs));
         }
     }
 
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
-            check_numeric_result(&result, lhs, rhs);
-            return Ok(result);
+            return Ok(check_numeric_result(result, lhs, rhs));
         }
     }
 
@@ -164,13 +162,15 @@ fn arrow_numeric(
         BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    let result = from_arrow_array_with_len(array, len, nullable)?;
-    check_numeric_result(&result, lhs, rhs);
-    Ok(result)
+    Ok(check_numeric_result(
+        from_arrow_array_with_len(array, len, nullable)?,
+        lhs,
+        rhs,
+    ))
 }
 
 #[inline(always)]
-fn check_numeric_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
+fn check_numeric_result(result: ArrayRef, lhs: &dyn Array, rhs: &dyn Array) -> ArrayRef {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -187,13 +187,14 @@ fn check_numeric_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
         "Numeric operation dtype mismatch {}",
         rhs.encoding()
     );
+    result
 }
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
     use num_traits::Num;
     use vortex_dtype::NativePType;
-    use vortex_error::{vortex_err, VortexResult};
+    use vortex_error::{VortexResult, vortex_err};
     use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
 
     use crate::arrays::ConstantArray;
@@ -286,11 +287,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::IntoArray;
 
     #[test]
     fn test_scalar_subtract_unsigned() {

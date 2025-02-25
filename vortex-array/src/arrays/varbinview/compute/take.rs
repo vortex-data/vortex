@@ -3,7 +3,7 @@ use std::ops::Deref;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};

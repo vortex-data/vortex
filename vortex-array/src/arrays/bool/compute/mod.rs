@@ -1,10 +1,10 @@
+use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
     BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn, MaskFn,
     MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::Array;
 
 mod cast;
 mod fill_forward;

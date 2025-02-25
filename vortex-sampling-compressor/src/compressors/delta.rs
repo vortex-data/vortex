@@ -3,10 +3,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
-use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
+use vortex_fastlanes::{DeltaArray, DeltaEncoding, delta_compress};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct DeltaCompressor;

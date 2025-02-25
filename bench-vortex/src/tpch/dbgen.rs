@@ -181,7 +181,9 @@ fn get_or_cache_toolchain(
     let download_dir = dbgen_dir(cache_dir, version, platform);
     std::fs::create_dir_all(&download_dir)?;
 
-    let url = format!("https://github.com/spiraldb/tpch-dbgen/releases/download/{version}/dbgen-{platform}-{version}.tar");
+    let url = format!(
+        "https://github.com/spiraldb/tpch-dbgen/releases/download/{version}/dbgen-{platform}-{version}.tar"
+    );
 
     let mut zip_file = reqwest::blocking::get(url)?;
     let zip_path = download_dir.join(

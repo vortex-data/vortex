@@ -1,4 +1,4 @@
-use arrow::array::{make_array, ArrayData as ArrowArrayData};
+use arrow::array::{ArrayData as ArrowArrayData, make_array};
 use arrow::datatypes::{DataType, Field};
 use arrow::ffi_stream::ArrowArrayStreamReader;
 use arrow::pyarrow::FromPyArrow;

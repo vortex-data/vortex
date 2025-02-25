@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use vortex_array::compute::{between, BetweenOptions};
+use vortex_array::compute::{BetweenOptions, between};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;

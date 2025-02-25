@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use vortex_array::ContextRef;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;

@@ -4,10 +4,10 @@ use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
-use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
+use vortex_zigzag::{ZigZagArray, ZigZagEncoding, zigzag_encode};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::{constants, SamplingCompressor};
+use crate::{SamplingCompressor, constants};
 
 #[derive(Debug)]
 pub struct ZigZagCompressor;

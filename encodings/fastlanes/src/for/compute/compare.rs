@@ -2,9 +2,9 @@ use std::ops::Shr;
 
 use num_traits::WrappingSub;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, CompareFn, Operator};
+use vortex_array::compute::{CompareFn, Operator, compare};
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
@@ -63,9 +63,9 @@ where
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use super::*;

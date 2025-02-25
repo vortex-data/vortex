@@ -108,7 +108,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
     use vortex_array::compute::{
-        filter, search_sorted, slice, try_cast, SearchResult, SearchSortedSide,
+        SearchResult, SearchSortedSide, filter, search_sorted, slice, try_cast,
     };
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};

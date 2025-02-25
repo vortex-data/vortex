@@ -8,13 +8,13 @@ use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::list::serde::ListMetadata;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::list::serde::ListMetadata;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
@@ -251,8 +251,8 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::list::ListArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::list::ListArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
 

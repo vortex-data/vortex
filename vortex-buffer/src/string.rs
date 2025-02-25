@@ -5,7 +5,7 @@ use std::str::Utf8Error;
 use crate::ByteBuffer;
 
 /// A wrapper around a [`ByteBuffer`] that guarantees that the buffer contains valid UTF-8.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BufferString(ByteBuffer);
 
 impl BufferString {
@@ -86,7 +86,7 @@ impl AsRef<[u8]> for BufferString {
 
 #[cfg(test)]
 mod test {
-    use crate::{buffer, Alignment, BufferString};
+    use crate::{Alignment, BufferString, buffer};
 
     #[test]
     fn buffer_string() {

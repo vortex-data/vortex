@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{binary_numeric, slice, BinaryNumericFn};
+use crate::compute::{BinaryNumericFn, binary_numeric, slice};
 use crate::{Array, ArrayRef};
 
 impl BinaryNumericFn<&ChunkedArray> for ChunkedEncoding {

@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructDType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Identity, Select};
