@@ -23,7 +23,7 @@ pub struct VortexLayoutStrategy;
 impl VortexLayoutStrategy {
     /// Create a new layout writer with the default layout selection and chunk compressor.
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 }
 

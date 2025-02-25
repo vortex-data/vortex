@@ -750,8 +750,8 @@ mod tests {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{BufferMut, buffer_mut};
 
+    use crate::Compressor;
     use crate::integer::IntCompressor;
-    use crate::{BtrBlocksCompressor, Compressor};
 
     #[test]
     fn test_dict_encodable() {

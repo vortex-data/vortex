@@ -233,6 +233,7 @@ pub trait Compressor {
     }
 }
 
+#[derive(Debug)]
 pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
