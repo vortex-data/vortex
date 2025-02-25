@@ -19,6 +19,8 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::Array;
 
 mod bound;
+#[cfg(feature = "datafusion")]
+pub mod datafusion;
 pub mod flatbuffers;
 mod precision;
 mod stat_bound;

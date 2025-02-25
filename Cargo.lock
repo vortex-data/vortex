@@ -5135,6 +5135,7 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "codspeed-divan-compat",
+ "datafusion-common",
  "enum-iterator",
  "flatbuffers 25.2.10",
  "flexbuffers",

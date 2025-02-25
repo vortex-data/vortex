@@ -14,7 +14,6 @@ use vortex_error::vortex_err;
 
 use crate::memory::VortexMemTable;
 
-mod converter;
 pub mod memory;
 pub mod persistent;
 

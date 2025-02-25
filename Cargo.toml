@@ -74,7 +74,7 @@ clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
 datafusion = { version = "45", default-features = false }
-datafusion-common = "45"
+datafusion-common = { version = "45", default-features = false }
 datafusion-execution = "45"
 datafusion-expr = "45"
 datafusion-physical-expr = "45"
@@ -162,7 +162,7 @@ witchcraft-metrics = "1.0.1"
 # BEGIN crates published by this project
 vortex = { version = "0.24.0", path = "./vortex" }
 vortex-alp = { version = "0.24.0", path = "./encodings/alp" }
-vortex-array = { version = "0.24.0", path = "./vortex-array" }
+vortex-array = { version = "0.24.0", path = "./vortex-array", features = ["datafusion"] }
 vortex-btrblocks = { version = "0.24.0", path = "./vortex-btrblocks" }
 vortex-buffer = { version = "0.24.0", path = "./vortex-buffer" }
 vortex-bytebool = { version = "0.24.0", path = "./encodings/bytebool" }
