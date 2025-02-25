@@ -30,6 +30,7 @@ pub use slice::{SliceFn, slice};
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};
 pub use to_arrow::*;
+pub use uncompressed_size::*;
 
 mod between;
 mod binary_numeric;
@@ -50,6 +51,7 @@ mod slice;
 mod sum;
 mod take;
 mod to_arrow;
+mod uncompressed_size;
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {

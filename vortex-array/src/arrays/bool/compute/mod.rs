@@ -2,7 +2,7 @@ use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
     BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn, MaskFn,
-    MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -20,6 +20,7 @@ mod slice;
 mod sum;
 mod take;
 mod to_arrow;
+mod uncompressed_size;
 
 impl ComputeVTable for BoolEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
@@ -58,6 +59,10 @@ impl ComputeVTable for BoolEncoding {
         Some(self)
     }
 
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -78,7 +83,7 @@ impl ComputeVTable for BoolEncoding {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }

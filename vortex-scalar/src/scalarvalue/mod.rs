@@ -204,6 +204,7 @@ impl InnerScalarValue {
         match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(b.as_ref().clone())),
+            InnerScalarValue::BufferString(b) => Ok(Some(b.clone().into())),
             _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
