@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use super::ChunkedArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder};
+use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::{Array as _, ArrayCanonicalImpl, Canonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
@@ -28,6 +28,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
+    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::chunked::canonical::pack_views;
@@ -35,7 +36,6 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::ToCanonical;
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])
