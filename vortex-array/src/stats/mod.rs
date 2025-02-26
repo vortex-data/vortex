@@ -7,15 +7,11 @@ use std::sync::Arc;
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{Sequence, cardinality};
-use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
-use vortex_error::VortexExpect;
-
-use crate::Array;
 
 mod array;
 mod bound;
@@ -40,7 +36,6 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
     Stat::Max,
     Stat::NullCount,
-    Stat::RunCount,
     Stat::Sum,
     Stat::IsConstant,
     Stat::IsSorted,
@@ -78,8 +73,6 @@ pub enum Stat {
     Max = 5,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
     Min = 6,
-    /// The number of runs in the array (ignoring nulls)
-    RunCount = 7,
     /// The sum of the non-null values of the array.
     Sum = 8,
     /// The number of null values in the array
@@ -98,7 +91,6 @@ pub struct TrailingZeroFreq;
 pub struct IsConstant;
 pub struct IsSorted;
 pub struct IsStrictSorted;
-pub struct RunCount;
 pub struct NullCount;
 pub struct UncompressedSizeInBytes;
 
@@ -130,12 +122,6 @@ impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
     type Bound = Precision<T>;
 
     const STAT: Stat = Stat::IsStrictSorted;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for RunCount {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::RunCount;
 }
 
 impl<T: PartialOrd + Clone> StatType<T> for NullCount {
@@ -182,7 +168,7 @@ impl Stat {
             | Stat::NullCount
             | Stat::Sum
             | Stat::UncompressedSizeInBytes => true,
-            Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => false,
+            Stat::IsSorted | Stat::IsStrictSorted => false,
         }
     }
 
@@ -206,7 +192,6 @@ impl Stat {
             Stat::IsStrictSorted => DType::Bool(NonNullable),
             Stat::Max => data_type.clone(),
             Stat::Min => data_type.clone(),
-            Stat::RunCount => DType::Primitive(PType::U64, NonNullable),
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
             Stat::Sum => {
@@ -248,7 +233,6 @@ impl Stat {
             Self::IsStrictSorted => "is_strict_sorted",
             Self::Max => "max",
             Self::Min => "min",
-            Self::RunCount => "run_count",
             Self::NullCount => "null_count",
             Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
             Stat::Sum => "sum",

@@ -96,7 +96,6 @@ impl StatsTable {
                 // We could implement these aggregations in the future, but for now they're unused
                 Stat::BitWidthFreq
                 | Stat::TrailingZeroFreq
-                | Stat::RunCount
                 | Stat::IsConstant
                 | Stat::IsSorted
                 | Stat::IsStrictSorted => {}

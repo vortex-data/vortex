@@ -229,10 +229,6 @@ impl StatsSetRef<'_> {
         self.compute_as(Stat::NullCount)
     }
 
-    pub fn compute_run_count(&self) -> Option<usize> {
-        self.compute_as(Stat::RunCount)
-    }
-
     pub fn compute_bit_width_freq(&self) -> Option<Vec<usize>> {
         self.compute_as::<Vec<usize>>(Stat::BitWidthFreq)
     }
