@@ -10,7 +10,7 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::stats::{Precision, Stat, StatsSetRef, StatsWriter};
+use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,

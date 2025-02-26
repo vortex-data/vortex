@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet, StatsWriter};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range

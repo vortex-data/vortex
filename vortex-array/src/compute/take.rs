@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet, StatsWriter};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A> {

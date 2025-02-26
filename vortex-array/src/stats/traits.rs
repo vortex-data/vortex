@@ -16,14 +16,6 @@ pub trait StatsProvider {
     }
 }
 
-pub trait StatsWriter {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
-
-    fn clear(&self, stat: Stat);
-
-    fn retain(&self, stats: &[Stat]);
-}
-
 impl<S> StatsProviderExt for S where S: StatsProvider {}
 
 pub trait StatsProviderExt: StatsProvider {

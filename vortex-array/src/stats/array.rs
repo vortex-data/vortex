@@ -8,7 +8,6 @@ use vortex_scalar::ScalarValue;
 
 use super::{
     Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
-    StatsWriter,
 };
 use crate::Array;
 use crate::compute::{MinMaxResult, is_constant, min_max, sum};
@@ -33,6 +32,18 @@ impl ArrayStats {
             dyn_array_ref: array,
             parent_stats: self.clone(),
         }
+    }
+
+    pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
+        self.inner.write().set(stat, value);
+    }
+
+    pub fn clear(&self, stat: Stat) {
+        self.inner.write().clear(stat);
+    }
+
+    pub fn retain(&self, stats: &[Stat]) {
+        self.inner.write().retain_only(stats);
     }
 }
 
@@ -59,20 +70,6 @@ impl StatsProvider for ArrayStats {
     fn len(&self) -> usize {
         let guard = self.inner.read();
         guard.len()
-    }
-}
-
-impl StatsWriter for ArrayStats {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.inner.write().set(stat, value);
-    }
-
-    fn clear(&self, stat: Stat) {
-        self.inner.write().clear(stat);
-    }
-
-    fn retain(&self, stats: &[Stat]) {
-        self.inner.write().retain_only(stats);
     }
 }
 
@@ -192,6 +189,18 @@ impl StatsSetRef<'_> {
             })
     }
 
+    pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
+        self.parent_stats.set(stat, value);
+    }
+
+    pub fn clear(&self, stat: Stat) {
+        self.parent_stats.clear(stat);
+    }
+
+    pub fn retain(&self, stats: &[Stat]) {
+        self.parent_stats.retain(stats);
+    }
+
     pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
     ) -> Option<U> {
@@ -244,19 +253,5 @@ impl StatsProvider for StatsSetRef<'_> {
 
     fn len(&self) -> usize {
         self.parent_stats.len()
-    }
-}
-
-impl StatsWriter for StatsSetRef<'_> {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.parent_stats.set(stat, value);
-    }
-
-    fn clear(&self, stat: Stat) {
-        self.parent_stats.clear(stat);
-    }
-
-    fn retain(&self, stats: &[Stat]) {
-        self.parent_stats.retain(stats);
     }
 }
