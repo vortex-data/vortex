@@ -32,8 +32,8 @@ impl EncoderMetadata for Compressor {
 }
 
 impl EncodingCompressor for FSSTCompressor {
-    fn id(&self) -> &str {
-        FSSTEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        FSSTEncoding::ID
     }
 
     fn cost(&self) -> u8 {

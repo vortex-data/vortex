@@ -1,6 +1,7 @@
 use core::fmt::Formatter;
 use std::fmt::Display;
 
+use itertools::Itertools;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use vortex_array::aliases::hash_set::HashSet;
@@ -213,11 +214,7 @@ impl<'a> SamplingCompressor<'a> {
             log::debug!(
                 "{} skipping encodings due to depth/cost: {}",
                 self,
-                too_deep
-                    .iter()
-                    .map(|x| x.id())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                too_deep.iter().map(|x| x.id()).join(", ")
             );
         }
 
@@ -246,7 +243,7 @@ impl<'a> SamplingCompressor<'a> {
         // TODO(ngates): we actually probably want some way to prefer dict encoding over other varbin
         //  encodings, e.g. FSST.
         if candidates.len() > 1 {
-            candidates.retain(|&compression| compression.id() != array.encoding().as_ref());
+            candidates.retain(|&compression| compression.id() != array.encoding());
         }
 
         if array.len() <= (self.options.sample_size as usize * self.options.sample_count as usize) {

@@ -32,7 +32,7 @@ pub mod varbin;
 pub mod zigzag;
 
 pub trait EncodingCompressor: Sync + Send + Debug {
-    fn id(&self) -> &str;
+    fn id(&self) -> EncodingId;
 
     fn cost(&self) -> u8;
 

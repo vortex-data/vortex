@@ -23,8 +23,8 @@ impl EncoderMetadata for ALPRDEncoder {
 }
 
 impl EncodingCompressor for ALPRDCompressor {
-    fn id(&self) -> &str {
-        ALPRDEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ALPRDEncoding::ID
     }
 
     fn cost(&self) -> u8 {

@@ -23,8 +23,8 @@ impl Default for RunEndCompressor {
 }
 
 impl EncodingCompressor for RunEndCompressor {
-    fn id(&self) -> &str {
-        RunEndEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        RunEndEncoding::ID
     }
 
     fn cost(&self) -> u8 {

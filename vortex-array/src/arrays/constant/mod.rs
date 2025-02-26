@@ -6,7 +6,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::ArrayValidityImpl;
-use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId};
@@ -25,7 +24,7 @@ pub struct ConstantArray {
 
 pub struct ConstantEncoding;
 impl Encoding for ConstantEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.constant", encoding_ids::CONSTANT);
+    const ID: EncodingId = EncodingId::new_ref("vortex.constant");
     type Array = ConstantArray;
     type Metadata = EmptyMetadata;
 }

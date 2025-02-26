@@ -11,8 +11,8 @@ use crate::{SamplingCompressor, constants};
 pub struct ListCompressor;
 
 impl EncodingCompressor for ListCompressor {
-    fn id(&self) -> &str {
-        ListEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ListEncoding::ID
     }
 
     fn cost(&self) -> u8 {

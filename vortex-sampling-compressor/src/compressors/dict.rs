@@ -13,8 +13,8 @@ use crate::{SamplingCompressor, constants};
 pub struct DictCompressor;
 
 impl EncodingCompressor for DictCompressor {
-    fn id(&self) -> &str {
-        DictEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        DictEncoding::ID
     }
 
     fn cost(&self) -> u8 {

@@ -14,8 +14,8 @@ use crate::{SamplingCompressor, constants};
 pub struct FoRCompressor;
 
 impl EncodingCompressor for FoRCompressor {
-    fn id(&self) -> &str {
-        FoREncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        FoREncoding::ID
     }
 
     fn cost(&self) -> u8 {

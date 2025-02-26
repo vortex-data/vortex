@@ -2,6 +2,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
@@ -36,11 +37,11 @@ impl BitPackedCompressor {
 }
 
 impl EncodingCompressor for BitPackedCompressor {
-    fn id(&self) -> &str {
+    fn id(&self) -> EncodingId {
         if self.allow_patches {
-            "fastlanes.bitpacked"
+            BitPackedEncoding.id()
         } else {
-            "fastlanes.bitpacked_no_patches"
+            EncodingId::new_ref("fastlanes.bitpacked_no_patches")
         }
     }
 

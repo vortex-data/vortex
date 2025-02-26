@@ -11,8 +11,8 @@ use crate::{SamplingCompressor, constants};
 pub struct VarBinCompressor;
 
 impl EncodingCompressor for VarBinCompressor {
-    fn id(&self) -> &str {
-        VarBinEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        VarBinEncoding::ID
     }
 
     fn cost(&self) -> u8 {

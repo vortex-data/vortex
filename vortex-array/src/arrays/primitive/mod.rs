@@ -12,7 +12,6 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
-use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -39,7 +38,7 @@ try_from_array_ref!(PrimitiveArray);
 
 pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.primitive", encoding_ids::PRIMITIVE);
+    const ID: EncodingId = EncodingId::new_ref("vortex.primitive");
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;
 }

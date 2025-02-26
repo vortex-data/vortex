@@ -13,8 +13,8 @@ use crate::{SamplingCompressor, constants};
 pub struct ZigZagCompressor;
 
 impl EncodingCompressor for ZigZagCompressor {
-    fn id(&self) -> &str {
-        ZigZagEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ZigZagEncoding::ID
     }
 
     fn cost(&self) -> u8 {

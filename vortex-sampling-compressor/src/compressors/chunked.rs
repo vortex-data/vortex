@@ -30,8 +30,8 @@ impl EncoderMetadata for ChunkedCompressorMetadata {
 }
 
 impl EncodingCompressor for ChunkedCompressor {
-    fn id(&self) -> &str {
-        ChunkedEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ChunkedEncoding::ID
     }
 
     fn cost(&self) -> u8 {

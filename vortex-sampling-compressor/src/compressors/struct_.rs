@@ -14,8 +14,8 @@ use crate::{SamplingCompressor, constants};
 pub struct StructCompressor;
 
 impl EncodingCompressor for StructCompressor {
-    fn id(&self) -> &str {
-        StructEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        StructEncoding::ID
     }
 
     fn cost(&self) -> u8 {

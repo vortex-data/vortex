@@ -10,8 +10,8 @@ use crate::{SamplingCompressor, constants};
 pub struct SparseCompressor;
 
 impl EncodingCompressor for SparseCompressor {
-    fn id(&self) -> &str {
-        SparseEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        SparseEncoding::ID
     }
 
     fn cost(&self) -> u8 {

@@ -10,8 +10,8 @@ use crate::{SamplingCompressor, constants};
 pub struct ConstantCompressor;
 
 impl EncodingCompressor for ConstantCompressor {
-    fn id(&self) -> &str {
-        ConstantEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ConstantEncoding::ID
     }
 
     fn cost(&self) -> u8 {

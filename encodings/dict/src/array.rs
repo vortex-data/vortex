@@ -9,7 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical, encoding_ids,
+    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
 };
 use vortex_dtype::{
     DType, PType, match_each_integer_ptype, match_each_native_simd_ptype,
@@ -30,7 +30,7 @@ pub struct DictArray {
 
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.dict", encoding_ids::DICT);
+    const ID: EncodingId = EncodingId::new_ref("vortex.dict");
     type Array = DictArray;
     type Metadata = RkyvMetadata<DictMetadata>;
 }

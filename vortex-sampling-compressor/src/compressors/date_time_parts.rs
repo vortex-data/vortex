@@ -15,8 +15,8 @@ use crate::{SamplingCompressor, constants};
 pub struct DateTimePartsCompressor;
 
 impl EncodingCompressor for DateTimePartsCompressor {
-    fn id(&self) -> &str {
-        DateTimePartsEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        DateTimePartsEncoding::ID
     }
 
     fn cost(&self) -> u8 {

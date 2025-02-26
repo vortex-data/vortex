@@ -12,8 +12,8 @@ use crate::{SamplingCompressor, constants};
 pub struct DeltaCompressor;
 
 impl EncodingCompressor for DeltaCompressor {
-    fn id(&self) -> &str {
-        DeltaEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        DeltaEncoding::ID
     }
 
     fn cost(&self) -> u8 {

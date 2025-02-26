@@ -15,8 +15,8 @@ use crate::{SamplingCompressor, constants};
 pub struct ALPCompressor;
 
 impl EncodingCompressor for ALPCompressor {
-    fn id(&self) -> &str {
-        ALPEncoding::ID.as_ref()
+    fn id(&self) -> EncodingId {
+        ALPEncoding::ID
     }
 
     fn cost(&self) -> u8 {
