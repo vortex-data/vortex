@@ -94,7 +94,7 @@ pub async fn export_plan_spans(
             InstrumentationScope::builder("otlp").build(),
         );
         batch.extend(spans);
-        if batch.len() > 10_000 {
+        if batch.len() > 10 {
             export_with_retries(&mut exporter, batch).await?;
             batch = Vec::new();
         }
