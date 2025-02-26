@@ -87,7 +87,6 @@ impl VortexWriteOptions {
         }
 
         // Flush the final layout messages into the file
-        // FIXME(ngates): we need to extract the context somehow.
         let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
             .flush_async(&mut write, &mut segments)
