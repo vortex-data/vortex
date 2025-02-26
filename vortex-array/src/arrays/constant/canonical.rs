@@ -1,7 +1,7 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{buffer, Buffer, BufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
+use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, ListScalar, Scalar, ScalarValue, StructScalar, Utf8Scalar,
@@ -13,7 +13,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BinaryView, BoolArray, ExtensionArray, ListArray, NullArray, StructArray, VarBinViewArray,
 };
-use crate::builders::{builder_with_capacity, ArrayBuilderExt};
+use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
 use crate::{Array, Canonical, IntoArray};
 
