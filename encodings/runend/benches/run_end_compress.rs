@@ -61,7 +61,7 @@ fn decompress_to_canonical(bencher: Bencher, (length, run_step): (usize, usize))
 #[allow(clippy::cast_possible_truncation)]
 fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
-        (0..=length)
+        (0..length)
             .step_by(run_step)
             .enumerate()
             .flat_map(|(idx, x)| repeat_n(idx as u64, x))
@@ -74,6 +74,6 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
     bencher
-        .with_inputs(|| (runend_array.to_array(), source_array.clone()))
-        .bench_refs(|(indices, array)| take(array, indices).unwrap());
+        .with_inputs(|| (source_array.clone(), runend_array.to_array()))
+        .bench_refs(|(array, indices)| take(array, indices).unwrap());
 }
