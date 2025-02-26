@@ -41,12 +41,12 @@ impl ObjectStoreRegistry for SlowObjectStoreRegistry {
         url: &Url,
         store: Arc<dyn ObjectStore>,
     ) -> Option<Arc<dyn ObjectStore>> {
-        self.inner.register_store(url, store)
+        self.inner
+            .register_store(url, Arc::new(SlowObjectStore::new(store)))
     }
 
     fn get_store(&self, url: &Url) -> datafusion_common::Result<Arc<dyn ObjectStore>> {
-        let store = self.inner.get_store(url)?;
-        Ok(Arc::new(SlowObjectStore::new(store)))
+        self.inner.get_store(url)
     }
 }
 

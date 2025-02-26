@@ -1,9 +1,8 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
@@ -22,7 +21,7 @@ pub struct ByteBoolArray {
     dtype: DType,
     buffer: ByteBuffer,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(ByteBoolArray);
@@ -101,8 +100,8 @@ impl ArrayCanonicalImpl for ByteBoolArray {
 }
 
 impl ArrayStatisticsImpl for ByteBoolArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

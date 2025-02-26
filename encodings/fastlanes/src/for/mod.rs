@@ -1,8 +1,7 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 pub use compress::*;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
@@ -24,7 +23,7 @@ mod serde;
 pub struct FoRArray {
     encoded: ArrayRef,
     reference: Scalar,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct FoREncoding;
@@ -85,8 +84,8 @@ impl ArrayCanonicalImpl for FoRArray {
 }
 
 impl ArrayStatisticsImpl for FoRArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

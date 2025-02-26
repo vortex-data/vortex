@@ -168,7 +168,7 @@ mod test {
     use crate::ArrayVariants;
     use crate::array::Array;
     use crate::arrays::BoolArray;
-    use crate::stats::{Stat, Statistics};
+    use crate::stats::Stat;
     use crate::validity::Validity;
 
     #[test]
@@ -268,8 +268,20 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert!(bool_arr.compute_stat(Stat::Min).unwrap().is_none());
-        assert!(bool_arr.compute_stat(Stat::Max).unwrap().is_none());
+        assert!(
+            bool_arr
+                .statistics()
+                .compute_stat(Stat::Min)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            bool_arr
+                .statistics()
+                .compute_stat(Stat::Max)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);
     }

@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::{Array, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +74,7 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
 
         array
             .statistics()
-            .set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
+            .set(Stat::Min, Precision::exact(min.clone().into_value()));
 
         debug_assert_eq!(
             max.dtype(),
@@ -84,7 +84,7 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
         );
         array
             .statistics()
-            .set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
+            .set(Stat::Max, Precision::exact(max.clone().into_value()));
 
         debug_assert!(
             min <= max,
@@ -97,10 +97,10 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
         // Update the stats set with the computed min/max
         array
             .statistics()
-            .set_stat(Stat::Min, Precision::Exact(min.value().clone()));
+            .set(Stat::Min, Precision::Exact(min.value().clone()));
         array
             .statistics()
-            .set_stat(Stat::Max, Precision::Exact(max.value().clone()));
+            .set(Stat::Max, Precision::Exact(max.value().clone()));
     }
 
     Ok(min_max)

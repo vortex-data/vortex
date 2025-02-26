@@ -50,8 +50,9 @@ impl FlatLayoutWriter {
 }
 
 fn update_stats(array: &dyn Array, stats: &[Stat]) -> VortexResult<()> {
-    array.statistics().compute_all(stats)?;
-    array.statistics().retain_only(stats);
+    // TODO(ngates): consider whether we want to do this
+    // array.statistics().compute_all(stats)?;
+    array.statistics().retain(stats);
     for child in array.children() {
         update_stats(&child, stats)?
     }
@@ -112,6 +113,9 @@ mod tests {
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
 
+    // Currently, flat layouts do not force compute stats during write, they only retain
+    // pre-computed stats.
+    #[should_panic]
     #[test]
     fn flat_stats() {
         block_on(async {

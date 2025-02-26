@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range
@@ -61,10 +61,10 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
         })?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = sliced.statistics().stats_set();
+        let mut stats = sliced.statistics().to_owned();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            sliced.statistics().set_stat(stat, val)
+            sliced.statistics().set(stat, val)
         }
     }
 
@@ -85,7 +85,7 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
 }
 
 fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
-    let stats = arr.statistics().stats_set();
+    let stats = arr.statistics().to_owned();
 
     // an array that is not constant can become constant after slicing
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
@@ -132,16 +132,16 @@ mod tests {
     use crate::Array;
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::{Precision, STATS_TO_WRITE, Stat, Statistics};
+    use crate::stats::{Precision, STATS_TO_WRITE, Stat, StatsProviderExt};
 
     #[test]
     fn test_slice_primitive() {
         let c = PrimitiveArray::from_iter(0i32..100);
-        c.compute_all(STATS_TO_WRITE).unwrap();
+        c.statistics().compute_all(STATS_TO_WRITE).unwrap();
 
         let c2 = slice(&c, 10, 20).unwrap();
 
-        let result_stats = c2.statistics().stats_set();
+        let result_stats = c2.statistics().to_owned();
         assert_eq!(
             result_stats.get_as::<i32>(Stat::Max),
             Some(Precision::inexact(99))
@@ -155,10 +155,10 @@ mod tests {
     #[test]
     fn test_slice_const() {
         let c = ConstantArray::new(Scalar::from(10), 100);
-        c.compute_all(STATS_TO_WRITE).unwrap();
+        c.statistics().compute_all(STATS_TO_WRITE).unwrap();
 
         let c2 = slice(&c, 10, 20).unwrap();
-        let result_stats = c2.statistics().stats_set();
+        let result_stats = c2.statistics().to_owned();
 
         // Constant always knows its exact stats
         assert_eq!(

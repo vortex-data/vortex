@@ -123,7 +123,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
-    use crate::stats::{Stat, StatsSet};
+    use crate::stats::{Stat, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_canonicalize_null() {
@@ -151,19 +151,19 @@ mod tests {
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
-        let stats = const_array.statistics().stats_set();
+        let stats = const_array.statistics().to_owned();
 
         let canonical = const_array.to_canonical().unwrap();
-        let canonical_stats = canonical.as_ref().statistics().stats_set();
+        let canonical_stats = canonical.as_ref().statistics().to_owned();
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
             let canonical_stat =
-                canonical_stats.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()).unwrap());
+                canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let reference_stat =
-                reference.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()).unwrap());
+                reference.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let original_stat =
-                stats.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()).unwrap());
+                stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             assert_eq!(canonical_stat, reference_stat);
             assert_eq!(canonical_stat, original_stat);
         }

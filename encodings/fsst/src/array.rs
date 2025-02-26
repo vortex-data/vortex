@@ -1,8 +1,6 @@
-use std::sync::{Arc, RwLock};
-
 use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinEncoding;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
@@ -22,7 +20,7 @@ pub struct FSSTArray {
     symbol_lengths: ArrayRef,
     codes: ArrayRef,
     uncompressed_lengths: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct FSSTEncoding;
@@ -172,8 +170,8 @@ impl ArrayImpl for FSSTArray {
 }
 
 impl ArrayStatisticsImpl for FSSTArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
