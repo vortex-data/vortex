@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, cardinality};
+use enum_iterator::{Sequence, last};
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
@@ -25,6 +25,7 @@ pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
 pub use stat_bound::*;
 pub use traits::*;
+use vortex_error::VortexExpect;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.
@@ -59,21 +60,21 @@ pub const STATS_TO_WRITE: &[Stat] = &[
 pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
-    IsConstant = 2,
+    IsConstant = 0,
     /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
-    IsSorted = 3,
+    IsSorted = 1,
     /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
-    IsStrictSorted = 4,
+    IsStrictSorted = 2,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
-    Max = 5,
+    Max = 3,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
-    Min = 6,
+    Min = 4,
     /// The sum of the non-null values of the array.
-    Sum = 8,
+    Sum = 5,
     /// The number of null values in the array
-    NullCount = 9,
+    NullCount = 6,
     /// The uncompressed size of the array in bytes
-    UncompressedSizeInBytes = 10,
+    UncompressedSizeInBytes = 7,
 }
 
 /// These structs allow the extraction of the bound from the `Precision` value.
@@ -210,10 +211,11 @@ impl Stat {
 }
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
-    let stat_count = cardinality::<Stat>();
+    let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize;
+    // TODO(ngates): use vortex-buffer::BitBuffer
     let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
-        MutableBuffer::from_len_zeroed(stat_count.div_ceil(8)),
-        stat_count,
+        MutableBuffer::from_len_zeroed(max_stat.div_ceil(8)),
+        max_stat,
     );
     for stat in stats {
         stat_bitset.set_bit(u8::from(*stat) as usize, true);
