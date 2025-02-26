@@ -112,13 +112,12 @@ fn canonical_byte_view(
                 views.push(view);
             }
 
-            let validity = if dtype.nullability() == Nullability::NonNullable {
-                Validity::NonNullable
-            } else {
-                Validity::AllValid
-            };
-
-            VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)
+            VarBinViewArray::try_new(
+                views.freeze(),
+                buffers,
+                dtype.clone(),
+                Validity::from(dtype.nullability()),
+            )
         }
     }
 }
