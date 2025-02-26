@@ -291,9 +291,9 @@ struct LayoutFlatBufferWriter<'a> {
     ctx: &'a LayoutContext,
 }
 
-impl<'a> FlatBufferRoot for LayoutFlatBufferWriter<'a> {}
+impl FlatBufferRoot for LayoutFlatBufferWriter<'_> {}
 
-impl<'a> WriteFlatBuffer for LayoutFlatBufferWriter<'a> {
+impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
     type Target<'t> = layout::Layout<'t>;
 
     fn write_flatbuffer<'fb>(
@@ -311,7 +311,7 @@ impl<'a> WriteFlatBuffer for LayoutFlatBufferWriter<'a> {
                         .map(|c| {
                             LayoutFlatBufferWriter {
                                 layout: c,
-                                ctx: &self.ctx,
+                                ctx: self.ctx,
                             }
                             .write_flatbuffer(fbb)
                         })

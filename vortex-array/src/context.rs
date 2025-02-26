@@ -75,9 +75,10 @@ impl<T: Clone + Eq> EncodingContext<T> {
         if let Some(idx) = write.iter().position(|e| e == encoding) {
             return u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX encodings");
         }
-        if write.len() >= u16::MAX as usize {
-            panic!("Cannot have more than u16::MAX encodings");
-        }
+        assert!(
+            write.len() < u16::MAX as usize,
+            "Cannot have more than u16::MAX encodings"
+        );
         write.push(encoding.clone());
         u16::try_from(write.len() - 1).vortex_expect("checked already")
     }
