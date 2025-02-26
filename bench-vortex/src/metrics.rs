@@ -110,7 +110,7 @@ async fn export_with_retries(
     let mut res = Ok(());
     for i in 0..3 {
         match exporter.export(spans.clone()).await {
-            Ok(_) => (),
+            Ok(_) => return Ok(()),
             Err(e) => {
                 tokio::time::sleep(Duration::from_secs(i)).await;
                 res = Err(e);
