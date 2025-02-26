@@ -262,7 +262,7 @@ impl ArrayCanonicalImpl for BitPackedArray {
 }
 
 impl ArrayStatisticsImpl for BitPackedArray {
-    fn _stats_set(&self) -> StatsSetRef<'_> {
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
     }
 }

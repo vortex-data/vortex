@@ -5,8 +5,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::new::StatsProvider;
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsSetReadExt, Sum};
+use super::traits::StatsProvider;
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -549,7 +549,7 @@ mod test {
 
     use crate::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::{Precision, Stat, StatsProvider, StatsSet, StatsSetReadExt};
+    use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_iter() {

@@ -123,7 +123,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
-    use crate::stats::{Stat, StatsSet, StatsSetReadExt};
+    use crate::stats::{Stat, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_canonicalize_null() {

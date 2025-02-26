@@ -72,7 +72,7 @@ impl ArrayImpl for ExtensionArray {
 }
 
 impl ArrayStatisticsImpl for ExtensionArray {
-    fn _stats_set(&self) -> StatsSetRef<'_> {
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
     }
 }
@@ -127,7 +127,7 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::stats::{Precision, StatsSetReadExt};
+    use crate::stats::{Precision, StatsProviderExt};
 
     #[test]
     fn compute_statistics() {

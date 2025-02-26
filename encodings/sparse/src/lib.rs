@@ -127,7 +127,7 @@ impl ArrayImpl for SparseArray {
 }
 
 impl ArrayStatisticsImpl for SparseArray {
-    fn _stats_set(&self) -> StatsSetRef<'_> {
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
     }
 }

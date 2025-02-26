@@ -17,17 +17,19 @@ use vortex_error::VortexExpect;
 
 use crate::Array;
 
+mod array;
 mod bound;
 pub mod flatbuffers;
-mod new;
 mod precision;
 mod stat_bound;
 mod stats_set;
+mod traits;
 
+pub use array::*;
 pub use bound::{LowerBound, UpperBound};
-pub use new::*;
 pub use precision::Precision;
 pub use stat_bound::*;
+pub use traits::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.

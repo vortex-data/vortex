@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::arrays::{ConstantArray, NullArray};
-use crate::stats::{Precision, Stat, StatsSetReadExt, StatsWriter};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsWriter};
 use crate::{Array, ArrayExt, Encoding};
 
 pub trait IsConstantFn<A> {

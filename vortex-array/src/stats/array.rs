@@ -1,19 +1,26 @@
+//! Stats as they are stored on arrays.
+
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::ScalarValue;
 
-use super::{Precision, Stat, StatType, StatsSet, StatsSetIntoIter};
+use super::{
+    Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
+    StatsWriter,
+};
+use crate::Array;
 use crate::compute::{MinMaxResult, is_constant, min_max, sum};
-use crate::{Array, ArrayImpl};
 
+/// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
+// TODO(adamg): This is a very bad name.
 #[derive(Clone, Default, Debug)]
 pub struct ArrayStats {
     inner: Arc<RwLock<StatsSet>>,
 }
 
+/// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
     dyn_array_ref: &'a dyn Array,
@@ -26,6 +33,46 @@ impl ArrayStats {
             dyn_array_ref: array,
             parent_stats: self.clone(),
         }
+    }
+}
+
+impl From<StatsSet> for ArrayStats {
+    fn from(value: StatsSet) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(value)),
+        }
+    }
+}
+
+impl From<ArrayStats> for StatsSet {
+    fn from(value: ArrayStats) -> Self {
+        value.inner.read().clone()
+    }
+}
+
+impl StatsProvider for ArrayStats {
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+        let guard = self.inner.read();
+        guard.get(stat)
+    }
+
+    fn len(&self) -> usize {
+        let guard = self.inner.read();
+        guard.len()
+    }
+}
+
+impl StatsWriter for ArrayStats {
+    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
+        self.inner.write().set(stat, value);
+    }
+
+    fn clear(&self, stat: Stat) {
+        self.inner.write().clear(stat);
+    }
+
+    fn retain(&self, stats: &[Stat]) {
+        self.inner.write().retain_only(stats);
     }
 }
 
@@ -51,57 +98,7 @@ impl StatsSetRef<'_> {
     pub fn into_iter(&self) -> StatsSetIntoIter {
         self.to_owned().into_iter()
     }
-}
 
-impl From<StatsSet> for ArrayStats {
-    fn from(value: StatsSet) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(value)),
-        }
-    }
-}
-
-impl From<ArrayStats> for StatsSet {
-    fn from(value: ArrayStats) -> Self {
-        value.inner.read().clone()
-    }
-}
-
-pub trait StatsProvider {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
-
-    /// Count of stored stats with known values.
-    fn len(&self) -> usize;
-
-    /// Predicate equivalent to a [len][Self::len] of zero.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-pub trait StatsWriter {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
-
-    fn clear(&self, stat: Stat);
-
-    fn retain(&self, stats: &[Stat]);
-}
-
-impl<A: Array + ArrayImpl> StatsWriter for A {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self._stats_set().set(stat, value);
-    }
-
-    fn clear(&self, stat: Stat) {
-        self._stats_set().clear(stat);
-    }
-
-    fn retain(&self, stats: &[Stat]) {
-        self._stats_set().retain(stats);
-    }
-}
-
-impl StatsSetRef<'_> {
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(stat)) = self.get(stat) {
@@ -164,17 +161,7 @@ impl StatsSetRef<'_> {
         &self,
         stat: Stat,
     ) -> Option<Precision<U>> {
-        self.get(stat)
-            .map(|s| s.try_map(|s| U::try_from(&s)))
-            .transpose()
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to cast stat {} to {}",
-                    stat,
-                    std::any::type_name::<U>()
-                )
-            })
+        StatsProviderExt::get_as::<U>(self, stat)
     }
 
     pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
@@ -182,7 +169,7 @@ impl StatsSetRef<'_> {
         S: StatType<U>,
         U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
     {
-        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+        StatsProviderExt::get_as_bound::<S, U>(self)
     }
 
     pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
@@ -247,70 +234,6 @@ impl StatsSetRef<'_> {
 
     pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
         self.compute_as(Stat::UncompressedSizeInBytes)
-    }
-}
-
-impl<S> StatsSetReadExt for S where S: StatsProvider {}
-
-pub trait StatsSetReadExt: StatsProvider {
-    fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
-        self.get(stat).map(|v| v.into_scalar(dtype.clone()))
-    }
-
-    fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: &DType) -> Option<S::Bound> {
-        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
-    }
-
-    fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<Precision<T>> {
-        self.get(stat).map(|v| {
-            v.map(|v| {
-                T::try_from(&v).unwrap_or_else(|err| {
-                    vortex_panic!(
-                        err,
-                        "Failed to get stat {} as {}",
-                        stat,
-                        std::any::type_name::<T>()
-                    )
-                })
-            })
-        })
-    }
-
-    fn get_as_bound<S, U>(&self) -> Option<S::Bound>
-    where
-        S: StatType<U>,
-        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
-    {
-        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
-    }
-}
-
-impl StatsProvider for ArrayStats {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        let guard = self.inner.read();
-        guard.get(stat)
-    }
-
-    fn len(&self) -> usize {
-        let guard = self.inner.read();
-        guard.len()
-    }
-}
-
-impl StatsWriter for ArrayStats {
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.inner.write().set(stat, value);
-    }
-
-    fn clear(&self, stat: Stat) {
-        self.inner.write().clear(stat);
-    }
-
-    fn retain(&self, stats: &[Stat]) {
-        self.inner.write().retain_only(stats);
     }
 }
 

@@ -180,6 +180,6 @@ impl<A: ArrayImpl + 'static> Array for A {
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        self._stats_set()
+        self._stats_ref()
     }
 }

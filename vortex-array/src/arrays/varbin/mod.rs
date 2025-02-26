@@ -220,7 +220,7 @@ impl ArrayImpl for VarBinArray {
 }
 
 impl ArrayStatisticsImpl for VarBinArray {
-    fn _stats_set(&self) -> StatsSetRef<'_> {
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
     }
 }

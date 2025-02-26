@@ -5,7 +5,7 @@ use vortex_error::VortexError;
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer};
 use vortex_scalar::ScalarValue;
 
-use super::new::{StatsProvider, StatsSetReadExt};
+use super::traits::{StatsProvider, StatsProviderExt};
 use crate::stats::{Precision, Stat, StatsSet};
 
 impl WriteFlatBuffer for StatsSet {
