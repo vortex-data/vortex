@@ -3,7 +3,6 @@ use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
-use crate::stats::new::StatsSetReadExt;
 use crate::{Array, ArrayRef, EncodingId};
 
 /// Extendable compression interface, allowing implementations to explore different choices.
@@ -65,6 +64,7 @@ pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     #[cfg(debug_assertions)]
     {
         use crate::stats::Stat;
+        use crate::stats::new::StatsSetReadExt;
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr
