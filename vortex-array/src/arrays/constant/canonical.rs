@@ -1,16 +1,19 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
+use vortex_scalar::{
+    BinaryScalar, BoolScalar, ExtScalar, ListScalar, Scalar, ScalarValue, Utf8Scalar,
+};
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
+use crate::arrays::{BinaryView, BoolArray, ExtensionArray, ListArray, NullArray, VarBinViewArray};
+use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
-use crate::{Array, Canonical};
+use crate::{Array, Canonical, IntoArray};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -61,7 +64,15 @@ impl ArrayCanonicalImpl for ConstantArray {
                 Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
             }
             DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
-            DType::List(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
+            DType::List(..) => {
+                let value = ListScalar::try_from(scalar)?;
+                Canonical::List(canonical_list_array(
+                    value.elements(),
+                    value.element_dtype(),
+                    value.dtype().nullability(),
+                    self.len(),
+                )?)
+            }
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
@@ -108,6 +119,46 @@ fn canonical_byte_view(
             };
 
             VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)
+        }
+    }
+}
+
+fn canonical_list_array(
+    values: Option<Vec<Scalar>>,
+    element_dtype: &DType,
+    list_nullability: Nullability,
+    len: usize,
+) -> VortexResult<ListArray> {
+    match values {
+        None => ListArray::try_new(
+            ConstantArray::new(Scalar::null(element_dtype.clone()), 1).into_array(),
+            ConstantArray::new(
+                Scalar::new(
+                    DType::Primitive(PType::U64, Nullability::NonNullable),
+                    ScalarValue::from(0),
+                ),
+                len,
+            )
+            .into_array(),
+            Validity::AllInvalid,
+        ),
+        Some(vs) => {
+            let mut elements_builder = builder_with_capacity(element_dtype, len * vs.len());
+            for _ in 0..len {
+                for v in &vs {
+                    elements_builder.append_scalar(v)?;
+                }
+            }
+            let offsets = (0..=len * vs.len())
+                .step_by(vs.len())
+                .map(|i| i as u64)
+                .collect::<Buffer<_>>();
+
+            ListArray::try_new(
+                elements_builder.finish(),
+                offsets.into_array(),
+                Validity::from(list_nullability),
+            )
         }
     }
 }
