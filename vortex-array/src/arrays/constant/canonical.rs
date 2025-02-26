@@ -164,6 +164,8 @@ fn canonical_list_array(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use enum_iterator::all;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
@@ -230,5 +232,32 @@ mod tests {
         let canonical_const = const_array.to_primitive().unwrap();
         assert_eq!(scalar_at(&canonical_const, 0).unwrap(), scalar);
         assert_eq!(scalar_at(&canonical_const, 0).unwrap(), f16_scalar);
+    }
+
+    #[test]
+    fn test_canonicalize_lists() {
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            vec![1u64.into(), 2u64.into()],
+            Nullability::NonNullable,
+        );
+        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let canonical_const = const_array.to_list().unwrap();
+        assert_eq!(
+            canonical_const
+                .elements()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [1u64, 2, 1, 2]
+        );
+        assert_eq!(
+            canonical_const
+                .offsets()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [0u64, 2, 4]
+        );
     }
 }
