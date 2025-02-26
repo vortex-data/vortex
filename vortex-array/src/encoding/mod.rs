@@ -38,7 +38,7 @@ impl Hash for EncodingId {
 
 impl Display for EncodingId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}({:#04x})", self.0, self.1)
+        write!(f, "{}", self.0)
     }
 }
 

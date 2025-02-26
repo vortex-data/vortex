@@ -1,5 +1,7 @@
+use std::fmt::Display;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
+use itertools::Itertools;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::aliases::hash_map::HashMap;
@@ -14,23 +16,23 @@ use crate::vtable::VTableRef;
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type Context = EncodingContext<VTableRef>;
 pub type Registry = EncodingRegistry<VTableRef>;
-
-impl Default for Context {
-    fn default() -> Self {
-        Self(Arc::new(RwLock::new(vec![
-            NullEncoding.vtable(),
-            BoolEncoding.vtable(),
-            PrimitiveEncoding.vtable(),
-            StructEncoding.vtable(),
-            ListEncoding.vtable(),
-            VarBinEncoding.vtable(),
-            VarBinViewEncoding.vtable(),
-            ExtensionEncoding.vtable(),
-            ConstantEncoding.vtable(),
-            ChunkedEncoding.vtable(),
-        ])))
-    }
-}
+//
+// impl Default for Context {
+//     fn default() -> Self {
+//         Self(Arc::new(RwLock::new(vec![
+//             NullEncoding.vtable(),
+//             BoolEncoding.vtable(),
+//             PrimitiveEncoding.vtable(),
+//             StructEncoding.vtable(),
+//             ListEncoding.vtable(),
+//             VarBinEncoding.vtable(),
+//             VarBinViewEncoding.vtable(),
+//             ExtensionEncoding.vtable(),
+//             ConstantEncoding.vtable(),
+//             ChunkedEncoding.vtable(),
+//         ])))
+//     }
+// }
 
 impl Default for Registry {
     fn default() -> Self {
@@ -114,7 +116,7 @@ impl<T: Clone + Eq> EncodingContext<T> {
 #[derive(Debug, Clone)]
 pub struct EncodingRegistry<T>(HashMap<String, T>);
 
-impl<T: Clone + ToString + Eq> EncodingRegistry<T> {
+impl<T: Clone + Display + Eq> EncodingRegistry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
     }
@@ -126,10 +128,13 @@ impl<T: Clone + ToString + Eq> EncodingRegistry<T> {
     ) -> VortexResult<EncodingContext<T>> {
         let mut ctx = EncodingContext::<T>::empty();
         for id in encoding_ids {
-            let encoding = self
-                .0
-                .get(id)
-                .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", id))?;
+            let encoding = self.0.get(id).ok_or_else(|| {
+                vortex_err!(
+                    "Array encoding {} not found in registry {}",
+                    id,
+                    self.0.values().join(", ")
+                )
+            })?;
             ctx = ctx.with(encoding.clone());
         }
         Ok(ctx)

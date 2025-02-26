@@ -1,4 +1,5 @@
 use bytes::Buf;
+use vortex_array::Registry;
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
@@ -10,10 +11,10 @@ pub struct BufMessageReader<B> {
 }
 
 impl<B: Buf> BufMessageReader<B> {
-    pub fn new(buffer: B) -> Self {
+    pub fn new(buffer: B, registry: Registry) -> Self {
         BufMessageReader {
             buffer,
-            decoder: MessageDecoder::default(),
+            decoder: MessageDecoder::new(registry),
         }
     }
 }
