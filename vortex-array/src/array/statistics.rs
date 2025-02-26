@@ -1,12 +1,8 @@
-use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
-use crate::compute::{
-    IsConstantOpts, MinMaxResult, is_constant, is_constant_opts, min_max, scalar_at, sum,
-};
-use crate::stats::new::{StatsProvider, StatsSetRef, StatsWriter};
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
-use crate::{Array, ArrayImpl};
+use crate::Array;
+use crate::compute::{IsConstantOpts, is_constant_opts, scalar_at};
+use crate::stats::new::StatsSetRef;
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {
@@ -39,67 +35,67 @@ pub trait ArrayStatisticsImpl {
     fn _stats_set(&self) -> StatsSetRef<'_>;
 }
 
-impl<A: Array + ArrayImpl> Statistics for A {
-    fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self._stats_set().get(stat)
-    }
+// impl<A: Array + ArrayImpl> Statistics for A {
+//     fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+//         self._stats_set().get(stat)
+//     }
 
-    fn stats_set(&self) -> StatsSet {
-        self._stats_set().to_owned()
-    }
+//     fn stats_set(&self) -> StatsSet {
+//         self._stats_set().to_owned()
+//     }
 
-    fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self._stats_set().set(stat, value);
-    }
+//     fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {
+//         self._stats_set().set(stat, value);
+//     }
 
-    fn clear_stat(&self, stat: Stat) {
-        self._stats_set().clear(stat);
-    }
+//     fn clear_stat(&self, stat: Stat) {
+//         self._stats_set().clear(stat);
+//     }
 
-    fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
-        // If it's already computed and exact, we can return it.
-        if let Some(Precision::Exact(stat)) = self.get_stat(stat) {
-            return Ok(Some(stat));
-        }
+//     fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
+//         // If it's already computed and exact, we can return it.
+//         if let Some(Precision::Exact(stat)) = self.get_stat(stat) {
+//             return Ok(Some(stat));
+//         }
 
-        // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
-        //  regular compute functions.
-        Ok(match stat {
-            Stat::Min => min_max(self)?.map(|MinMaxResult { min, max: _ }| min.into_value()),
-            Stat::Max => min_max(self)?.map(|MinMaxResult { min: _, max }| max.into_value()),
-            Stat::Sum => {
-                Stat::Sum
-                    .dtype(self.dtype())
-                    .is_some()
-                    .then(|| {
-                        // Sum is supported for this dtype.
-                        sum(self)
-                    })
-                    .transpose()?
-                    .map(|s| s.into_value())
-            }
-            Stat::NullCount => Some(self.invalid_count()?.into()),
-            Stat::IsConstant => {
-                if self.is_empty() {
-                    None
-                } else {
-                    Some(is_constant(self)?.into())
-                }
-            }
-            _ => {
-                let vtable = self.vtable();
-                let stats_set = vtable.compute_statistics(self, stat)?;
-                // Update the stats set with all the computed stats.
-                let stats_ref = self._stats_set();
-                for (stat, value) in stats_set.into_iter() {
-                    stats_ref.set(stat, value);
-                }
-                stats_ref.get(stat).and_then(|p| p.as_exact())
-            }
-        })
-    }
+//         // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
+//         //  regular compute functions.
+//         Ok(match stat {
+//             Stat::Min => min_max(self)?.map(|MinMaxResult { min, max: _ }| min.into_value()),
+//             Stat::Max => min_max(self)?.map(|MinMaxResult { min: _, max }| max.into_value()),
+//             Stat::Sum => {
+//                 Stat::Sum
+//                     .dtype(self.dtype())
+//                     .is_some()
+//                     .then(|| {
+//                         // Sum is supported for this dtype.
+//                         sum(self)
+//                     })
+//                     .transpose()?
+//                     .map(|s| s.into_value())
+//             }
+//             Stat::NullCount => Some(self.invalid_count()?.into()),
+//             Stat::IsConstant => {
+//                 if self.is_empty() {
+//                     None
+//                 } else {
+//                     Some(is_constant(self)?.into())
+//                 }
+//             }
+//             _ => {
+//                 let vtable = self.vtable();
+//                 let stats_set = vtable.compute_statistics(self, stat)?;
+//                 // Update the stats set with all the computed stats.
+//                 let stats_ref = self._stats_set();
+//                 for (stat, value) in stats_set.into_iter() {
+//                     stats_ref.set(stat, value);
+//                 }
+//                 stats_ref.get(stat).and_then(|p| p.as_exact())
+//             }
+//         })
+//     }
 
-    fn retain_only(&self, stats: &[Stat]) {
-        self._stats_set().retain(stats);
-    }
-}
+//     fn retain_only(&self, stats: &[Stat]) {
+//         self._stats_set().retain(stats);
+//     }
+// }

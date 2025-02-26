@@ -15,7 +15,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::min_max;
 use crate::nbytes::NBytes;
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
 
@@ -40,7 +40,7 @@ impl StatisticsVTable<&PrimitiveArray> for PrimitiveEncoding {
 
         if stat == Stat::Max || stat == Stat::Min {
             min_max(array)?;
-            return Ok(array.stats_set());
+            return Ok(array.statistics().to_owned());
         }
 
         match_each_native_ptype!(array.ptype(), |$P| {
@@ -315,7 +315,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 mod test {
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
-    use crate::stats::{Stat, Statistics};
+    use crate::stats::Stat;
 
     #[test]
     fn stats() {
@@ -377,8 +377,9 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min = arr.compute_stat(Stat::Min).unwrap();
-        let max = arr.compute_stat(Stat::Max).unwrap();
+        let arr_stats = arr.statistics();
+        let min = arr_stats.compute_stat(Stat::Min).unwrap();
+        let max = arr_stats.compute_stat(Stat::Max).unwrap();
         assert!(min.is_none());
         assert!(max.is_none());
     }

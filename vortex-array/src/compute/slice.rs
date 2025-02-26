@@ -135,12 +135,12 @@ mod tests {
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::stats::new::StatsSetReadExt;
-    use crate::stats::{Precision, STATS_TO_WRITE, Stat, Statistics};
+    use crate::stats::{Precision, STATS_TO_WRITE, Stat};
 
     #[test]
     fn test_slice_primitive() {
         let c = PrimitiveArray::from_iter(0i32..100);
-        c.compute_all(STATS_TO_WRITE).unwrap();
+        c.statistics().compute_all(STATS_TO_WRITE).unwrap();
 
         let c2 = slice(&c, 10, 20).unwrap();
 
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_slice_const() {
         let c = ConstantArray::new(Scalar::from(10), 100);
-        c.compute_all(STATS_TO_WRITE).unwrap();
+        c.statistics().compute_all(STATS_TO_WRITE).unwrap();
 
         let c2 = slice(&c, 10, 20).unwrap();
         let result_stats = c2.statistics().to_owned();
