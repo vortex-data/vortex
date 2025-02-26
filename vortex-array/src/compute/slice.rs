@@ -1,8 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::encoding::Encoding;
-use crate::stats::{StatsSetReadExt, StatsWriter};
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet, StatsSetReadExt, StatsWriter};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range
@@ -134,8 +133,7 @@ mod tests {
     use crate::Array;
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::StatsSetReadExt;
-    use crate::stats::{Precision, STATS_TO_WRITE, Stat};
+    use crate::stats::{Precision, STATS_TO_WRITE, Stat, StatsSetReadExt};
 
     #[test]
     fn test_slice_primitive() {

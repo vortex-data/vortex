@@ -3,8 +3,7 @@ use std::fmt::Debug;
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{

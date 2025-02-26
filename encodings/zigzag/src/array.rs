@@ -1,6 +1,5 @@
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{

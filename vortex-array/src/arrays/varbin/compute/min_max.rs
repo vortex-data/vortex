@@ -47,8 +47,7 @@ mod tests {
     use crate::Array;
     use crate::arrays::VarBinArray;
     use crate::compute::{MinMaxResult, min_max};
-    use crate::stats::Stat;
-    use crate::stats::StatsProvider;
+    use crate::stats::{Stat, StatsProvider};
 
     #[test]
     fn some_nulls() {

@@ -7,8 +7,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
