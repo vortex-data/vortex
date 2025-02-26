@@ -302,7 +302,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       # Required to run benchmarks
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
+        uses: opt-nc/setup-duckdb-action@v1.0.11
         with:
           version: v1.0.0
       - name: Rust TPC-H and Random access Bench as test
