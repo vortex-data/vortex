@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
 use datafusion_physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
@@ -8,6 +8,7 @@ use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
@@ -80,6 +81,7 @@ pub async fn export_plan_spans(
     plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
 ) -> anyhow::Result<()> {
     let mut exporter = OtlpSpanExporter::builder().with_http().build()?;
+    let mut batch = Vec::new();
     for (query_idx, plan) in plans {
         let resource = Resource::builder()
             .with_attribute(KeyValue::new("query_idx", query_idx as i64))
@@ -91,9 +93,31 @@ pub async fn export_plan_spans(
             plan.as_ref(),
             InstrumentationScope::builder("otlp").build(),
         );
-        exporter.export(spans).await?;
+        batch.extend(spans);
+        if batch.len() > 10_000 {
+            export_with_retries(&mut exporter, batch).await?;
+            batch = Vec::new();
+        }
     }
+    export_with_retries(&mut exporter, batch).await?;
     Ok(())
+}
+
+async fn export_with_retries(
+    exporter: &mut impl SpanExporter,
+    spans: Vec<SpanData>,
+) -> OTelSdkResult {
+    let mut res = Ok(());
+    for i in 0..3 {
+        match exporter.export(spans.clone()).await {
+            Ok(_) => (),
+            Err(e) => {
+                tokio::time::sleep(Duration::from_secs(i)).await;
+                res = Err(e);
+            }
+        };
+    }
+    res
 }
 
 pub struct OtlpTraceCreator {
