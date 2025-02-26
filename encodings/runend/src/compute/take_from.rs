@@ -11,31 +11,31 @@ impl TakeFromFn<&RunEndArray> for RunEndEncoding {
     /// # Arguments
     ///
     /// * `indices` - Run-end encoded indices
-    /// * `array` - Array to take values from
+    /// * `source` - Array to take values from
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(array))` - If successful
+    /// * `Ok(Some(source))` - If successful
     /// * `Ok(None)` - If the source array has an unsupported dtype
     ///
     fn take_from(
         &self,
         indices: &RunEndArray,
-        array: &dyn Array,
+        source: &dyn Array,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only `Primitive` and `Bool` are valid run-end value types. - TODO: Support additional DTypes
-        if !matches!(array.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
+        if !matches!(source.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
             return Ok(None);
         }
 
         // Transform the run-end encoding from storing indices to storing values
-        // by taking values from `array` at positions specified in `indices.values()`.
-        let transformed = take(array, indices.values())?;
+        // by taking values from `source` at positions specified by `indices.values()`.
+        let values = take(source, indices.values())?;
 
-        // Create a new run-end array now containing the values instead of indices.
+        // Create a new run-end array containing values as values, instead of indices as values.
         let ree_array = RunEndArray::with_offset_and_length(
             indices.ends().clone(),
-            transformed,
+            values,
             indices.offset(),
             indices.len(),
         )?;
