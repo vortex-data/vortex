@@ -124,15 +124,7 @@ impl ArrayCanonicalImpl for DictArray {
                     })
                 })
             }
-            _ => {
-                if let Some(take_from_fn) = self.codes().vtable().take_from_fn() {
-                    if let Some(array) = take_from_fn.take_from(self.codes(), self.values())? {
-                        return array.to_canonical();
-                    }
-                }
-
-                take(self.values(), self.codes())?.to_canonical()
-            }
+            _ => take(self.values(), self.codes())?.to_canonical(),
         }
     }
 
