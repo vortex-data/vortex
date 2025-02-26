@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayRef, Registry};
+use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -16,7 +16,7 @@ pub struct SyncIPCReader<R: Read> {
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, registry: Registry) -> VortexResult<Self> {
+    pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read, registry.clone());
         match reader.next().transpose()? {
             Some(msg) => match msg {

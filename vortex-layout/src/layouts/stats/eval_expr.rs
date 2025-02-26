@@ -72,7 +72,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{Array, Context, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -88,8 +88,8 @@ mod test {
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (Context, Arc<dyn AsyncSegmentReader>, Layout) {
-        let ctx = Context::empty();
+    fn stats_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+        let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
             ctx.clone(),
@@ -122,7 +122,7 @@ mod test {
     #[rstest]
     fn test_stats_evaluator(
         #[from(stats_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
@@ -148,7 +148,7 @@ mod test {
     #[rstest]
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),

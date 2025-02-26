@@ -54,7 +54,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, Context, ToCanonical};
+    use vortex_array::{Array, ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{Identity, gt, ident, lit};
 
@@ -66,7 +66,7 @@ mod test {
     #[test]
     fn flat_identity() {
         block_on(async {
-            let ctx = Context::empty();
+            let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =
@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(async {
-            let ctx = Context::empty();
+            let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =
@@ -121,7 +121,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(async {
-            let ctx = Context::empty();
+            let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =

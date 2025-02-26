@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
-use vortex_array::Context;
+use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
@@ -259,7 +259,7 @@ impl Layout {
     pub fn reader(
         &self,
         segment_reader: Arc<dyn AsyncSegmentReader>,
-        ctx: Context,
+        ctx: ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
         self.vtable().reader(self.clone(), ctx, segment_reader)
     }

@@ -73,7 +73,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{Array, Context, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -87,8 +87,8 @@ mod test {
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Context, Arc<dyn AsyncSegmentReader>, Layout) {
-        let ctx = Context::empty();
+    fn chunked_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+        let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             ctx.clone(),
@@ -110,7 +110,7 @@ mod test {
     #[rstest]
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),

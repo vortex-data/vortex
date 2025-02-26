@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-use vortex_array::Context;
+use vortex_array::ArrayContext;
 use vortex_array::arcref::ArcRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
@@ -23,7 +23,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
     fn reader(
         &self,
         layout: Layout,
-        ctx: Context,
+        ctx: ArrayContext,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 

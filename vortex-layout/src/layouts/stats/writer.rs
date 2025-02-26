@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
-use vortex_array::{ArrayRef, Context};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -31,7 +31,7 @@ impl Default for StatsLayoutOptions {
 }
 
 pub struct StatsLayoutWriter {
-    ctx: Context,
+    ctx: ArrayContext,
     options: StatsLayoutOptions,
     child_writer: Box<dyn LayoutWriter>,
     stats_strategy: Arc<dyn LayoutStrategy>,
@@ -45,7 +45,7 @@ pub struct StatsLayoutWriter {
 
 impl StatsLayoutWriter {
     pub fn try_new(
-        ctx: Context,
+        ctx: ArrayContext,
         dtype: &DType,
         // TODO(ngates): we should arrive at a convention on this. I think we should maybe just
         //  impl LayoutStrategy for StatsLayoutStrategy, which holds options, and options contain

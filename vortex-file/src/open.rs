@@ -4,7 +4,7 @@ use std::sync::Arc;
 use flatbuffers::root;
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt, stream};
-use vortex_array::Registry;
+use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -40,7 +40,7 @@ pub struct VortexOpenOptions<F: FileType> {
     /// File-specific options
     pub(crate) options: F::Options,
     /// The registry of array encodings.
-    registry: Arc<Registry>,
+    registry: Arc<ArrayRegistry>,
     /// The registry of layouts.
     layout_registry: Arc<LayoutRegistry>,
     /// An optional, externally provided, file size.
@@ -72,7 +72,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 
     /// Configure a Vortex array registry.
-    pub fn with_array_registry(mut self, registry: Arc<Registry>) -> Self {
+    pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
         self.registry = registry;
         self
     }

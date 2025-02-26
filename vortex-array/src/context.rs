@@ -14,10 +14,10 @@ use crate::vtable::VTableRef;
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
-pub type Context = EncodingContext<VTableRef>;
-pub type Registry = EncodingRegistry<VTableRef>;
+pub type ArrayContext = VTableContext<VTableRef>;
+pub type ArrayRegistry = VTableRegistry<VTableRef>;
 
-impl Default for Registry {
+impl Default for ArrayRegistry {
     fn default() -> Self {
         let mut this = Self::empty();
 
@@ -44,9 +44,9 @@ impl Default for Registry {
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.
 #[derive(Debug, Clone)]
-pub struct EncodingContext<T>(Arc<RwLock<Vec<T>>>);
+pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
 
-impl<T: Clone + Eq> EncodingContext<T> {
+impl<T: Clone + Eq> VTableContext<T> {
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }
@@ -98,19 +98,19 @@ impl<T: Clone + Eq> EncodingContext<T> {
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
 #[derive(Debug, Clone)]
-pub struct EncodingRegistry<T>(HashMap<String, T>);
+pub struct VTableRegistry<T>(HashMap<String, T>);
 
-impl<T: Clone + Display + Eq> EncodingRegistry<T> {
+impl<T: Clone + Display + Eq> VTableRegistry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
     }
 
-    /// Create a new [`EncodingContext`] with the provided encodings.
+    /// Create a new [`VTableContext`] with the provided encodings.
     pub fn new_context<'a>(
         &self,
         encoding_ids: impl Iterator<Item = &'a str>,
-    ) -> VortexResult<EncodingContext<T>> {
-        let mut ctx = EncodingContext::<T>::empty();
+    ) -> VortexResult<VTableContext<T>> {
+        let mut ctx = VTableContext::<T>::empty();
         for id in encoding_ids {
             let encoding = self.0.get(id).ok_or_else(|| {
                 vortex_err!(

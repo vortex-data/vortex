@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked};
 use vortex_array::serde::ArrayParts;
-use vortex_array::{Context, Registry};
+use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -13,11 +13,11 @@ use vortex_flatbuffers::{FlatBuffer, dtype as fbd, message as fb};
 /// A message decoded from an IPC stream.
 ///
 /// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayRef`] without
-/// a [`vortex_array::Context`] and a [`DType`]. As such, we partially decode into an
+/// a [`vortex_array::ArrayContext`] and a [`DType`]. As such, we partially decode into an
 /// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, Context, usize)),
+    Array((ArrayParts, ArrayContext, usize)),
     Buffer(ByteBuffer),
     DType(DType),
 }
@@ -44,14 +44,14 @@ pub enum PollRead {
 //  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
 pub struct MessageDecoder {
-    registry: Registry,
+    registry: ArrayRegistry,
     /// The current state of the decoder.
     state: State,
 }
 
 impl MessageDecoder {
     /// Create a new message decoder that can lookup encodings in the given registry.
-    pub fn new(registry: Registry) -> Self {
+    pub fn new(registry: ArrayRegistry) -> Self {
         Self {
             registry,
             state: State::default(),
@@ -168,7 +168,7 @@ mod test {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
-        let mut decoder = MessageDecoder::new(Registry::default());
+        let mut decoder = MessageDecoder::new(ArrayRegistry::default());
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());

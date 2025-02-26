@@ -1,6 +1,6 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{STATS_TO_WRITE, Stat};
-use vortex_array::{Array, ArrayRef, Context};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -27,21 +27,21 @@ impl Default for FlatLayoutOptions {
 }
 
 impl LayoutStrategy for FlatLayoutOptions {
-    fn new_writer(&self, ctx: &Context, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
     }
 }
 
 /// Writer for a [`FlatLayout`].
 pub struct FlatLayoutWriter {
-    ctx: Context,
+    ctx: ArrayContext,
     dtype: DType,
     options: FlatLayoutOptions,
     layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(ctx: Context, dtype: DType, options: FlatLayoutOptions) -> Self {
+    pub fn new(ctx: ArrayContext, dtype: DType, options: FlatLayoutOptions) -> Self {
         Self {
             ctx,
             dtype,
@@ -106,7 +106,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, Context};
+    use vortex_array::{Array, ArrayContext};
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(async {
-            let ctx = Context::empty();
+            let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             assert!(array.statistics().compute_bit_width_freq().is_some());

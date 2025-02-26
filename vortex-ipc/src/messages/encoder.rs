@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::{Array, Context};
+use vortex_array::{Array, ArrayContext};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -49,7 +49,7 @@ impl MessageEncoder {
             EncoderMessage::Array(array) => {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
-                let ctx = Context::empty();
+                let ctx = ArrayContext::empty();
                 let array_buffers = array.serialize(&ctx, &SerializeOptions::default());
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::{Array, ArrayRef, Context};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -21,7 +21,7 @@ use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 pub struct VortexLayoutStrategy;
 
 impl LayoutStrategy for VortexLayoutStrategy {
-    fn new_writer(&self, ctx: &Context, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
             return StructLayoutWriter::try_new_with_factory(ctx, dtype, self.clone())

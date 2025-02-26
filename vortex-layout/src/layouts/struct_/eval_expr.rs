@@ -81,7 +81,7 @@ mod tests {
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::{Array, Context, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};
@@ -97,8 +97,8 @@ mod tests {
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Context, Arc<dyn AsyncSegmentReader>, Layout) {
-        let ctx = Context::empty();
+    fn struct_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+        let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -147,7 +147,7 @@ mod tests {
     #[rstest]
     fn test_struct_layout(
         #[from(struct_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
@@ -170,7 +170,7 @@ mod tests {
     #[rstest]
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
@@ -200,7 +200,7 @@ mod tests {
     #[rstest]
     fn test_struct_layout_select(
         #[from(struct_layout)] (ctx, segments, layout): (
-            Context,
+            ArrayContext,
             Arc<dyn AsyncSegmentReader>,
             Layout,
         ),

@@ -23,7 +23,7 @@ use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{FromArrowType, infer_schema};
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::{Registry, stats};
+use vortex_array::{ArrayRegistry, stats};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
@@ -58,7 +58,7 @@ impl Default for VortexFormatOptions {
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
-    array_registry: Arc<Registry>,
+    array_registry: Arc<ArrayRegistry>,
     layout_registry: Arc<LayoutRegistry>,
 }
 
@@ -66,11 +66,11 @@ impl VortexFormatFactory {
     // Because FileFormatFactory has a default method
     /// Create a new [`VortexFormatFactory`] with the default encoding context.
     pub fn default_config() -> Self {
-        Self::with_registry(Arc::new(Registry::default()))
+        Self::with_registry(Arc::new(ArrayRegistry::default()))
     }
 
-    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::Context).
-    pub fn with_registry(registry: Arc<Registry>) -> Self {
+    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::ArrayContext).
+    pub fn with_registry(registry: Arc<ArrayRegistry>) -> Self {
         Self {
             array_registry: registry,
             layout_registry: Arc::new(LayoutRegistry::default()),
@@ -115,7 +115,7 @@ impl FileFormatFactory for VortexFormatFactory {
 impl Default for VortexFormat {
     fn default() -> Self {
         Self::new(
-            Arc::new(Registry::default()),
+            Arc::new(ArrayRegistry::default()),
             Arc::new(LayoutRegistry::default()),
         )
     }
@@ -123,7 +123,7 @@ impl Default for VortexFormat {
 
 impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
-    pub fn new(array_registry: Arc<Registry>, layout_registry: Arc<LayoutRegistry>) -> Self {
+    pub fn new(array_registry: Arc<ArrayRegistry>, layout_registry: Arc<LayoutRegistry>) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
             footer_cache: FooterCache::new(opts.cache_size_mb, array_registry, layout_registry),

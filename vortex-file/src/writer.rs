@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use vortex_array::Context;
+use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -59,7 +59,7 @@ impl VortexWriteOptions {
         mut stream: S,
     ) -> VortexResult<W> {
         // Set up a Context to capture the encodings used in the file.
-        let ctx = Context::empty();
+        let ctx = ArrayContext::empty();
 
         // Set up the root layout
         let mut layout_writer = FileStatsLayoutWriter::new(

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_array::{ArrayRef, Context};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -29,7 +29,7 @@ impl Default for ChunkedLayoutOptions {
 ///
 /// TODO(ngates): introduce more sophisticated layout writers with different chunking strategies.
 pub struct ChunkedLayoutWriter {
-    ctx: Context,
+    ctx: ArrayContext,
     options: ChunkedLayoutOptions,
     chunks: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
@@ -37,7 +37,7 @@ pub struct ChunkedLayoutWriter {
 }
 
 impl ChunkedLayoutWriter {
-    pub fn new(ctx: Context, dtype: &DType, options: ChunkedLayoutOptions) -> Self {
+    pub fn new(ctx: ArrayContext, dtype: &DType, options: ChunkedLayoutOptions) -> Self {
         Self {
             ctx,
             options,

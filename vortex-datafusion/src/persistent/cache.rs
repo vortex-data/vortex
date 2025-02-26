@@ -5,7 +5,7 @@ use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::Registry;
+use vortex_array::ArrayRegistry;
 use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
@@ -18,7 +18,7 @@ use vortex_layout::segments::SegmentId;
 #[derive(Debug, Clone)]
 pub(crate) struct FooterCache {
     inner: Cache<Key, Footer, DefaultHashBuilder>,
-    array_registry: Arc<Registry>,
+    array_registry: Arc<ArrayRegistry>,
     layout_registry: Arc<LayoutRegistry>,
 }
 
@@ -61,7 +61,7 @@ fn estimate_layout_size(footer: &Footer) -> usize {
 impl FooterCache {
     pub fn new(
         size_mb: usize,
-        array_registry: Arc<Registry>,
+        array_registry: Arc<ArrayRegistry>,
         layout_registry: Arc<LayoutRegistry>,
     ) -> Self {
         let inner = Cache::builder()

@@ -8,7 +8,7 @@ use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
 use vortex_array::stats::StatsSet;
-use vortex_array::{Context, Registry};
+use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{
@@ -19,7 +19,7 @@ use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
-    ctx: Context,
+    ctx: ArrayContext,
     layout_ctx: LayoutContext,
     layout: Layout,
     segments: Arc<[Segment]>,
@@ -33,7 +33,7 @@ impl Footer {
     ///
     /// Panics if the segments are not ordered by byte offset.
     pub fn new(
-        ctx: Context,
+        ctx: ArrayContext,
         layout_ctx: LayoutContext,
         root_layout: Layout,
         segments: Arc<[Segment]>,
@@ -59,7 +59,7 @@ impl Footer {
     pub fn read_flatbuffer(
         flatbuffer: FlatBuffer,
         dtype: DType,
-        array_registry: &Registry,
+        array_registry: &ArrayRegistry,
         layout_registry: &LayoutRegistry,
     ) -> VortexResult<Self> {
         let fb = root::<fb::Footer>(&flatbuffer)?;
@@ -128,8 +128,8 @@ impl Footer {
         ))
     }
 
-    /// Returns the array [`Context`] of the file.
-    pub fn ctx(&self) -> &Context {
+    /// Returns the array [`ArrayContext`] of the file.
+    pub fn ctx(&self) -> &ArrayContext {
         &self.ctx
     }
 
@@ -166,7 +166,7 @@ impl Footer {
     /// Creates a [`FlatBufferRoot`] for the footer that can be used to serialize the footer
     /// into a flatbuffer.
     pub(crate) fn flatbuffer_writer<'a>(
-        ctx: Context,
+        ctx: ArrayContext,
         layout: Layout,
         segments: Arc<[Segment]>,
         statistics: Option<Arc<[StatsSet]>>,
@@ -181,7 +181,7 @@ impl Footer {
 }
 
 pub(crate) struct FooterFlatBufferWriter {
-    ctx: Context,
+    ctx: ArrayContext,
     layout: Layout,
     segments: Arc<[Segment]>,
     statistics: Option<Arc<[StatsSet]>>,

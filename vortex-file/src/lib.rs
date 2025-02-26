@@ -112,7 +112,7 @@ pub use memory::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{Encoding, Registry};
+use vortex_array::{ArrayRegistry, Encoding};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -157,9 +157,9 @@ mod forever_constant {
 }
 
 /// A default registry containing the built-in Vortex encodings and layouts.
-pub static DEFAULT_REGISTRY: LazyLock<Arc<Registry>> = LazyLock::new(|| {
+pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
-    let registry = Registry::default().register_many([
+    let registry = ArrayRegistry::default().register_many([
         ALPEncoding.vtable(),
         ALPRDEncoding.vtable(),
         BitPackedEncoding.vtable(),

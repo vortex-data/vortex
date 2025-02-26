@@ -15,7 +15,7 @@ use vortex_flatbuffers::{
 };
 
 use crate::stats::StatsSet;
-use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context};
+use crate::{Array, ArrayContext, ArrayRef, ArrayVisitor, ArrayVisitorExt};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -38,7 +38,7 @@ impl dyn Array + '_ {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    pub fn serialize(&self, ctx: &Context, options: &SerializeOptions) -> Vec<ByteBuffer> {
+    pub fn serialize(&self, ctx: &ArrayContext, options: &SerializeOptions) -> Vec<ByteBuffer> {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
@@ -133,13 +133,13 @@ impl dyn Array + '_ {
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
-    ctx: &'a Context,
+    ctx: &'a ArrayContext,
     array: &'a dyn Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(ctx: &'a Context, array: &'a dyn Array) -> Self {
+    pub fn new(ctx: &'a ArrayContext, array: &'a dyn Array) -> Self {
         Self {
             ctx,
             array,
@@ -235,7 +235,7 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: &Context, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+    pub fn decode(&self, ctx: &ArrayContext, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)
