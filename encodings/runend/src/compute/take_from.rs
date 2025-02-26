@@ -10,8 +10,8 @@ impl TakeFromFn<&RunEndArray> for RunEndEncoding {
     ///
     /// # Arguments
     ///
-    /// * `indices` - The run-end encoded array containing the indices
-    /// * `array` - The source array to take values from
+    /// * `indices` - Run-end encoded indices
+    /// * `array` - Array to take values from
     ///
     /// # Returns
     ///
