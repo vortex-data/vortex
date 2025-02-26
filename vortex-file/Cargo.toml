@@ -47,7 +47,6 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
-vortex-sampling-compressor = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 

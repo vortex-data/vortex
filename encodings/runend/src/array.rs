@@ -11,7 +11,7 @@ use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, IntoArray, SerdeMetadata, ToCanonical,
-     try_from_array_ref,
+    try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;

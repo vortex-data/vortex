@@ -12,7 +12,6 @@ mod benchmarks {
     use vortex_btrblocks::Compressor;
     use vortex_btrblocks::integer::IntCompressor;
     use vortex_buffer::buffer_mut;
-    use vortex_sampling_compressor::SamplingCompressor;
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.
@@ -40,16 +39,6 @@ mod benchmarks {
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
             .bench_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
-    }
-
-    #[divan::bench]
-    fn sampling_compressor(bencher: Bencher) {
-        let compressor = SamplingCompressor::default();
-        bencher
-            .with_inputs(make_clickbench_window_name)
-            .input_counter(|array| ItemsCount::new(array.len()))
-            .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_values(|array| compressor.compress(&array, None).unwrap());
     }
 }
 

@@ -21,7 +21,6 @@ members = [
     "vortex-mask",
     "vortex-metrics",
     "vortex-proto",
-    "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-tui",
     "xtask",
@@ -187,7 +186,6 @@ vortex-mask = { version = "0.24.0", path = "./vortex-mask" }
 vortex-metrics = { version = "0.24.0", path = "./vortex-metrics" }
 vortex-proto = { version = "0.24.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.24.0", path = "./encodings/runend" }
-vortex-sampling-compressor = { version = "0.24.0", path = "./vortex-sampling-compressor" }
 vortex-scalar = { version = "0.24.0", path = "./vortex-scalar", default-features = false }
 vortex-sparse = { version = "0.24.0", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }
