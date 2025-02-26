@@ -21,7 +21,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy::default()),
+            strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
             file_statistics: Some(PRUNING_STATS.to_vec()),
         }

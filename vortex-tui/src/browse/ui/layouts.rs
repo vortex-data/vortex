@@ -8,8 +8,8 @@ use ratatui::widgets::{
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
+use vortex::file::ALL_ENCODINGS_CONTEXT;
 use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::serde::ArrayParts;
 use vortex::stats::stats_from_bitset_bytes;
 

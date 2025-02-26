@@ -40,7 +40,6 @@ vortex-zigzag = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 env_logger = "0.11"
-vortex-sampling-compressor = { workspace = true }
 
 [lints]
 workspace = true

@@ -752,12 +752,27 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BufferMut, buffer_mut};
-    use vortex_sampling_compressor::SamplingCompressor;
+    use vortex_buffer::{Buffer, BufferMut, buffer_mut};
 
     use crate::Compressor;
     use crate::integer::IntCompressor;
+
+    #[test]
+    fn test_empty() {
+        // Make sure empty array compression does not fail
+        let result = IntCompressor::compress(
+            &PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable),
+            false,
+            3,
+            &[],
+        )
+        .unwrap();
+
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_dict_encodable() {
@@ -807,34 +822,6 @@ mod tests {
 
         let array = values.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
-        log::info!("WindowName compressed: {}", compressed.tree_display());
-    }
-
-    #[test]
-    fn test_window_name_samplingcompressor() {
-        env_logger::builder()
-            .filter(None, LevelFilter::Debug)
-            .try_init()
-            .ok();
-
-        // A test that's meant to mirror the WindowName column from ClickBench.
-        let mut values = buffer_mut![-1i32; 1_000_000];
-        let mut visited = HashSet::new();
-        let mut rng = StdRng::seed_from_u64(1u64);
-        while visited.len() < 223 {
-            let random = (rng.next_u32() as usize) % 1_000_000;
-            if visited.contains(&random) {
-                continue;
-            }
-            visited.insert(random);
-            // Pick 100 random values to insert.
-            values[random] = 5 * (rng.next_u64() % 100) as i32;
-        }
-
-        // Ok, now let's compress
-        let array = values.freeze().into_array();
-        let compressor = SamplingCompressor::default();
-        let compressed = compressor.compress(&array, None).unwrap().into_array();
         log::info!("WindowName compressed: {}", compressed.tree_display());
     }
 }
