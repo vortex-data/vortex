@@ -81,7 +81,7 @@ pub async fn export_plan_spans(
     plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
 ) -> anyhow::Result<()> {
     let mut exporter = OtlpSpanExporter::builder().with_http().build()?;
-    let mut batch = Vec::new();
+    let mut to_export = Vec::new();
     for (query_idx, plan) in plans {
         let resource = Resource::builder()
             .with_attribute(KeyValue::new("query_idx", query_idx as i64))
@@ -93,13 +93,12 @@ pub async fn export_plan_spans(
             plan.as_ref(),
             InstrumentationScope::builder("otlp").build(),
         );
-        batch.extend(spans);
-        if batch.len() > 10 {
-            export_with_retries(&mut exporter, batch).await?;
-            batch = Vec::new();
-        }
+        to_export.extend(spans);
     }
-    export_with_retries(&mut exporter, batch).await?;
+    for chunk in &to_export.iter().chunks(20) {
+        export_with_retries(&mut exporter, chunk.cloned().collect()).await?;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     Ok(())
 }
 
