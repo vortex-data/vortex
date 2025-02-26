@@ -7,6 +7,7 @@ use std::sync::Arc;
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{Sequence, cardinality};
+use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
@@ -26,6 +27,9 @@ pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
 pub use stat_bound::*;
 pub use traits::*;
+use vortex_error::VortexExpect;
+
+use crate::Array;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.
