@@ -16,23 +16,6 @@ use crate::vtable::VTableRef;
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type Context = EncodingContext<VTableRef>;
 pub type Registry = EncodingRegistry<VTableRef>;
-//
-// impl Default for Context {
-//     fn default() -> Self {
-//         Self(Arc::new(RwLock::new(vec![
-//             NullEncoding.vtable(),
-//             BoolEncoding.vtable(),
-//             PrimitiveEncoding.vtable(),
-//             StructEncoding.vtable(),
-//             ListEncoding.vtable(),
-//             VarBinEncoding.vtable(),
-//             VarBinViewEncoding.vtable(),
-//             ExtensionEncoding.vtable(),
-//             ConstantEncoding.vtable(),
-//             ChunkedEncoding.vtable(),
-//         ])))
-//     }
-// }
 
 impl Default for Registry {
     fn default() -> Self {
@@ -143,6 +126,14 @@ impl<T: Clone + Display + Eq> EncodingRegistry<T> {
     /// Register a new encoding, replacing any existing encoding with the same ID.
     pub fn register(mut self, encoding: T) -> Self {
         self.0.insert(encoding.to_string(), encoding);
+        self
+    }
+
+    /// Register a new encoding, replacing any existing encoding with the same ID.
+    pub fn register_many<I: IntoIterator<Item = T>>(mut self, encodings: I) -> Self {
+        encodings.into_iter().for_each(|encoding| {
+            self.0.insert(encoding.to_string(), encoding);
+        });
         self
     }
 }

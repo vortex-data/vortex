@@ -25,7 +25,7 @@ use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex::sampling_compressor::ALL_ENCODINGS_REGISTRY;
 use vortex::validity::Validity;
 use vortex::{Array, Context, Encoding};
 
@@ -58,7 +58,7 @@ macro_rules! feature_flagged_allocator {
 
 pub static CTX: LazyLock<Context> = LazyLock::new(|| {
     Arc::new(
-        (*(ALL_ENCODINGS_CONTEXT.clone()))
+        (*(ALL_ENCODINGS_REGISTRY.clone()))
             .clone()
             .with_encoding(DeltaEncoding.vtable()),
     )

@@ -9,7 +9,7 @@ use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex::sampling_compressor::ALL_ENCODINGS_REGISTRY;
 use vortex::serde::ArrayParts;
 use vortex::stats::stats_from_bitset_bytes;
 
@@ -109,7 +109,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let array = ArrayParts::try_from(buffer)
         .vortex_expect("Failed to deserialize ArrayParts")
         .decode(
-            &ALL_ENCODINGS_CONTEXT,
+            &ALL_ENCODINGS_REGISTRY,
             app.cursor.layout().dtype().clone(),
             usize::try_from(app.cursor.layout().row_count())
                 .vortex_expect("FlatLayout row count too big for usize"),

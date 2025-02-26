@@ -13,7 +13,7 @@ use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::{Context, Encoding};
+use vortex_array::{Encoding, Registry};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -82,8 +82,8 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
     &ZigZagCompressor,
 ];
 
-pub static ALL_ENCODINGS_CONTEXT: LazyLock<Context> = LazyLock::new(|| {
-    Context::default().with_many([
+pub static ALL_ENCODINGS_REGISTRY: LazyLock<Registry> = LazyLock::new(|| {
+    Registry::default().register_many([
         ALPEncoding.vtable(),
         ALPRDEncoding.vtable(),
         BitPackedEncoding.vtable(),

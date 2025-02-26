@@ -103,10 +103,10 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
+    use vortex_array::{Array, Context};
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
@@ -118,16 +118,18 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(async {
+            let ctx = Context::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             assert!(array.statistics().compute_bit_width_freq().is_some());
             assert!(array.statistics().compute_trailing_zero_freq().is_some());
-            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.into_array())
-                .unwrap();
+            let layout =
+                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
+                    .push_one(&mut segments, array.into_array())
+                    .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(Arc::new(segments), ctx)
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await

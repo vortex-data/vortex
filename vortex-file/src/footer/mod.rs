@@ -7,16 +7,14 @@ use flatbuffers::{FlatBufferBuilder, root};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
-use vortex_array::Context;
 use vortex_array::stats::StatsSet;
+use vortex_array::{Context, Registry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{
     FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb,
 };
-use vortex_layout::{Layout, LayoutContext};
-
-use crate::Registry;
+use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -61,7 +59,8 @@ impl Footer {
     pub fn read_flatbuffer(
         flatbuffer: FlatBuffer,
         dtype: DType,
-        registry: &Registry,
+        array_registry: &Registry,
+        layout_registry: &LayoutRegistry,
     ) -> VortexResult<Self> {
         let fb = root::<fb::Footer>(&flatbuffer)?;
         let fb_root_layout = fb
@@ -74,7 +73,7 @@ impl Footer {
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
-        let layout_ctx = registry.new_layout_context(layout_ids)?;
+        let layout_ctx = layout_registry.new_context(layout_ids)?;
 
         // Create an ArrayContext from the registry.
         let array_encodings = fb.array_encodings();
@@ -82,7 +81,7 @@ impl Footer {
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
-        let ctx = registry.new_array_context(array_ids)?;
+        let ctx = array_registry.new_context(array_ids)?;
 
         let root_encoding = layout_ctx
             .lookup_encoding(fb_root_layout.encoding())

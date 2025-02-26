@@ -1,18 +1,25 @@
-use vortex_array::EncodingContext;
+use vortex_array::{EncodingContext, EncodingRegistry};
 
+use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::flat::FlatLayout;
+use crate::layouts::stats::StatsLayout;
+use crate::layouts::struct_::StructLayout;
 use crate::vtable::LayoutVTableRef;
 
 pub type LayoutContext = EncodingContext<LayoutVTableRef>;
-//
-// impl Default for LayoutContext {
-//     fn default() -> Self {
-//         Self {
-//             layout_refs: vec![
-//                 LayoutVTableRef::new_ref(&ChunkedLayout),
-//                 LayoutVTableRef::new_ref(&FlatLayout),
-//                 LayoutVTableRef::new_ref(&StructLayout),
-//                 LayoutVTableRef::new_ref(&StatsLayout),
-//             ],
-//         }
-//     }
-// }
+pub type LayoutRegistry = EncodingRegistry<LayoutVTableRef>;
+
+pub trait LayoutRegistryExt {
+    fn default() -> Self;
+}
+
+impl LayoutRegistryExt for LayoutRegistry {
+    fn default() -> Self {
+        Self::empty().register_many([
+            LayoutVTableRef::new_ref(&ChunkedLayout),
+            LayoutVTableRef::new_ref(&FlatLayout),
+            LayoutVTableRef::new_ref(&StructLayout),
+            LayoutVTableRef::new_ref(&StatsLayout),
+        ])
+    }
+}

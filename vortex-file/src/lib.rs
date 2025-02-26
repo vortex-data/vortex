@@ -96,7 +96,6 @@ mod footer;
 mod generic;
 mod memory;
 mod open;
-mod registry;
 pub mod segments;
 mod strategy;
 #[cfg(test)]
@@ -111,10 +110,9 @@ pub use forever_constant::*;
 pub use generic::*;
 pub use memory::*;
 pub use open::*;
-pub use registry::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::Encoding;
+use vortex_array::{Encoding, Registry};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -161,18 +159,19 @@ mod forever_constant {
 /// A default registry containing the built-in Vortex encodings and layouts.
 pub static DEFAULT_REGISTRY: LazyLock<Arc<Registry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
-    let registry = Registry::default()
-        .register_array(ALPEncoding.vtable())
-        .register_array(ALPRDEncoding.vtable())
-        .register_array(BitPackedEncoding.vtable())
-        .register_array(ByteBoolEncoding.vtable())
-        .register_array(DateTimePartsEncoding.vtable())
-        .register_array(DeltaEncoding.vtable())
-        .register_array(DictEncoding.vtable())
-        .register_array(FoREncoding.vtable())
-        .register_array(FSSTEncoding.vtable())
-        .register_array(RunEndEncoding.vtable())
-        .register_array(SparseEncoding.vtable())
-        .register_array(ZigZagEncoding.vtable());
+    let registry = Registry::default().register_many([
+        ALPEncoding.vtable(),
+        ALPRDEncoding.vtable(),
+        BitPackedEncoding.vtable(),
+        ByteBoolEncoding.vtable(),
+        DateTimePartsEncoding.vtable(),
+        DeltaEncoding.vtable(),
+        DictEncoding.vtable(),
+        FoREncoding.vtable(),
+        FSSTEncoding.vtable(),
+        RunEndEncoding.vtable(),
+        SparseEncoding.vtable(),
+        ZigZagEncoding.vtable(),
+    ]);
     Arc::new(registry)
 });

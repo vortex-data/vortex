@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 use vortex_array::Context;
@@ -52,3 +52,9 @@ impl PartialEq for dyn LayoutVTable + '_ {
 }
 
 impl Eq for dyn LayoutVTable + '_ {}
+
+impl Display for dyn LayoutVTable + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.id(), f)
+    }
+}
