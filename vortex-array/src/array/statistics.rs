@@ -2,7 +2,7 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::compute::{IsConstantOpts, is_constant_opts, scalar_at};
-use crate::stats::new::StatsSetRef;
+use crate::stats::StatsSetRef;
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {

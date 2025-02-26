@@ -7,7 +7,7 @@ use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsIm
 use crate::arrays::bool;
 use crate::arrays::bool::serde::BoolMetadata;
 use crate::builders::ArrayBuilder;
-use crate::stats::new::{ArrayStats, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;

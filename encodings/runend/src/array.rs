@@ -4,7 +4,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
-use vortex_array::stats::new::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{

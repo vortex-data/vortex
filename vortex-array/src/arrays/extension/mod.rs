@@ -6,7 +6,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
-use crate::stats::new::{ArrayStats, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -129,7 +129,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::stats::Precision;
-    use crate::stats::new::StatsSetReadExt;
+    use crate::stats::StatsSetReadExt;
 
     #[test]
     fn compute_statistics() {

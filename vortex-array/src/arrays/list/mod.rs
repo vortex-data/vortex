@@ -19,7 +19,7 @@ use crate::arrays::list::serde::ListMetadata;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::encoding_ids;
-use crate::stats::new::{ArrayStats, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::{StatisticsVTable, VTableRef};

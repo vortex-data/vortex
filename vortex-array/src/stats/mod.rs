@@ -19,12 +19,13 @@ use crate::Array;
 
 mod bound;
 pub mod flatbuffers;
-pub mod new;
+mod new;
 mod precision;
 mod stat_bound;
 mod stats_set;
 
 pub use bound::{LowerBound, UpperBound};
+pub use new::*;
 pub use precision::Precision;
 pub use stat_bound::*;
 

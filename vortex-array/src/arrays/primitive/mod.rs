@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::stats::new::{ArrayStats, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;

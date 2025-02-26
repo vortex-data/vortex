@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
-use crate::stats::new::StatsSetReadExt;
+use crate::stats::StatsSetReadExt;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 

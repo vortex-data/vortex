@@ -15,7 +15,7 @@ pub struct ArrayStats {
 }
 
 pub struct StatsSetRef<'a> {
-    // It should just captures the lifetime of the caller of `to_ref` which it seems to do if clippy is to believed
+    // We need to reference back to the array
     dyn_array_ref: &'a dyn Array,
     parent_stats: ArrayStats,
 }
@@ -130,7 +130,7 @@ impl StatsSetRef<'_> {
             }
             Stat::NullCount => Some(self.dyn_array_ref.invalid_count()?.into()),
             Stat::IsConstant => {
-                if self.is_empty() {
+                if self.dyn_array_ref.is_empty() {
                     None
                 } else {
                     Some(is_constant(self.dyn_array_ref)?.into())

@@ -22,7 +22,7 @@ use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{FromArrowType, infer_schema};
-use vortex_array::stats::new::StatsSetReadExt;
+use vortex_array::stats::StatsSetReadExt;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{ContextRef, stats};
 use vortex_dtype::DType;

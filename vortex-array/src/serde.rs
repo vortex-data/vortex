@@ -14,8 +14,7 @@ use vortex_flatbuffers::{
     FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, array as fba,
 };
 
-use crate::stats::StatsSet;
-use crate::stats::new::StatsWriter;
+use crate::stats::{StatsSet, StatsWriter};
 use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, ContextRef};
 
 /// Options for serializing an array.

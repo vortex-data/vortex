@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::encoding::Encoding;
-use crate::stats::new::{StatsProvider, StatsWriter};
+use crate::stats::{StatsProvider, StatsWriter};
 use crate::stats::{Precision, Stat};
 
 pub trait SumFn<A> {

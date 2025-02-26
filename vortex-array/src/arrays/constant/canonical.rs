@@ -123,7 +123,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
-    use crate::stats::new::StatsSetReadExt;
+    use crate::stats::StatsSetReadExt;
     use crate::stats::{Stat, StatsSet};
 
     #[test]

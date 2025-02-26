@@ -4,7 +4,7 @@ use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
 use crate::nbytes::NBytes;
-use crate::stats::new::{ArrayStats, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};

@@ -5,7 +5,7 @@ use vortex_array::Array;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::Stat;
-use vortex_array::stats::new::StatsProvider;
+use vortex_array::stats::StatsProvider;
 use vortex_array::variants::StructArrayTrait;
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};

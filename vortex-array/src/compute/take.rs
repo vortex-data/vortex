@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::stats::new::{StatsSetReadExt, StatsWriter};
+use crate::stats::{StatsSetReadExt, StatsWriter};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 

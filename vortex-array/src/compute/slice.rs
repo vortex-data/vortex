@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::encoding::Encoding;
-use crate::stats::new::{StatsSetReadExt, StatsWriter};
+use crate::stats::{StatsSetReadExt, StatsWriter};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -134,7 +134,7 @@ mod tests {
     use crate::Array;
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::new::StatsSetReadExt;
+    use crate::stats::StatsSetReadExt;
     use crate::stats::{Precision, STATS_TO_WRITE, Stat};
 
     #[test]

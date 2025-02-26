@@ -6,7 +6,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::new::StatsProvider;
-use crate::stats::new::StatsSetReadExt;
+use crate::stats::StatsSetReadExt;
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, Sum};
 
 #[derive(Default, Debug, Clone)]
@@ -550,7 +550,7 @@ mod test {
 
     use crate::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::new::{StatsProvider, StatsSetReadExt};
+    use crate::stats::{StatsProvider, StatsSetReadExt};
     use crate::stats::{Precision, Stat, StatsSet};
 
     #[test]

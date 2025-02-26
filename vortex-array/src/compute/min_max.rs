@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::stats::new::{StatsSetReadExt, StatsWriter};
+use crate::stats::{StatsSetReadExt, StatsWriter};
 use crate::stats::{Precision, Stat};
 use crate::{Array, Encoding};
 

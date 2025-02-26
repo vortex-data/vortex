@@ -1,5 +1,5 @@
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::new::StatsWriter;
+use vortex_array::stats::StatsWriter;
 use vortex_array::stats::{STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
@@ -102,7 +102,7 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::Stat;
-    use vortex_array::stats::new::StatsProvider;
+    use vortex_array::stats::StatsProvider;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
