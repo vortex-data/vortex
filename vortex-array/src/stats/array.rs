@@ -229,14 +229,6 @@ impl StatsSetRef<'_> {
         self.compute_as(Stat::NullCount)
     }
 
-    pub fn compute_bit_width_freq(&self) -> Option<Vec<usize>> {
-        self.compute_as::<Vec<usize>>(Stat::BitWidthFreq)
-    }
-
-    pub fn compute_trailing_zero_freq(&self) -> Option<Vec<usize>> {
-        self.compute_as::<Vec<usize>>(Stat::TrailingZeroFreq)
-    }
-
     pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
         self.compute_as(Stat::UncompressedSizeInBytes)
     }

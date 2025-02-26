@@ -22,8 +22,6 @@ impl ExprEvaluator for FlatReader {
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
 
-        println!("Array stats {:?}", array.statistics().stats_set());
-
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
             array = slice(&array, begin, begin + row_mask.len())?;

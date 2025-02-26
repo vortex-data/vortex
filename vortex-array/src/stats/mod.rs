@@ -11,8 +11,6 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
 
 mod array;
 mod bound;
@@ -27,9 +25,6 @@ pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
 pub use stat_bound::*;
 pub use traits::*;
-use vortex_error::VortexExpect;
-
-use crate::Array;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.
