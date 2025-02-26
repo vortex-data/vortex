@@ -28,12 +28,14 @@ impl TakeFromFn<&RunEndArray> for RunEndEncoding {
             return Ok(None);
         }
 
-        // Order the values to prepare for runend decoding.
-        let shuffled = take(array, indices.values())?;
+        // Transform the run-end encoding from storing indices to storing values
+        // by taking values from `array` at positions specified in `indices.values()`.
+        let transformed = take(array, indices.values())?;
 
+        // Create a new run-end array now containing the values instead of indices.
         let ree_array = RunEndArray::with_offset_and_length(
             indices.ends().clone(),
-            shuffled,
+            transformed,
             indices.offset(),
             indices.len(),
         )?;
