@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use vortex_array::Context;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -57,9 +58,12 @@ impl VortexWriteOptions {
         write: W,
         mut stream: S,
     ) -> VortexResult<W> {
+        // Set up a Context to capture the encodings used in the file.
+        let ctx = Context::empty();
+
         // Set up the root layout
         let mut layout_writer = FileStatsLayoutWriter::new(
-            self.strategy.new_writer(stream.dtype())?,
+            self.strategy.new_writer(&ctx, stream.dtype())?,
             stream.dtype(),
             self.file_statistics.clone().unwrap_or_default().into(),
         )?;
@@ -103,6 +107,7 @@ impl VortexWriteOptions {
             .write_flatbuffer(
                 &mut write,
                 &Footer::flatbuffer_writer(
+                    ctx,
                     layout,
                     segments.into(),
                     self.file_statistics

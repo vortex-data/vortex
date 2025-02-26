@@ -21,10 +21,6 @@ impl EncodingId {
     pub const fn new(id: &'static str, code: u16) -> Self {
         Self(id, code)
     }
-
-    pub const fn code(&self) -> u16 {
-        self.1
-    }
 }
 
 // The encoding is identified only by its numeric ID, so we only use that for PartialEq and Hash

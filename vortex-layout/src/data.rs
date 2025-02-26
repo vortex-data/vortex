@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -276,24 +275,20 @@ impl Layout {
             .register_splits(self, field_mask, row_offset, splits)
     }
 
+    /// Serialize the layout into a [`FlatBufferBuilder`].
     pub fn write_flatbuffer<'fbb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fbb>,
-        ctx: &mut LayoutContext,
+        ctx: &LayoutContext,
     ) -> WIPOffset<layout::Layout<'fbb>> {
-        let ctx = RefCell::new(ctx);
-        LayoutFlatBufferWriter {
-            layout: self,
-            ctx: &ctx,
-        }
-        .write_flatbuffer(fbb)
+        LayoutFlatBufferWriter { layout: self, ctx }.write_flatbuffer(fbb)
     }
 }
 
 /// An adapter struct for writing a layout to a FlatBuffer.
 struct LayoutFlatBufferWriter<'a> {
     layout: &'a Layout,
-    ctx: &'a RefCell<&'a mut LayoutContext>,
+    ctx: &'a LayoutContext,
 }
 
 impl<'a> FlatBufferRoot for LayoutFlatBufferWriter<'a> {}
@@ -334,7 +329,7 @@ impl<'a> WriteFlatBuffer for LayoutFlatBufferWriter<'a> {
                 });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
-                let encoding_idx = self.ctx.borrow_mut().encoding_idx(&layout.vtable);
+                let encoding_idx = self.ctx.encoding_idx(&layout.vtable);
 
                 layout::Layout::create(
                     fbb,

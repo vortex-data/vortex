@@ -10,6 +10,7 @@ use crate::encoding::Encoding;
 use crate::vtable::VTableRef;
 
 /// A collection of array encodings.
+// TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type Context = EncodingContext<VTableRef>;
 
 impl Default for Context {

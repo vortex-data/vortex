@@ -85,7 +85,7 @@ impl Footer {
         let ctx = registry.new_array_context(array_ids)?;
 
         let root_encoding = layout_ctx
-            .lookup_layout(fb_root_layout.encoding())
+            .lookup_encoding(fb_root_layout.encoding())
             .ok_or_else(|| {
                 vortex_err!(
                     "Footer root layout encoding {} not found",
@@ -164,12 +164,14 @@ impl Footer {
         self.layout.row_count()
     }
 
-    pub(crate) fn flatbuffer_writer(
+    /// Creates a [`FlatBufferRoot`] for the footer that can be used to serialize the footer
+    /// into a flatbuffer.
+    pub(crate) fn flatbuffer_writer<'a>(
         ctx: Context,
         layout: Layout,
         segments: Arc<[Segment]>,
         statistics: Option<Arc<[StatsSet]>>,
-    ) -> FooterFlatBufferWriter {
+    ) -> impl WriteFlatBuffer<Target<'a> = fb::Footer<'a>> + FlatBufferRoot {
         FooterFlatBufferWriter {
             ctx,
             layout,
@@ -195,8 +197,9 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> flatbuffers::WIPOffset<Self::Target<'fb>> {
-        let mut layout_ctx = LayoutContext::empty();
-        let layout = self.layout.write_flatbuffer(fbb, &mut layout_ctx);
+        // Set up a layout context to capture the layouts used in the file.
+        let layout_ctx = LayoutContext::empty();
+        let layout = self.layout.write_flatbuffer(fbb, &layout_ctx);
 
         let segments = fbb.create_vector_from_iter(self.segments.iter().map(fb::Segment::from));
         let statistics = self
@@ -208,6 +211,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
         let array_encodings = self
             .ctx
             .encodings()
+            .iter()
             .map(|e| {
                 let id = fbb.create_string(e.id().as_ref());
                 fb::ArrayEncoding::create(fbb, &fb::ArrayEncodingArgs { id: Some(id) })
@@ -216,7 +220,8 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
         let array_encodings = fbb.create_vector(array_encodings.as_slice());
 
         let layout_encodings = layout_ctx
-            .layouts()
+            .encodings()
+            .iter()
             .map(|e| {
                 let id = fbb.create_string(e.id().as_ref());
                 fb::LayoutEncoding::create(fbb, &fb::LayoutEncodingArgs { id: Some(id) })

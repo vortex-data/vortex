@@ -1,6 +1,6 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{STATS_TO_WRITE, Stat};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, Context};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -27,23 +27,25 @@ impl Default for FlatLayoutOptions {
 }
 
 impl LayoutStrategy for FlatLayoutOptions {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(dtype.clone(), self.clone()).boxed())
+    fn new_writer(&self, ctx: &Context, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
     }
 }
 
 /// Writer for a [`FlatLayout`].
 pub struct FlatLayoutWriter {
-    options: FlatLayoutOptions,
+    ctx: Context,
     dtype: DType,
+    options: FlatLayoutOptions,
     layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(dtype: DType, options: FlatLayoutOptions) -> Self {
+    pub fn new(ctx: Context, dtype: DType, options: FlatLayoutOptions) -> Self {
         Self {
-            options,
+            ctx,
             dtype,
+            options,
             layout: None,
         }
     }
@@ -68,10 +70,13 @@ impl LayoutWriter for FlatLayoutWriter {
         let row_count = chunk.len() as u64;
         retain_only_stats(&chunk, &self.options.array_stats);
 
-        let buffers = chunk.serialize(&SerializeOptions {
-            offset: 0,
-            include_padding: self.options.include_padding,
-        });
+        let buffers = chunk.serialize(
+            &self.ctx,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: self.options.include_padding,
+            },
+        );
         let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
