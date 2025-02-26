@@ -95,7 +95,6 @@ fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
     let mut stats = stats.keep_inexact_stats(&[
         Stat::Max,
         Stat::Min,
-        Stat::RunCount,
         Stat::NullCount,
         Stat::UncompressedSizeInBytes,
     ]);

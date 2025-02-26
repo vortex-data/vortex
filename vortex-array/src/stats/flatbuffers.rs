@@ -53,9 +53,6 @@ impl WriteFlatBuffer for StatsSet {
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant)
                 .and_then(Precision::as_exact),
-            run_count: self
-                .get_as::<u64>(Stat::RunCount)
-                .and_then(Precision::as_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
                 .and_then(Precision::as_exact),
@@ -110,11 +107,6 @@ impl ReadFlatBuffer for StatsSet {
                 Stat::Min => {
                     if let Some(min) = fb.min() {
                         stats_set.set(Stat::Min, Precision::Exact(ScalarValue::try_from(min)?));
-                    }
-                }
-                Stat::RunCount => {
-                    if let Some(run_count) = fb.run_count() {
-                        stats_set.set(Stat::RunCount, Precision::Exact(run_count.into()));
                     }
                 }
                 Stat::NullCount => {

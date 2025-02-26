@@ -63,15 +63,8 @@ pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::stats::Stat;
-
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
-        for (stat, value) in arr
-            .statistics()
-            .stats_set()
-            .into_iter()
-            .filter(|(stat, _)| *stat != Stat::RunCount)
-        {
+        for (stat, value) in arr.statistics().stats_set().into_iter() {
             if let Some(dtype) = stat.dtype(compressed.dtype()) {
                 let compressed_scalar = compressed.statistics().get_scalar(stat, &dtype);
                 debug_assert_eq!(

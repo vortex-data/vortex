@@ -3,9 +3,9 @@
 
 // @generated
 
+use crate::array::*;
 use crate::scalar::*;
 use crate::dtype::*;
-use crate::array::*;
 use core::mem;
 use core::cmp::Ordering;
 

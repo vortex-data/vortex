@@ -22,7 +22,6 @@ impl StatisticsVTable<&BoolArray> for BoolEncoding {
             return Ok(StatsSet::new_unchecked(vec![
                 (Stat::Sum, Precision::exact(0)),
                 (Stat::NullCount, Precision::exact(0)),
-                (Stat::RunCount, Precision::exact(0)),
             ]));
         }
 
@@ -162,7 +161,6 @@ impl BoolStatsAccumulator {
                     self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)),
                 ),
             ),
-            (Stat::RunCount, Precision::exact(self.run_count)),
         ])
     }
 }
@@ -186,7 +184,6 @@ mod test {
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 4);
     }
 
@@ -229,7 +226,6 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 3);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 2);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 3);
     }
@@ -242,7 +238,6 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 1);
     }
@@ -255,7 +250,6 @@ mod test {
         assert!(bool_arr.statistics().compute_is_constant().is_none());
         assert!(bool_arr.statistics().compute_min::<bool>().is_none());
         assert!(bool_arr.statistics().compute_max::<bool>().is_none());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 0);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
     }
@@ -268,7 +262,6 @@ mod test {
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
     }
@@ -281,7 +274,6 @@ mod test {
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
         assert!(bool_arr.compute_stat(Stat::Min).unwrap().is_none());
         assert!(bool_arr.compute_stat(Stat::Max).unwrap().is_none());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);
     }

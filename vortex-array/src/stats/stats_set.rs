@@ -27,10 +27,7 @@ impl StatsSet {
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
-        let mut stats = Self::new_unchecked(vec![
-            (Stat::RunCount, Precision::exact(1)),
-            (Stat::NullCount, Precision::exact(len)),
-        ]);
+        let mut stats = Self::new_unchecked(vec![(Stat::NullCount, Precision::exact(len))]);
 
         if len > 0 {
             stats.set(Stat::IsConstant, Precision::exact(true));
@@ -65,10 +62,7 @@ impl StatsSet {
 
     // A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
-        StatsSet::new_unchecked(vec![
-            (Stat::RunCount, Precision::exact(0)),
-            (Stat::NullCount, Precision::exact(0)),
-        ])
+        StatsSet::new_unchecked(vec![(Stat::NullCount, Precision::exact(0))])
     }
 
     pub fn constant(scalar: Scalar, length: usize) -> Self {
@@ -81,9 +75,6 @@ impl StatsSet {
                 (Stat::IsStrictSorted, Precision::exact(length <= 1)),
             ]);
         }
-
-        let run_count = if length == 0 { 0u64 } else { 1 };
-        stats.set(Stat::RunCount, Precision::exact(run_count));
 
         let null_count = if sv.is_null() { length as u64 } else { 0 };
         stats.set(Stat::NullCount, Precision::exact(null_count));
@@ -287,7 +278,6 @@ impl StatsSet {
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
                 Stat::Sum => self.merge_sum(other, dtype),
-                Stat::RunCount => self.merge_run_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
             }
@@ -314,7 +304,7 @@ impl StatsSet {
                 Stat::Sum => self.merge_sum(other, dtype),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
-                Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => {
+                Stat::IsSorted | Stat::IsStrictSorted => {
                     unreachable!("not commutative")
                 }
             }
@@ -562,22 +552,6 @@ impl StatsSet {
                 self.set(stat, combined_freq);
             }
             _ => self.clear(stat),
-        }
-    }
-
-    /// Merged run count is an upper bound where we assume run is interrupted at the boundary
-    fn merge_run_count(&mut self, other: &Self) {
-        match (
-            self.get_as::<usize>(Stat::RunCount),
-            other.get_as::<usize>(Stat::RunCount),
-        ) {
-            (Some(r1), Some(r2)) => {
-                self.set(
-                    Stat::RunCount,
-                    r1.zip(r2).map(|(r1, r2)| ScalarValue::from(r1 + r2 + 1)),
-                );
-            }
-            _ => self.clear(Stat::RunCount),
         }
     }
 }
