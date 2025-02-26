@@ -26,6 +26,7 @@ use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
+use crate::patches::compress_patches;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
@@ -406,7 +407,11 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let packed = bitpack_encode(stats.source(), bw)?;
+        let mut packed = bitpack_encode(stats.source(), bw)?;
+
+        let patches = packed.patches().map(compress_patches).transpose()?;
+        packed.replace_patches(patches);
+
         Ok(packed.into_array())
     }
 }
@@ -747,11 +752,27 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BufferMut, buffer_mut};
+    use vortex_buffer::{Buffer, BufferMut, buffer_mut};
 
     use crate::Compressor;
     use crate::integer::IntCompressor;
+
+    #[test]
+    fn test_empty() {
+        // Make sure empty array compression does not fail
+        let result = IntCompressor::compress(
+            &PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable),
+            false,
+            3,
+            &[],
+        )
+        .unwrap();
+
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_dict_encodable() {

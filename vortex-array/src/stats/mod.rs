@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, all, cardinality};
+use enum_iterator::{Sequence, cardinality};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -327,13 +327,12 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 
     fn inherit(&self, parent: &dyn Statistics) {
-        for stat in all::<Stat>() {
-            if let Some(s) = parent.get_stat(stat) {
-                // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
-                //  so we don't have to take lots of write locks.
-                // TODO(ngates): depending on statistic, this should choose the more precise one.
-                self.set_stat(stat, s);
-            }
+        let parent_stats_set = parent.stats_set();
+        for (stat, value) in parent_stats_set.into_iter() {
+            // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
+            //  so we don't have to take lots of write locks.
+            // TODO(ngates): depending on statistic, this should choose the more precise one.
+            self.set_stat(stat, value);
         }
     }
 }

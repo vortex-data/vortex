@@ -47,6 +47,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    'vortex.alp(0x11)(f64?, len=1000)'
 #[pyfunction]
 pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
-    let inner = BtrBlocksCompressor.compress(array.borrow().as_ref())?;
-    PyArray::init(array.py(), inner)
+    let compressed = BtrBlocksCompressor.compress(array.borrow().as_ref())?;
+    PyArray::init(array.py(), compressed)
 }
