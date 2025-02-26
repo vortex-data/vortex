@@ -206,6 +206,7 @@ impl<'a> flatbuffers::Follow<'a> for ArrayMessage<'a> {
 
 impl<'a> ArrayMessage<'a> {
   pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 4;
+  pub const VT_ENCODINGS: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -214,9 +215,10 @@ impl<'a> ArrayMessage<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args ArrayMessageArgs
+    args: &'args ArrayMessageArgs<'args>
   ) -> flatbuffers::WIPOffset<ArrayMessage<'bldr>> {
     let mut builder = ArrayMessageBuilder::new(_fbb);
+    if let Some(x) = args.encodings { builder.add_encodings(x); }
     builder.add_row_count(args.row_count);
     builder.finish()
   }
@@ -230,6 +232,14 @@ impl<'a> ArrayMessage<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(ArrayMessage::VT_ROW_COUNT, Some(0)).unwrap()}
   }
+  /// The encodings referenced by the array.
+  #[inline]
+  pub fn encodings(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(ArrayMessage::VT_ENCODINGS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ArrayMessage<'_> {
@@ -240,18 +250,21 @@ impl flatbuffers::Verifiable for ArrayMessage<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<u32>("row_count", Self::VT_ROW_COUNT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("encodings", Self::VT_ENCODINGS, false)?
      .finish();
     Ok(())
   }
 }
-pub struct ArrayMessageArgs {
+pub struct ArrayMessageArgs<'a> {
     pub row_count: u32,
+    pub encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
 }
-impl<'a> Default for ArrayMessageArgs {
+impl<'a> Default for ArrayMessageArgs<'a> {
   #[inline]
   fn default() -> Self {
     ArrayMessageArgs {
       row_count: 0,
+      encodings: None,
     }
   }
 }
@@ -264,6 +277,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayMessageBuilder<'a, 'b, A> 
   #[inline]
   pub fn add_row_count(&mut self, row_count: u32) {
     self.fbb_.push_slot::<u32>(ArrayMessage::VT_ROW_COUNT, row_count, 0);
+  }
+  #[inline]
+  pub fn add_encodings(&mut self, encodings: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayMessage::VT_ENCODINGS, encodings);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayMessageBuilder<'a, 'b, A> {
@@ -284,6 +301,7 @@ impl core::fmt::Debug for ArrayMessage<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("ArrayMessage");
       ds.field("row_count", &self.row_count());
+      ds.field("encodings", &self.encodings());
       ds.finish()
   }
 }

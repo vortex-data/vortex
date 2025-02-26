@@ -9,6 +9,8 @@ enum MessageVersion: uint8 {
 table ArrayMessage {
     /// The row count of the array.
     row_count: uint32;
+    /// The encodings referenced by the array.
+    encodings: [string];
 }
 
 /// Indicates the body contains a regular byte buffer.

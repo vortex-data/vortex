@@ -1,7 +1,8 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
@@ -12,6 +13,7 @@ use crate::vtable::VTableRef;
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type Context = EncodingContext<VTableRef>;
+pub type Registry = EncodingRegistry<VTableRef>;
 
 impl Default for Context {
     fn default() -> Self {
@@ -27,6 +29,30 @@ impl Default for Context {
             ConstantEncoding.vtable(),
             ChunkedEncoding.vtable(),
         ])))
+    }
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        let mut this = Self::empty();
+
+        // Register the canonical encodings
+        this = this
+            .register(NullEncoding.vtable())
+            .register(BoolEncoding.vtable())
+            .register(PrimitiveEncoding.vtable())
+            .register(StructEncoding.vtable())
+            .register(ListEncoding.vtable())
+            .register(VarBinEncoding.vtable())
+            .register(VarBinViewEncoding.vtable())
+            .register(ExtensionEncoding.vtable());
+
+        // Register the utility encodings
+        this = this
+            .register(ConstantEncoding.vtable())
+            .register(ChunkedEncoding.vtable());
+
+        this
     }
 }
 
@@ -78,5 +104,40 @@ impl<T: Clone + Eq> EncodingContext<T> {
             .vortex_expect("poisoned lock")
             .get(idx as usize)
             .cloned()
+    }
+}
+
+/// A registry of encodings that can be used to construct a context for serde.
+///
+/// In the future, we will support loading encodings from shared libraries or even from within
+/// the Vortex file itself. This registry will be used to manage the available encodings.
+#[derive(Debug, Clone)]
+pub struct EncodingRegistry<T>(HashMap<String, T>);
+
+impl<T: Clone + ToString + Eq> EncodingRegistry<T> {
+    pub fn empty() -> Self {
+        Self(Default::default())
+    }
+
+    /// Create a new [`EncodingContext`] with the provided encodings.
+    pub fn new_context<'a>(
+        &self,
+        encoding_ids: impl Iterator<Item = &'a str>,
+    ) -> VortexResult<EncodingContext<T>> {
+        let mut ctx = EncodingContext::<T>::empty();
+        for id in encoding_ids {
+            let encoding = self
+                .0
+                .get(id)
+                .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", id))?;
+            ctx = ctx.with(encoding.clone());
+        }
+        Ok(ctx)
+    }
+
+    /// Register a new encoding, replacing any existing encoding with the same ID.
+    pub fn register(mut self, encoding: T) -> Self {
+        self.0.insert(encoding.to_string(), encoding);
+        self
     }
 }

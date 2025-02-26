@@ -69,16 +69,16 @@ impl Footer {
             .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
 
         // Create a LayoutContext from the registry.
-        let layout_ids = fb
-            .layout_encodings()
+        let layout_encodings = fb.layout_encodings();
+        let layout_ids = layout_encodings
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
         let layout_ctx = registry.new_layout_context(layout_ids)?;
 
         // Create an ArrayContext from the registry.
-        let array_ids = fb
-            .array_encodings()
+        let array_encodings = fb.array_encodings();
+        let array_ids = array_encodings
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());

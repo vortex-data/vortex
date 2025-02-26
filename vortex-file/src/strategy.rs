@@ -57,10 +57,11 @@ impl VortexLayoutStrategy {
         Self { options }
     }
 
-    fn new_compressed_writer(&self) -> Box<dyn LayoutWriter> {
+    fn new_compressed_writer(&self, ctx: &Context) -> Box<dyn LayoutWriter> {
         match self.options.compressor {
             Compressor::BtrBlocks => BtrBlocksCompressedWriter {
                 child: ChunkedLayoutWriter::new(
+                    ctx.clone(),
                     &DType::Null,
                     ChunkedLayoutOptions {
                         chunk_strategy: Arc::new(FlatLayoutOptions::default()),
@@ -73,6 +74,7 @@ impl VortexLayoutStrategy {
                 compressor: Arc::new(SamplingCompressor::new(DEFAULT_COMPRESSORS)),
                 compress_like: None,
                 child: ChunkedLayoutWriter::new(
+                    ctx.clone(),
                     &DType::Null,
                     ChunkedLayoutOptions {
                         chunk_strategy: Arc::new(FlatLayoutOptions::default()),
@@ -94,7 +96,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
         }
 
         // Otherwise, we finish with compressing the chunks
-        let writer = self.new_compressed_writer();
+        let writer = self.new_compressed_writer(ctx);
 
         // Prior to compression, re-partition into size-based chunks.
         let writer = RepartitionWriter::new(
