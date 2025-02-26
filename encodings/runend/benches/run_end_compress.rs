@@ -58,6 +58,7 @@ fn decompress_to_canonical(bencher: Bencher, (length, run_step): (usize, usize))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
+#[allow(clippy::cast_possible_truncation)]
 fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..=length)
@@ -68,7 +69,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
         Validity::NonNullable,
     );
 
-    let source_array = PrimitiveArray::from_iter(0..length as i32).into_array();
+    let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
     let (ends, values) = runend_encode(&values).unwrap();
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
