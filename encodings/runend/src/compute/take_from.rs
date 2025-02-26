@@ -6,6 +6,18 @@ use vortex_error::VortexResult;
 use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFromFn<&RunEndArray> for RunEndEncoding {
+    /// Takes values from the source array using run-end encoded indices.
+    ///
+    /// # Arguments
+    ///
+    /// * `indices` - The run-end encoded array containing the indices
+    /// * `array` - The source array to take values from
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(array))` - If successful
+    /// * `Ok(None)` - If the source array has an unsupported dtype
+    ///
     fn take_from(
         &self,
         indices: &RunEndArray,
