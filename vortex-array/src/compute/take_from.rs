@@ -1,4 +1,4 @@
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
@@ -19,14 +19,4 @@ where
 
         TakeFromFn::take_from(self, indices, array)
     }
-}
-
-pub fn take_from(indices: &dyn Array, array: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-    let taken = indices
-        .vtable()
-        .take_from_fn()
-        .map(|f| f.take_from(indices, array))
-        .unwrap_or_else(|| vortex_bail!(NotImplemented: "take_from", array.encoding()))?;
-
-    Ok(taken)
 }

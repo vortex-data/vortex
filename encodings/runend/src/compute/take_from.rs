@@ -23,7 +23,7 @@ impl TakeFromFn<&RunEndArray> for RunEndEncoding {
         indices: &RunEndArray,
         array: &dyn Array,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only `Primitive` and `Bool` are valid run-end value types.
+        // Only `Primitive` and `Bool` are valid run-end value types. - TODO: Support additional DTypes
         if !matches!(array.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
             return Ok(None);
         }

@@ -29,7 +29,7 @@ pub use search_sorted::*;
 pub use slice::{SliceFn, slice};
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};
-pub use take_from::{TakeFromFn, take_from};
+pub use take_from::TakeFromFn;
 pub use to_arrow::*;
 
 mod between;

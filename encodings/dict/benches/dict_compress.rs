@@ -96,27 +96,3 @@ fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .with_inputs(|| dict.clone())
         .bench_values(|dict| dict.to_canonical());
 }
-
-#[divan::bench(args = &[
-    100,
-    1000,
-    10_000,
-    100_000,
-])]
-#[allow(clippy::cast_possible_truncation)]
-fn decode_dict_with_runend_codes(bencher: Bencher, length: usize) {
-    let ends = PrimitiveArray::new(
-        buffer![(length / 3) as u32, (length / 2) as u32, length as u32],
-        NonNullable,
-    )
-    .into_array();
-
-    let codes = PrimitiveArray::new(buffer![0u32, 1, 2], NonNullable).into_array();
-    let runend_codes = RunEndArray::try_new(ends, codes).unwrap();
-    let dict_values = PrimitiveArray::new(buffer![100u32, 200, 300], NonNullable).into_array();
-    let dict_array = DictArray::try_new(runend_codes.into_array(), dict_values).unwrap();
-
-    bencher
-        .with_inputs(|| dict_array.clone())
-        .bench_refs(|array| array.to_canonical())
-}
