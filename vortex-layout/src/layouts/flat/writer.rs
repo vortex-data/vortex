@@ -49,11 +49,13 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &dyn Array, stats: &[Stat]) {
+fn update_stats(array: &dyn Array, stats: &[Stat]) -> VortexResult<()> {
+    array.statistics().compute_all(stats)?;
     array.statistics().retain_only(stats);
     for child in array.children() {
-        retain_only_stats(&child, stats)
+        update_stats(&child, stats)?
     }
+    Ok(())
 }
 
 impl LayoutWriter for FlatLayoutWriter {
@@ -66,7 +68,7 @@ impl LayoutWriter for FlatLayoutWriter {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
         let row_count = chunk.len() as u64;
-        retain_only_stats(&chunk, &self.options.array_stats);
+        update_stats(&chunk, &self.options.array_stats)?;
 
         let buffers = chunk.serialize(&SerializeOptions {
             offset: 0,
@@ -100,7 +102,7 @@ mod tests {
     use futures::executor::block_on;
     use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stats::Stat;
+    use vortex_array::stats::{Precision, Stat};
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
@@ -115,8 +117,6 @@ mod tests {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            assert!(array.statistics().compute_bit_width_freq().is_some());
-            assert!(array.statistics().compute_trailing_zero_freq().is_some());
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.into_array())
                 .unwrap();
@@ -128,12 +128,9 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(result.statistics().get_stat(Stat::BitWidthFreq).is_none());
-            assert!(
-                result
-                    .statistics()
-                    .get_stat(Stat::TrailingZeroFreq)
-                    .is_none()
+            assert_eq!(
+                result.statistics().get_as::<bool>(Stat::IsSorted),
+                Some(Precision::Exact(true))
             );
         })
     }

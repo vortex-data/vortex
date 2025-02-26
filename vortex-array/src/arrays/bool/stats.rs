@@ -2,7 +2,6 @@ use std::ops::BitAnd;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -27,7 +26,7 @@ impl StatisticsVTable<&BoolArray> for BoolEncoding {
 
         match array.validity_mask()? {
             Mask::AllTrue(_) => self.compute_statistics(array.boolean_buffer(), stat),
-            Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
+            Mask::AllFalse(v) => Ok(StatsSet::nulls(v)),
             Mask::Values(values) => self.compute_statistics(
                 &NullableBools(array.boolean_buffer(), values.boolean_buffer()),
                 stat,
@@ -72,10 +71,7 @@ impl StatisticsVTable<&NullableBools<'_>> for BoolEncoding {
                 .for_each(|next| acc.nullable_next(next));
             Ok(acc.finish())
         } else {
-            Ok(StatsSet::nulls(
-                array.0.len(),
-                &DType::Bool(Nullability::Nullable),
-            ))
+            Ok(StatsSet::nulls(array.0.len()))
         }
     }
 }

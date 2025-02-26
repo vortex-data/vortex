@@ -2,21 +2,17 @@
 
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{Sequence, cardinality};
-use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexError, VortexResult, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
-
-use crate::Array;
 
 mod bound;
 pub mod flatbuffers;
@@ -59,10 +55,6 @@ pub const STATS_TO_WRITE: &[Stat] = &[
 )]
 #[repr(u8)]
 pub enum Stat {
-    /// Frequency of each bit width (nulls are treated as 0)
-    BitWidthFreq = 0,
-    /// Frequency of each trailing zero (nulls are treated as 0)
-    TrailingZeroFreq = 1,
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant = 2,
@@ -87,25 +79,11 @@ pub enum Stat {
 pub struct Max;
 pub struct Min;
 pub struct Sum;
-pub struct BitWidthFreq;
-pub struct TrailingZeroFreq;
 pub struct IsConstant;
 pub struct IsSorted;
 pub struct IsStrictSorted;
 pub struct NullCount;
 pub struct UncompressedSizeInBytes;
-
-impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::BitWidthFreq;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::TrailingZeroFreq;
-}
 
 impl StatType<bool> for IsConstant {
     type Bound = Precision<bool>;
@@ -161,9 +139,7 @@ impl Stat {
     pub fn is_commutative(&self) -> bool {
         // NOTE: we prefer this syntax to force a compile error if we add a new stat
         match self {
-            Stat::BitWidthFreq
-            | Stat::TrailingZeroFreq
-            | Stat::IsConstant
+            Stat::IsConstant
             | Stat::Max
             | Stat::Min
             | Stat::NullCount
@@ -180,14 +156,6 @@ impl Stat {
 
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
         Some(match self {
-            Stat::BitWidthFreq => DType::List(
-                Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                NonNullable,
-            ),
-            Stat::TrailingZeroFreq => DType::List(
-                Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                NonNullable,
-            ),
             Stat::IsConstant => DType::Bool(NonNullable),
             Stat::IsSorted => DType::Bool(NonNullable),
             Stat::IsStrictSorted => DType::Bool(NonNullable),
@@ -227,8 +195,6 @@ impl Stat {
 
     pub fn name(&self) -> &str {
         match self {
-            Self::BitWidthFreq => "bit_width_frequency",
-            Self::TrailingZeroFreq => "trailing_zero_frequency",
             Self::IsConstant => "is_constant",
             Self::IsSorted => "is_sorted",
             Self::IsStrictSorted => "is_strict_sorted",
@@ -421,32 +387,9 @@ impl dyn Statistics + '_ {
         self.compute_as(Stat::NullCount)
     }
 
-    pub fn compute_bit_width_freq(&self) -> Option<Vec<usize>> {
-        self.compute_as::<Vec<usize>>(Stat::BitWidthFreq)
-    }
-
-    pub fn compute_trailing_zero_freq(&self) -> Option<Vec<usize>> {
-        self.compute_as::<Vec<usize>>(Stat::TrailingZeroFreq)
-    }
-
     pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
         self.compute_as(Stat::UncompressedSizeInBytes)
     }
-}
-
-pub fn trailing_zeros(array: &dyn Array) -> u8 {
-    let tz_freq = array
-        .statistics()
-        .compute_trailing_zero_freq()
-        .unwrap_or_else(|| vec![0]);
-    tz_freq
-        .iter()
-        .enumerate()
-        .find_or_first(|&(_, &v)| v > 0)
-        .map(|(i, _)| i)
-        .unwrap_or(0)
-        .try_into()
-        .vortex_expect("tz_freq must fit in u8")
 }
 
 #[cfg(test)]

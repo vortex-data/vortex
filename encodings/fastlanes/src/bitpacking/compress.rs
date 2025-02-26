@@ -2,7 +2,8 @@ use std::mem::MaybeUninit;
 
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use num_traits::AsPrimitive;
+use itertools::Itertools;
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
@@ -14,7 +15,8 @@ use vortex_dtype::{
     NativePType, PType, match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
     match_each_unsigned_integer_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -25,10 +27,7 @@ pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPack
 }
 
 pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = array
-        .statistics()
-        .compute_bit_width_freq()
-        .ok_or_else(|| vortex_err!(ComputeError: "missing bit width frequency"))?;
+    let bit_width_freq = bit_width_histogram(array)?;
 
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
@@ -454,33 +453,8 @@ pub unsafe fn unpack_single_primitive<T: NativePType + BitPacking>(
     unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
 }
 
-pub fn find_min_patchless_bit_width(array: &PrimitiveArray) -> VortexResult<u8> {
-    let bit_width_freq = array
-        .statistics()
-        .compute_bit_width_freq()
-        .ok_or_else(|| vortex_err!(ComputeError: "Failed to compute bit width frequency"))?;
-
-    min_patchless_bit_width(&bit_width_freq)
-}
-
-fn min_patchless_bit_width(bit_width_freq: &[usize]) -> VortexResult<u8> {
-    if bit_width_freq.is_empty() {
-        vortex_bail!("Empty bit width frequency!");
-    }
-    Ok(bit_width_freq
-        .iter()
-        .enumerate()
-        .filter_map(|(bw, count)| (*count > 0).then_some(bw as u8))
-        .max()
-        .unwrap_or_default())
-}
-
 pub fn find_best_bit_width(array: &PrimitiveArray) -> VortexResult<u8> {
-    let bit_width_freq = array
-        .statistics()
-        .compute_bit_width_freq()
-        .ok_or_else(|| vortex_err!(ComputeError: "Failed to compute bit width frequency"))?;
-
+    let bit_width_freq = bit_width_histogram(array)?;
     best_bit_width(&bit_width_freq, bytes_per_exception(array.ptype()))
 }
 
@@ -521,6 +495,45 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
         return 0;
     }
     bit_width_freq[bit_width as usize + 1..].iter().sum()
+}
+
+fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
+    match_each_integer_ptype!(array.ptype(), |$P| {
+        bit_width_histogram_typed::<$P>(array)
+    })
+}
+
+fn bit_width_histogram_typed<T: NativePType + PrimInt>(
+    array: &PrimitiveArray,
+) -> VortexResult<Vec<usize>> {
+    let bit_width: fn(T) -> usize =
+        |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
+
+    let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
+    match array.validity_mask()?.boolean_buffer() {
+        AllOr::All => {
+            // All values are valid.
+            for v in array.as_slice::<T>() {
+                bit_widths[bit_width(*v)] += 1;
+            }
+        }
+        AllOr::None => {
+            // All values are invalid
+            bit_widths[0] = array.len();
+        }
+        AllOr::Some(buffer) => {
+            // Some values are valid
+            for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
+                if is_valid {
+                    bit_widths[bit_width(*v)] += 1;
+                } else {
+                    bit_widths[0] += 1;
+                }
+            }
+        }
+    }
+
+    Ok(bit_widths)
 }
 
 #[cfg(feature = "test-harness")]
@@ -691,7 +704,6 @@ mod test {
             best_bit_width(&freq, bytes_per_exception(PType::U8)).unwrap(),
             3
         );
-        assert_eq!(min_patchless_bit_width(&freq).unwrap(), 4)
     }
 
     #[test]

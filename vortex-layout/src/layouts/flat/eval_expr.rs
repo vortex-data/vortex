@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use vortex_array::ArrayRef;
 use vortex_array::compute::{filter, slice};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
@@ -21,6 +21,8 @@ impl ExprEvaluator for FlatReader {
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
+
+        println!("Array stats {:?}", array.statistics().stats_set());
 
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
