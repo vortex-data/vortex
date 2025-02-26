@@ -1,9 +1,9 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
+use vortex_array::stats::new::{ArrayStats, StatsSetRef};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
@@ -27,7 +27,7 @@ mod variants;
 pub struct SparseArray {
     patches: Patches,
     fill_value: Scalar,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(SparseArray);
@@ -128,8 +128,8 @@ impl ArrayImpl for SparseArray {
 }
 
 impl ArrayStatisticsImpl for SparseArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_set(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

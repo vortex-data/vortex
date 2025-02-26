@@ -10,7 +10,8 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::stats::{Precision, Stat, Statistics};
+use crate::stats::new::{StatsSetRef, StatsWriter};
+use crate::stats::{Precision, Stat};
 use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
@@ -111,7 +112,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
-            .set_stat(Stat::NullCount, Precision::exact(self.len() - count));
+            .set(Stat::NullCount, Precision::exact(self.len() - count));
 
         Ok(count)
     }
@@ -128,7 +129,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         assert!(count <= self.len(), "Invalid count exceeds array length");
 
         self.statistics()
-            .set_stat(Stat::NullCount, Precision::exact(count));
+            .set(Stat::NullCount, Precision::exact(count));
 
         Ok(count)
     }
@@ -179,7 +180,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         Ok(())
     }
 
-    fn statistics(&self) -> &dyn Statistics {
-        self
+    fn statistics(&self) -> StatsSetRef<'_> {
+        self._stats_set()
     }
 }

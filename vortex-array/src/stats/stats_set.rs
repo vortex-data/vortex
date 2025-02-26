@@ -2,10 +2,12 @@ use enum_iterator::{Sequence, all};
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
+use super::new::StatsProvider;
+use crate::stats::new::StatsSetReadExt;
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -126,60 +128,6 @@ impl StatsSet {
 
 // Getters and setters for individual stats.
 impl StatsSet {
-    /// Count of stored stats with known values.
-    pub fn len(&self) -> usize {
-        self.values.as_ref().map_or(0, |v| v.len())
-    }
-
-    /// Predicate equivalent to a [len][Self::len] of zero.
-    pub fn is_empty(&self) -> bool {
-        self.values.as_ref().is_none_or(|v| v.is_empty())
-    }
-
-    pub fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self.values
-            .as_ref()
-            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
-    }
-
-    pub fn get_scalar(&self, stat: Stat, dtype: DType) -> Option<Precision<Scalar>> {
-        self.values.as_ref().and_then(|v| {
-            v.iter()
-                .find(|(s, _)| *s == stat)
-                .map(|(_, v)| v.clone().into_scalar(dtype))
-        })
-    }
-
-    pub fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: DType) -> Option<S::Bound> {
-        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
-    }
-
-    pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<Precision<T>> {
-        self.get(stat).map(|v| {
-            v.map(|v| {
-                T::try_from(&v).unwrap_or_else(|err| {
-                    vortex_panic!(
-                        err,
-                        "Failed to get stat {} as {}",
-                        stat,
-                        std::any::type_name::<T>()
-                    )
-                })
-            })
-        })
-    }
-
-    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
-    where
-        S: StatType<U>,
-        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
-    {
-        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
-    }
-
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
         if self.values.is_none() {
@@ -332,8 +280,8 @@ impl StatsSet {
 
     fn combine_min(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         match (
-            self.get_scalar_bound::<Min>(dtype.clone()),
-            other.get_scalar_bound::<Min>(dtype.clone()),
+            self.get_scalar_bound::<Min>(dtype),
+            other.get_scalar_bound::<Min>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1
@@ -353,8 +301,8 @@ impl StatsSet {
 
     fn combine_max(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         match (
-            self.get_scalar_bound::<Max>(dtype.clone()),
-            other.get_scalar_bound::<Max>(dtype.clone()),
+            self.get_scalar_bound::<Max>(dtype),
+            other.get_scalar_bound::<Max>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1
@@ -397,8 +345,8 @@ impl StatsSet {
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Min>(dtype.clone()),
-            other.get_scalar_bound::<Min>(dtype.clone()),
+            self.get_scalar_bound::<Min>(dtype),
+            other.get_scalar_bound::<Min>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -412,8 +360,8 @@ impl StatsSet {
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Max>(dtype.clone()),
-            other.get_scalar_bound::<Max>(dtype.clone()),
+            self.get_scalar_bound::<Max>(dtype),
+            other.get_scalar_bound::<Max>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -427,8 +375,8 @@ impl StatsSet {
 
     fn merge_sum(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Sum>(dtype.clone()),
-            other.get_scalar_bound::<Sum>(dtype.clone()),
+            self.get_scalar_bound::<Sum>(dtype),
+            other.get_scalar_bound::<Sum>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
@@ -459,8 +407,8 @@ impl StatsSet {
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         let self_const = self.get_as(Stat::IsConstant);
         let other_const = other.get_as(Stat::IsConstant);
-        let self_min = self.get_scalar(Stat::Min, dtype.clone());
-        let other_min = other.get_scalar(Stat::Min, dtype.clone());
+        let self_min = self.get_scalar(Stat::Min, dtype);
+        let other_min = other.get_scalar(Stat::Min, dtype);
 
         if let (
             Some(Precision::Exact(self_const)),
@@ -501,8 +449,8 @@ impl StatsSet {
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
             if let (Some(self_max), Some(other_min)) = (
-                self.get_scalar_bound::<Max>(dtype.clone()),
-                other.get_scalar_bound::<Min>(dtype.clone()),
+                self.get_scalar_bound::<Max>(dtype),
+                other.get_scalar_bound::<Min>(dtype),
             ) {
                 return if cmp(&self_max.max_value(), &other_min.min_value()) {
                     // keep value
@@ -582,6 +530,18 @@ impl StatsSet {
     }
 }
 
+impl StatsProvider for StatsSet {
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+        self.values
+            .as_ref()
+            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
+    }
+
+    fn len(&self) -> usize {
+        self.values.as_ref().map_or(0, |v| v.len())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use enum_iterator::all;
@@ -590,6 +550,7 @@ mod test {
 
     use crate::Array;
     use crate::arrays::PrimitiveArray;
+    use crate::stats::new::{StatsProvider, StatsSetReadExt};
     use crate::stats::{Precision, Stat, StatsSet};
 
     #[test]
@@ -881,7 +842,7 @@ mod test {
             .collect_vec();
         array.statistics().compute_all(&all_stats).unwrap();
 
-        let stats = array.statistics().stats_set();
+        let stats = array.statistics().to_owned();
         for stat in &all_stats {
             assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
         }

@@ -15,6 +15,7 @@ use vortex_flatbuffers::{
 };
 
 use crate::stats::StatsSet;
+use crate::stats::new::StatsWriter;
 use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, ContextRef};
 
 /// Options for serializing an array.
@@ -187,7 +188,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().stats_set().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().to_owned().write_flatbuffer(fbb));
 
         fba::ArrayNode::create(
             fbb,
@@ -259,7 +260,7 @@ impl ArrayParts {
             let decoded_statistics = decoded.statistics();
             StatsSet::read_flatbuffer(&stats)?
                 .into_iter()
-                .for_each(|(stat, val)| decoded_statistics.set_stat(stat, val));
+                .for_each(|(stat, val)| decoded_statistics.set(stat, val));
         }
 
         Ok(decoded)

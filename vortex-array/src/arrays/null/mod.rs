@@ -1,11 +1,10 @@
-use std::sync::{Arc, RwLock};
-
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
 use crate::nbytes::NBytes;
+use crate::stats::new::{ArrayStats, StatsSetRef};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -20,7 +19,7 @@ mod serde;
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct NullEncoding;
@@ -56,8 +55,8 @@ impl ArrayImpl for NullArray {
 }
 
 impl ArrayStatisticsImpl for NullArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_set(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

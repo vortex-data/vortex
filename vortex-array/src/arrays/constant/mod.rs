@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLock};
-
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -8,6 +6,7 @@ use vortex_scalar::Scalar;
 use crate::array::ArrayValidityImpl;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
+use crate::stats::new::{ArrayStats, StatsSetRef};
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId};
 
@@ -20,7 +19,7 @@ mod variants;
 pub struct ConstantArray {
     scalar: Scalar,
     len: usize,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ConstantEncoding;
@@ -40,7 +39,7 @@ impl ConstantArray {
         Self {
             scalar,
             len,
-            stats_set: Arc::new(RwLock::new(stats)),
+            stats_set: ArrayStats::from(stats),
         }
     }
 
@@ -88,8 +87,8 @@ impl ArrayValidityImpl for ConstantArray {
 }
 
 impl ArrayStatisticsImpl for ConstantArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_set(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

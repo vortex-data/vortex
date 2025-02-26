@@ -1,6 +1,7 @@
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::arrays::{ConstantArray, NullArray};
+use crate::stats::new::{StatsSetReadExt, StatsWriter};
 use crate::stats::{Precision, Stat};
 use crate::{Array, ArrayExt, Encoding};
 
@@ -136,7 +137,7 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
     if let Some(is_constant) = is_constant {
         array
             .statistics()
-            .set_stat(Stat::IsConstant, Precision::Exact(is_constant.into()));
+            .set(Stat::IsConstant, Precision::Exact(is_constant.into()));
     }
 
     Ok(is_constant.unwrap_or_default())

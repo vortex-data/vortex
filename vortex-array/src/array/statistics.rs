@@ -4,7 +4,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::compute::{
     IsConstantOpts, MinMaxResult, is_constant, is_constant_opts, min_max, scalar_at, sum,
 };
-use crate::stats::new::StatsSetRef;
+use crate::stats::new::{StatsProvider, StatsSetRef, StatsWriter};
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayImpl};
 
@@ -36,7 +36,7 @@ impl<A: Array + 'static> ArrayStatistics for A {
 }
 
 pub trait ArrayStatisticsImpl {
-    fn _stats_set(&self) -> StatsSetRef;
+    fn _stats_set(&self) -> StatsSetRef<'_>;
 }
 
 impl<A: Array + ArrayImpl> Statistics for A {
@@ -45,7 +45,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
     }
 
     fn stats_set(&self) -> StatsSet {
-        self._stats_set().into()
+        self._stats_set().to_owned()
     }
 
     fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {

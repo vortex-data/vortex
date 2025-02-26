@@ -4,6 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
+use crate::stats::new::{StatsSetReadExt, StatsWriter};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -80,10 +81,10 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     let taken = take_impl(array, indices)?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = taken.statistics().stats_set();
+        let mut stats = taken.statistics().to_owned();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            taken.statistics().set_stat(stat, val)
+            taken.statistics().set(stat, val)
         }
     }
 
@@ -161,7 +162,7 @@ pub fn take_into(
 }
 
 fn derive_take_stats(arr: &dyn Array) -> StatsSet {
-    let stats = arr.statistics().stats_set();
+    let stats = arr.statistics().to_owned();
 
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
 

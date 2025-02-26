@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::VortexResult;
@@ -6,6 +6,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
+use crate::stats::new::{ArrayStats, StatsSetRef};
 use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -20,7 +21,7 @@ mod serde;
 pub struct ExtensionArray {
     dtype: DType,
     storage: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ExtensionEncoding;
@@ -40,7 +41,7 @@ impl ExtensionArray {
         Self {
             dtype: DType::Extension(ext_dtype),
             storage,
-            stats_set: Arc::new(RwLock::new(StatsSet::default())),
+            stats_set: ArrayStats::default(),
         }
     }
 
@@ -72,8 +73,8 @@ impl ArrayImpl for ExtensionArray {
 }
 
 impl ArrayStatisticsImpl for ExtensionArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_set(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
@@ -128,6 +129,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::stats::Precision;
+    use crate::stats::new::StatsSetReadExt;
 
     #[test]
     fn compute_statistics() {

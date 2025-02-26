@@ -22,6 +22,7 @@ use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{FromArrowType, infer_schema};
+use vortex_array::stats::new::StatsSetReadExt;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{ContextRef, stats};
 use vortex_dtype::DType;
@@ -247,16 +248,16 @@ impl FileFormat for VortexFormat {
             .map(|(stats_set, field)| {
                 let null_count = stats_set.get_as::<usize>(Stat::NullCount);
                 let min = stats_set
-                    .get_scalar(Stat::Min, DType::from_arrow(field.as_ref()))
+                    .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
                 let max = stats_set
-                    .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
+                    .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
                 let sum = Stat::Sum
                     .dtype(&DType::from_arrow(field.as_ref()))
-                    .and_then(|dtype| stats_set.get_scalar(Stat::Sum, dtype))
+                    .and_then(|dtype| stats_set.get_scalar(Stat::Sum, &dtype))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
                 ColumnStatistics {
