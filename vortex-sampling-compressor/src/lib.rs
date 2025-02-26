@@ -83,7 +83,7 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
 ];
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<Context> = LazyLock::new(|| {
-    Context::default().with_encodings([
+    Context::default().with_many([
         ALPEncoding.vtable(),
         ALPRDEncoding.vtable(),
         BitPackedEncoding.vtable(),

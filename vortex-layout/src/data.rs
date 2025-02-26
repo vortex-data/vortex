@@ -10,11 +10,11 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
-use crate::context::LayoutContextRef;
+use crate::LayoutId;
+use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
-use crate::{LayoutContext, LayoutId};
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
 /// structure.
@@ -47,7 +47,7 @@ struct ViewedLayout {
     dtype: DType,
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    ctx: LayoutContextRef,
+    ctx: LayoutContext,
 }
 
 impl ViewedLayout {
@@ -90,7 +90,7 @@ impl Layout {
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        ctx: LayoutContextRef,
+        ctx: LayoutContext,
     ) -> Self {
         Self(Inner::Viewed(ViewedLayout {
             name,
@@ -179,7 +179,7 @@ impl Layout {
                     .get(i);
                 let encoding = v
                     .ctx
-                    .lookup_layout(fb.encoding())
+                    .lookup_encoding(fb.encoding())
                     .ok_or_else(|| {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
                     })?
@@ -334,7 +334,7 @@ impl<'a> WriteFlatBuffer for LayoutFlatBufferWriter<'a> {
                 });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
-                let encoding_idx = self.ctx.borrow_mut().layout_idx(&layout.vtable);
+                let encoding_idx = self.ctx.borrow_mut().encoding_idx(&layout.vtable);
 
                 layout::Layout::create(
                     fbb,

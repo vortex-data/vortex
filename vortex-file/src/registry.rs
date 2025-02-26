@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
@@ -12,7 +10,7 @@ use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::{LayoutContext, LayoutContextRef, LayoutVTableRef};
+use vortex_layout::{LayoutContext, LayoutVTableRef};
 
 /// A registry of array and layout implementations that can be used when reading a Vortex file.
 ///
@@ -70,25 +68,25 @@ impl Registry {
                 .array_encodings
                 .get(id)
                 .ok_or_else(|| vortex_err!("Array encoding {} not found in registry", id))?;
-            ctx = ctx.with_encoding(vtable.clone());
+            ctx = ctx.with(vtable.clone());
         }
         Ok(ctx)
     }
 
-    /// Create a new [`LayoutContextRef`] with the provided encodings.
+    /// Create a new [`LayoutContext`] with the provided encodings.
     pub fn new_layout_context<'a>(
         &self,
         encoding_ids: impl Iterator<Item = &'a str>,
-    ) -> VortexResult<LayoutContextRef> {
+    ) -> VortexResult<LayoutContext> {
         let mut ctx = LayoutContext::empty();
         for id in encoding_ids {
             let vtable = self
                 .layout_encodings
                 .get(id)
                 .ok_or_else(|| vortex_err!("Layout encoding {} not found in registry", id))?;
-            ctx = ctx.with_layout(vtable.clone());
+            ctx = ctx.with(vtable.clone());
         }
-        Ok(Arc::new(ctx))
+        Ok(ctx)
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.

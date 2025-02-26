@@ -14,7 +14,7 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{
     FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb,
 };
-use vortex_layout::{Layout, LayoutContext, LayoutContextRef};
+use vortex_layout::{Layout, LayoutContext};
 
 use crate::Registry;
 
@@ -22,7 +22,7 @@ use crate::Registry;
 #[derive(Debug, Clone)]
 pub struct Footer {
     ctx: Context,
-    layout_ctx: LayoutContextRef,
+    layout_ctx: LayoutContext,
     layout: Layout,
     segments: Arc<[Segment]>,
     statistics: Option<Arc<[StatsSet]>>,
@@ -36,7 +36,7 @@ impl Footer {
     /// Panics if the segments are not ordered by byte offset.
     pub fn new(
         ctx: Context,
-        layout_ctx: LayoutContextRef,
+        layout_ctx: LayoutContext,
         root_layout: Layout,
         segments: Arc<[Segment]>,
         statistics: Option<Arc<[StatsSet]>>,
@@ -134,8 +134,8 @@ impl Footer {
         &self.ctx
     }
 
-    /// Returns the [`LayoutContextRef`] of the file.
-    pub fn layout_ctx(&self) -> &LayoutContextRef {
+    /// Returns the [`LayoutContext`] of the file.
+    pub fn layout_ctx(&self) -> &LayoutContext {
         &self.layout_ctx
     }
 

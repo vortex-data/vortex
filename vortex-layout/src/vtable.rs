@@ -44,3 +44,11 @@ pub trait LayoutVTable: Debug + Send + Sync {
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
 }
+
+impl PartialEq for dyn LayoutVTable + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for dyn LayoutVTable + '_ {}
