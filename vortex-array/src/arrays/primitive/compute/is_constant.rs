@@ -23,7 +23,7 @@ fn compute_is_constant<T: NativePType>(values: &[T]) -> bool {
     let first_value = values[0];
 
     for value in &values[1..] {
-        if *value != first_value {
+        if !value.is_eq(first_value) {
             return false;
         }
     }
