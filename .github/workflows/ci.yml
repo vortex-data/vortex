@@ -314,7 +314,7 @@ jobs:
         # For now, we only run Miri against known "fiddly" crates.
         if: false
       - name: Run Miri
-        run: cargo miri nextest run --no-fail-fast -p vortex-buffer
+        run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"
