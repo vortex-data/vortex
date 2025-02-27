@@ -15,10 +15,10 @@ pub trait ArrayStatisticsExt {
 
 impl<A: Array + 'static> ArrayStatisticsExt for A {
     fn is_constant(&self) -> bool {
-        static SKIP_CANONICALIZE: IsConstantOpts = IsConstantOpts {
+        let opts = IsConstantOpts {
             canonicalize: false,
         };
-        is_constant_opts(self, &SKIP_CANONICALIZE)
+        is_constant_opts(self, &opts)
             .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
             .ok()
             .unwrap_or_default()
