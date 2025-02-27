@@ -1,6 +1,6 @@
 use bytes::BytesDictBuilder;
 use primitive::PrimitiveDictBuilder;
-use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::builtins::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_dtype::match_each_native_ptype;

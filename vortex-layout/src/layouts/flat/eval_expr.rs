@@ -52,7 +52,7 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;

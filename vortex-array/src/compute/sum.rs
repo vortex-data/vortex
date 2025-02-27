@@ -154,7 +154,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
 
 #[cfg(test)]
 mod test {
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::builtins::{BoolArray, PrimitiveArray};
     use crate::compute::sum;
 
     #[test]

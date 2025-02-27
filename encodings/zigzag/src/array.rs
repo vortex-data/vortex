@@ -1,4 +1,4 @@
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};

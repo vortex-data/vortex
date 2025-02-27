@@ -4,7 +4,7 @@ pub mod vortex;
 
 use std::sync::Arc;
 
-use ::vortex::arrays::ChunkedArray;
+use ::vortex::builtins::ChunkedArray;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
 

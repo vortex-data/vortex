@@ -21,11 +21,11 @@ use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 
-use crate::arrays::{
+use crate::arrow::FromArrowArray;
+use crate::builtins::{
     BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray,
     VarBinViewArray,
 };
-use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
 

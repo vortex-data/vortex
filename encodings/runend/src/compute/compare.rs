@@ -1,4 +1,4 @@
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::{CompareFn, Operator, compare};
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_error::VortexResult;
@@ -38,7 +38,7 @@ impl CompareFn<&RunEndArray> for RunEndEncoding {
 }
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};
+    use vortex_array::builtins::{BooleanBuffer, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::{Array, ToCanonical};
 

@@ -18,7 +18,7 @@ impl ScalarAtFn<&BitPackedArray> for BitPackedEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::scalar_at;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;

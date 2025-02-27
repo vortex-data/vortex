@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err, vor
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, ConstantArray};
+use crate::builtins::{BoolArray, ConstantArray};
 use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
 use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
@@ -482,7 +482,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::array::Array;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::builtins::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::{ArrayRef, IntoArray};
 

@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_array::arrays::StructArray;
+use vortex_array::builtins::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
@@ -142,7 +142,7 @@ impl VortexExpr for Merge {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::builtins::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{VortexResult, vortex_bail, vortex_err};

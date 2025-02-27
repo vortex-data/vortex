@@ -9,7 +9,7 @@ use object_store::local::LocalFileSystem;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use url::Url;
-use vortex_array::arrays::{ChunkedArray, StructArray, VarBinArray};
+use vortex_array::builtins::{ChunkedArray, StructArray, VarBinArray};
 use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};

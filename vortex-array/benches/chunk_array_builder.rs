@@ -1,8 +1,8 @@
 use divan::Bencher;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::arrays::{BoolArray, ChunkedArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
+use vortex_array::builtins::{BoolArray, ChunkedArray};
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -219,7 +219,7 @@ impl StatisticsVTable<&ALPRDArray> for ALPRDEncoding {}
 mod test {
     use rstest::rstest;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
 
     use crate::{ALPRDFloat, alp_rd};
 

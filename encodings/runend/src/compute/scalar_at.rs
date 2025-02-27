@@ -13,7 +13,7 @@ impl ScalarAtFn<&RunEndArray> for RunEndEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::scalar_at;
 
     use crate::RunEndArray;

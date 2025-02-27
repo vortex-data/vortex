@@ -21,11 +21,11 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 
-use crate::arrays::{
+use crate::builders::ArrayBuilder;
+use crate::builtins::{
     BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
-use crate::builders::ArrayBuilder;
 use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};

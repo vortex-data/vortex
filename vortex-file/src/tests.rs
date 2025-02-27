@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{
+use vortex_array::builtins::{
     ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex_array::compute::scalar_at;

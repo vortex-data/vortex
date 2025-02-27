@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::builtins::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
 use vortex_array::{Array, ArrayRef, Encoding, IntoArray, ToCanonical};
 use vortex_buffer::buffer;

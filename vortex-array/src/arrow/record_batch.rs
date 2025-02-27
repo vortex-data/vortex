@@ -3,8 +3,8 @@ use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
-use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::builtins::StructArray;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, ToCanonical, TryIntoArray};
 

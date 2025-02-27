@@ -1,7 +1,7 @@
 //! Dictionary compressor that reuses the unique values in the `IntegerStats`.
 
 use vortex_array::Array;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
@@ -105,7 +105,7 @@ impl_encode!(i64);
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::builtins::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 

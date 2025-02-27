@@ -1,5 +1,5 @@
 use vortex_array::Array;
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::scalar_at;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;

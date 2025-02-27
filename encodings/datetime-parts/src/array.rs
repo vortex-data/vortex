@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::StructArray;
+use vortex_array::builtins::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;

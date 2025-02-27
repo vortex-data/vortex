@@ -1,4 +1,4 @@
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::{BinaryNumericFn, binary_numeric};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
@@ -34,7 +34,7 @@ impl BinaryNumericFn<&RunEndArray> for RunEndEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
 
     use crate::RunEndArray;

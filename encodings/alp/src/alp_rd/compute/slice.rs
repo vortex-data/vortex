@@ -28,7 +28,7 @@ impl SliceFn<&ALPRDArray> for ALPRDEncoding {
 mod test {
     use rstest::rstest;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::slice;
 
     use crate::{ALPRDFloat, RDEncoder};

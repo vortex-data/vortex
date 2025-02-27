@@ -2,7 +2,7 @@ mod compare;
 
 use std::fmt::Debug;
 
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::{
     BetweenFn, BetweenOptions, CompareFn, FilterFn, ScalarAtFn, SliceFn, StrictComparison, TakeFn,
     between, filter, scalar_at, slice, take,
@@ -184,7 +184,7 @@ where
 mod tests {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
     use crate::ALPArray;

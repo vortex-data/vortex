@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::arrays::StructArray;
 use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use vortex_array::builtins::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;

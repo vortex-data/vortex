@@ -13,7 +13,7 @@ use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
-use crate::arrays::PrimitiveArray;
+use crate::builtins::PrimitiveArray;
 use crate::compute::{
     SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, search_sorted_usize,
     search_sorted_usize_many, slice, take, try_cast,
@@ -564,7 +564,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::array::Array;
-    use crate::arrays::PrimitiveArray;
+    use crate::builtins::PrimitiveArray;
     use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
     use crate::validity::Validity;

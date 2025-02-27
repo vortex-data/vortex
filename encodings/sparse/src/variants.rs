@@ -103,7 +103,7 @@ impl ExtensionArrayTrait for SparseArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::BoolArray;
+    use vortex_array::builtins::BoolArray;
     use vortex_array::compute::invert;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;

@@ -29,7 +29,7 @@ impl FilterFn<&ALPRDArray> for ALPRDEncoding {
 mod test {
     use rstest::rstest;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

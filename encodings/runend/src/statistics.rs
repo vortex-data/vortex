@@ -147,7 +147,7 @@ impl RunEndArray {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::arrays::BoolArray;
+    use vortex_array::builtins::BoolArray;
     use vortex_array::compute::slice;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;

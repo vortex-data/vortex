@@ -23,7 +23,7 @@ impl MaskFn<&ALPRDArray> for ALPRDEncoding {
 mod tests {
     use rstest::rstest;
     use vortex_array::Array;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::test_harness::test_mask;
 
     use crate::{ALPRDFloat, RDEncoder};

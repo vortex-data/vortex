@@ -1,6 +1,6 @@
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::arrays::{ConstantArray, NullArray};
+use crate::builtins::{ConstantArray, NullArray};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::{Array, ArrayExt, Encoding};
 

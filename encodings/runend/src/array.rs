@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };

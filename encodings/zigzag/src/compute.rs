@@ -95,7 +95,7 @@ impl ZigZagEncoded for u64 {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
+    use vortex_array::builtins::{BooleanBuffer, PrimitiveArray};
     use vortex_array::compute::{
         SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, take,
     };

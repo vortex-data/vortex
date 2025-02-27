@@ -145,7 +145,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at, search_sorted};
 
     use crate::for_compress;

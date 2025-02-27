@@ -44,7 +44,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::{Array, ToCanonical};
 

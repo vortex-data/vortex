@@ -6,8 +6,8 @@ use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::StructScalar;
 
-use crate::arrays::StructArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
+use crate::builtins::StructArray;
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::{Array, ArrayRef, Canonical};

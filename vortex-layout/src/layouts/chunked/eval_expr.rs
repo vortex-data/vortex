@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::builtins::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;

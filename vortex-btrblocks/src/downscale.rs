@@ -1,4 +1,4 @@
-use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
+use vortex_array::builtins::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
 use vortex_array::stats::Stat;
 use vortex_array::vtable::EncodingVTable;

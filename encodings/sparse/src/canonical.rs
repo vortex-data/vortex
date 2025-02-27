@@ -1,4 +1,4 @@
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::builtins::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayCanonicalImpl, Canonical};
@@ -83,7 +83,7 @@ fn canonicalize_sparse_primitives<
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::{BoolArray, BooleanBufferBuilder, PrimitiveArray};
+    use vortex_array::builtins::{BoolArray, BooleanBufferBuilder, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;

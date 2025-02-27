@@ -5,7 +5,7 @@ use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -155,7 +155,7 @@ mod private {
 #[cfg(test)]
 mod test {
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::scalar_at;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;

@@ -4,7 +4,7 @@ use divan::Bencher;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::builtins::ChunkedArray;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 

@@ -13,8 +13,8 @@ use datafusion_physical_expr::{EquivalenceProperties, create_physical_expr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::infer_schema;
+use vortex_array::builtins::ChunkedArray;
 use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::ExprRef;
@@ -185,7 +185,7 @@ mod test {
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{BinaryExpr, Expr, Operator, and, col, lit};
-    use vortex_array::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
+    use vortex_array::builtins::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex_array::{Array, ArrayRef};
 
     use crate::{SessionContextExt as _, can_be_pushed_down};

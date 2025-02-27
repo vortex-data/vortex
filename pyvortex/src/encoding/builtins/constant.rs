@@ -1,5 +1,5 @@
 use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
-use vortex::arrays::ConstantEncoding;
+use vortex::builtins::ConstantEncoding;
 
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
 use crate::scalar::PyScalar;

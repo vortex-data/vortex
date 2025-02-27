@@ -96,7 +96,7 @@ impl PartialEq for GetItem {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::StructArray;
+    use vortex_array::builtins::StructArray;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::PType::I32;

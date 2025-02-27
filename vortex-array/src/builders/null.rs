@@ -3,8 +3,8 @@ use std::any::Any;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
+use crate::builtins::NullArray;
 use crate::{Array, ArrayRef};
 
 pub struct NullBuilder {

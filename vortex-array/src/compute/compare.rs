@@ -7,8 +7,8 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::builtins::ConstantArray;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -257,7 +257,7 @@ mod tests {
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::{BoolArray, ConstantArray};
+    use crate::builtins::{BoolArray, ConstantArray};
     use crate::validity::Validity;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {

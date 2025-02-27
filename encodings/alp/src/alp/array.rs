@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;

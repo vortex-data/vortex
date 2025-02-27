@@ -4,8 +4,8 @@ use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -540,7 +540,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
 pub mod test_harness {
     use rand::Rng as _;
     use rand::rngs::StdRng;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
@@ -580,7 +580,7 @@ pub mod test_harness {
 mod test {
     use rand::SeedableRng as _;
     use rand::rngs::StdRng;
-    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::builtins::ChunkedArray;
     use vortex_array::compute::slice;
     use vortex_array::{ArrayExt, ToCanonical as _};
     use vortex_buffer::buffer;

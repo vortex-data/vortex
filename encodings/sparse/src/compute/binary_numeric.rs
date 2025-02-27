@@ -1,4 +1,4 @@
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::{BinaryNumericFn, binary_numeric};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexResult, vortex_err};

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use vortex::arrays::ChunkedArray;
+use vortex::builtins::ChunkedArray;
 use vortex::dtype::FieldName;
 use vortex::{Array, ArrayExt, ArrayRef, ToCanonical};
 

@@ -1,7 +1,7 @@
 mod compare;
 
-use vortex_array::arrays::varbin_scalar;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builtins::varbin_scalar;
 use vortex_array::compute::{
     CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };

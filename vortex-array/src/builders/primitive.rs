@@ -7,9 +7,9 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builtins::{BoolArray, PrimitiveArray};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};

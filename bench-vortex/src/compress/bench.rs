@@ -6,7 +6,7 @@ use bytes::Bytes;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
 use tokio::runtime::Runtime;
-use vortex::arrays::ChunkedArray;
+use vortex::builtins::ChunkedArray;
 use vortex::nbytes::NBytes;
 use vortex::{ArrayExt, ArrayRef};
 

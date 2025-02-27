@@ -4,7 +4,7 @@ use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
@@ -371,7 +371,7 @@ mod tests {
     use std::iter;
 
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
 

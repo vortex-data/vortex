@@ -4,7 +4,7 @@ use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, RandomState};
-use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::builtins::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_buffer::{BufferMut, ByteBufferMut};
@@ -154,7 +154,7 @@ mod test {
 
     use vortex_array::ToCanonical;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::arrays::VarBinArray;
+    use vortex_array::builtins::VarBinArray;
 
     use crate::builders::dict_encode;
 

@@ -4,7 +4,7 @@ use divan::Bencher;
 use itertools::repeat_n;
 use num_traits::PrimInt;
 use vortex_array::Array;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;

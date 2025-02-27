@@ -1,7 +1,7 @@
 use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
+use vortex_array::builtins::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;

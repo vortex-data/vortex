@@ -105,22 +105,22 @@ mod tests {
     use arrow_buffer::NullBuffer;
 
     use crate::array::Array;
-    use crate::arrays;
     use crate::arrow::infer_data_type;
+    use crate::builtins;
     use crate::compute::to_arrow;
 
     #[test]
     fn test_to_arrow() {
-        let array = arrays::StructArray::from_fields(
+        let array = builtins::StructArray::from_fields(
             vec![
                 (
                     "a",
-                    arrays::PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)])
+                    builtins::PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)])
                         .into_array(),
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    builtins::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
                 ),
             ]
             .as_slice(),

@@ -8,7 +8,7 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng as _, SeedableRng as _};
-use vortex_array::arrays::BooleanBuffer;
+use vortex_array::builtins::BooleanBuffer;
 use vortex_array::compute::filter;
 use vortex_array::{Array, IntoArray as _, ToCanonical};
 use vortex_buffer::BufferMut;

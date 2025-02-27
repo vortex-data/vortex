@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use rand::{Rng, SeedableRng};
-use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
+use vortex::builtins::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::validity::Validity;

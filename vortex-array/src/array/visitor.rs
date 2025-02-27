@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 
-use crate::arrays::ConstantArray;
+use crate::builtins::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayImpl, ArrayRef, DeserializeMetadata, EmptyMetadata, SerializeMetadata};

@@ -14,7 +14,7 @@ use log::{debug, info};
 use reqwest::Url;
 use tokio::fs::File;
 use vortex::aliases::hash_map::HashMap;
-use vortex::arrays::ChunkedArray;
+use vortex::builtins::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;

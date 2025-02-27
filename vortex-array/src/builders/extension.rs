@@ -5,8 +5,8 @@ use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::ExtScalar;
 
-use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builtins::ExtensionArray;
 use crate::{Array, ArrayRef, Canonical};
 
 pub struct ExtensionBuilder {

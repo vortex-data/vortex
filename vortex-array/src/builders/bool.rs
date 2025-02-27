@@ -4,9 +4,9 @@ use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builtins::BoolArray;
 use crate::{Array, ArrayRef, Canonical};
 
 pub struct BoolBuilder {
@@ -107,8 +107,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::array::Array;
-    use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
+    use crate::builtins::{BoolArray, ChunkedArray};
     use crate::canonical::ToCanonical;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {

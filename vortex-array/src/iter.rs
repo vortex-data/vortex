@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::ChunkedArray;
+use crate::builtins::ChunkedArray;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{Array, ArrayExt, ArrayRef};
 

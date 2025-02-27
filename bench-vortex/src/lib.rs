@@ -21,7 +21,7 @@ use datafusion_physical_plan::{ExecutionPlan, collect};
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
+use vortex::builtins::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;

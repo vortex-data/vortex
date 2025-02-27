@@ -18,8 +18,8 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Plan
 use futures::{Stream, ready};
 use itertools::Itertools;
 use pin_project::pin_project;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::builtins::ChunkedArray;
 use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
@@ -394,8 +394,8 @@ mod test {
     use datafusion_expr::{and, col, lit};
     use datafusion_physical_expr::create_physical_expr;
     use itertools::Itertools;
-    use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
+    use vortex_array::builtins::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;

@@ -1,4 +1,4 @@
-use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+use vortex_array::builtins::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -64,7 +64,7 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::builtins::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;

@@ -3,8 +3,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::builtins::ConstantArray;
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
@@ -121,7 +121,7 @@ pub mod test_harness {
     use vortex_mask::Mask;
 
     use crate::Array;
-    use crate::arrays::BoolArray;
+    use crate::builtins::BoolArray;
     use crate::compute::{mask, scalar_at};
 
     pub fn test_mask(array: &dyn Array) {
@@ -211,7 +211,7 @@ pub mod test_harness {
 #[cfg(test)]
 mod test {
     use super::test_harness::test_mask;
-    use crate::arrays::PrimitiveArray;
+    use crate::builtins::PrimitiveArray;
 
     #[test]
     fn test_mask_non_nullable_array() {

@@ -194,7 +194,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::arrays::BoolArray;
+    use crate::builtins::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
 

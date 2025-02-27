@@ -1,4 +1,4 @@
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::{CompareFn, Operator, and, compare, or, try_cast};
 use vortex_array::{Array, ArrayRef};
 use vortex_datetime_dtype::TemporalMetadata;
@@ -153,7 +153,7 @@ fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<Ar
 #[cfg(test)]
 mod test {
     use vortex_array::ArrayVariants;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::builtins::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

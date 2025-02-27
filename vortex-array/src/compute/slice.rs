@@ -130,7 +130,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::Array;
-    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::builtins::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::stats::{Precision, STATS_TO_WRITE, Stat, StatsProviderExt};
 

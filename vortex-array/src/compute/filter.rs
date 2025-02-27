@@ -5,8 +5,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::builtins::{BoolArray, ConstantArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
@@ -174,7 +174,7 @@ impl TryFrom<&dyn Array> for Mask {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::builtins::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
 
     #[test]

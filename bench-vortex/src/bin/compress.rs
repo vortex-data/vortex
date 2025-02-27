@@ -12,8 +12,8 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
-use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
+use vortex::builtins::ChunkedArray;
 use vortex::{Array, ArrayExt};
 
 feature_flagged_allocator!();

@@ -4,12 +4,12 @@ use std::sync::Arc;
 use tabled::builder::Builder;
 use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
-use vortex::arrays::builder::VarBinBuilder;
-use vortex::arrays::{
+use vortex::buffer::buffer;
+use vortex::builtins::builder::VarBinBuilder;
+use vortex::builtins::{
     BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
-use vortex::buffer::buffer;
 use vortex::datetime_dtype::{TIME_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};

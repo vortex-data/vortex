@@ -111,7 +111,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
 
-    use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
+    use crate::builtins::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{MinMaxResult, min_max};
     use crate::validity::Validity;
 

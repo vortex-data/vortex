@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;

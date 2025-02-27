@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::builtins::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayRef, Canonical};

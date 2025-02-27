@@ -221,8 +221,8 @@ mod test {
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
+    use vortex_array::builtins::{ChunkedArray, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;

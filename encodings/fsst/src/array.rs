@@ -1,5 +1,5 @@
 use fsst::{Decompressor, Symbol};
-use vortex_array::arrays::VarBinEncoding;
+use vortex_array::builtins::VarBinEncoding;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{StatisticsVTable, VTableRef};

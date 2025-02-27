@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -297,7 +297,7 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
 

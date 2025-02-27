@@ -186,7 +186,7 @@ impl Stream for ArrayStreamIPCBytes {
 #[cfg(test)]
 mod test {
     use futures_util::io::Cursor;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::stream::{ArrayStream, ArrayStreamArrayExt, ArrayStreamExt};
     use vortex_array::{Array, ToCanonical};
 

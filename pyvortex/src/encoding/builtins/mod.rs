@@ -6,7 +6,7 @@ pub(crate) use chunked::*;
 pub(crate) use constant::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
-use vortex::arrays::{
+use vortex::builtins::{
     BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };

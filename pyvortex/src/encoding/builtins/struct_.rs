@@ -1,5 +1,5 @@
 use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
-use vortex::arrays::StructEncoding;
+use vortex::builtins::StructEncoding;
 use vortex::variants::StructArrayTrait;
 
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};

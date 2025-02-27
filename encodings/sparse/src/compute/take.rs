@@ -1,4 +1,4 @@
-use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ConstantArray;
 use vortex_array::compute::TakeFn;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
@@ -25,7 +25,7 @@ impl TakeFn<&SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};

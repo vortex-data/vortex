@@ -3,7 +3,7 @@
 use std::str::from_utf8;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
+use vortex_array::builtins::{ConstantArray, VarBinArray, VarBinViewArray};
 use vortex_array::compute::{Operator, compare};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};

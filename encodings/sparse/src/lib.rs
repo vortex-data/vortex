@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::BooleanBufferBuilder;
+use vortex_array::builtins::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
@@ -224,7 +224,7 @@ impl StatisticsVTable<&SparseArray> for SparseEncoding {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantArray;
+    use vortex_array::builtins::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;

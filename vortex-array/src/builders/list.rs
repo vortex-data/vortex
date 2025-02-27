@@ -6,9 +6,9 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
-use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
+use crate::builtins::{ConstantArray, ListArray, OffsetPType};
 use crate::compute::{binary_numeric, slice, try_cast};
 use crate::{Array, ArrayRef};
 
@@ -178,9 +178,9 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
+    use crate::builtins::{ChunkedArray, ListArray, OffsetPType};
     use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{IntoArray as _, ToCanonical};

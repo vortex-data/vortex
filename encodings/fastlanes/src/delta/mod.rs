@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 pub use compress::*;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;

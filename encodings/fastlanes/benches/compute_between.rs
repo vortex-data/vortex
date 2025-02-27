@@ -2,7 +2,7 @@ use num_traits::NumCast;
 use rand::Rng;
 use rand::rngs::StdRng;
 use vortex_alp::{ALPArray, alp_encode};
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::PrimitiveArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
@@ -60,7 +60,7 @@ mod primitive {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::Array;
-    use vortex_array::arrays::ConstantArray;
+    use vortex_array::builtins::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
         BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
@@ -129,7 +129,7 @@ mod bitpack {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use vortex_array::arrays::ConstantArray;
+    use vortex_array::builtins::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
         BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
@@ -197,7 +197,7 @@ mod alp {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use vortex_array::arrays::ConstantArray;
+    use vortex_array::builtins::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
         BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,

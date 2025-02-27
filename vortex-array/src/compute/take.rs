@@ -1,8 +1,8 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
+use crate::builtins::ConstantArray;
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};

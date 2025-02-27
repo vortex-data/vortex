@@ -2,7 +2,7 @@
 
 use divan::Bencher;
 use vortex_array::Array;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::builtins::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_btrblocks::CompressorStats;
 use vortex_btrblocks::integer::IntegerStats;

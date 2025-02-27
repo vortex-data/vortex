@@ -7,7 +7,7 @@ use std::ops::Not;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
-use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
+use vortex_array::builtins::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -752,7 +752,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer_mut};

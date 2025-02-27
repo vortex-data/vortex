@@ -5,11 +5,11 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{
-    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
-};
 use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
+use crate::builtins::{
+    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -223,8 +223,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::array::Array;
-    use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
+    use crate::builtins::{ConstantArray, StructArray};
     use crate::{ArrayRef, IntoArray};
 
     #[test]
