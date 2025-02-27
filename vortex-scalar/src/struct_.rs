@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, Nullability, StructDType};
+use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
@@ -80,14 +80,11 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> VortexResult<Scalar> {
-        let DType::Struct(st, nullability) = self.dtype() else {
+        let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
 
-        let mut field_dtype = st.field_by_index(idx)?;
-        if matches!(nullability, Nullability::Nullable) {
-            field_dtype = field_dtype.with_nullability(Nullability::Nullable);
-        }
+        let field_dtype = st.field_by_index(idx)?;
 
         Ok(match self.fields {
             None => Scalar::null(field_dtype),
