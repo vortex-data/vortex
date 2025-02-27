@@ -91,7 +91,7 @@ impl FilterFn<&ConstantArray> for ConstantEncoding {
 
 impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
     fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {
-        let scalar = array.scalar();
+        Ok(array.scalar().nbytes() * array.len())
     }
 }
 

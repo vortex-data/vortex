@@ -192,14 +192,6 @@ impl ArrayValidityImpl for StructArray {
 impl StatisticsVTable<&StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
-            Stat::UncompressedSizeInBytes => array
-                .fields()
-                .iter()
-                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-                .flatten()
-                .map(|size| StatsSet::of(stat, Precision::exact(size)))
-                .unwrap_or_default(),
             Stat::NullCount => StatsSet::of(
                 stat,
                 Precision::exact(array.validity().null_count(array.len())?),

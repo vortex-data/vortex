@@ -3,10 +3,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use vortex_array::compute::try_cast;
+use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ArrayVariants, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayVariants};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -79,18 +79,9 @@ impl StatsTable {
                 }
                 // These stats sum up
                 Stat::NullCount | Stat::UncompressedSizeInBytes => {
-                    // TODO(ngates): use Stat::Sum when we add it.
-                    let parray =
-                        try_cast(&array, &DType::Primitive(PType::U64, Nullability::Nullable))?
-                            .to_primitive()?;
-                    let validity = parray.validity_mask()?;
-
-                    let sum: u64 = parray
-                        .as_slice::<u64>()
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, v)| validity.value(i).then_some(*v))
-                        .sum();
+                    let sum = sum(&array)?
+                        .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
+                        .into_value();
                     stats_set.set(*stat, Precision::exact(sum));
                 }
                 // We could implement these aggregations in the future, but for now they're unused

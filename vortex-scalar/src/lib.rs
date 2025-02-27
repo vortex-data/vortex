@@ -145,19 +145,26 @@ impl Scalar {
     pub fn nbytes(&self) -> usize {
         match self.dtype() {
             DType::Null => 0,
-            DType::Bool(nullability) => 1,
-            DType::Primitive(ptype, nullability) => ptype.byte_width(),
-
-            DType::Binary(nullability) | DType::Utf8(nullability) => self
+            DType::Bool(_) => 1,
+            DType::Primitive(ptype, _) => ptype.byte_width(),
+            DType::Binary(_) | DType::Utf8(_) => self
                 .value()
                 .as_buffer()
                 .ok()
                 .flatten()
-                .map(|s| s.bytes().len())
+                .map(|s| s.len())
                 .unwrap_or_default(),
-            DType::Struct(struct_dtype, nullability) => todo!(),
-            DType::List(dtype, nullability) => todo!(),
-            DType::Extension(ext_dtype) => todo!(),
+            DType::Struct(_dtype, _) => self
+                .as_struct()
+                .fields()
+                .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
+                .unwrap_or_default(),
+            DType::List(_dtype, _) => self
+                .as_list()
+                .elements()
+                .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
+                .unwrap_or_default(),
+            DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
         }
     }
 }

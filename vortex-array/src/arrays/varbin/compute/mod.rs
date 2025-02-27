@@ -7,7 +7,7 @@ use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::{VarBinArray, varbin_scalar};
 use crate::compute::{
     CastFn, CompareFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
-    ToArrowFn,
+    ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -20,6 +20,7 @@ mod min_max;
 mod slice;
 mod take;
 pub(crate) mod to_arrow;
+mod uncompressed_size;
 
 impl ComputeVTable for VarBinEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
@@ -59,6 +60,10 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }

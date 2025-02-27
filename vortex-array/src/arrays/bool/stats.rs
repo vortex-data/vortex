@@ -8,16 +8,11 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<&BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
-        if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
-        }
-
         if array.is_empty() {
             return Ok(StatsSet::new_unchecked(vec![
                 (Stat::Sum, Precision::exact(0)),
