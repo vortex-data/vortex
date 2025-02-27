@@ -76,7 +76,8 @@ impl ErasedStats {
             ErasedStats::I8(x) => (x.max as i16 - x.min as i16) as u64,
             ErasedStats::I16(x) => (x.max as i32 - x.min as i32) as u64,
             ErasedStats::I32(x) => (x.max as i64 - x.min as i64) as u64,
-            ErasedStats::I64(x) => (x.max as i128 - x.min as i128) as u64,
+            ErasedStats::I64(x) => u64::try_from(x.max as i128 - x.min as i128)
+                .vortex_expect("max minus min result bigger than u64"),
         }
     }
 
