@@ -80,19 +80,17 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> VortexResult<Scalar> {
-        match self.fields {
-            None => vortex_panic!("Can't take field {idx} out of null struct scalar"),
-            Some(fields) => {
-                let DType::Struct(st, _) = self.dtype() else {
-                    unreachable!()
-                };
+        let fields = self
+            .fields
+            .vortex_expect("Can't take field out of null struct scalar");
+        let DType::Struct(st, _) = self.dtype() else {
+            unreachable!()
+        };
 
-                Ok(Scalar {
-                    dtype: st.field_by_index(idx)?,
-                    value: fields[idx].clone(),
-                })
-            }
-        }
+        Ok(Scalar {
+            dtype: st.field_by_index(idx)?,
+            value: fields[idx].clone(),
+        })
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
