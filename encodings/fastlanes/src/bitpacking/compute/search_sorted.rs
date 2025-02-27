@@ -109,7 +109,7 @@ where
     //  is cheap and safe.
     let Ok(unsigned_value) = value.cast(&DType::from(array.ptype().to_unsigned())) else {
         // If the value can't be casted to unsigned dtype then it can't exist in the array and would be smaller than any value present but bigger than any nulls
-        return Ok(SearchResult::NotFound(array.invalid_count()?));
+        return Ok(SearchResult::NotFound(array.null_count()?));
     };
     let native_value: T = unsigned_value.try_into()?;
     search_sorted_native(array, native_value, side)
@@ -159,7 +159,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             .transpose()?
             .unwrap_or_else(|| array.len());
         // In sorted order, nulls come before all the non-null values, i.e. we skip invalid_count worth of entries from beginning
-        let first_non_null_idx = array.invalid_count()?;
+        let first_non_null_idx = array.null_count()?;
 
         Ok(Self {
             packed_as_slice: array.packed_slice::<T>(),

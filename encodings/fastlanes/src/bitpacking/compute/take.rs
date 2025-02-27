@@ -234,6 +234,6 @@ mod test {
         .to_primitive()
         .unwrap();
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
-        assert_eq!(taken_primitive.invalid_count().unwrap(), 1);
+        assert_eq!(taken_primitive.null_count().unwrap(), 1);
     }
 }

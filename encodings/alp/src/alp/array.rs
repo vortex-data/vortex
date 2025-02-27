@@ -121,7 +121,7 @@ impl ArrayValidityImpl for ALPArray {
     }
 
     fn _invalid_count(&self) -> VortexResult<usize> {
-        self.encoded.invalid_count()
+        self.encoded.null_count()
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {

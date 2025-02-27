@@ -176,7 +176,7 @@ impl StatsAccumulator {
 
             // We drop any all-null stats columns
             if values
-                .invalid_count()
+                .null_count()
                 .vortex_expect("failed to get invalid count")
                 == values.len()
             {

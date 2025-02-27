@@ -131,7 +131,7 @@ where
     let primitive_value: T = value.cast(array.dtype())?.as_ref().try_into()?;
     // Make sure that smaller values are still smaller and not larger than (which they would be after wrapping_sub)
     if primitive_value < min {
-        return Ok(SearchResult::NotFound(array.invalid_count()?));
+        return Ok(SearchResult::NotFound(array.null_count()?));
     }
 
     // When the values in the array are shifted, not all values in the domain are representable in the compressed

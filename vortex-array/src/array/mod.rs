@@ -114,7 +114,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     fn valid_count(&self) -> VortexResult<usize>;
 
     /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self) -> VortexResult<usize>;
+    fn null_count(&self) -> VortexResult<usize>;
 
     /// Returns the canonical validity mask for the array.
     fn validity_mask(&self) -> VortexResult<Mask>;
@@ -185,8 +185,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().valid_count()
     }
 
-    fn invalid_count(&self) -> VortexResult<usize> {
-        self.as_ref().invalid_count()
+    fn null_count(&self) -> VortexResult<usize> {
+        self.as_ref().null_count()
     }
 
     fn validity_mask(&self) -> VortexResult<Mask> {

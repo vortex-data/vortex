@@ -10,7 +10,8 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::stats::{Precision, Stat, StatsSetRef};
+use crate::compute::null_count;
+use crate::stats::StatsSetRef;
 use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
@@ -101,36 +102,15 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     /// Returns the number of valid elements in the array.
     fn valid_count(&self) -> VortexResult<usize> {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(self.len() - invalid_count);
-        }
+        let null_count = self.null_count()?;
+        let valid_count = self.len() - null_count;
 
-        let count = ArrayValidityImpl::_valid_count(self)?;
-        assert!(count <= self.len(), "Valid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(self.len() - count));
-
-        Ok(count)
+        Ok(valid_count)
     }
 
     /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self) -> VortexResult<usize> {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(invalid_count);
-        }
-
-        let count = ArrayValidityImpl::_invalid_count(self)?;
-        assert!(count <= self.len(), "Invalid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(count));
-
-        Ok(count)
+    fn null_count(&self) -> VortexResult<usize> {
+        null_count(self)
     }
 
     /// Returns the canonical validity mask for the array.
