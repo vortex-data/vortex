@@ -375,7 +375,7 @@ mod tests {
             let dtype = &*ffi_dtype;
 
             assert_eq!(dtype.dtype, DTYPE_BOOL);
-            assert_eq!(dtype.nullable, true);
+            assert!(dtype.nullable);
             assert!(dtype.type_info.is_none());
 
             // Free the memory.
@@ -389,12 +389,9 @@ mod tests {
             let name = FFIDType_new(DTYPE_UTF8, false);
             let age = FFIDType_new(DTYPE_PRIMITIVE_U8, true);
 
-            let names = vec![
-                CStr::from_bytes_with_nul(b"name\0").unwrap().as_ptr(),
-                CStr::from_bytes_with_nul(b"age\0").unwrap().as_ptr(),
-            ];
+            let names = [c"name".as_ptr(), c"age".as_ptr()];
 
-            let dtypes = vec![name, age];
+            let dtypes = [name, age];
 
             let person = FFIDType_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
 
@@ -405,14 +402,8 @@ mod tests {
             let name1 = FFIDType_field_name(&*person, 1);
 
             // Check that name0 and name1 are correct
-            assert_eq!(
-                CStr::from_ptr(name0),
-                CStr::from_bytes_with_nul(b"name\0").unwrap(),
-            );
-            assert_eq!(
-                CStr::from_ptr(name1),
-                CStr::from_bytes_with_nul(b"age\0").unwrap()
-            );
+            assert_eq!(CStr::from_ptr(name0), c"name",);
+            assert_eq!(CStr::from_ptr(name1), c"age");
 
             let dtype0 = FFIDType_field_dtype(&*person, 0);
             let dtype1 = FFIDType_field_dtype(&*person, 1);
