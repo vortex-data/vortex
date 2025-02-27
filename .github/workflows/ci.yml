@@ -283,6 +283,7 @@ jobs:
       - run: cargo build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
+        working-directory: ./wasm-test
 
   miri:
     name: "miri"
