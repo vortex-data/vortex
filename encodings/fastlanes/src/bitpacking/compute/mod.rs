@@ -17,8 +17,8 @@ mod take;
 
 impl ComputeVTable for BitPackedEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        None
-        // Some(self)
+        // None
+        Some(self)
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
