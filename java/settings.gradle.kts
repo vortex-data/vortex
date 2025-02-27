@@ -16,7 +16,7 @@ rootProject.name = "vortex-root"
 
 // API bindings
 include("vortex-jni")
-// include("vortex-spark")
+include("vortex-spark")
 
 // Integration tests
 // include("ete")

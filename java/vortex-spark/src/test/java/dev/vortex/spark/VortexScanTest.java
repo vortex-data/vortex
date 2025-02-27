@@ -22,26 +22,6 @@ import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
     @Test
-    public void testScan() {
-        var file = FFIFile_open("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed/lineitem.vortex");
-        var stream = FFIFile_scan(file);
-
-        long batchCount = 0;
-        long rowCount = 0;
-        while (FFIArrayStream_next(stream)) {
-            var batch = FFIArrayStream_current(stream);
-            var len = FFIArray_len(batch);
-            rowCount += len;
-            FFIArray_free(batch);
-
-            batchCount += 1;
-        }
-
-        // Close the resources
-        FFIArrayStream_free(stream);
-        FFIFile_free(file);
-
-        assertEquals(6001215, rowCount);
-        assertEquals(58, batchCount);
+    public void testSparkRead() {
     }
 }

@@ -15,13 +15,40 @@
  */
 package dev.vortex.jni;
 
+import dev.vortex.api.DType;
+import dev.vortex.api.File;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 import static dev.vortex.jni.FFI.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.nio.file.Paths;
-import org.junit.jupiter.api.Test;
-
 public final class FFITest {
+    private static final Path LINEITEM = Paths.get(".")
+            .toAbsolutePath()
+            .getParent()
+            .getParent()
+            .getParent()
+            .resolve("bench-vortex/data/tpch/1/vortex_compressed/lineitem.vortex")
+            .toAbsolutePath();
+
+    @Test
+    public void testDType() {
+        // Provide a simple test for DType checking.
+        var lineitem = FFIFile_open(LINEITEM.toString());
+        var ffiDtype = FFIFile_dtype(lineitem);
+
+        try (File lineitem = File.open(LINEITEM.toString())) {
+        }
+
+        try (DType dtype = new DType(ffiDtype)) {
+            System.out.println("dtype: " + dtype);
+        }
+
+    }
+
     @Test
     public void testScan() {
         var path = Paths.get(".")
