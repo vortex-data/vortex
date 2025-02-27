@@ -80,22 +80,19 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> VortexResult<Scalar> {
-        let DType::Struct(st, _) = self.dtype() else {
-            unreachable!()
-        };
-
-        let field_dtype = st.field_by_index(idx)?;
-
-        Ok(match self.fields {
-            None => Scalar::null(field_dtype.as_nullable()),
+        match self.fields {
+            None => vortex_panic!("Can't take field {idx} out of null struct scalar"),
             Some(fields) => {
-                let value = &fields[idx];
-                Scalar {
-                    dtype: field_dtype,
-                    value: value.clone(),
-                }
+                let DType::Struct(st, _) = self.dtype() else {
+                    unreachable!()
+                };
+
+                Ok(Scalar {
+                    dtype: st.field_by_index(idx)?,
+                    value: fields[idx].clone(),
+                })
             }
-        })
+        }
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
@@ -227,22 +224,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn test_struct_scalar_null() {
-        let (f0_dt, f1_dt, dtype) = setup_types();
+        let (_, _, dtype) = setup_types();
 
         let scalar = Scalar::null(dtype);
 
-        let scalar_f0 = scalar.as_struct().field_by_idx(0);
-        assert!(scalar_f0.is_ok());
-        let scalar_f0 = scalar_f0.unwrap();
-        assert_eq!(scalar_f0, Scalar::null(f0_dt.as_nullable()));
-        assert_eq!(scalar_f0.dtype(), &f0_dt.as_nullable());
-
-        let scalar_f1 = scalar.as_struct().field_by_idx(1);
-        assert!(scalar_f1.is_ok());
-        let scalar_f1 = scalar_f1.unwrap();
-        assert_eq!(scalar_f1, Scalar::null(f1_dt.as_nullable()));
-        assert_eq!(scalar_f1.dtype(), &f1_dt.as_nullable());
+        scalar.as_struct().field_by_idx(0).unwrap();
     }
 
     #[test]
