@@ -111,17 +111,8 @@ pub use generic::*;
 pub use memory::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, Encoding};
-use vortex_bytebool::ByteBoolEncoding;
-use vortex_datetime_parts::DateTimePartsEncoding;
-use vortex_dict::DictEncoding;
-use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
-use vortex_fsst::FSSTEncoding;
+use vortex_array::ArrayRegistry;
 pub use vortex_layout::scan::*;
-use vortex_runend::RunEndEncoding;
-use vortex_sparse::SparseEncoding;
-use vortex_zigzag::ZigZagEncoding;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -163,29 +154,29 @@ pub static FULL_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
     let registry = ArrayRegistry::default().register_many([
         #[cfg(feature = "alp")]
-        ALPEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_alp::ALPEncoding),
         #[cfg(feature = "alp")]
-        ALPRDEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_alp::ALPRDEncoding),
         #[cfg(feature = "fastlanes")]
-        BitPackedEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_fastlanes::BitPackedEncoding),
         #[cfg(feature = "bytebool")]
-        ByteBoolEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_bytebool::ByteBoolEncoding),
         #[cfg(feature = "datetime_parts")]
-        DateTimePartsEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_datetime_parts::DateTimePartsEncoding),
         #[cfg(feature = "fastlanes")]
-        DeltaEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_fastlanes::DeltaEncoding),
         #[cfg(feature = "dict")]
-        DictEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_dict::DictEncoding),
         #[cfg(feature = "fastlanes")]
-        FoREncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_fastlanes::FoREncoding),
         #[cfg(feature = "fsst")]
-        FSSTEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_fsst::FSSTEncoding),
         #[cfg(feature = "runend")]
-        RunEndEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_runend::RunEndEncoding),
         #[cfg(feature = "sparse")]
-        SparseEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_sparse::SparseEncoding),
         #[cfg(feature = "zigzag")]
-        ZigZagEncoding.vtable(),
+        vortex_array::Encoding::vtable(&vortex_zigzag::ZigZagEncoding),
     ]);
     Arc::new(registry)
 });
