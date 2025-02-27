@@ -24,7 +24,8 @@ use vortex::arrays::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
-use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex::file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 use vortex_datafusion::persistent::VortexFormat;
@@ -349,7 +350,10 @@ async fn register_vortex_file(
         .await?;
     }
 
-    let format = Arc::new(VortexFormat::default());
+    let format = Arc::new(VortexFormat::new(
+        DEFAULT_REGISTRY.clone(),
+        Arc::new(LayoutRegistry::default()),
+    ));
     let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
