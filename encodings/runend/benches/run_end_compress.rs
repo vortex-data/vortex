@@ -27,7 +27,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 #[divan::bench(args = BENCH_ARGS)]
 fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
-        (0..=length)
+        (0..length)
             .step_by(run_step)
             .enumerate()
             .flat_map(|(idx, x)| repeat_n(idx as u64, x))
@@ -43,7 +43,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
 fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
-        (0..=length)
+        (0..length)
             .step_by(run_step)
             .enumerate()
             .flat_map(|(idx, x)| {

@@ -25,6 +25,7 @@ members = [
     "vortex-tui",
     "xtask",
 ]
+exclude = ["wasm-test"]
 resolver = "2"
 
 [workspace.package]
