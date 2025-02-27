@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
@@ -7,7 +7,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -24,7 +24,7 @@ pub struct StructArray {
     dtype: DType,
     fields: Vec<ArrayRef>,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct StructEncoding;
@@ -144,8 +144,8 @@ impl ArrayImpl for StructArray {
 }
 
 impl ArrayStatisticsImpl for StructArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

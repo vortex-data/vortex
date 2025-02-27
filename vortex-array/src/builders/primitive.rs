@@ -54,6 +54,10 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
+    pub fn values(&self) -> &[T] {
+        self.values.as_ref()
+    }
+
     /// Create a new handle to the next `len` uninitialized values in the builder.
     ///
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate

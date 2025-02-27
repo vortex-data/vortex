@@ -1,7 +1,7 @@
 mod compute;
 mod serde;
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
@@ -19,7 +19,7 @@ use crate::arrays::list::serde::ListMetadata;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -34,7 +34,7 @@ pub struct ListArray {
     elements: ArrayRef,
     offsets: ArrayRef,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ListEncoding;
@@ -144,8 +144,8 @@ impl ArrayImpl for ListArray {
 }
 
 impl ArrayStatisticsImpl for ListArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

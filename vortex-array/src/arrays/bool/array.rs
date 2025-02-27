@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLock};
-
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
@@ -9,7 +7,7 @@ use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsIm
 use crate::arrays::bool;
 use crate::arrays::bool::serde::BoolMetadata;
 use crate::builders::ArrayBuilder;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
@@ -23,7 +21,7 @@ pub struct BoolArray {
     buffer: BooleanBuffer,
     pub(crate) validity: Validity,
     // TODO(ngates): do we want a stats set to be shared across all arrays?
-    pub(crate) stats_set: Arc<RwLock<StatsSet>>,
+    pub(crate) stats_set: ArrayStats,
 }
 
 pub struct BoolEncoding;
@@ -55,7 +53,7 @@ impl BoolArray {
             dtype: DType::Bool(validity.nullability()),
             buffer,
             validity,
-            stats_set: Arc::new(RwLock::new(StatsSet::default())),
+            stats_set: ArrayStats::default(),
         }
     }
 
@@ -135,8 +133,8 @@ impl ArrayCanonicalImpl for BoolArray {
 }
 
 impl ArrayStatisticsImpl for BoolArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

@@ -420,6 +420,16 @@ impl<T> Extend<T> for BufferMut<T> {
     }
 }
 
+impl<'a, T> Extend<&'a T> for BufferMut<T>
+where
+    T: Copy + 'a,
+{
+    #[inline]
+    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+        self.spec_extend(iter.into_iter())
+    }
+}
+
 impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.

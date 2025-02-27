@@ -1,9 +1,8 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
@@ -26,7 +25,7 @@ pub struct ALPRDArray {
     left_parts_dictionary: Buffer<u16>,
     right_parts: ArrayRef,
     right_bit_width: u8,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ALPRDEncoding;
@@ -117,6 +116,11 @@ impl ALPRDArray {
         &self.right_parts
     }
 
+    #[inline]
+    pub fn right_bit_width(&self) -> u8 {
+        self.right_bit_width
+    }
+
     /// Patches of left-most bits.
     pub fn left_parts_patches(&self) -> Option<&Patches> {
         self.left_parts_patches.as_ref()
@@ -128,9 +132,8 @@ impl ALPRDArray {
         &self.left_parts_dictionary
     }
 
-    #[inline]
-    pub(crate) fn right_bit_width(&self) -> u8 {
-        self.right_bit_width
+    pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
+        self.left_parts_patches = patches;
     }
 }
 
@@ -187,8 +190,8 @@ impl ArrayCanonicalImpl for ALPRDArray {
 }
 
 impl ArrayStatisticsImpl for ALPRDArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

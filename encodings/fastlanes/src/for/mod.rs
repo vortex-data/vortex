@@ -1,18 +1,19 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 pub use compress::*;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, encoding_ids,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, encoding_ids,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+
+use crate::r#for::serde::ScalarValueMetadata;
 
 mod compress;
 mod compute;
@@ -22,14 +23,14 @@ mod serde;
 pub struct FoRArray {
     encoded: ArrayRef,
     reference: Scalar,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct FoREncoding;
 impl Encoding for FoREncoding {
     const ID: EncodingId = EncodingId::new("fastlanes.for", encoding_ids::FL_FOR);
     type Array = FoRArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = ScalarValueMetadata;
 }
 
 impl FoRArray {
@@ -83,8 +84,8 @@ impl ArrayCanonicalImpl for FoRArray {
 }
 
 impl ArrayStatisticsImpl for FoRArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

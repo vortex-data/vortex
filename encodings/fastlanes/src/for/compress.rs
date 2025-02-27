@@ -1,6 +1,6 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{Stat, Statistics as _};
+use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
@@ -12,6 +12,7 @@ use crate::FoRArray;
 
 pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let min = array
+        .statistics()
         .compute_stat(Stat::Min)?
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
@@ -98,7 +99,7 @@ mod test {
     #[test]
     fn test_zeros() {
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert!(array.statistics().stats_set().into_iter().next().is_none());
+        assert!(array.statistics().to_owned().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();
         assert_eq!(compressed.dtype(), array.dtype());

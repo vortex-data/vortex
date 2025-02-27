@@ -50,7 +50,7 @@ impl FlatLayoutWriter {
 }
 
 fn retain_only_stats(array: &dyn Array, stats: &[Stat]) {
-    array.statistics().retain_only(stats);
+    array.statistics().retain(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
     }
@@ -100,7 +100,7 @@ mod tests {
     use futures::executor::block_on;
     use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stats::Stat;
+    use vortex_array::stats::{Stat, StatsProvider};
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
@@ -128,13 +128,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(result.statistics().get_stat(Stat::BitWidthFreq).is_none());
-            assert!(
-                result
-                    .statistics()
-                    .get_stat(Stat::TrailingZeroFreq)
-                    .is_none()
-            );
+            assert!(result.statistics().get(Stat::BitWidthFreq).is_none());
+            assert!(result.statistics().get(Stat::TrailingZeroFreq).is_none());
         })
     }
 }

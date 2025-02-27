@@ -15,7 +15,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::min_max;
 use crate::nbytes::NBytes;
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
 
@@ -40,7 +40,7 @@ impl StatisticsVTable<&PrimitiveArray> for PrimitiveEncoding {
 
         if stat == Stat::Max || stat == Stat::Min {
             min_max(array)?;
-            return Ok(array.stats_set());
+            return Ok(array.statistics().to_owned());
         }
 
         match_each_native_ptype!(array.ptype(), |$P| {
@@ -82,7 +82,6 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
             Stat::NullCount => StatsSet::of(Stat::NullCount, Precision::exact(0u64)),
             Stat::IsSorted => compute_is_sorted(array.iter().copied()),
             Stat::IsStrictSorted => compute_is_strict_sorted(array.iter().copied()),
-            Stat::RunCount => compute_run_count(array.iter().copied()),
             Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
                 let mut stats = BitWidthAccumulator::new(array[0]);
                 array.iter().skip(1).for_each(|next| stats.next(*next));
@@ -135,8 +134,6 @@ impl<T: PStatsType> StatisticsVTable<&NullableValues<'_, T>> for PrimitiveEncodi
             stats.extend(compute_is_strict_sorted(
                 set_indices.map(|next| values[next]),
             ));
-        } else if stat == Stat::RunCount {
-            stats.extend(compute_run_count(set_indices.map(|next| values[next])));
         } else if matches!(stat, Stat::BitWidthFreq | Stat::TrailingZeroFreq) {
             let Some(first_non_null) = set_indices.next() else {
                 vortex_panic!(
@@ -208,20 +205,6 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
     } else {
         StatsSet::of(Stat::IsStrictSorted, Precision::exact(false))
     }
-}
-
-fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
-    let mut run_count = 1;
-    let Some(mut prev) = iter.next() else {
-        return StatsSet::default();
-    };
-    for next in iter {
-        if !prev.is_eq(next) {
-            run_count += 1;
-            prev = next;
-        }
-    }
-    StatsSet::of(Stat::RunCount, Precision::exact(run_count))
 }
 
 trait BitWidth {
@@ -315,7 +298,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 mod test {
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
-    use crate::stats::{Stat, Statistics};
+    use crate::stats::Stat;
 
     #[test]
     fn stats() {
@@ -327,7 +310,6 @@ mod test {
         let is_constant = arr.statistics().compute_is_constant().unwrap();
         let bit_width_freq = arr.statistics().compute_bit_width_freq().unwrap();
         let trailing_zeros_freq = arr.statistics().compute_trailing_zero_freq().unwrap();
-        let run_count = arr.statistics().compute_run_count().unwrap();
         assert_eq!(min, 1);
         assert_eq!(max, 5);
         assert!(is_sorted);
@@ -349,7 +331,6 @@ mod test {
                 0, 0, 0, 0, 0, 0, 0,
             ]
         );
-        assert_eq!(run_count, 5);
     }
 
     #[test]
@@ -377,8 +358,9 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min = arr.compute_stat(Stat::Min).unwrap();
-        let max = arr.compute_stat(Stat::Max).unwrap();
+        let arr_stats = arr.statistics();
+        let min = arr_stats.compute_stat(Stat::Min).unwrap();
+        let max = arr_stats.compute_stat(Stat::Max).unwrap();
         assert!(min.is_none());
         assert!(max.is_none());
     }

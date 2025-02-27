@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
@@ -18,7 +18,7 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
@@ -221,7 +221,7 @@ pub struct VarBinViewArray {
     buffers: Vec<ByteBuffer>,
     views: Buffer<BinaryView>,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(VarBinViewArray);
@@ -449,20 +449,14 @@ impl ArrayImpl for VarBinViewArray {
 }
 
 impl ArrayStatisticsImpl for VarBinViewArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
 impl ArrayCanonicalImpl for VarBinViewArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_array = varbinview_as_arrow(self);
-        let vortex_array = ArrayRef::from_arrow(arrow_array, nullable);
-
-        Ok(Canonical::VarBinView(VarBinViewArray::try_from_array(
-            vortex_array,
-        )?))
+        Ok(Canonical::VarBinView(self.clone()))
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {

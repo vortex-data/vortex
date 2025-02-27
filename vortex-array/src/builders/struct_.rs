@@ -195,4 +195,22 @@ mod tests {
         assert_eq!(struct_.len(), 1);
         assert_eq!(struct_.dtype(), &dtype);
     }
+
+    #[test]
+    fn test_append_nullable_struct() {
+        let sdt = Arc::new(StructDType::new(
+            vec![Arc::from("a"), Arc::from("b")].into(),
+            vec![I32.into(), I32.into()],
+        ));
+        let dtype = DType::Struct(sdt.clone(), Nullability::Nullable);
+        let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
+
+        builder
+            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .unwrap();
+
+        let struct_ = builder.finish();
+        assert_eq!(struct_.len(), 1);
+        assert_eq!(struct_.dtype(), &dtype);
+    }
 }

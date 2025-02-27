@@ -1,9 +1,8 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
@@ -24,7 +23,7 @@ pub struct ALPArray {
     encoded: ArrayRef,
     exponents: Exponents,
     patches: Option<Patches>,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ALPEncoding;
@@ -100,8 +99,8 @@ impl ArrayCanonicalImpl for ALPArray {
 }
 
 impl ArrayStatisticsImpl for ALPArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

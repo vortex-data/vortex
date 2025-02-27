@@ -45,10 +45,10 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
-          OTEL_SERVICE_NAME: "vortex-bench"
-          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          OTEL_SERVICE_NAME: 'vortex-bench'
+          OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
+          OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
+          OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
           cargo run \
@@ -64,6 +64,11 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          OTEL_SERVICE_NAME: 'vortex-bench'
+          OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
+          OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
+          OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
+          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
           cargo run \
               --bin ${{ matrix.binary_name }} \
@@ -71,6 +76,7 @@ jobs:
               -- \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --formats 'parquet,vortex' \
+              --export-spans \
               -d gh-json \
             | tee results.json
 

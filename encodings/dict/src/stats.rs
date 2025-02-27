@@ -10,11 +10,6 @@ impl StatisticsVTable<&DictArray> for DictEncoding {
         let mut stats = StatsSet::default();
 
         match stat {
-            Stat::RunCount => {
-                if let Some(rc) = array.codes().statistics().compute_stat(Stat::RunCount)? {
-                    stats.set(Stat::RunCount, Precision::exact(rc));
-                }
-            }
             Stat::Min => {
                 if let Some(min) = array.values().statistics().compute_stat(Stat::Min)? {
                     stats.set(Stat::Min, Precision::exact(min));

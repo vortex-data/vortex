@@ -1,10 +1,9 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
@@ -25,7 +24,7 @@ use crate::serde::DictMetadata;
 pub struct DictArray {
     codes: ArrayRef,
     values: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct DictEncoding;
@@ -211,8 +210,8 @@ impl ArrayValidityImpl for DictArray {
 }
 
 impl ArrayStatisticsImpl for DictArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
