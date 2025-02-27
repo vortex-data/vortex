@@ -276,6 +276,8 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+        with:
+          targets: "wasm32-wasip1"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
       - run: cargo build --release --target wasm32-wasip1
