@@ -35,7 +35,7 @@ use crate::{Canonical, EncodingId};
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
-pub trait Array: Send + Sync + Debug + ArrayStatisticsExt + ArrayVariants + ArrayVisitor {
+pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVisitor {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 

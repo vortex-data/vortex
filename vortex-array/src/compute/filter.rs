@@ -9,7 +9,7 @@ use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, ArrayStatisticsExt, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
 pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.
