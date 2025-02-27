@@ -32,16 +32,14 @@ const BENCH_ARGS: &[(usize, usize, u8)] = &[
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
-fn compress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
-    let (string_count, avg_len, unique_chars) = args;
+fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array).unwrap();
     bencher.bench(|| fsst_compress(&array, &compressor).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
-    let (string_count, avg_len, unique_chars) = args;
+fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array).unwrap();
     let encoded = fsst_compress(&array, &compressor).unwrap();
@@ -52,35 +50,45 @@ fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn train_compressor(bencher: Bencher, args: (usize, usize, u8)) {
-    let (string_count, avg_len, unique_chars) = args;
+fn train_compressor(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     bencher.bench(|| fsst_train_compressor(&array).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn pushdown_compare(bencher: Bencher, args: (usize, usize, u8)) {
-    let (string_count, avg_len, unique_chars) = args;
+fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
-
+    let compressor = fsst_train_compressor(&array).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor).unwrap();
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
-    bencher.bench(|| compare(&array, &constant, Operator::Eq).unwrap());
+
+    bencher
+        .with_inputs(|| (fsst_array.clone(), constant.clone()))
+        .bench_refs(|(fsst_array, constant)| {
+            compare(fsst_array, constant, Operator::Eq).unwrap();
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
-    let (string_count, avg_len, unique_chars) = args;
+fn canonicalize_compare(
+    bencher: Bencher,
+    (string_count, avg_len, unique_chars): (usize, usize, u8),
+) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
-
+    let compressor = fsst_train_compressor(&array).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor).unwrap();
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
-    bencher.with_inputs(|| array.clone()).bench_values(|array| {
-        compare(
-            array.to_canonical().unwrap().as_ref(),
-            &constant,
-            Operator::Eq,
-        )
-        .unwrap()
-    });
+
+    bencher
+        .with_inputs(|| (fsst_array.clone(), constant.clone()))
+        .bench_refs(|(fsst_array, constant)| {
+            compare(
+                fsst_array.to_canonical().unwrap().as_ref(),
+                constant,
+                Operator::Eq,
+            )
+            .unwrap()
+        });
 }
 
 // [(chunk_size, string_count, avg_len, unique_chars)]
