@@ -269,6 +269,22 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  wasm-integration:
+    name: "wasm-integration"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: rui314/setup-mold@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: "wasm32-wasip1"
+      - name: Setup Wasmer
+        uses: wasmerio/setup-wasmer@v3.1
+      - run: cargo build --target wasm32-wasip1
+        working-directory: ./wasm-test
+      - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
+        working-directory: ./wasm-test
+
   miri:
     name: "miri"
     runs-on: ubuntu-latest
