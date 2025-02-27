@@ -34,20 +34,22 @@ vortex-dtype = { workspace = true, default-features = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-file = { workspace = true, default-features = true }
+vortex-file = { workspace = true, optional = true, default-features = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
-vortex-io = { workspace = true }
+vortex-io = { workspace = true, optional = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
-vortex-scalar = { workspace = true, default-features = true }
-vortex-sparse = { workspace = true, default-features = true }
+vortex-scalar = { workspace = true }
+vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [features]
+default = ["files"]
+files = ["dep:vortex-file", "dep:vortex-io"]
 tokio = ["vortex-io/tokio", "vortex-file/tokio"]
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
