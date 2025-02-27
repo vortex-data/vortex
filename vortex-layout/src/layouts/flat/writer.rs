@@ -127,9 +127,10 @@ mod tests {
             let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(ctx, array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.into_array())
-                .unwrap();
+            let layout =
+                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
+                    .push_one(&mut segments, array.into_array())
+                    .unwrap();
 
             let result = layout
                 .reader(Arc::new(segments), ctx)
