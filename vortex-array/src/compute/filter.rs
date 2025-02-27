@@ -38,7 +38,7 @@ where
 ///
 /// ```
 /// use vortex_array::{Array, IntoArray};
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// use vortex_array::builtins::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{scalar_at, filter, mask};
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;

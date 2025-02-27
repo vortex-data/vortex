@@ -9,12 +9,12 @@
 //! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
 //!
 //! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
-//!    [`StructArray`][vortex_array::arrays::StructArray] is sequentially laid out at known offsets.
+//!    [`StructArray`][vortex_array::builtins::StructArray] is sequentially laid out at known offsets.
 //!    This permits reading a subset of columns in linear time, as well as constant-time random
 //!    access to any column.
 //!
 //! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
-//!    [`ChunkedArray`](vortex_array::arrays::ChunkedArray) is sequentially laid out at known
+//!    [`ChunkedArray`](vortex_array::builtins::ChunkedArray) is sequentially laid out at known
 //!    offsets. Finding the chunks containing row range is an `Nlog(N)` operation of searching the
 //!    offsets.
 //!

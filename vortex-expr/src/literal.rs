@@ -66,7 +66,7 @@ impl VortexExpr for Literal {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::builtins::PrimitiveArray;
 /// use vortex_dtype::Nullability;
 /// use vortex_expr::{lit, Literal};
 /// use vortex_scalar::Scalar;
