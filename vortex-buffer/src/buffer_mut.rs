@@ -293,7 +293,8 @@ impl<T> BufferMut<T> {
         let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            for _ in 0..n {
+            let end = dst.add(n);
+            while dst < end {
                 dst.write(item);
                 dst = dst.add(1);
             }

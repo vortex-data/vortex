@@ -84,7 +84,7 @@ impl ArrayValidityImpl for NullArray {
 
 impl StatisticsVTable<&NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::nulls(array.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len()))
     }
 }
 

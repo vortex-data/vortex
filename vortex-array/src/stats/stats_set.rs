@@ -1,5 +1,4 @@
 use enum_iterator::{Sequence, all};
-use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -27,35 +26,13 @@ impl StatsSet {
 
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
-    pub fn nulls(len: usize, dtype: &DType) -> Self {
+    pub fn nulls(len: usize) -> Self {
         let mut stats = Self::new_unchecked(vec![(Stat::NullCount, Precision::exact(len))]);
 
         if len > 0 {
             stats.set(Stat::IsConstant, Precision::exact(true));
             stats.set(Stat::IsSorted, Precision::exact(true));
             stats.set(Stat::IsStrictSorted, Precision::exact(len < 2));
-        }
-
-        // Add any DType-specific stats.
-        match dtype {
-            DType::Bool(_) => {
-                stats.set(Stat::Sum, Precision::exact(0));
-            }
-            DType::Primitive(ptype, _) => {
-                ptype.byte_width();
-                stats.set(
-                    Stat::BitWidthFreq,
-                    Precision::exact(vec![0u64; ptype.byte_width() * 8 + 1]),
-                );
-                stats.set(
-                    Stat::TrailingZeroFreq,
-                    Precision::exact(vec![
-                        ptype.byte_width() as u64 * 8;
-                        ptype.byte_width() * 8 + 1
-                    ]),
-                );
-            }
-            _ => {}
         }
 
         stats
@@ -217,8 +194,6 @@ impl StatsSet {
     pub fn merge_ordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
             match s {
-                Stat::BitWidthFreq => self.merge_bit_width_freq(other),
-                Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::IsSorted => self.merge_is_sorted(other, dtype),
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
@@ -243,8 +218,6 @@ impl StatsSet {
             }
 
             match s {
-                Stat::BitWidthFreq => self.merge_bit_width_freq(other),
-                Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
@@ -470,37 +443,6 @@ impl StatsSet {
             _ => self.clear(stat),
         }
     }
-
-    fn merge_bit_width_freq(&mut self, other: &Self) {
-        self.merge_freq_stat(other, Stat::BitWidthFreq)
-    }
-
-    fn merge_trailing_zero_freq(&mut self, other: &Self) {
-        self.merge_freq_stat(other, Stat::TrailingZeroFreq)
-    }
-
-    fn merge_freq_stat(&mut self, other: &Self, stat: Stat) {
-        match (
-            self.get_as::<Vec<usize>>(stat),
-            other.get_as::<Vec<usize>>(stat),
-        ) {
-            (Some(f1), Some(f2)) => {
-                let combined_freq = f1.zip(f2).map(|(f1, f2)| {
-                    ScalarValue::from(
-                        f1.iter()
-                            .zip_longest(f2.iter())
-                            .map(|pair| match pair {
-                                EitherOrBoth::Both(a, b) => a + b,
-                                EitherOrBoth::Left(v) | EitherOrBoth::Right(v) => *v,
-                            })
-                            .collect_vec(),
-                    )
-                });
-                self.set(stat, combined_freq);
-            }
-            _ => self.clear(stat),
-        }
-    }
 }
 
 impl StatsProvider for StatsSet {
@@ -673,41 +615,6 @@ mod test {
         assert_eq!(
             first.get_as::<usize>(Stat::Sum),
             Some(Precision::exact(79usize))
-        );
-    }
-
-    #[test]
-    fn merge_into_freq() {
-        let vec = (0usize..255).collect_vec();
-        let first = StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec)).merge_ordered(
-            &StatsSet::default(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-        );
-        assert!(first.get(Stat::BitWidthFreq).is_none());
-    }
-
-    #[test]
-    fn merge_from_freq() {
-        let vec = (0usize..255).collect_vec();
-        let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec)),
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-        );
-        assert!(first.get(Stat::BitWidthFreq).is_none());
-    }
-
-    #[test]
-    fn merge_freqs() {
-        let vec_in = vec![5u64; 256];
-        let vec_out = vec![10u64; 256];
-        let first = StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec_in.clone()))
-            .merge_ordered(
-                &StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec_in)),
-                &DType::Primitive(PType::I32, Nullability::NonNullable),
-            );
-        assert_eq!(
-            first.get_as::<Vec<u64>>(Stat::BitWidthFreq),
-            Some(Precision::exact(vec_out))
         );
     }
 
