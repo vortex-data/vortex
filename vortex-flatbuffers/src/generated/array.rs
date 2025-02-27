@@ -599,11 +599,10 @@ impl<'a> ArrayStats<'a> {
   pub const VT_IS_SORTED: flatbuffers::VOffsetT = 10;
   pub const VT_IS_STRICT_SORTED: flatbuffers::VOffsetT = 12;
   pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 14;
-  pub const VT_RUN_COUNT: flatbuffers::VOffsetT = 16;
-  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 18;
-  pub const VT_BIT_WIDTH_FREQ: flatbuffers::VOffsetT = 20;
-  pub const VT_TRAILING_ZERO_FREQ: flatbuffers::VOffsetT = 22;
-  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 24;
+  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 16;
+  pub const VT_BIT_WIDTH_FREQ: flatbuffers::VOffsetT = 18;
+  pub const VT_TRAILING_ZERO_FREQ: flatbuffers::VOffsetT = 20;
+  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 22;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -617,7 +616,6 @@ impl<'a> ArrayStats<'a> {
     let mut builder = ArrayStatsBuilder::new(_fbb);
     if let Some(x) = args.uncompressed_size_in_bytes { builder.add_uncompressed_size_in_bytes(x); }
     if let Some(x) = args.null_count { builder.add_null_count(x); }
-    if let Some(x) = args.run_count { builder.add_run_count(x); }
     if let Some(x) = args.trailing_zero_freq { builder.add_trailing_zero_freq(x); }
     if let Some(x) = args.bit_width_freq { builder.add_bit_width_freq(x); }
     if let Some(x) = args.sum { builder.add_sum(x); }
@@ -673,13 +671,6 @@ impl<'a> ArrayStats<'a> {
     unsafe { self._tab.get::<bool>(ArrayStats::VT_IS_CONSTANT, None)}
   }
   #[inline]
-  pub fn run_count(&self) -> Option<u64> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(ArrayStats::VT_RUN_COUNT, None)}
-  }
-  #[inline]
   pub fn null_count(&self) -> Option<u64> {
     // Safety:
     // Created from valid Table for this object
@@ -722,7 +713,6 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
      .visit_field::<bool>("is_sorted", Self::VT_IS_SORTED, false)?
      .visit_field::<bool>("is_strict_sorted", Self::VT_IS_STRICT_SORTED, false)?
      .visit_field::<bool>("is_constant", Self::VT_IS_CONSTANT, false)?
-     .visit_field::<u64>("run_count", Self::VT_RUN_COUNT, false)?
      .visit_field::<u64>("null_count", Self::VT_NULL_COUNT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("bit_width_freq", Self::VT_BIT_WIDTH_FREQ, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("trailing_zero_freq", Self::VT_TRAILING_ZERO_FREQ, false)?
@@ -738,7 +728,6 @@ pub struct ArrayStatsArgs<'a> {
     pub is_sorted: Option<bool>,
     pub is_strict_sorted: Option<bool>,
     pub is_constant: Option<bool>,
-    pub run_count: Option<u64>,
     pub null_count: Option<u64>,
     pub bit_width_freq: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
     pub trailing_zero_freq: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
@@ -754,7 +743,6 @@ impl<'a> Default for ArrayStatsArgs<'a> {
       is_sorted: None,
       is_strict_sorted: None,
       is_constant: None,
-      run_count: None,
       null_count: None,
       bit_width_freq: None,
       trailing_zero_freq: None,
@@ -791,10 +779,6 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_is_constant(&mut self, is_constant: bool) {
     self.fbb_.push_slot_always::<bool>(ArrayStats::VT_IS_CONSTANT, is_constant);
-  }
-  #[inline]
-  pub fn add_run_count(&mut self, run_count: u64) {
-    self.fbb_.push_slot_always::<u64>(ArrayStats::VT_RUN_COUNT, run_count);
   }
   #[inline]
   pub fn add_null_count(&mut self, null_count: u64) {
@@ -836,7 +820,6 @@ impl core::fmt::Debug for ArrayStats<'_> {
       ds.field("is_sorted", &self.is_sorted());
       ds.field("is_strict_sorted", &self.is_strict_sorted());
       ds.field("is_constant", &self.is_constant());
-      ds.field("run_count", &self.run_count());
       ds.field("null_count", &self.null_count());
       ds.field("bit_width_freq", &self.bit_width_freq());
       ds.field("trailing_zero_freq", &self.trailing_zero_freq());

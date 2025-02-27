@@ -5,6 +5,7 @@ use vortex_error::VortexError;
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer};
 use vortex_scalar::ScalarValue;
 
+use super::traits::{StatsProvider, StatsProviderExt};
 use crate::stats::{Precision, Stat, StatsSet};
 
 impl WriteFlatBuffer for StatsSet {
@@ -52,9 +53,6 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant)
-                .and_then(Precision::as_exact),
-            run_count: self
-                .get_as::<u64>(Stat::RunCount)
                 .and_then(Precision::as_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
@@ -110,11 +108,6 @@ impl ReadFlatBuffer for StatsSet {
                 Stat::Min => {
                     if let Some(min) = fb.min() {
                         stats_set.set(Stat::Min, Precision::Exact(ScalarValue::try_from(min)?));
-                    }
-                }
-                Stat::RunCount => {
-                    if let Some(run_count) = fb.run_count() {
-                        stats_set.set(Stat::RunCount, Precision::Exact(run_count.into()));
                     }
                 }
                 Stat::NullCount => {

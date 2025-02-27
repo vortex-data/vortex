@@ -303,7 +303,7 @@ fn inner_loop_nonnull<T: PrimInt + Hash>(
         state.max = state.max.max(value);
 
         if count_distinct_values {
-            *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+            *state.distinct_values.entry(value).or_insert(0) += 1;
             state.distinct_values_count = state.distinct_values.len().try_into().vortex_unwrap();
         }
 
@@ -327,7 +327,7 @@ fn inner_loop_nullable<T: PrimInt + Hash>(
             state.max = state.max.max(value);
 
             if count_distinct_values {
-                *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+                *state.distinct_values.entry(value).or_insert(0) += 1;
                 state.distinct_values_count =
                     state.distinct_values.len().try_into().vortex_unwrap();
             }
@@ -353,7 +353,7 @@ fn inner_loop_naive<T: PrimInt + Hash>(
             state.max = state.max.max(value);
 
             if count_distinct_values {
-                *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+                *state.distinct_values.entry(value).or_insert(0) += 1;
                 state.distinct_values_count =
                     state.distinct_values.len().try_into().vortex_unwrap();
             }
@@ -363,5 +363,53 @@ fn inner_loop_naive<T: PrimInt + Hash>(
                 state.runs += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::iter;
+
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::{Buffer, buffer};
+
+    use crate::integer::stats::typed_int_stats;
+
+    #[test]
+    fn test_naive_count_distinct_values() {
+        let array = PrimitiveArray::new(buffer![217u8, 0], Validity::NonNullable);
+        let stats = typed_int_stats::<u8>(&array, true);
+        assert_eq!(stats.distinct_values_count, 2);
+    }
+
+    #[test]
+    fn test_naive_count_distinct_values_nullable() {
+        let array = PrimitiveArray::new(
+            buffer![217u8, 0],
+            Validity::from(BooleanBuffer::from(vec![true, false])),
+        );
+        let stats = typed_int_stats::<u8>(&array, true);
+        assert_eq!(stats.distinct_values_count, 1);
+    }
+
+    #[test]
+    fn test_count_distinct_values() {
+        let array = PrimitiveArray::new((0..128u8).collect::<Buffer<u8>>(), Validity::NonNullable);
+        let stats = typed_int_stats::<u8>(&array, true);
+        assert_eq!(stats.distinct_values_count, 128);
+    }
+
+    #[test]
+    fn test_count_distinct_values_nullable() {
+        let array = PrimitiveArray::new(
+            (0..128u8).collect::<Buffer<u8>>(),
+            Validity::from(BooleanBuffer::from_iter(
+                iter::repeat_n(vec![true, false], 64).flatten(),
+            )),
+        );
+        let stats = typed_int_stats::<u8>(&array, true);
+        assert_eq!(stats.distinct_values_count, 64);
     }
 }

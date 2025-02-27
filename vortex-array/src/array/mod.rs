@@ -26,7 +26,7 @@ use crate::arrays::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::stats::Statistics;
+use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
 
@@ -129,7 +129,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
-    fn statistics(&self) -> &dyn Statistics;
+    fn statistics(&self) -> StatsSetRef<'_>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -201,7 +201,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().append_to_builder(builder)
     }
 
-    fn statistics(&self) -> &dyn Statistics {
+    fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
     }
 }

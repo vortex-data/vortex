@@ -1,6 +1,6 @@
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{Stat, Statistics};
+use vortex_array::stats::Stat;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayExt, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, PType};
@@ -20,8 +20,8 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
         .as_opt::<PrimitiveArray>()
         .vortex_expect("Checked earlier");
 
-    let min = array.compute_stat(Stat::Min)?;
-    let max = array.compute_stat(Stat::Max)?;
+    let min = array.statistics().compute_stat(Stat::Min)?;
+    let max = array.statistics().compute_stat(Stat::Max)?;
 
     let (Some(min), Some(max)) = (min, max) else {
         // This array but be all nulls.

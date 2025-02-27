@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::iter;
-use std::sync::{Arc, RwLock};
 
 mod accessor;
 
@@ -12,7 +11,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
@@ -31,7 +30,7 @@ pub struct PrimitiveArray {
     dtype: DType,
     buffer: ByteBuffer,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(PrimitiveArray);
@@ -264,8 +263,8 @@ impl ArrayImpl for PrimitiveArray {
 }
 
 impl ArrayStatisticsImpl for PrimitiveArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

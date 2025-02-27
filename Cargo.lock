@@ -5263,6 +5263,7 @@ dependencies = [
  "log",
  "num-traits",
  "num_enum 0.7.3",
+ "parking_lot",
  "paste",
  "pin-project",
  "rand 0.9.0",

@@ -1,9 +1,8 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
@@ -30,7 +29,7 @@ pub struct DeltaArray {
     bases: ArrayRef,
     deltas: ArrayRef,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct DeltaEncoding;
@@ -233,8 +232,8 @@ impl ArrayCanonicalImpl for DeltaArray {
 }
 
 impl ArrayStatisticsImpl for DeltaArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

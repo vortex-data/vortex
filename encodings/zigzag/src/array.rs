@@ -1,7 +1,5 @@
-use std::sync::{Arc, RwLock};
-
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
@@ -21,7 +19,7 @@ use crate::zigzag_decode;
 pub struct ZigZagArray {
     dtype: DType,
     encoded: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(ZigZagArray);
@@ -84,8 +82,8 @@ impl ArrayCanonicalImpl for ZigZagArray {
 }
 
 impl ArrayStatisticsImpl for ZigZagArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
