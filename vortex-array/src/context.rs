@@ -12,12 +12,12 @@ use crate::arrays::{
 use crate::encoding::Encoding;
 use crate::vtable::VTableRef;
 
-/// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type ArrayContext = VTableContext<VTableRef>;
 pub type ArrayRegistry = VTableRegistry<VTableRef>;
 
 impl Default for ArrayRegistry {
+    /// Create a new [`ArrayRegistry`] with all the canonical encodings and the main utility ones
     fn default() -> Self {
         let mut this = Self::empty();
 

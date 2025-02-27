@@ -156,8 +156,8 @@ mod forever_constant {
     }
 }
 
-/// A default registry containing the built-in Vortex encodings and layouts.
-pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
+/// A registry containing all available encodings in the core Vortex repo.
+pub static FULL_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
     let registry = ArrayRegistry::default().register_many([
         ALPEncoding.vtable(),

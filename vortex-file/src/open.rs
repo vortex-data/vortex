@@ -17,7 +17,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
+use crate::{EOF_SIZE, FULL_REGISTRY, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
 pub trait FileType: Sized {
     type Options: Clone;
@@ -60,7 +60,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         Self {
             read,
             options,
-            registry: DEFAULT_REGISTRY.clone(),
+            registry: FULL_REGISTRY.clone(),
             layout_registry: Arc::new(LayoutRegistry::default()),
             file_size: None,
             dtype: None,

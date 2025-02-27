@@ -14,7 +14,7 @@ use vortex::TryIntoArray;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, vortex_err};
-use vortex::file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex::file::{FULL_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
@@ -201,7 +201,7 @@ pub async fn register_vortex_files(
         .await?;
 
     let format = Arc::new(VortexFormat::new(
-        DEFAULT_REGISTRY.clone(),
+        FULL_REGISTRY.clone(),
         Arc::new(LayoutRegistry::default()),
     ));
     let table_path = vortex_dir
