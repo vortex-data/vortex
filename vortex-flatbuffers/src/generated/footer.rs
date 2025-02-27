@@ -258,6 +258,8 @@ impl<'a> Footer<'a> {
   pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
   pub const VT_SEGMENTS: flatbuffers::VOffsetT = 6;
   pub const VT_STATISTICS: flatbuffers::VOffsetT = 8;
+  pub const VT_ARRAY_ENCODINGS: flatbuffers::VOffsetT = 10;
+  pub const VT_LAYOUT_ENCODINGS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -269,6 +271,8 @@ impl<'a> Footer<'a> {
     args: &'args FooterArgs<'args>
   ) -> flatbuffers::WIPOffset<Footer<'bldr>> {
     let mut builder = FooterBuilder::new(_fbb);
+    if let Some(x) = args.layout_encodings { builder.add_layout_encodings(x); }
+    if let Some(x) = args.array_encodings { builder.add_array_encodings(x); }
     if let Some(x) = args.statistics { builder.add_statistics(x); }
     if let Some(x) = args.segments { builder.add_segments(x); }
     if let Some(x) = args.layout { builder.add_layout(x); }
@@ -297,6 +301,20 @@ impl<'a> Footer<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats>>>>(Footer::VT_STATISTICS, None)}
   }
+  #[inline]
+  pub fn array_encodings(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding>>>>(Footer::VT_ARRAY_ENCODINGS, None)}
+  }
+  #[inline]
+  pub fn layout_encodings(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding>>>>(Footer::VT_LAYOUT_ENCODINGS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for Footer<'_> {
@@ -309,6 +327,8 @@ impl flatbuffers::Verifiable for Footer<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Segment>>>("segments", Self::VT_SEGMENTS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("statistics", Self::VT_STATISTICS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayEncoding>>>>("array_encodings", Self::VT_ARRAY_ENCODINGS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutEncoding>>>>("layout_encodings", Self::VT_LAYOUT_ENCODINGS, false)?
      .finish();
     Ok(())
   }
@@ -317,6 +337,8 @@ pub struct FooterArgs<'a> {
     pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
     pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Segment>>>,
     pub statistics: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
+    pub array_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding<'a>>>>>,
+    pub layout_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding<'a>>>>>,
 }
 impl<'a> Default for FooterArgs<'a> {
   #[inline]
@@ -325,6 +347,8 @@ impl<'a> Default for FooterArgs<'a> {
       layout: None,
       segments: None,
       statistics: None,
+      array_encodings: None,
+      layout_encodings: None,
     }
   }
 }
@@ -347,6 +371,14 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_STATISTICS, statistics);
   }
   #[inline]
+  pub fn add_array_encodings(&mut self, array_encodings: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayEncoding<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_ARRAY_ENCODINGS, array_encodings);
+  }
+  #[inline]
+  pub fn add_layout_encodings(&mut self, layout_encodings: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<LayoutEncoding<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_LAYOUT_ENCODINGS, layout_encodings);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     FooterBuilder {
@@ -367,6 +399,212 @@ impl core::fmt::Debug for Footer<'_> {
       ds.field("layout", &self.layout());
       ds.field("segments", &self.segments());
       ds.field("statistics", &self.statistics());
+      ds.field("array_encodings", &self.array_encodings());
+      ds.field("layout_encodings", &self.layout_encodings());
+      ds.finish()
+  }
+}
+pub enum ArrayEncodingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// An `ArrayEncoding` describes the type of a particular array.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+pub struct ArrayEncoding<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ArrayEncoding<'a> {
+  type Inner = ArrayEncoding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> ArrayEncoding<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ArrayEncoding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ArrayEncodingArgs<'args>
+  ) -> flatbuffers::WIPOffset<ArrayEncoding<'bldr>> {
+    let mut builder = ArrayEncodingBuilder::new(_fbb);
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ArrayEncoding::VT_ID, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for ArrayEncoding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ArrayEncodingArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ArrayEncodingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ArrayEncodingArgs {
+      id: None, // required field
+    }
+  }
+}
+
+pub struct ArrayEncodingBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayEncodingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayEncoding::VT_ID, id);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayEncodingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ArrayEncodingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ArrayEncoding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ArrayEncoding::VT_ID,"id");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ArrayEncoding<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ArrayEncoding");
+      ds.field("id", &self.id());
+      ds.finish()
+  }
+}
+pub enum LayoutEncodingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A `LayoutEncoding` describes the type of a particular layout.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+pub struct LayoutEncoding<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LayoutEncoding<'a> {
+  type Inner = LayoutEncoding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> LayoutEncoding<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    LayoutEncoding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args LayoutEncodingArgs<'args>
+  ) -> flatbuffers::WIPOffset<LayoutEncoding<'bldr>> {
+    let mut builder = LayoutEncodingBuilder::new(_fbb);
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(LayoutEncoding::VT_ID, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for LayoutEncoding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct LayoutEncodingArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for LayoutEncodingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    LayoutEncodingArgs {
+      id: None, // required field
+    }
+  }
+}
+
+pub struct LayoutEncodingBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutEncodingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(LayoutEncoding::VT_ID, id);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> LayoutEncodingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    LayoutEncodingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<LayoutEncoding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, LayoutEncoding::VT_ID,"id");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for LayoutEncoding<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("LayoutEncoding");
+      ds.field("id", &self.id());
       ds.finish()
   }
 }

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -20,24 +20,18 @@ use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 #[derive(Clone, Debug, Default)]
 pub struct VortexLayoutStrategy;
 
-impl VortexLayoutStrategy {
-    /// Create a new layout writer with the default layout selection and chunk compressor.
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 impl LayoutStrategy for VortexLayoutStrategy {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return StructLayoutWriter::try_new_with_factory(dtype, self.clone())
+            return StructLayoutWriter::try_new_with_factory(ctx, dtype, self.clone())
                 .map(|w| w.boxed());
         }
 
         // Otherwise, we finish with compressing the chunks
         let writer = BtrBlocksCompressedWriter {
             child: ChunkedLayoutWriter::new(
+                ctx.clone(),
                 &DType::Null,
                 ChunkedLayoutOptions {
                     chunk_strategy: Arc::new(FlatLayoutOptions::default()),
@@ -62,6 +56,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
         let writer = RepartitionWriter::new(
             dtype.clone(),
             StatsLayoutWriter::try_new(
+                ctx.clone(),
                 dtype,
                 writer,
                 Arc::new(FlatLayout),

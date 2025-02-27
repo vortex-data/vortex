@@ -5749,6 +5749,7 @@ dependencies = [
 name = "vortex-tui"
 version = "0.24.0"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm",
  "ratatui",

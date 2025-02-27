@@ -8,11 +8,13 @@ use ratatui::widgets::{
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
-use vortex::file::ALL_ENCODINGS_CONTEXT;
-use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
-use vortex::serde::ArrayParts;
+use vortex::expr::Identity;
+use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::stats::stats_from_bitset_bytes;
+use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
 
+use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
@@ -37,13 +39,7 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
-    let layout_kind = match cursor.encoding().id() {
-        FLAT_LAYOUT_ID => "FLAT".to_string(),
-        CHUNKED_LAYOUT_ID => "CHUNKED".to_string(),
-        COLUMNAR_LAYOUT_ID => "COLUMNAR".to_string(),
-        _ => "UNKNOWN".to_string(),
-    };
-
+    let layout_kind = cursor.layout().id().to_string();
     let row_count = cursor.layout().row_count();
 
     let mut rows = vec![
@@ -98,23 +94,20 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
 // Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
-    let segment_id = app
-        .cursor
-        .layout()
-        .segments()
-        .next()
-        .vortex_expect("FlatLayout missing segment");
-    let buffer = app.read_segment(segment_id);
-
-    let array = ArrayParts::try_from(buffer)
-        .vortex_expect("Failed to deserialize ArrayParts")
-        .decode(
-            &ALL_ENCODINGS_CONTEXT,
-            app.cursor.layout().dtype().clone(),
-            usize::try_from(app.cursor.layout().row_count())
-                .vortex_expect("FlatLayout row count too big for usize"),
+    let reader = FlatLayout
+        .reader(
+            app.cursor.layout().clone(),
+            app.footer.ctx().clone(),
+            app.reader.clone(),
         )
-        .vortex_expect("Failed to deserialize Array");
+        .vortex_expect("Failed to create FlatLayout reader");
+
+    let array = TOKIO_RUNTIME
+        .block_on(reader.evaluate_expr(
+            RowMask::new_valid_between(0, reader.row_count()),
+            Identity::new_expr(),
+        ))
+        .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -225,35 +218,34 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 }
 
 fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
-    match cursor.encoding().id() {
-        COLUMNAR_LAYOUT_ID => {
-            let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
-            let field_name = struct_dtype.field_name(nth).expect("field name");
-            let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
-            format!("Column {nth} - {field_name} ({field_dtype})")
+    // TODO(ngates): layout visitors
+    if cursor.layout().id() == STRUCT_LAYOUT_ID {
+        let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
+        let field_name = struct_dtype.field_name(nth).expect("field name");
+        let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
+        format!("Column {nth} - {field_name} ({field_dtype})")
+    } else if cursor.layout().id() == CHUNKED_LAYOUT_ID {
+        // 0th child of a ChunkedLayout is the chunk stats array.
+        // The rest of the chunks are child arrays
+        if cursor.layout().metadata().is_none() {
+            format!("Chunk {nth}")
+        } else if nth == (cursor.layout().nchildren() - 1) {
+            "Chunk Statistics".to_string()
+        } else {
+            format!("Chunk {}", nth)
         }
-        CHUNKED_LAYOUT_ID => {
-            // 0th child of a ChunkedLayout is the chunk stats array.
-            // The rest of the chunks are child arrays
-            if cursor.layout().metadata().is_none() {
-                format!("Chunk {nth}")
-            } else if nth == (cursor.layout().nchildren() - 1) {
-                "Chunk Statistics".to_string()
-            } else {
-                format!("Chunk {}", nth)
-            }
+    } else if cursor.layout().id() == FLAT_LAYOUT_ID {
+        format!("Page {nth}")
+    } else if cursor.layout().id() == STATS_LAYOUT_ID {
+        // 0th child is the data, 1st child is stats.
+        if nth == 0 {
+            "Data".to_string()
+        } else if nth == 1 {
+            "Stats".to_string()
+        } else {
+            format!("Unknown {nth}")
         }
-        FLAT_LAYOUT_ID => format!("Page {nth}"),
-        STATS_LAYOUT_ID => {
-            // 0th child is the data, 1st child is stats.
-            if nth == 0 {
-                "Data".to_string()
-            } else if nth == 1 {
-                "Stats".to_string()
-            } else {
-                format!("Unknown {nth}")
-            }
-        }
-        _ => format!("Unknown {nth}"),
+    } else {
+        format!("Unknown {nth}")
     }
 }

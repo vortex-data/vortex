@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_array::ArrayRef;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -29,6 +29,7 @@ impl Default for ChunkedLayoutOptions {
 ///
 /// TODO(ngates): introduce more sophisticated layout writers with different chunking strategies.
 pub struct ChunkedLayoutWriter {
+    ctx: ArrayContext,
     options: ChunkedLayoutOptions,
     chunks: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
@@ -36,8 +37,9 @@ pub struct ChunkedLayoutWriter {
 }
 
 impl ChunkedLayoutWriter {
-    pub fn new(dtype: &DType, options: ChunkedLayoutOptions) -> Self {
+    pub fn new(ctx: ArrayContext, dtype: &DType, options: ChunkedLayoutOptions) -> Self {
         Self {
+            ctx,
             options,
             chunks: Vec::new(),
             dtype: dtype.clone(),
@@ -56,7 +58,10 @@ impl LayoutWriter for ChunkedLayoutWriter {
 
         // We write each chunk, but don't call finish quite yet to ensure that chunks have an
         // opportunity to write messages at the end of the file.
-        let mut chunk_writer = self.options.chunk_strategy.new_writer(chunk.dtype())?;
+        let mut chunk_writer = self
+            .options
+            .chunk_strategy
+            .new_writer(&self.ctx, chunk.dtype())?;
         chunk_writer.push_chunk(segments, chunk)?;
         self.chunks.push(chunk_writer);
 

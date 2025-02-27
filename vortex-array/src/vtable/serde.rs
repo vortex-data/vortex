@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
-use crate::{Array, ArrayRef, ContextRef, Encoding};
+use crate::{Array, ArrayContext, ArrayRef, Encoding};
 
 // TODO(ngates): need a new name for this VTable.
 pub trait SerdeVTable<Array> {
@@ -10,7 +10,7 @@ pub trait SerdeVTable<Array> {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         _dtype: DType,
         _len: usize,
     ) -> VortexResult<ArrayRef> {
@@ -30,7 +30,7 @@ where
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

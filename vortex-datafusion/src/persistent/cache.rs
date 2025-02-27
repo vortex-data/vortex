@@ -5,19 +5,21 @@ use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::ContextRef;
+use vortex_array::ArrayRegistry;
 use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_file::{Footer, Segment, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
+use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::SegmentId;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FooterCache {
     inner: Cache<Key, Footer, DefaultHashBuilder>,
-    context: ContextRef,
+    array_registry: Arc<ArrayRegistry>,
+    layout_registry: Arc<LayoutRegistry>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -57,7 +59,11 @@ fn estimate_layout_size(footer: &Footer) -> usize {
 }
 
 impl FooterCache {
-    pub fn new(size_mb: usize, context: ContextRef) -> Self {
+    pub fn new(
+        size_mb: usize,
+        array_registry: Arc<ArrayRegistry>,
+        layout_registry: Arc<LayoutRegistry>,
+    ) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
             .eviction_listener(|k: Arc<Key>, _v: Footer, cause| {
@@ -69,7 +75,11 @@ impl FooterCache {
             })
             .build_with_hasher(DefaultHashBuilder::default());
 
-        Self { inner, context }
+        Self {
+            inner,
+            array_registry,
+            layout_registry,
+        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
@@ -83,7 +93,8 @@ impl FooterCache {
                 let os_read_at =
                     ObjectStoreReadAt::new(object_store, object.location.clone(), None);
                 let vxf = VortexOpenOptions::file(os_read_at)
-                    .with_ctx(self.context.clone())
+                    .with_array_registry(self.array_registry.clone())
+                    .with_layout_registry(self.layout_registry.clone())
                     .with_file_size(object.size as u64)
                     .open()
                     .await?;

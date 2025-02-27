@@ -15,7 +15,7 @@ use vortex_flatbuffers::{
 };
 
 use crate::stats::StatsSet;
-use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, ContextRef};
+use crate::{Array, ArrayContext, ArrayRef, ArrayVisitor, ArrayVisitorExt};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -38,7 +38,7 @@ impl dyn Array + '_ {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    pub fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
+    pub fn serialize(&self, ctx: &ArrayContext, options: &SerializeOptions) -> Vec<ByteBuffer> {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
@@ -95,7 +95,7 @@ impl dyn Array + '_ {
 
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
-        let root = ArrayNodeFlatBuffer::new(self);
+        let root = ArrayNodeFlatBuffer::new(ctx, self);
         let fb_root = root.write_flatbuffer(&mut fbb);
         let fb_buffers = fbb.create_vector(&fb_buffers);
         let fb_array = fba::Array::create(
@@ -133,13 +133,15 @@ impl dyn Array + '_ {
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
+    ctx: &'a ArrayContext,
     array: &'a dyn Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(array: &'a dyn Array) -> Self {
+    pub fn new(ctx: &'a ArrayContext, array: &'a dyn Array) -> Self {
         Self {
+            ctx,
             array,
             buffer_idx: 0,
         }
@@ -155,7 +157,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.array.encoding().code();
+        let encoding = self.ctx.encoding_idx(&self.array.vtable());
         let metadata = self
             .array
             .metadata()
@@ -173,6 +175,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
             .scan(child_buffer_idx, |buffer_idx, child| {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
+                    ctx: self.ctx,
                     array: child,
                     buffer_idx: *buffer_idx,
                 }
@@ -232,7 +235,7 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: &ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+    pub fn decode(&self, ctx: &ArrayContext, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)

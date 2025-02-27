@@ -3,14 +3,14 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
-use vortex_array::ContextRef;
+use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
-use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout as fb, layout};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
 use crate::LayoutId;
-use crate::context::LayoutContextRef;
+use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
@@ -46,7 +46,7 @@ struct ViewedLayout {
     dtype: DType,
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    ctx: LayoutContextRef,
+    ctx: LayoutContext,
 }
 
 impl ViewedLayout {
@@ -79,40 +79,6 @@ impl Layout {
     }
 
     /// Create a new viewed layout from a flatbuffer root message.
-    pub fn try_new_viewed(
-        name: Arc<str>,
-        vtable: LayoutVTableRef,
-        dtype: DType,
-        flatbuffer: FlatBuffer,
-        flatbuffer_loc: usize,
-        ctx: LayoutContextRef,
-    ) -> VortexResult<Self> {
-        // Validate the buffer contains a layout message at the given location.
-        let opts = VerifierOptions::default();
-        let mut v = Verifier::new(&opts, flatbuffer.as_ref());
-        fb::Layout::run_verifier(&mut v, flatbuffer_loc)?;
-
-        // SAFETY: we just verified the buffer contains a valid layout message.
-        let fb_layout = unsafe { fb::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) };
-        if fb_layout.encoding() != vtable.id().0 {
-            vortex_bail!(
-                "Mismatched encoding, flatbuffer contains {}, given {}",
-                fb_layout.encoding(),
-                vtable.id(),
-            );
-        }
-
-        Ok(Self(Inner::Viewed(ViewedLayout {
-            name,
-            vtable,
-            dtype,
-            flatbuffer,
-            flatbuffer_loc,
-            ctx,
-        })))
-    }
-
-    /// Create a new viewed layout from a flatbuffer root message.
     ///
     /// # SAFETY
     ///
@@ -123,7 +89,7 @@ impl Layout {
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        ctx: LayoutContextRef,
+        ctx: LayoutContext,
     ) -> Self {
         Self(Inner::Viewed(ViewedLayout {
             name,
@@ -144,7 +110,7 @@ impl Layout {
     }
 
     /// Returns the [`crate::LayoutVTable`] for this layout.
-    pub fn encoding(&self) -> &LayoutVTableRef {
+    pub fn vtable(&self) -> &LayoutVTableRef {
         match &self.0 {
             Inner::Owned(owned) => &owned.vtable,
             Inner::Viewed(viewed) => &viewed.vtable,
@@ -153,10 +119,7 @@ impl Layout {
 
     /// Returns the ID of the layout.
     pub fn id(&self) -> LayoutId {
-        match &self.0 {
-            Inner::Owned(owned) => owned.vtable.id(),
-            Inner::Viewed(viewed) => LayoutId(viewed.flatbuffer().encoding()),
-        }
+        self.vtable().id()
     }
 
     /// Return the row-count of the layout.
@@ -215,10 +178,12 @@ impl Layout {
                     .get(i);
                 let encoding = v
                     .ctx
-                    .lookup_layout(LayoutId(fb.encoding()))
+                    .lookup_encoding(fb.encoding())
                     .ok_or_else(|| {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
-                    })?;
+                    })?
+                    .clone();
+
                 Ok(Self(Inner::Viewed(ViewedLayout {
                     name: format!("{}.{}", v.name, name.as_ref()).into(),
                     vtable: encoding,
@@ -294,9 +259,9 @@ impl Layout {
     pub fn reader(
         &self,
         segment_reader: Arc<dyn AsyncSegmentReader>,
-        ctx: ContextRef,
+        ctx: ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, segment_reader)
+        self.vtable().reader(self.clone(), ctx, segment_reader)
     }
 
     /// Register splits for this layout.
@@ -306,30 +271,53 @@ impl Layout {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.encoding()
+        self.vtable()
             .register_splits(self, field_mask, row_offset, splits)
+    }
+
+    /// Serialize the layout into a [`FlatBufferBuilder`].
+    pub fn write_flatbuffer<'fbb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fbb>,
+        ctx: &LayoutContext,
+    ) -> WIPOffset<layout::Layout<'fbb>> {
+        LayoutFlatBufferWriter { layout: self, ctx }.write_flatbuffer(fbb)
     }
 }
 
-impl FlatBufferRoot for Layout {}
+/// An adapter struct for writing a layout to a FlatBuffer.
+struct LayoutFlatBufferWriter<'a> {
+    layout: &'a Layout,
+    ctx: &'a LayoutContext,
+}
 
-impl WriteFlatBuffer for Layout {
-    type Target<'a> = layout::Layout<'a>;
+impl FlatBufferRoot for LayoutFlatBufferWriter<'_> {}
+
+impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
+    type Target<'t> = layout::Layout<'t>;
 
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        match &self.0 {
+        match &self.layout.0 {
             Inner::Owned(layout) => {
                 let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(b));
+
                 let children = (!layout.children.is_empty()).then(|| {
                     layout
                         .children
                         .iter()
-                        .map(|c| c.write_flatbuffer(fbb))
+                        .map(|c| {
+                            LayoutFlatBufferWriter {
+                                layout: c,
+                                ctx: self.ctx,
+                            }
+                            .write_flatbuffer(fbb)
+                        })
                         .collect::<Vec<_>>()
                 });
+
                 let children = children.map(|c| fbb.create_vector(&c));
                 let segments = (!layout.segments.is_empty()).then(|| {
                     layout
@@ -341,10 +329,12 @@ impl WriteFlatBuffer for Layout {
                 });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
+                let encoding_idx = self.ctx.encoding_idx(&layout.vtable);
+
                 layout::Layout::create(
                     fbb,
                     &layout::LayoutArgs {
-                        encoding: layout.vtable.id().0,
+                        encoding: encoding_idx,
                         row_count: layout.row_count,
                         metadata,
                         children,

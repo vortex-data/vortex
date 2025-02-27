@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-use vortex_array::ContextRef;
+use vortex_array::ArrayContext;
 use vortex_array::arcref::ArcRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
@@ -23,7 +23,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ContextRef,
+        ctx: ArrayContext,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 
@@ -43,4 +43,18 @@ pub trait LayoutVTable: Debug + Send + Sync {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
+}
+
+impl PartialEq for dyn LayoutVTable + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for dyn LayoutVTable + '_ {}
+
+impl Display for dyn LayoutVTable + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.id(), f)
+    }
 }

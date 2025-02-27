@@ -72,7 +72,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -88,11 +88,14 @@ mod test {
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+        let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
+            ctx.clone(),
             &DType::Primitive(PType::I32, NonNullable),
             ChunkedLayoutWriter::new(
+                ctx.clone(),
                 &DType::Primitive(PType::I32, NonNullable),
                 Default::default(),
             )
@@ -113,16 +116,20 @@ mod test {
             ],
         )
         .unwrap();
-        (Arc::new(segments), layout)
+        (ctx, Arc::new(segments), layout)
     }
 
     #[rstest]
     fn test_stats_evaluator(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+        #[from(stats_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn AsyncSegmentReader>,
+            Layout,
+        ),
     ) {
         block_on(async {
             let result = layout
-                .reader(segments, Default::default())
+                .reader(segments, ctx)
                 .unwrap()
                 .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
@@ -140,11 +147,15 @@ mod test {
 
     #[rstest]
     fn test_stats_pruning_mask(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+        #[from(stats_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn AsyncSegmentReader>,
+            Layout,
+        ),
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.reader(segments, Default::default()).unwrap();
+            let reader = layout.reader(segments, ctx).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(Identity::new_expr(), lit(7));

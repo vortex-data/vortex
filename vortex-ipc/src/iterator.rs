@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -12,16 +12,15 @@ use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessag
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
-    ctx: ContextRef,
     dtype: DType,
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
-        let mut reader = SyncMessageReader::new(read);
+    pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
+        let mut reader = SyncMessageReader::new(read, registry.clone());
         match reader.next().transpose()? {
             Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, ctx, dtype }),
+                DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, dtype }),
                 msg => {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
@@ -43,9 +42,9 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.next()? {
             Ok(msg) => match msg {
-                DecoderMessage::Array((array_parts, row_count)) => Some(
+                DecoderMessage::Array((array_parts, ctx, row_count)) => Some(
                     array_parts
-                        .decode(&self.ctx, self.dtype.clone(), row_count)
+                        .decode(&ctx, self.dtype.clone(), row_count)
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(

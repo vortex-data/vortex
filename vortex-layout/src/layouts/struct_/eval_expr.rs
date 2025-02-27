@@ -81,7 +81,7 @@ mod tests {
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};
@@ -97,7 +97,8 @@ mod tests {
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
+    fn struct_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+        let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -109,9 +110,21 @@ mod tests {
                 Nullability::NonNullable,
             ),
             vec![
-                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
-                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
-                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(
+                    ctx.clone(),
+                    I32.into(),
+                    Default::default(),
+                )),
+                Box::new(FlatLayoutWriter::new(
+                    ctx.clone(),
+                    I32.into(),
+                    Default::default(),
+                )),
+                Box::new(FlatLayoutWriter::new(
+                    ctx.clone(),
+                    I32.into(),
+                    Default::default(),
+                )),
             ],
         )
         .push_all(
@@ -128,14 +141,18 @@ mod tests {
             .into_array())],
         )
         .unwrap();
-        (Arc::new(segments), layout)
+        (ctx, Arc::new(segments), layout)
     }
 
     #[rstest]
     fn test_struct_layout(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+        #[from(struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn AsyncSegmentReader>,
+            Layout,
+        ),
     ) {
-        let reader = layout.reader(segments, Default::default()).unwrap();
+        let reader = layout.reader(segments, ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result =
             block_on(reader.evaluate_expr(RowMask::new_valid_between(0, 3), expr)).unwrap();
@@ -152,9 +169,13 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_row_mask(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+        #[from(struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn AsyncSegmentReader>,
+            Layout,
+        ),
     ) {
-        let reader = layout.reader(segments, Default::default()).unwrap();
+        let reader = layout.reader(segments, ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
@@ -176,11 +197,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_struct_layout_select() {
-        let (segments, layout) = struct_layout();
-
-        let reader = layout.reader(segments, Default::default()).unwrap();
+    #[rstest]
+    fn test_struct_layout_select(
+        #[from(struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn AsyncSegmentReader>,
+            Layout,
+        ),
+    ) {
+        let reader = layout.reader(segments, ctx).unwrap();
         let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that

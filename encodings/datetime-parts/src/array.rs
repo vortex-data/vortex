@@ -8,7 +8,7 @@ use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, RkyvMetadata, encoding_ids,
+    Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
@@ -27,7 +27,7 @@ pub struct DateTimePartsArray {
 
 pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.datetimeparts", encoding_ids::DATE_TIME_PARTS);
+    const ID: EncodingId = EncodingId::new_ref("vortex.datetimeparts");
     type Array = DateTimePartsArray;
     type Metadata = RkyvMetadata<DateTimePartsMetadata>;
 }

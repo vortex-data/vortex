@@ -10,7 +10,7 @@ use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, IntoArray, SerdeMetadata, ToCanonical,
-    encoding_ids, try_from_array_ref,
+    try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -33,7 +33,7 @@ try_from_array_ref!(RunEndArray);
 
 pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.runend", encoding_ids::RUN_END);
+    const ID: EncodingId = EncodingId::new_ref("vortex.runend");
     type Array = RunEndArray;
     type Metadata = SerdeMetadata<RunEndMetadata>;
 }

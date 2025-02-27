@@ -5,7 +5,7 @@ pub mod writer;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use vortex_array::ContextRef;
+use vortex_array::ArrayContext;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
@@ -31,7 +31,7 @@ impl LayoutVTable for ChunkedLayout {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ContextRef,
+        ctx: ArrayContext,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(ChunkedReader::try_new(layout, ctx, segment_reader)?.into_arc())

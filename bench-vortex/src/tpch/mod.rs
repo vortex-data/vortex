@@ -29,7 +29,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{CTX, Format, get_session_with_cache};
+use crate::{Format, get_session_with_cache};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -349,7 +349,7 @@ async fn register_vortex_file(
         .await?;
     }
 
-    let format = Arc::new(VortexFormat::new(CTX.clone()));
+    let format = Arc::new(VortexFormat::default());
     let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))

@@ -58,7 +58,8 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::IntoArray;
+
+    use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};
@@ -71,9 +72,13 @@ mod test {
     #[test]
     fn test_layout_splits_flat() {
         let mut segments = TestSegments::default();
-        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
-            .push_one(&mut segments, buffer![1; 10].into_array())
-            .unwrap();
+        let layout = FlatLayoutWriter::new(
+            ArrayContext::empty(),
+            DType::Bool(NonNullable),
+            Default::default(),
+        )
+        .push_one(&mut segments, buffer![1; 10].into_array())
+        .unwrap();
         let splits = SplitBy::Layout
             .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
@@ -83,9 +88,13 @@ mod test {
     #[test]
     fn test_row_count_splits() {
         let mut segments = TestSegments::default();
-        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
-            .push_one(&mut segments, buffer![1; 10].into_array())
-            .unwrap();
+        let layout = FlatLayoutWriter::new(
+            ArrayContext::empty(),
+            DType::Bool(NonNullable),
+            Default::default(),
+        )
+        .push_one(&mut segments, buffer![1; 10].into_array())
+        .unwrap();
         let splits = SplitBy::RowCount(3)
             .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
             .unwrap();

@@ -1,6 +1,6 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{STATS_TO_WRITE, Stat};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -27,23 +27,25 @@ impl Default for FlatLayoutOptions {
 }
 
 impl LayoutStrategy for FlatLayoutOptions {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(dtype.clone(), self.clone()).boxed())
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
     }
 }
 
 /// Writer for a [`FlatLayout`].
 pub struct FlatLayoutWriter {
-    options: FlatLayoutOptions,
+    ctx: ArrayContext,
     dtype: DType,
+    options: FlatLayoutOptions,
     layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(dtype: DType, options: FlatLayoutOptions) -> Self {
+    pub fn new(ctx: ArrayContext, dtype: DType, options: FlatLayoutOptions) -> Self {
         Self {
-            options,
+            ctx,
             dtype,
+            options,
             layout: None,
         }
     }
@@ -71,10 +73,13 @@ impl LayoutWriter for FlatLayoutWriter {
         let row_count = chunk.len() as u64;
         update_stats(&chunk, &self.options.array_stats)?;
 
-        let buffers = chunk.serialize(&SerializeOptions {
-            offset: 0,
-            include_padding: self.options.include_padding,
-        });
+        let buffers = chunk.serialize(
+            &self.ctx,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: self.options.include_padding,
+            },
+        );
         let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
@@ -101,10 +106,10 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::{Precision, Stat};
     use vortex_array::validity::Validity;
+    use vortex_array::{Array, ArrayContext};
     use vortex_buffer::buffer;
     use vortex_expr::ident;
 
@@ -119,14 +124,16 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(async {
+            let ctx = ArrayContext::empty();
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.into_array())
-                .unwrap();
+            let layout =
+                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
+                    .push_one(&mut segments, array.into_array())
+                    .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(Arc::new(segments), ctx)
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await
