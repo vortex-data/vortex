@@ -4,7 +4,7 @@ mod stats;
 use vortex_alp::{ALPArray, RDEncoder, alp_encode};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatisticsExt, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};

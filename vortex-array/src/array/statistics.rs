@@ -5,7 +5,7 @@ use crate::compute::{IsConstantOpts, is_constant_opts, scalar_at};
 use crate::stats::StatsSetRef;
 
 /// Extension functions for arrays that provide statistics.
-pub trait ArrayStatistics {
+pub trait ArrayStatisticsExt {
     /// Make a best effort attempt to try and figure out if the array is constant, without canonicalizing it.
     fn is_constant(&self) -> bool;
 
@@ -13,12 +13,12 @@ pub trait ArrayStatistics {
     fn as_constant(&self) -> Option<Scalar>;
 }
 
-impl<A: Array + 'static> ArrayStatistics for A {
+impl<A: Array + 'static> ArrayStatisticsExt for A {
     fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts {
+        static SKIP_CANONICALIZE: IsConstantOpts = IsConstantOpts {
             canonicalize: false,
         };
-        is_constant_opts(self, &opts)
+        is_constant_opts(self, &SKIP_CANONICALIZE)
             .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
             .ok()
             .unwrap_or_default()

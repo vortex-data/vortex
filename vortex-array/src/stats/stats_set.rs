@@ -9,7 +9,7 @@ use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProvid
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
-    values: Option<Vec<(Stat, Precision<ScalarValue>)>>,
+    values: Vec<(Stat, Precision<ScalarValue>)>,
 }
 
 impl StatsSet {
@@ -19,9 +19,7 @@ impl StatsSet {
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
     pub fn new_unchecked(values: Vec<(Stat, Precision<ScalarValue>)>) -> Self {
-        Self {
-            values: Some(values),
-        }
+        Self { values }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -91,51 +89,49 @@ impl StatsSet {
     pub fn of(stat: Stat, value: Precision<ScalarValue>) -> Self {
         Self::new_unchecked(vec![(stat, value)])
     }
+
+    fn reserve_full_capacity(&mut self) {
+        if self.values.capacity() < Stat::CARDINALITY {
+            self.values
+                .reserve_exact(Stat::CARDINALITY - self.values.capacity());
+        }
+    }
 }
 
 // Getters and setters for individual stats.
 impl StatsSet {
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
-        if self.values.is_none() {
-            self.values = Some(Vec::with_capacity(Stat::CARDINALITY));
-        }
-        let values = self.values.as_mut().vortex_expect("we just initialized it");
-        if let Some(existing) = values.iter_mut().find(|(s, _)| *s == stat) {
+        self.reserve_full_capacity();
+
+        if let Some(existing) = self.values.iter_mut().find(|(s, _)| *s == stat) {
             *existing = (stat, value);
         } else {
-            values.push((stat, value));
+            self.values.push((stat, value));
         }
     }
 
     /// Clear the stat `stat` from the set.
     pub fn clear(&mut self, stat: Stat) {
-        if let Some(v) = &mut self.values {
-            v.retain(|(s, _)| *s != stat);
-        }
+        self.values.retain(|(s, _)| *s != stat);
     }
 
     pub fn retain_only(&mut self, stats: &[Stat]) {
-        if let Some(v) = &mut self.values {
-            v.retain(|(s, _)| stats.contains(s));
-        }
+        self.values.retain(|(s, _)| stats.contains(s));
     }
 
     pub fn keep_inexact_stats(self, inexact_keep: &[Stat]) -> Self {
-        if let Some(v) = self.values {
-            v.into_iter()
-                .filter_map(|(s, v)| inexact_keep.contains(&s).then(|| (s, v.into_inexact())))
-                .collect()
-        } else {
-            self
-        }
+        self.values
+            .into_iter()
+            .filter_map(|(s, v)| inexact_keep.contains(&s).then(|| (s, v.into_inexact())))
+            .collect()
     }
 
     /// Iterate over the statistic names and values in-place.
     ///
     /// See [Iterator].
     pub fn iter(&self) -> impl Iterator<Item = &(Stat, Precision<ScalarValue>)> {
-        self.values.iter().flat_map(|v| v.iter())
+        self.values.iter()
     }
 }
 
@@ -144,13 +140,13 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, Precision<ScalarValue>)>>);
+pub struct StatsSetIntoIter(std::vec::IntoIter<(Stat, Precision<ScalarValue>)>);
 
 impl Iterator for StatsSetIntoIter {
     type Item = (Stat, Precision<ScalarValue>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.as_mut().and_then(|i| i.next())
+        self.0.next()
     }
 }
 
@@ -159,17 +155,17 @@ impl IntoIterator for StatsSet {
     type IntoIter = StatsSetIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        StatsSetIntoIter(self.values.map(|v| v.into_iter()))
+        StatsSetIntoIter(self.values.into_iter())
     }
 }
 
 impl FromIterator<(Stat, Precision<ScalarValue>)> for StatsSet {
     fn from_iter<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(iter: T) -> Self {
         let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
-        let mut this = Self {
-            values: Some(Vec::with_capacity(lower_bound)),
-        };
+        let mut values = Vec::default();
+        values.reserve_exact(Stat::CARDINALITY);
+
+        let mut this = Self { values };
         this.extend(iter);
         this
     }
@@ -179,10 +175,8 @@ impl Extend<(Stat, Precision<ScalarValue>)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
-        if let Some(v) = &mut self.values {
-            v.reserve(lower_bound);
-        }
+        self.reserve_full_capacity();
+
         iter.for_each(|(stat, value)| self.set(stat, value));
     }
 }
@@ -448,12 +442,13 @@ impl StatsSet {
 impl StatsProvider for StatsSet {
     fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
         self.values
-            .as_ref()
-            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
+            .iter()
+            .find(|(s, _)| *s == stat)
+            .map(|(_, v)| v.clone())
     }
 
     fn len(&self) -> usize {
-        self.values.as_ref().map_or(0, |v| v.len())
+        self.values.len()
     }
 }
 
