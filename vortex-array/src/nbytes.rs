@@ -9,7 +9,6 @@ pub trait NBytes: Array {
             for buffer in array.buffers() {
                 nbytes += buffer.len();
             }
-            nbytes += array.metadata().map_or(0, |b| b.len());
         }
         nbytes
     }
