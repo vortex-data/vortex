@@ -73,9 +73,9 @@ impl ErasedStats {
             ErasedStats::U16(x) => (x.max - x.min) as u64,
             ErasedStats::U32(x) => (x.max - x.min) as u64,
             ErasedStats::U64(x) => x.max - x.min,
-            ErasedStats::I8(x) => (x.max - x.min) as u64,
-            ErasedStats::I16(x) => (x.max - x.min) as u64,
-            ErasedStats::I32(x) => (x.max - x.min) as u64,
+            ErasedStats::I8(x) => (x.max as i16 - x.min as i16) as u64,
+            ErasedStats::I16(x) => (x.max as i32 - x.min as i32) as u64,
+            ErasedStats::I32(x) => (x.max as i64 - x.min as i64) as u64,
             ErasedStats::I64(x) => (x.max - x.min) as u64,
         }
     }
