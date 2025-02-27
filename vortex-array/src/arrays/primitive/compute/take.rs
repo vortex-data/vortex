@@ -23,7 +23,11 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.to_primitive()?;
         let validity = array.validity().take(&indices)?;
 
-        if array.ptype() != PType::F16 && indices.all_valid()? && array.all_valid()? {
+        if array.ptype() != PType::F16
+            && indices.dtype().is_unsigned_int()
+            && indices.all_valid()?
+            && array.all_valid()?
+        {
             // TODO(alex): handle nullable codes & values
             match_each_unsigned_integer_ptype!(indices.ptype(), |$C| {
                 match_each_native_simd_ptype!(array.ptype(), |$V| {
@@ -32,7 +36,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
                     let decoded = take_primitive_simd::<$C, $V, 64>(
                         indices.as_slice(),
                         array.as_slice(),
-                        array.dtype().nullability(),
+                        array.dtype().nullability() | indices.dtype().nullability(),
                     );
 
                     return Ok(decoded.into_array()) as VortexResult<ArrayRef>;
