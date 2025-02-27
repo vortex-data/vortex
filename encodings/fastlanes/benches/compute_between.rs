@@ -71,7 +71,8 @@ mod primitive {
     use crate::{BENCH_ARGS, generate_primitive_array};
 
     #[divan::bench(
-        types = [i32, i64, u32, u64, f32, f64],
+        // types = [i32, i64, u32, u64, f32, f64],
+        types = [u32],
         args = BENCH_ARGS,
     )]
     fn old_raw_prim_test_between<T>(bencher: Bencher, len: usize)
@@ -96,7 +97,8 @@ mod primitive {
     }
 
     #[divan::bench(
-        types = [i32, i64, u32, u64, f32, f64],
+        // types = [i32, i64, u32, u64, f32, f64],
+        types = [u32],
         args = BENCH_ARGS,
     )]
     fn new_raw_prim_test_between<T>(bencher: Bencher, len: usize)
@@ -140,7 +142,8 @@ mod bitpack {
     use crate::{BENCH_ARGS, generate_bit_pack_primitive_array};
 
     #[divan::bench(
-        types = [i16, i32, i64],
+        // types = [i16, i32, i64],
+        types = [u32],
         args = BENCH_ARGS,
     )]
     fn old_bp_prim_test_between<T>(bencher: Bencher, len: usize)
@@ -164,7 +167,8 @@ mod bitpack {
     }
 
     #[divan::bench(
-        types = [i16, i32, i64],
+        // types = [i16, i32, i64],
+        types = [u32],
         args = BENCH_ARGS,
     )]
     fn new_bp_prim_test_between<T>(bencher: Bencher, len: usize)

@@ -336,10 +336,11 @@ where
     F: Fn(&[UnsignedT]) -> &[T],
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
-    let last_chunk_length = if (offset + uninit.len()) % 1024 == 0 {
-        1024
+    const CHUNK_SIZE: usize = 1024;
+    let last_chunk_length = if (offset + uninit.len()) % CHUNK_SIZE == 0 {
+        CHUNK_SIZE
     } else {
-        (offset + uninit.len()) % 1024
+        (offset + uninit.len()) % CHUNK_SIZE
     };
 
     if bit_width == 0 {
@@ -349,7 +350,7 @@ where
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
-    let num_chunks = (offset + uninit.len()).div_ceil(1024);
+    let num_chunks = (offset + uninit.len()).div_ceil(CHUNK_SIZE);
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     assert_eq!(
         packed.len(),
@@ -361,7 +362,7 @@ where
 
     if num_chunks == 1 {
         let chunk = &packed[..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        let mut decoded = [UnsignedT::zero(); CHUNK_SIZE];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
@@ -376,12 +377,11 @@ where
     }
 
     let first_chunk_is_sliced = offset != 0;
-    let last_chunk_is_sliced = last_chunk_length != 1024;
+    let last_chunk_is_sliced = last_chunk_length != CHUNK_SIZE;
     let full_chunks_range =
         (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
 
     // Index into the builder's uninit values buffer.
-    const CHUNK_SIZE: usize = 1024;
     let mut out_idx = 0;
     if first_chunk_is_sliced {
         let chunk = &packed[..elems_per_chunk];
@@ -398,7 +398,7 @@ where
 
         unsafe {
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-            let dst: &mut [T] = std::mem::transmute(&mut uninit[out_idx..][..1024]);
+            let dst: &mut [T] = std::mem::transmute(&mut uninit[out_idx..][..CHUNK_SIZE]);
             let dst: &mut [UnsignedT] = transmute_mut(dst);
             BitPacking::unchecked_unpack(bit_width, chunk, dst);
         }

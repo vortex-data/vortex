@@ -60,3 +60,7 @@ name = "compute_between"
 harness = false
 required-features = ["test-harness"]
 
+[[bench]]
+name = "compute_compare"
+harness = false
+required-features = ["test-harness"]

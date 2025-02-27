@@ -3,6 +3,8 @@
 #![feature(generic_const_exprs)]
 #![feature(vec_into_raw_parts)]
 #![feature(iter_array_chunks)]
+#![feature(maybe_uninit_slice)]
+#![feature(maybe_uninit_write_slice)]
 
 pub use bitpacking::*;
 pub use delta::*;
