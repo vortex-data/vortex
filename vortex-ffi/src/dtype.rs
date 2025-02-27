@@ -63,8 +63,6 @@ pub unsafe extern "C" fn FFIDType_new_list(
     element: *mut FFIDType,
     nullable: bool,
 ) -> *mut FFIDType {
-    // Assume that the internal type is boxed and we need to unbox it.
-
     let element = Box::from_raw(element);
 
     Box::into_raw(Box::new(FFIDType {

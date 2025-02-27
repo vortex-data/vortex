@@ -38,6 +38,13 @@ pub unsafe extern "C" fn FFIFile_open(path: *const c_char) -> *mut FFIFile {
     Box::into_raw(Box::new(ffi_file))
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIFile_dtype(file: *const FFIFile) -> *const FFIDType {
+    let file = unsafe { &*file };
+    let dtype = Box::new(FFIDType::from(file.inner.dtype()));
+    Box::into_raw(dtype)
+}
+
 /// Build a new Scan that will stream batches of `FFIArray` from the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIFile_scan(
