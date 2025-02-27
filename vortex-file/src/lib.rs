@@ -156,21 +156,35 @@ mod forever_constant {
     }
 }
 
-/// A registry containing all available encodings in the core Vortex repo.
+/// A registry containing all available encodings from the core repo.
+///
+/// The exact available encodings can be controlled by feature flags.
 pub static FULL_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
     let registry = ArrayRegistry::default().register_many([
+        #[cfg(feature = "alp")]
         ALPEncoding.vtable(),
+        #[cfg(feature = "alp")]
         ALPRDEncoding.vtable(),
+        #[cfg(feature = "fastlanes")]
         BitPackedEncoding.vtable(),
+        #[cfg(feature = "bytebool")]
         ByteBoolEncoding.vtable(),
+        #[cfg(feature = "datetime_parts")]
         DateTimePartsEncoding.vtable(),
+        #[cfg(feature = "fastlanes")]
         DeltaEncoding.vtable(),
+        #[cfg(feature = "dict")]
         DictEncoding.vtable(),
+        #[cfg(feature = "fastlanes")]
         FoREncoding.vtable(),
+        #[cfg(feature = "fsst")]
         FSSTEncoding.vtable(),
+        #[cfg(feature = "runend")]
         RunEndEncoding.vtable(),
+        #[cfg(feature = "sparse")]
         SparseEncoding.vtable(),
+        #[cfg(feature = "zigzag")]
         ZigZagEncoding.vtable(),
     ]);
     Arc::new(registry)

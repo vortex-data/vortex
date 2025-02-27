@@ -29,26 +29,25 @@ tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
-vortex-alp = { workspace = true }
+vortex-alp = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-bytebool = { workspace = true }
-vortex-datetime-dtype = { workspace = true }
-vortex-datetime-parts = { workspace = true }
-vortex-dict = { workspace = true }
+vortex-bytebool = { workspace = true, optional = true }
+vortex-datetime-parts = { workspace = true, optional = true }
+vortex-dict = { workspace = true, optional = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
-vortex-fastlanes = { workspace = true }
+vortex-fastlanes = { workspace = true, optional = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
-vortex-fsst = { workspace = true }
+vortex-fsst = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
-vortex-runend = { workspace = true }
-vortex-sparse = { workspace = true }
-vortex-zigzag = { workspace = true }
+vortex-runend = { workspace = true, optional = true }
+vortex-sparse = { workspace = true, optional = true }
+vortex-zigzag = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
@@ -59,5 +58,25 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
+default = [
+    "alp",
+    "fastlanes",
+    "fsst",
+    "zigzag",
+    "sparse",
+    "runend",
+    "bytebool",
+    "dict",
+    "datetime_parts",
+]
 object_store = ["vortex-error/object_store", "vortex-io/object_store"]
 tracing = ["dep:tracing", "vortex-io/tracing"]
+alp = ["dep:vortex-alp"]
+fastlanes = ["dep:vortex-fastlanes"]
+fsst = ["dep:vortex-fsst"]
+zigzag = ["dep:vortex-zigzag"]
+runend = ["dep:vortex-runend"]
+bytebool = ["dep:vortex-bytebool"]
+sparse = ["dep:vortex-sparse"]
+dict = ["dep:vortex-dict"]
+datetime_parts = ["dep:vortex-datetime-parts"]

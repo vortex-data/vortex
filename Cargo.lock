@@ -5530,7 +5530,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
