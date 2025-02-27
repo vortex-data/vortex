@@ -4,6 +4,7 @@ use std::iter::Iterator;
 
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
 use divan::Bencher;
+use num_traits::PrimInt;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{VortexExpect, vortex_err};
 
@@ -105,6 +106,22 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
         .bench_refs(|buffer| {
             for idx in 0..length {
                 buffer.0.push(divan::black_box(idx));
+            }
+        });
+}
+
+#[divan::bench(types = [u8, u16, u32, u64], args = [100, 1_000, 10_000, 100_000, 1_000_000])]
+fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
+    bencher
+        .with_inputs(|| BufferMut::<T>::with_capacity(length))
+        .bench_refs(|buffer| {
+            for _ in 0..100 {
+                unsafe {
+                    buffer.push_n_unchecked(
+                        divan::black_box(T::one()),
+                        divan::black_box(length / 100),
+                    )
+                };
             }
         });
 }

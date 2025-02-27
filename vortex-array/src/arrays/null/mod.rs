@@ -88,7 +88,7 @@ impl StatisticsVTable<&NullArray> for NullEncoding {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
-        Ok(StatsSet::nulls(array.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len()))
     }
 }
 

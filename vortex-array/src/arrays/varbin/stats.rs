@@ -29,7 +29,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
         Stat::NullCount => {
             let null_count = array.validity_mask()?.false_count();
             if null_count == array.len() {
-                return Ok(StatsSet::nulls(array.len(), array.dtype()));
+                return Ok(StatsSet::nulls(array.len()));
             }
 
             let mut stats = StatsSet::of(Stat::NullCount, Precision::exact(null_count));
@@ -68,7 +68,6 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             stats
         }
         Stat::UncompressedSizeInBytes => StatsSet::of(stat, Precision::exact(array.nbytes())),
-        Stat::BitWidthFreq | Stat::TrailingZeroFreq => StatsSet::default(),
         Stat::Min | Stat::Max => {
             // Min and max are automatically dispatched to min_max compute function.
             vortex_panic!(

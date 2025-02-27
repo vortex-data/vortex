@@ -2,12 +2,10 @@
 
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, cardinality};
-use itertools::Itertools;
+use enum_iterator::{Sequence, last};
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
@@ -28,8 +26,6 @@ pub use precision::Precision;
 pub use stat_bound::*;
 pub use traits::*;
 use vortex_error::VortexExpect;
-
-use crate::Array;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.
@@ -62,27 +58,23 @@ pub const STATS_TO_WRITE: &[Stat] = &[
 )]
 #[repr(u8)]
 pub enum Stat {
-    /// Frequency of each bit width (nulls are treated as 0)
-    BitWidthFreq = 0,
-    /// Frequency of each trailing zero (nulls are treated as 0)
-    TrailingZeroFreq = 1,
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
-    IsConstant = 2,
+    IsConstant = 0,
     /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
-    IsSorted = 3,
+    IsSorted = 1,
     /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
-    IsStrictSorted = 4,
+    IsStrictSorted = 2,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
-    Max = 5,
+    Max = 3,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
-    Min = 6,
+    Min = 4,
     /// The sum of the non-null values of the array.
-    Sum = 8,
+    Sum = 5,
     /// The number of null values in the array
-    NullCount = 9,
+    NullCount = 6,
     /// The uncompressed size of the array in bytes
-    UncompressedSizeInBytes = 10,
+    UncompressedSizeInBytes = 7,
 }
 
 /// These structs allow the extraction of the bound from the `Precision` value.
@@ -90,25 +82,11 @@ pub enum Stat {
 pub struct Max;
 pub struct Min;
 pub struct Sum;
-pub struct BitWidthFreq;
-pub struct TrailingZeroFreq;
 pub struct IsConstant;
 pub struct IsSorted;
 pub struct IsStrictSorted;
 pub struct NullCount;
 pub struct UncompressedSizeInBytes;
-
-impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::BitWidthFreq;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::TrailingZeroFreq;
-}
 
 impl StatType<bool> for IsConstant {
     type Bound = Precision<bool>;
@@ -164,9 +142,7 @@ impl Stat {
     pub fn is_commutative(&self) -> bool {
         // NOTE: we prefer this syntax to force a compile error if we add a new stat
         match self {
-            Stat::BitWidthFreq
-            | Stat::TrailingZeroFreq
-            | Stat::IsConstant
+            Stat::IsConstant
             | Stat::Max
             | Stat::Min
             | Stat::NullCount
@@ -183,14 +159,6 @@ impl Stat {
 
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
         Some(match self {
-            Stat::BitWidthFreq => DType::List(
-                Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                NonNullable,
-            ),
-            Stat::TrailingZeroFreq => DType::List(
-                Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                NonNullable,
-            ),
             Stat::IsConstant => DType::Bool(NonNullable),
             Stat::IsSorted => DType::Bool(NonNullable),
             Stat::IsStrictSorted => DType::Bool(NonNullable),
@@ -230,8 +198,6 @@ impl Stat {
 
     pub fn name(&self) -> &str {
         match self {
-            Self::BitWidthFreq => "bit_width_frequency",
-            Self::TrailingZeroFreq => "trailing_zero_frequency",
             Self::IsConstant => "is_constant",
             Self::IsSorted => "is_sorted",
             Self::IsStrictSorted => "is_strict_sorted",
@@ -245,10 +211,11 @@ impl Stat {
 }
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
-    let stat_count = cardinality::<Stat>();
+    let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize;
+    // TODO(ngates): use vortex-buffer::BitBuffer
     let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
-        MutableBuffer::from_len_zeroed(stat_count.div_ceil(8)),
-        stat_count,
+        MutableBuffer::from_len_zeroed(max_stat.div_ceil(8)),
+        max_stat,
     );
     for stat in stats {
         stat_bitset.set_bit(u8::from(*stat) as usize, true);
@@ -280,21 +247,6 @@ impl Display for Stat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
     }
-}
-
-pub fn trailing_zeros(array: &dyn Array) -> u8 {
-    let tz_freq = array
-        .statistics()
-        .compute_trailing_zero_freq()
-        .unwrap_or_else(|| vec![0]);
-    tz_freq
-        .iter()
-        .enumerate()
-        .find_or_first(|&(_, &v)| v > 0)
-        .map(|(i, _)| i)
-        .unwrap_or(0)
-        .try_into()
-        .vortex_expect("tz_freq must fit in u8")
 }
 
 #[cfg(test)]

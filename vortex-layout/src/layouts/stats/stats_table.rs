@@ -94,11 +94,7 @@ impl StatsTable {
                     stats_set.set(*stat, Precision::exact(sum));
                 }
                 // We could implement these aggregations in the future, but for now they're unused
-                Stat::BitWidthFreq
-                | Stat::TrailingZeroFreq
-                | Stat::IsConstant
-                | Stat::IsSorted
-                | Stat::IsStrictSorted => {}
+                Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
             }
         }
         Ok(stats_set)
