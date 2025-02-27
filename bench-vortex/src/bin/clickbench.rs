@@ -64,6 +64,7 @@ fn main() {
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
             .include_args(true)
+            .trace_style(tracing_chrome::TraceStyle::Async)
             .file("clickbench.trace.json")
             .build();
 
