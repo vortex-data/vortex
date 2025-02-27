@@ -15,12 +15,11 @@
  */
 package dev.vortex.jni;
 
-import org.junit.jupiter.api.Test;
-
-import java.nio.file.Paths;
-
 import static dev.vortex.jni.FFI.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.nio.file.Paths;
+import org.junit.jupiter.api.Test;
 
 public final class FFITest {
     @Test

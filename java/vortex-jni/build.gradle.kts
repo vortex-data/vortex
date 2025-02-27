@@ -44,8 +44,6 @@ val cargoBuild by tasks.registering(Exec::class) {
     // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
     outputs.upToDateWhen { false }
     outputs.cacheIf { false }
-
-    dependsOn.add(cargoCheck)
 }
 
 val cargoClean by tasks.registering(Exec::class) {

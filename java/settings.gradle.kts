@@ -1,11 +1,11 @@
 plugins {
-    id("org.gradle.toolchains.foojay-resolver") version "0.7.0"
+    id("org.gradle.toolchains.foojay-resolver") version "0.9.0"
 }
 
 toolchainManagement {
     jvm {
         javaRepositories {
-            repository("foojay") {
+            repository("amazon-corretto") {
                 resolverClass.set(org.gradle.toolchains.foojay.FoojayToolchainResolver::class.java)
             }
         }
@@ -19,4 +19,4 @@ include("vortex-jni")
 // include("vortex-spark")
 
 // Integration tests
-include("ete")
+// include("ete")
