@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::nbytes::NBytes;
-use vortex_array::stats::Stat;
+use vortex_array::stats::{Stat, StatsProvider};
 use vortex_array::variants::StructArrayTrait;
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};
@@ -30,7 +30,7 @@ pub(crate) fn chunked_array_df_stats(
 
                 max_value: arr
                     .statistics()
-                    .get_stat(Stat::Max)
+                    .get(Stat::Max)
                     .map(|n| {
                         n.into_scalar(array.dtype().clone()).map(|n| {
                             ScalarValue::try_from(n)
@@ -41,7 +41,7 @@ pub(crate) fn chunked_array_df_stats(
 
                 min_value: arr
                     .statistics()
-                    .get_stat(Stat::Min)
+                    .get(Stat::Min)
                     .map(|n| {
                         n.into_scalar(array.dtype().clone()).map(|n| {
                             ScalarValue::try_from(n)
@@ -52,7 +52,7 @@ pub(crate) fn chunked_array_df_stats(
                 distinct_count: Precision::Absent,
                 sum_value: arr
                     .statistics()
-                    .get_stat(Stat::Sum)
+                    .get(Stat::Sum)
                     .map(|n| {
                         n.into_scalar(array.dtype().clone()).map(|n| {
                             ScalarValue::try_from(n)

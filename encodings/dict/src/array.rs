@@ -1,36 +1,31 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical, encoding_ids,
+    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
 };
-use vortex_dtype::{
-    DType, PType, match_each_integer_ptype, match_each_native_simd_ptype,
-    match_each_unsigned_integer_ptype,
-};
+use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
-use crate::compress::dict_decode_typed_primitive;
 use crate::serde::DictMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DictArray {
     codes: ArrayRef,
     values: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.dict", encoding_ids::DICT);
+    const ID: EncodingId = EncodingId::new_ref("vortex.dict");
     type Array = DictArray;
     type Metadata = RkyvMetadata<DictMetadata>;
 }
@@ -101,28 +96,6 @@ impl ArrayCanonicalImpl for DictArray {
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
                 take(&canonical_values, self.codes())?.to_canonical()
-            }
-            DType::Primitive(ptype, _)
-                if *ptype != PType::F16
-                    && self.codes().all_valid()?
-                    && self.values().all_valid()? =>
-            {
-                // TODO(alex): handle nullable codes & values
-                let codes = self.codes().to_primitive()?;
-                let values = self.values().to_primitive()?;
-
-                match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
-                    match_each_native_simd_ptype!(values.ptype(), |$V| {
-                        // SIMD types larger than the SIMD register size are beneficial for
-                        // performance as this leads to better instruction level parallelism.
-                        let decoded = dict_decode_typed_primitive::<$C, $V, 64>(
-                            codes.as_slice(),
-                            values.as_slice(),
-                            self.dtype().nullability(),
-                        );
-                        decoded.to_canonical()
-                    })
-                })
             }
             _ => take(self.values(), self.codes())?.to_canonical(),
         }
@@ -211,8 +184,8 @@ impl ArrayValidityImpl for DictArray {
 }
 
 impl ArrayStatisticsImpl for DictArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

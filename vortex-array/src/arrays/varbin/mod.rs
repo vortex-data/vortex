@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 pub use compute::compute_min_max;
 use num_traits::PrimInt;
@@ -16,8 +15,7 @@ use crate::array::ArrayValidityImpl;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::compute::scalar_at;
-use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
@@ -39,14 +37,14 @@ pub struct VarBinArray {
     bytes: ByteBuffer,
     offsets: ArrayRef,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(VarBinArray);
 
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.varbin", encoding_ids::VAR_BIN);
+    const ID: EncodingId = EncodingId::new_ref("vortex.varbin");
     type Array = VarBinArray;
     type Metadata = RkyvMetadata<VarBinMetadata>;
 }
@@ -221,8 +219,8 @@ impl ArrayImpl for VarBinArray {
 }
 
 impl ArrayStatisticsImpl for VarBinArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

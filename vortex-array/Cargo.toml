@@ -43,6 +43,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
+parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }

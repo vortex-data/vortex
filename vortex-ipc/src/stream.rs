@@ -6,7 +6,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -17,14 +17,13 @@ pin_project! {
     pub struct AsyncIPCReader<R> {
         #[pin]
         reader: AsyncMessageReader<R>,
-        ctx: ContextRef,
         dtype: DType,
     }
 }
 
 impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
-    pub async fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
-        let mut reader = AsyncMessageReader::new(read);
+    pub async fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
+        let mut reader = AsyncMessageReader::new(read, registry);
 
         let dtype = match reader.next().await.transpose()? {
             Some(msg) => match msg {
@@ -36,7 +35,7 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
             None => vortex_bail!("Expected DType message, got EOF"),
         };
 
-        Ok(AsyncIPCReader { reader, ctx, dtype })
+        Ok(AsyncIPCReader { reader, dtype })
     }
 }
 
@@ -58,9 +57,9 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
         match ready!(this.reader.poll_next(cx)) {
             None => Poll::Ready(None),
             Some(msg) => match msg {
-                Ok(DecoderMessage::Array((array_parts, row_count))) => Poll::Ready(Some(
+                Ok(DecoderMessage::Array((array_parts, ctx, row_count))) => Poll::Ready(Some(
                     array_parts
-                        .decode(this.ctx, this.dtype.clone(), row_count)
+                        .decode(&ctx, this.dtype.clone(), row_count)
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(

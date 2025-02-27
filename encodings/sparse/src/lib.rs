@@ -1,15 +1,14 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, EncodingId,
-    RkyvMetadata, ToCanonical, encoding_ids, try_from_array_ref,
+    RkyvMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -27,14 +26,14 @@ mod variants;
 pub struct SparseArray {
     patches: Patches,
     fill_value: Scalar,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(SparseArray);
 
 pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.sparse", encoding_ids::SPARSE);
+    const ID: EncodingId = EncodingId::new_ref("vortex.sparse");
     type Array = SparseArray;
     type Metadata = RkyvMetadata<SparseMetadata>;
 }
@@ -128,8 +127,8 @@ impl ArrayImpl for SparseArray {
 }
 
 impl ArrayStatisticsImpl for SparseArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
@@ -208,7 +207,7 @@ impl StatisticsVTable<&SparseArray> for SparseEncoding {
 
         let fill_len = array.len() - values.len();
         let fill_stats = if array.fill_scalar().is_null() {
-            StatsSet::nulls(fill_len, array.dtype())
+            StatsSet::nulls(fill_len)
         } else {
             StatsSet::constant(array.fill_scalar().clone(), fill_len)
         };

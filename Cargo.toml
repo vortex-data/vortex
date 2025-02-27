@@ -21,7 +21,6 @@ members = [
     "vortex-mask",
     "vortex-metrics",
     "vortex-proto",
-    "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-tui",
     "xtask",
@@ -83,7 +82,7 @@ divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 exponential-decay-histogram = "=0.1.13"
-fastlanes = "0.1.5"
+fastlanes = "0.1.8"
 flatbuffers = "25"
 flexbuffers = "25"
 flume = "0.11"
@@ -112,6 +111,7 @@ oneshot = "0.1.10"
 opentelemetry = "0.28.0"
 opentelemetry-otlp = "0.28.0"
 opentelemetry_sdk = "0.28.0"
+parking_lot = "0.12.3"
 parquet = "54.2"
 paste = "1.0.15"
 pin-project = "1.1.5"
@@ -187,7 +187,6 @@ vortex-mask = { version = "0.24.0", path = "./vortex-mask" }
 vortex-metrics = { version = "0.24.0", path = "./vortex-metrics" }
 vortex-proto = { version = "0.24.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.24.0", path = "./encodings/runend" }
-vortex-sampling-compressor = { version = "0.24.0", path = "./vortex-sampling-compressor" }
 vortex-scalar = { version = "0.24.0", path = "./vortex-scalar", default-features = false }
 vortex-sparse = { version = "0.24.0", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }

@@ -68,11 +68,11 @@ impl<'a> ListScalar<'a> {
         self.elements.is_none()
     }
 
-    pub fn element_dtype(&self) -> DType {
+    pub fn element_dtype(&self) -> &DType {
         let DType::List(element_type, _) = self.dtype() else {
             unreachable!();
         };
-        (*element_type).deref().clone()
+        (*element_type).deref()
     }
 
     pub fn element(&self, idx: usize) -> Option<Scalar> {
@@ -80,7 +80,7 @@ impl<'a> ListScalar<'a> {
             .as_ref()
             .and_then(|l| l.get(idx))
             .map(|value| Scalar {
-                dtype: self.element_dtype(),
+                dtype: self.element_dtype().clone(),
                 value: value.clone(),
             })
     }
@@ -89,7 +89,7 @@ impl<'a> ListScalar<'a> {
         self.elements.as_ref().map(|elems| {
             elems
                 .iter()
-                .map(|e| Scalar::new(self.element_dtype(), e.clone()))
+                .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
                 .collect_vec()
         })
     }

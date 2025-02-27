@@ -3,7 +3,7 @@ use std::fmt::Formatter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
     SerializeMetadata,
 };
 use vortex_dtype::{DType, PType};
@@ -26,7 +26,7 @@ impl SerdeVTable<&FoRArray> for FoREncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

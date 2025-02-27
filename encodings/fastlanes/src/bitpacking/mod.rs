@@ -1,19 +1,17 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, encoding_ids,
-    try_from_array_ref,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
@@ -35,14 +33,14 @@ pub struct BitPackedArray {
     packed: ByteBuffer,
     patches: Option<Patches>,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(BitPackedArray);
 
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
-    const ID: EncodingId = EncodingId::new("fastlanes.bitpacked", encoding_ids::FL_BITPACKED);
+    const ID: EncodingId = EncodingId::new_ref("fastlanes.bitpacked");
     type Array = BitPackedArray;
     type Metadata = RkyvMetadata<BitPackedMetadata>;
 }
@@ -263,8 +261,8 @@ impl ArrayCanonicalImpl for BitPackedArray {
 }
 
 impl ArrayStatisticsImpl for BitPackedArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

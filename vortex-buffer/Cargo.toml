@@ -25,6 +25,7 @@ arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
 compio = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
+num-traits = { workspace = true }
 rkyv = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 

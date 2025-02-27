@@ -1,12 +1,9 @@
-use std::sync::{Arc, RwLock};
-
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::encoding::encoding_ids;
 use crate::nbytes::NBytes;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
@@ -20,12 +17,12 @@ mod serde;
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct NullEncoding;
 impl Encoding for NullEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.null", encoding_ids::NULL);
+    const ID: EncodingId = EncodingId::new_ref("vortex.null");
     type Array = NullArray;
     type Metadata = EmptyMetadata;
 }
@@ -56,8 +53,8 @@ impl ArrayImpl for NullArray {
 }
 
 impl ArrayStatisticsImpl for NullArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
@@ -91,7 +88,7 @@ impl StatisticsVTable<&NullArray> for NullEncoding {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
-        Ok(StatsSet::nulls(array.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len()))
     }
 }
 

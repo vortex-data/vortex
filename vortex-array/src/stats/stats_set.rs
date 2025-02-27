@@ -1,11 +1,11 @@
 use enum_iterator::{Sequence, all};
-use itertools::{EitherOrBoth, Itertools};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
+use super::traits::StatsProvider;
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -26,11 +26,8 @@ impl StatsSet {
 
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
-    pub fn nulls(len: usize, dtype: &DType) -> Self {
-        let mut stats = Self::new_unchecked(vec![
-            (Stat::RunCount, Precision::exact(1)),
-            (Stat::NullCount, Precision::exact(len)),
-        ]);
+    pub fn nulls(len: usize) -> Self {
+        let mut stats = Self::new_unchecked(vec![(Stat::NullCount, Precision::exact(len))]);
 
         if len > 0 {
             stats.set(Stat::IsConstant, Precision::exact(true));
@@ -38,37 +35,12 @@ impl StatsSet {
             stats.set(Stat::IsStrictSorted, Precision::exact(len < 2));
         }
 
-        // Add any DType-specific stats.
-        match dtype {
-            DType::Bool(_) => {
-                stats.set(Stat::Sum, Precision::exact(0));
-            }
-            DType::Primitive(ptype, _) => {
-                ptype.byte_width();
-                stats.set(
-                    Stat::BitWidthFreq,
-                    Precision::exact(vec![0u64; ptype.byte_width() * 8 + 1]),
-                );
-                stats.set(
-                    Stat::TrailingZeroFreq,
-                    Precision::exact(vec![
-                        ptype.byte_width() as u64 * 8;
-                        ptype.byte_width() * 8 + 1
-                    ]),
-                );
-            }
-            _ => {}
-        }
-
         stats
     }
 
     // A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
-        StatsSet::new_unchecked(vec![
-            (Stat::RunCount, Precision::exact(0)),
-            (Stat::NullCount, Precision::exact(0)),
-        ])
+        StatsSet::new_unchecked(vec![(Stat::NullCount, Precision::exact(0))])
     }
 
     pub fn constant(scalar: Scalar, length: usize) -> Self {
@@ -81,9 +53,6 @@ impl StatsSet {
                 (Stat::IsStrictSorted, Precision::exact(length <= 1)),
             ]);
         }
-
-        let run_count = if length == 0 { 0u64 } else { 1 };
-        stats.set(Stat::RunCount, Precision::exact(run_count));
 
         let null_count = if sv.is_null() { length as u64 } else { 0 };
         stats.set(Stat::NullCount, Precision::exact(null_count));
@@ -126,60 +95,6 @@ impl StatsSet {
 
 // Getters and setters for individual stats.
 impl StatsSet {
-    /// Count of stored stats with known values.
-    pub fn len(&self) -> usize {
-        self.values.as_ref().map_or(0, |v| v.len())
-    }
-
-    /// Predicate equivalent to a [len][Self::len] of zero.
-    pub fn is_empty(&self) -> bool {
-        self.values.as_ref().is_none_or(|v| v.is_empty())
-    }
-
-    pub fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self.values
-            .as_ref()
-            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
-    }
-
-    pub fn get_scalar(&self, stat: Stat, dtype: DType) -> Option<Precision<Scalar>> {
-        self.values.as_ref().and_then(|v| {
-            v.iter()
-                .find(|(s, _)| *s == stat)
-                .map(|(_, v)| v.clone().into_scalar(dtype))
-        })
-    }
-
-    pub fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: DType) -> Option<S::Bound> {
-        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
-    }
-
-    pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<Precision<T>> {
-        self.get(stat).map(|v| {
-            v.map(|v| {
-                T::try_from(&v).unwrap_or_else(|err| {
-                    vortex_panic!(
-                        err,
-                        "Failed to get stat {} as {}",
-                        stat,
-                        std::any::type_name::<T>()
-                    )
-                })
-            })
-        })
-    }
-
-    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
-    where
-        S: StatType<U>,
-        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
-    {
-        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
-    }
-
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
         if self.values.is_none() {
@@ -279,15 +194,12 @@ impl StatsSet {
     pub fn merge_ordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
             match s {
-                Stat::BitWidthFreq => self.merge_bit_width_freq(other),
-                Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::IsSorted => self.merge_is_sorted(other, dtype),
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
                 Stat::Sum => self.merge_sum(other, dtype),
-                Stat::RunCount => self.merge_run_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
             }
@@ -306,15 +218,13 @@ impl StatsSet {
             }
 
             match s {
-                Stat::BitWidthFreq => self.merge_bit_width_freq(other),
-                Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
                 Stat::Sum => self.merge_sum(other, dtype),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
-                Stat::IsSorted | Stat::IsStrictSorted | Stat::RunCount => {
+                Stat::IsSorted | Stat::IsStrictSorted => {
                     unreachable!("not commutative")
                 }
             }
@@ -332,8 +242,8 @@ impl StatsSet {
 
     fn combine_min(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         match (
-            self.get_scalar_bound::<Min>(dtype.clone()),
-            other.get_scalar_bound::<Min>(dtype.clone()),
+            self.get_scalar_bound::<Min>(dtype),
+            other.get_scalar_bound::<Min>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1
@@ -353,8 +263,8 @@ impl StatsSet {
 
     fn combine_max(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         match (
-            self.get_scalar_bound::<Max>(dtype.clone()),
-            other.get_scalar_bound::<Max>(dtype.clone()),
+            self.get_scalar_bound::<Max>(dtype),
+            other.get_scalar_bound::<Max>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1
@@ -397,8 +307,8 @@ impl StatsSet {
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Min>(dtype.clone()),
-            other.get_scalar_bound::<Min>(dtype.clone()),
+            self.get_scalar_bound::<Min>(dtype),
+            other.get_scalar_bound::<Min>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -412,8 +322,8 @@ impl StatsSet {
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Max>(dtype.clone()),
-            other.get_scalar_bound::<Max>(dtype.clone()),
+            self.get_scalar_bound::<Max>(dtype),
+            other.get_scalar_bound::<Max>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -427,8 +337,8 @@ impl StatsSet {
 
     fn merge_sum(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar_bound::<Sum>(dtype.clone()),
-            other.get_scalar_bound::<Sum>(dtype.clone()),
+            self.get_scalar_bound::<Sum>(dtype),
+            other.get_scalar_bound::<Sum>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
@@ -459,8 +369,8 @@ impl StatsSet {
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         let self_const = self.get_as(Stat::IsConstant);
         let other_const = other.get_as(Stat::IsConstant);
-        let self_min = self.get_scalar(Stat::Min, dtype.clone());
-        let other_min = other.get_scalar(Stat::Min, dtype.clone());
+        let self_min = self.get_scalar(Stat::Min, dtype);
+        let other_min = other.get_scalar(Stat::Min, dtype);
 
         if let (
             Some(Precision::Exact(self_const)),
@@ -501,8 +411,8 @@ impl StatsSet {
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
             if let (Some(self_max), Some(other_min)) = (
-                self.get_scalar_bound::<Max>(dtype.clone()),
-                other.get_scalar_bound::<Min>(dtype.clone()),
+                self.get_scalar_bound::<Max>(dtype),
+                other.get_scalar_bound::<Min>(dtype),
             ) {
                 return if cmp(&self_max.max_value(), &other_min.min_value()) {
                     // keep value
@@ -533,52 +443,17 @@ impl StatsSet {
             _ => self.clear(stat),
         }
     }
+}
 
-    fn merge_bit_width_freq(&mut self, other: &Self) {
-        self.merge_freq_stat(other, Stat::BitWidthFreq)
+impl StatsProvider for StatsSet {
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+        self.values
+            .as_ref()
+            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
     }
 
-    fn merge_trailing_zero_freq(&mut self, other: &Self) {
-        self.merge_freq_stat(other, Stat::TrailingZeroFreq)
-    }
-
-    fn merge_freq_stat(&mut self, other: &Self, stat: Stat) {
-        match (
-            self.get_as::<Vec<usize>>(stat),
-            other.get_as::<Vec<usize>>(stat),
-        ) {
-            (Some(f1), Some(f2)) => {
-                let combined_freq = f1.zip(f2).map(|(f1, f2)| {
-                    ScalarValue::from(
-                        f1.iter()
-                            .zip_longest(f2.iter())
-                            .map(|pair| match pair {
-                                EitherOrBoth::Both(a, b) => a + b,
-                                EitherOrBoth::Left(v) | EitherOrBoth::Right(v) => *v,
-                            })
-                            .collect_vec(),
-                    )
-                });
-                self.set(stat, combined_freq);
-            }
-            _ => self.clear(stat),
-        }
-    }
-
-    /// Merged run count is an upper bound where we assume run is interrupted at the boundary
-    fn merge_run_count(&mut self, other: &Self) {
-        match (
-            self.get_as::<usize>(Stat::RunCount),
-            other.get_as::<usize>(Stat::RunCount),
-        ) {
-            (Some(r1), Some(r2)) => {
-                self.set(
-                    Stat::RunCount,
-                    r1.zip(r2).map(|(r1, r2)| ScalarValue::from(r1 + r2 + 1)),
-                );
-            }
-            _ => self.clear(Stat::RunCount),
-        }
+    fn len(&self) -> usize {
+        self.values.as_ref().map_or(0, |v| v.len())
     }
 }
 
@@ -590,7 +465,7 @@ mod test {
 
     use crate::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::{Precision, Stat, StatsSet};
+    use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_iter() {
@@ -744,41 +619,6 @@ mod test {
     }
 
     #[test]
-    fn merge_into_freq() {
-        let vec = (0usize..255).collect_vec();
-        let first = StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec)).merge_ordered(
-            &StatsSet::default(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-        );
-        assert!(first.get(Stat::BitWidthFreq).is_none());
-    }
-
-    #[test]
-    fn merge_from_freq() {
-        let vec = (0usize..255).collect_vec();
-        let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec)),
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-        );
-        assert!(first.get(Stat::BitWidthFreq).is_none());
-    }
-
-    #[test]
-    fn merge_freqs() {
-        let vec_in = vec![5u64; 256];
-        let vec_out = vec![10u64; 256];
-        let first = StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec_in.clone()))
-            .merge_ordered(
-                &StatsSet::of(Stat::BitWidthFreq, Precision::exact(vec_in)),
-                &DType::Primitive(PType::I32, Nullability::NonNullable),
-            );
-        assert_eq!(
-            first.get_as::<Vec<u64>>(Stat::BitWidthFreq),
-            Some(Precision::exact(vec_out))
-        );
-    }
-
-    #[test]
     fn merge_into_sortedness() {
         let first = StatsSet::of(Stat::IsStrictSorted, Precision::exact(true)).merge_ordered(
             &StatsSet::default(),
@@ -881,7 +721,7 @@ mod test {
             .collect_vec();
         array.statistics().compute_all(&all_stats).unwrap();
 
-        let stats = array.statistics().stats_set();
+        let stats = array.statistics().to_owned();
         for stat in &all_stats {
             assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
         }

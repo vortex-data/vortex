@@ -1,7 +1,7 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -22,7 +22,7 @@ impl SerdeVTable<&ZigZagArray> for ZigZagEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

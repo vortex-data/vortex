@@ -1,13 +1,11 @@
-use std::sync::{Arc, RwLock};
-
 use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinEncoding;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, SerdeMetadata, ToCanonical, encoding_ids,
+    Encoding, EncodingId, SerdeMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -22,12 +20,12 @@ pub struct FSSTArray {
     symbol_lengths: ArrayRef,
     codes: ArrayRef,
     uncompressed_lengths: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct FSSTEncoding;
 impl Encoding for FSSTEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.fsst", encoding_ids::FSST);
+    const ID: EncodingId = EncodingId::new_ref("vortex.fsst");
     type Array = FSSTArray;
     type Metadata = SerdeMetadata<FSSTMetadata>;
 }
@@ -172,8 +170,8 @@ impl ArrayImpl for FSSTArray {
 }
 
 impl ArrayStatisticsImpl for FSSTArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

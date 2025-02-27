@@ -2,7 +2,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
     EmptyMetadata,
 };
 use vortex_dtype::DType;
@@ -28,7 +28,7 @@ impl SerdeVTable<&ByteBoolArray> for ByteBoolEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

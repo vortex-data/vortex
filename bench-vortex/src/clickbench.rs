@@ -18,7 +18,7 @@ use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{CTX, idempotent_async};
+use crate::idempotent_async;
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -199,7 +199,7 @@ pub async fn register_vortex_files(
         .try_collect::<Vec<_>>()
         .await?;
 
-    let format = Arc::new(VortexFormat::new(CTX.clone()));
+    let format = Arc::new(VortexFormat::default());
     let table_path = vortex_dir
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;

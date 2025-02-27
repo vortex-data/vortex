@@ -1,15 +1,14 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::try_cast;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, RkyvMetadata, encoding_ids,
+    Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
@@ -23,12 +22,12 @@ pub struct DateTimePartsArray {
     days: ArrayRef,
     seconds: ArrayRef,
     subseconds: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.datetimeparts", encoding_ids::DATE_TIME_PARTS);
+    const ID: EncodingId = EncodingId::new_ref("vortex.datetimeparts");
     type Array = DateTimePartsArray;
     type Metadata = RkyvMetadata<DateTimePartsMetadata>;
 }
@@ -125,8 +124,8 @@ impl ExtensionArrayTrait for DateTimePartsArray {
 }
 
 impl ArrayStatisticsImpl for DateTimePartsArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

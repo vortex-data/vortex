@@ -7,7 +7,7 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
-    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata, ToCanonical,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, ToCanonical,
 };
 
 impl ArrayVisitorImpl for ChunkedArray {
@@ -29,7 +29,7 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         // TODO(ngates): should we avoid storing the final chunk offset and push the length instead?
         _len: usize,

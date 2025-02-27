@@ -5213,7 +5213,6 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-runend",
- "vortex-sampling-compressor",
  "vortex-scalar",
  "vortex-sparse",
  "vortex-zigzag",
@@ -5264,6 +5263,7 @@ dependencies = [
  "log",
  "num-traits",
  "num_enum 0.7.3",
+ "parking_lot",
  "paste",
  "pin-project",
  "rand 0.9.0",
@@ -5306,7 +5306,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-runend",
- "vortex-sampling-compressor",
  "vortex-scalar",
  "vortex-sparse",
  "vortex-zigzag",
@@ -5321,6 +5320,7 @@ dependencies = [
  "codspeed-divan-compat",
  "compio",
  "log",
+ "num-traits",
  "rkyv",
  "vortex-error",
 ]
@@ -5525,17 +5525,26 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "vortex-alp",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-bytebool",
+ "vortex-datetime-dtype",
+ "vortex-datetime-parts",
+ "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
+ "vortex-fastlanes",
  "vortex-flatbuffers",
+ "vortex-fsst",
  "vortex-io",
  "vortex-layout",
  "vortex-metrics",
- "vortex-sampling-compressor",
+ "vortex-runend",
+ "vortex-sparse",
+ "vortex-zigzag",
 ]
 
 [[package]]
@@ -5574,12 +5583,12 @@ dependencies = [
  "libfuzzer-sys",
  "tokio",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-file",
  "vortex-mask",
- "vortex-sampling-compressor",
  "vortex-scalar",
 ]
 
@@ -5696,35 +5705,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-sampling-compressor"
-version = "0.24.0"
-dependencies = [
- "arbitrary",
- "codspeed-divan-compat",
- "fsst-rs",
- "itertools 0.14.0",
- "jiff",
- "log",
- "rand 0.9.0",
- "vortex-alp",
- "vortex-array",
- "vortex-buffer",
- "vortex-bytebool",
- "vortex-datetime-dtype",
- "vortex-datetime-parts",
- "vortex-dict",
- "vortex-dtype",
- "vortex-error",
- "vortex-fastlanes",
- "vortex-fsst",
- "vortex-mask",
- "vortex-runend",
- "vortex-scalar",
- "vortex-sparse",
- "vortex-zigzag",
-]
-
-[[package]]
 name = "vortex-scalar"
 version = "0.24.0"
 dependencies = [
@@ -5769,6 +5749,7 @@ dependencies = [
 name = "vortex-tui"
 version = "0.24.0"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm",
  "ratatui",

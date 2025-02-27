@@ -1,6 +1,6 @@
 //! This module contains the VTable definitions for a Vortex Array.
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 mod compute;
@@ -51,6 +51,12 @@ impl Hash for dyn EncodingVTable + '_ {
 }
 
 impl Debug for dyn EncodingVTable + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
+}
+
+impl Display for dyn EncodingVTable + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
     }
