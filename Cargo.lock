@@ -5320,6 +5320,7 @@ dependencies = [
  "codspeed-divan-compat",
  "compio",
  "log",
+ "num-traits",
  "rkyv",
  "vortex-error",
 ]
