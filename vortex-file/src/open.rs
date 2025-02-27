@@ -14,11 +14,10 @@ use vortex_layout::LayoutContextRef;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::VortexMetrics;
-use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
+use crate::{ALL_ENCODINGS_CONTEXT, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
 pub trait FileType: Sized {
     type Options: Clone;

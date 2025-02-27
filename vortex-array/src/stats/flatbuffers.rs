@@ -1,10 +1,10 @@
 use enum_iterator::all;
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
-use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer};
 use vortex_scalar::ScalarValue;
 
+use super::traits::{StatsProvider, StatsProviderExt};
 use crate::stats::{Precision, Stat, StatsSet};
 
 impl WriteFlatBuffer for StatsSet {
@@ -15,16 +15,6 @@ impl WriteFlatBuffer for StatsSet {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let trailing_zero_freq = self
-            .get_as::<Vec<u64>>(Stat::TrailingZeroFreq)
-            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
-            .map(|v| fbb.create_vector(v.as_slice()));
-
-        let bit_width_freq = self
-            .get_as::<Vec<u64>>(Stat::BitWidthFreq)
-            .map(|v| v.as_exact().iter().flatten().copied().collect_vec())
-            .map(|v| fbb.create_vector(v.as_slice()));
-
         let min = self
             .get(Stat::Min)
             .and_then(Precision::as_exact)
@@ -53,14 +43,9 @@ impl WriteFlatBuffer for StatsSet {
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant)
                 .and_then(Precision::as_exact),
-            run_count: self
-                .get_as::<u64>(Stat::RunCount)
-                .and_then(Precision::as_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
                 .and_then(Precision::as_exact),
-            bit_width_freq,
-            trailing_zero_freq,
             uncompressed_size_in_bytes: self
                 .get_as::<u64>(Stat::UncompressedSizeInBytes)
                 .and_then(Precision::as_exact),
@@ -81,9 +66,6 @@ impl ReadFlatBuffer for StatsSet {
 
         for stat in all::<Stat>() {
             match stat {
-                Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
-                    // Not implemented
-                }
                 Stat::IsConstant => {
                     if let Some(is_constant) = fb.is_constant() {
                         stats_set.set(Stat::IsConstant, Precision::Exact(is_constant.into()));
@@ -110,11 +92,6 @@ impl ReadFlatBuffer for StatsSet {
                 Stat::Min => {
                     if let Some(min) = fb.min() {
                         stats_set.set(Stat::Min, Precision::Exact(ScalarValue::try_from(min)?));
-                    }
-                }
-                Stat::RunCount => {
-                    if let Some(run_count) = fb.run_count() {
-                        stats_set.set(Stat::RunCount, Precision::Exact(run_count.into()));
                     }
                 }
                 Stat::NullCount => {

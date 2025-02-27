@@ -44,9 +44,10 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
+    use crate::Array;
     use crate::arrays::VarBinArray;
     use crate::compute::{MinMaxResult, min_max};
-    use crate::stats::{Stat, Statistics};
+    use crate::stats::{Stat, StatsProvider};
 
     #[test]
     fn some_nulls() {
@@ -80,7 +81,8 @@ mod tests {
     #[test]
     fn all_nulls() {
         let array = VarBinArray::from_iter(vec![Option::<&str>::None, None, None], Utf8(Nullable));
-        assert!(array.get_stat(Stat::Min).is_none());
-        assert!(array.get_stat(Stat::Max).is_none());
+        let stats = array.statistics();
+        assert!(stats.get(Stat::Min).is_none());
+        assert!(stats.get(Stat::Max).is_none());
     }
 }

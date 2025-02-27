@@ -25,7 +25,7 @@ use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex::file::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
 use vortex::{Array, ContextRef, Encoding};
 

@@ -3,7 +3,6 @@
 //! Vortex is a chunked array library that's able to
 
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use futures_util::stream;
 use itertools::Itertools;
@@ -16,7 +15,7 @@ use crate::array::ArrayValidityImpl;
 use crate::compute::{SearchSorted, SearchSortedSide};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
@@ -37,7 +36,7 @@ pub struct ChunkedArray {
     len: usize,
     chunk_offsets: Buffer<u64>,
     chunks: Vec<ArrayRef>,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct ChunkedEncoding;
@@ -207,8 +206,8 @@ impl ArrayImpl for ChunkedArray {
 }
 
 impl ArrayStatisticsImpl for ChunkedArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProvider};
 
 pub trait SumFn<A> {
     /// # Preconditions
@@ -39,7 +39,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
 
     // Short-circuit using array statistics.
-    if let Some(Precision::Exact(sum)) = array.statistics().get_stat(Stat::Sum) {
+    if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
         return Ok(Scalar::new(sum_dtype, sum));
     }
 
@@ -147,7 +147,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
     // Update the statistics with the computed sum.
     array
         .statistics()
-        .set_stat(Stat::Sum, Precision::Exact(sum.value().clone()));
+        .set(Stat::Sum, Precision::Exact(sum.value().clone()));
 
     Ok(sum)
 }

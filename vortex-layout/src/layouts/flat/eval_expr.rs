@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use vortex_array::ArrayRef;
 use vortex_array::compute::{filter, slice};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 

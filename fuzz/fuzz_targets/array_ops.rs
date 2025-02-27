@@ -10,8 +10,8 @@ use vortex_array::compute::{
     SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, slice, take,
 };
 use vortex_array::{Array, ArrayRef, Encoding};
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
-use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
@@ -20,13 +20,10 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(c) => {
-                match fuzz_compress(current_array.to_canonical().unwrap().as_ref(), &c) {
-                    Some(compressed_array) => {
-                        assert_array_eq(&expected.array(), &compressed_array, i);
-                        current_array = compressed_array;
-                    }
-                    None => return Corpus::Reject,
-                }
+                let compressed_array =
+                    fuzz_compress(current_array.to_canonical().unwrap().as_ref(), &c);
+                assert_array_eq(&expected.array(), &compressed_array, i);
+                current_array = compressed_array;
             }
             Action::Slice(range) => {
                 current_array = slice(&current_array, range.start, range.end).unwrap();
@@ -52,8 +49,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 ])
                 .contains(&current_array.encoding())
                 {
-                    sorted =
-                        fuzz_compress(&sorted, &SamplingCompressor::default()).unwrap_or(sorted);
+                    sorted = fuzz_compress(&sorted, &BtrBlocksCompressor);
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i)
             }
@@ -66,13 +62,8 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     Corpus::Keep
 });
 
-fn fuzz_compress(array: &dyn Array, compressor: &SamplingCompressor) -> Option<ArrayRef> {
-    let compressed_array = compressor.compress(array, None).unwrap();
-
-    compressed_array
-        .path()
-        .is_some()
-        .then(|| compressed_array.into_array())
+fn fuzz_compress(array: &dyn Array, compressor: &BtrBlocksCompressor) -> ArrayRef {
+    compressor.compress(array).unwrap()
 }
 
 fn assert_search_sorted(

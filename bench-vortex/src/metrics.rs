@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
 use datafusion_physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
@@ -8,6 +8,7 @@ use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
@@ -91,9 +92,29 @@ pub async fn export_plan_spans(
             plan.as_ref(),
             InstrumentationScope::builder("otlp").build(),
         );
-        exporter.export(spans).await?;
+        for chunk in &spans.iter().chunks(20) {
+            export_with_retries(&mut exporter, chunk.cloned().collect()).await?;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
     Ok(())
+}
+
+async fn export_with_retries(
+    exporter: &mut impl SpanExporter,
+    spans: Vec<SpanData>,
+) -> OTelSdkResult {
+    let mut res = Ok(());
+    for i in 0..3 {
+        match exporter.export(spans.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                tokio::time::sleep(Duration::from_secs(i * 2)).await;
+                res = Err(e);
+            }
+        };
+    }
+    res
 }
 
 pub struct OtlpTraceCreator {

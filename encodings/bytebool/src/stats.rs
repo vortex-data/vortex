@@ -36,7 +36,6 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 4);
     }
 
@@ -79,7 +78,6 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 3);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 2);
     }
 
@@ -103,7 +101,6 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.as_bool_typed().unwrap().true_count().unwrap(), 0);
     }
 }
