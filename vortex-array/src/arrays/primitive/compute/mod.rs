@@ -1,8 +1,8 @@
 use crate::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, IsConstantFn, MaskFn, MinMaxFn,
-    ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, IsConstantFn, IsSortedFn, MaskFn,
+    MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
     UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
@@ -13,6 +13,7 @@ mod fill;
 mod fill_null;
 mod filter;
 mod is_constant;
+mod is_sorted;
 mod mask;
 mod min_max;
 mod scalar_at;
@@ -45,6 +46,10 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 
