@@ -5,7 +5,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, try_from_array_ref,
@@ -27,9 +27,14 @@ try_from_array_ref!(ByteBoolArray);
 
 pub struct ByteBoolEncoding;
 impl Encoding for ByteBoolEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.bytebool");
     type Array = ByteBoolArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for ByteBoolEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.bytebool")
+    }
 }
 
 impl ByteBoolArray {

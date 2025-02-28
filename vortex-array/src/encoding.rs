@@ -11,8 +11,6 @@ pub type EncodingId = ArcRef<str>;
 
 /// Marker trait for array encodings with their associated Array type.
 pub trait Encoding: 'static + Send + Sync + EncodingVTable {
-    const ID: EncodingId;
-
     type Array: Array;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 

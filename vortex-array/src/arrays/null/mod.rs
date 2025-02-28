@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 use crate::nbytes::NBytes;
 use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::variants::NullArrayTrait;
-use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
@@ -22,9 +22,14 @@ pub struct NullArray {
 
 pub struct NullEncoding;
 impl Encoding for NullEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.null");
     type Array = NullArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for NullEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.null")
+    }
 }
 
 impl NullArray {

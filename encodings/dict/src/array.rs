@@ -5,7 +5,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
@@ -25,9 +25,14 @@ pub struct DictArray {
 
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.dict");
     type Array = DictArray;
     type Metadata = RkyvMetadata<DictMetadata>;
+}
+
+impl EncodingVTable for DictEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.dict")
+    }
 }
 
 impl DictArray {

@@ -8,7 +8,7 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, try_from_array_ref,
@@ -40,9 +40,14 @@ try_from_array_ref!(BitPackedArray);
 
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
-    const ID: EncodingId = EncodingId::new_ref("fastlanes.bitpacked");
     type Array = BitPackedArray;
     type Metadata = RkyvMetadata<BitPackedMetadata>;
+}
+
+impl EncodingVTable for BitPackedEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.bitpacked")
+    }
 }
 
 /// NB: All non-null values in the patches array are considered patches

@@ -17,7 +17,7 @@ pub struct SyncIPCReader<R: Read> {
 
 impl<R: Read> SyncIPCReader<R> {
     pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
-        let mut reader = SyncMessageReader::new(read, registry.clone());
+        let mut reader = SyncMessageReader::new(read, registry);
         match reader.next().transpose()? {
             Some(msg) => match msg {
                 DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, dtype }),

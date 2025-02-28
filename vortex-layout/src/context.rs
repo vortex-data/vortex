@@ -15,11 +15,13 @@ pub trait LayoutRegistryExt {
 
 impl LayoutRegistryExt for LayoutRegistry {
     fn default() -> Self {
-        Self::empty().register_many([
+        let mut this = Self::empty();
+        this.register_many([
             LayoutVTableRef::new_ref(&ChunkedLayout),
             LayoutVTableRef::new_ref(&FlatLayout),
             LayoutVTableRef::new_ref(&StructLayout),
             LayoutVTableRef::new_ref(&StatsLayout),
-        ])
+        ]);
+        this
     }
 }

@@ -17,7 +17,7 @@ use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::compute::scalar_at;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingId, RkyvMetadata,
     try_from_array_ref,
@@ -44,9 +44,14 @@ try_from_array_ref!(VarBinArray);
 
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.varbin");
     type Array = VarBinArray;
     type Metadata = RkyvMetadata<VarBinMetadata>;
+}
+
+impl EncodingVTable for VarBinEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.varbin")
+    }
 }
 
 impl VarBinArray {

@@ -6,7 +6,7 @@ use vortex_array::compute::{
 };
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, IntoArray, SerdeMetadata, ToCanonical,
@@ -33,9 +33,14 @@ try_from_array_ref!(RunEndArray);
 
 pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.runend");
     type Array = RunEndArray;
     type Metadata = SerdeMetadata<RunEndMetadata>;
+}
+
+impl EncodingVTable for RunEndEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.runend")
+    }
 }
 
 impl RunEndArray {

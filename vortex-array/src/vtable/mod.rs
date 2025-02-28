@@ -11,9 +11,9 @@ pub use compute::*;
 pub use serde::*;
 pub use statistics::*;
 
+use crate::Array;
 use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
-use crate::{Array, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 pub type VTableRef = ArcRef<dyn EncodingVTable>;
@@ -59,17 +59,5 @@ impl Debug for dyn EncodingVTable + '_ {
 impl Display for dyn EncodingVTable + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
-    }
-}
-
-impl<
-    E: Encoding
-        + ComputeVTable
-        + for<'a> SerdeVTable<&'a dyn Array>
-        + for<'a> StatisticsVTable<&'a dyn Array>,
-> EncodingVTable for E
-{
-    fn id(&self) -> EncodingId {
-        E::ID
     }
 }

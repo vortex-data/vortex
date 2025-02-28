@@ -21,7 +21,7 @@ use crate::compute::{scalar_at, slice};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
-use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
@@ -38,9 +38,14 @@ pub struct ListArray {
 
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.list");
     type Array = ListArray;
     type Metadata = RkyvMetadata<ListMetadata>;
+}
+
+impl EncodingVTable for ListEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.list")
+    }
 }
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}

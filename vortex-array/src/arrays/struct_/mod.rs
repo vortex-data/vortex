@@ -9,7 +9,7 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
     Encoding, EncodingId,
@@ -28,9 +28,14 @@ pub struct StructArray {
 
 pub struct StructEncoding;
 impl Encoding for StructEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.struct");
     type Array = StructArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for StructEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.struct")
+    }
 }
 
 impl StructArray {

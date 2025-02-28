@@ -3,7 +3,7 @@ use std::fmt::Debug;
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId,
@@ -28,9 +28,14 @@ pub struct FoRArray {
 
 pub struct FoREncoding;
 impl Encoding for FoREncoding {
-    const ID: EncodingId = EncodingId::new_ref("fastlanes.for");
     type Array = FoRArray;
     type Metadata = ScalarValueMetadata;
+}
+
+impl EncodingVTable for FoREncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.for")
+    }
 }
 
 impl FoRArray {

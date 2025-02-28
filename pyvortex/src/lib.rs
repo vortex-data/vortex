@@ -15,6 +15,7 @@ mod io;
 mod object_store_urls;
 mod python_repr;
 mod record_batch_reader;
+mod registry;
 pub(crate) mod scalar;
 
 use log::LevelFilter;
@@ -49,6 +50,8 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     expr::init(py, m)?;
     io::init(py, m)?;
     scalar::init(py, m)?;
+
+    m.add_function(wrap_pyfunction!(registry::register, m)?)?;
 
     Ok(())
 }

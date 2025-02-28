@@ -65,7 +65,7 @@ impl<A: ArrayImpl + 'static> Array for A {
     }
 
     fn encoding(&self) -> EncodingId {
-        <Self as ArrayImpl>::Encoding::ID
+        self.vtable().id()
     }
 
     fn vtable(&self) -> VTableRef {

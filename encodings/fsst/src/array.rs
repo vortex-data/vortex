@@ -2,7 +2,7 @@ use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinEncoding;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
     Encoding, EncodingId, SerdeMetadata, ToCanonical,
@@ -25,9 +25,14 @@ pub struct FSSTArray {
 
 pub struct FSSTEncoding;
 impl Encoding for FSSTEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.fsst");
     type Array = FSSTArray;
     type Metadata = SerdeMetadata<FSSTMetadata>;
+}
+
+impl EncodingVTable for FSSTEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.fsst")
+    }
 }
 
 pub(crate) static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
@@ -74,7 +79,7 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
-        if codes.encoding() != VarBinEncoding::ID {
+        if codes.encoding() != VarBinEncoding.id() {
             vortex_bail!(
                 InvalidArgument: "codes must have varbin encoding, was {}",
                 codes.encoding()

@@ -4,6 +4,7 @@ use pyo3::{Bound, PyResult, Python};
 mod builtins;
 mod compressed;
 mod fastlanes;
+pub mod py;
 
 use builtins::{
     PyBoolEncoding, PyChunkedEncoding, PyConstantEncoding, PyExtensionEncoding, PyListEncoding,
@@ -48,6 +49,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyFastLanesBitPackedEncoding>()?;
     m.add_class::<PyFastLanesDeltaEncoding>()?;
     m.add_class::<PyFastLanesForEncoding>()?;
+
+    // Python encodings
+    m.add_class::<py::PyEncoding>()?;
 
     Ok(())
 }

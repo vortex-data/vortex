@@ -10,7 +10,7 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::vtable::VTableRef;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, EncodingId, RkyvMetadata};
 
 #[derive(Clone, Debug)]
@@ -24,10 +24,14 @@ pub struct BoolArray {
 
 pub struct BoolEncoding;
 impl Encoding for BoolEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.bool");
-
     type Array = BoolArray;
     type Metadata = RkyvMetadata<BoolMetadata>;
+}
+
+impl EncodingVTable for BoolEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.bool")
+    }
 }
 
 impl BoolArray {

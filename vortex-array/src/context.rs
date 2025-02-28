@@ -22,20 +22,19 @@ impl Default for ArrayRegistry {
         let mut this = Self::empty();
 
         // Register the canonical encodings
-        this = this
-            .register(NullEncoding.vtable())
-            .register(BoolEncoding.vtable())
-            .register(PrimitiveEncoding.vtable())
-            .register(StructEncoding.vtable())
-            .register(ListEncoding.vtable())
-            .register(VarBinEncoding.vtable())
-            .register(VarBinViewEncoding.vtable())
-            .register(ExtensionEncoding.vtable());
+        this.register_many([
+            NullEncoding.vtable(),
+            BoolEncoding.vtable(),
+            PrimitiveEncoding.vtable(),
+            StructEncoding.vtable(),
+            ListEncoding.vtable(),
+            VarBinEncoding.vtable(),
+            VarBinViewEncoding.vtable(),
+            ExtensionEncoding.vtable(),
+        ]);
 
         // Register the utility encodings
-        this = this
-            .register(ConstantEncoding.vtable())
-            .register(ChunkedEncoding.vtable());
+        this.register_many([ConstantEncoding.vtable(), ChunkedEncoding.vtable()]);
 
         this
     }
@@ -97,7 +96,7 @@ impl<T: Clone + Eq> VTableContext<T> {
 ///
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VTableRegistry<T>(HashMap<String, T>);
 
 impl<T: Clone + Display + Eq> VTableRegistry<T> {
@@ -124,17 +123,20 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
         Ok(ctx)
     }
 
-    /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register(mut self, encoding: T) -> Self {
-        self.0.insert(encoding.to_string(), encoding);
-        self
+    /// List the vtables in the registry.
+    pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
+        self.0.values()
     }
 
     /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(mut self, encodings: I) -> Self {
+    pub fn register(&mut self, encoding: T) {
+        self.0.insert(encoding.to_string(), encoding);
+    }
+
+    /// Register a new encoding, replacing any existing encoding with the same ID.
+    pub fn register_many<I: IntoIterator<Item = T>>(&mut self, encodings: I) {
         encodings.into_iter().for_each(|encoding| {
             self.0.insert(encoding.to_string(), encoding);
         });
-        self
     }
 }

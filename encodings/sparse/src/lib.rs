@@ -5,7 +5,7 @@ use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, EncodingId,
     RkyvMetadata, ToCanonical, try_from_array_ref,
@@ -33,9 +33,14 @@ try_from_array_ref!(SparseArray);
 
 pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
-    const ID: EncodingId = EncodingId::new_ref("vortex.sparse");
     type Array = SparseArray;
     type Metadata = RkyvMetadata<SparseMetadata>;
+}
+
+impl EncodingVTable for SparseEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.sparse")
+    }
 }
 
 impl SparseArray {

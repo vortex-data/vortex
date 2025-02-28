@@ -168,13 +168,16 @@ impl PyArray {
         array: Bound<PyArray>,
         subclass: S,
     ) -> PyResult<Bound<S>> {
-        if array.get().deref().encoding() != <<S as EncodingSubclass>::Encoding as Encoding>::ID {
-            return Err(PyValueError::new_err(format!(
-                "Array has encoding {}, expected {}",
-                array.get().deref().encoding(),
-                <<S as EncodingSubclass>::Encoding as Encoding>::ID
-            )));
-        }
+        // FIXME
+        // if array.get().deref().encoding()
+        //     != <<S as EncodingSubclass>::Encoding as EncodingVTable>::id(&subclass)
+        // {
+        //     return Err(PyValueError::new_err(format!(
+        //         "Array has encoding {}, expected {}",
+        //         array.get().deref().encoding(),
+        //         <<S as EncodingSubclass>::Encoding as EncodingVTable>::id(&subclass)
+        //     )));
+        // }
         Bound::new(
             array.py(),
             PyClassInitializer::from(array.get().clone()).add_subclass(subclass),
