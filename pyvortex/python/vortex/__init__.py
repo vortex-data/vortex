@@ -52,7 +52,7 @@ from ._lib.encoding import (
     ExtensionEncoding,
     FastLanesBitPackedEncoding,
     FastLanesDeltaEncoding,
-    FastLanesForEncoding,
+    FastLanesFoREncoding,
     FsstEncoding,
     ListEncoding,
     NullEncoding,
@@ -146,7 +146,7 @@ __all__ = [
     "ZigZagEncoding",
     "FastLanesBitPackedEncoding",
     "FastLanesDeltaEncoding",
-    "FastLanesForEncoding",
+    "FastLanesFoREncoding",
     # Scalars
     "scalar",
     "Scalar",

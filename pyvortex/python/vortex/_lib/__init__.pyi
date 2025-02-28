@@ -1,4 +1,3 @@
-from typing import Type
+import vortex as vx
 
-
-def register(cls: Type[PyEncoding])
+def register(cls: type[vx.PyEncoding]): ...

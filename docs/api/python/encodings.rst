@@ -108,5 +108,5 @@ Compressed Encodings
     :members:
 
 
-.. autoclass:: vortex.FastLanesForEncoding
+.. autoclass:: vortex.FastLanesFoREncoding
     :members:
