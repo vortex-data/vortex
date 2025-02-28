@@ -1,6 +1,6 @@
 #![no_main]
 
-use arrow_buffer::BooleanBufferBuilder;
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
@@ -19,10 +19,7 @@ use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
     let array_data = array_data.0;
 
-    if !array_data.dtype().is_struct()
-        || has_nullable_struct(array_data.dtype())
-        || has_duplicate_field_names(array_data.dtype())
-    {
+    if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
         return Corpus::Reject;
     }
 
@@ -60,6 +57,13 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
         };
 
         assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
+        assert_eq!(
+            array_data.dtype(),
+            output.dtype(),
+            "DTypes aren't preserved expected {}, actual {}",
+            array_data.dtype(),
+            output.dtype()
+        );
 
         if array_data.dtype().is_struct() {
             compare_struct(array_data, output);
@@ -74,41 +78,17 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
 });
 
 fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
-    assert_eq!(
-        expected.dtype(),
-        actual.dtype(),
-        "DTypes aren't preserved expected {}, actual {}",
-        expected.dtype(),
-        actual.dtype()
-    );
-    assert_eq!(
-        expected.len(),
-        actual.len(),
-        "Arrays length isn't preserved expected: {}, actual: {}",
-        expected.len(),
-        actual.len()
-    );
+    let arrow_expected = expected.clone().into_arrow_preferred().unwrap();
+    let arrow_actual = actual.clone().into_arrow_preferred().unwrap();
 
-    if expected.dtype().as_struct().unwrap().names().is_empty()
-        && actual.dtype().as_struct().unwrap().names().is_empty()
-    {
-        return;
-    }
+    let cmp_fn = make_comparator(&arrow_expected, &arrow_actual, SortOptions::default()).unwrap();
 
-    let arrow_lhs = expected.clone().into_arrow_preferred().unwrap();
-    let arrow_rhs = actual.clone().into_arrow_preferred().unwrap();
-
-    let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
-
-    let mut bool_builder = BooleanBufferBuilder::new(arrow_lhs.len());
-
-    for idx in 0..arrow_lhs.len() {
-        bool_builder.append(cmp_fn(idx, idx).is_eq());
-    }
+    let comparison_result =
+        BooleanBuffer::collect_bool(arrow_expected.len(), |idx| cmp_fn(idx, idx).is_eq());
 
     assert_eq!(
-        bool_builder.finish().count_set_bits(),
-        arrow_lhs.len(),
+        comparison_result.count_set_bits(),
+        arrow_expected.len(),
         "\nEXPECTED: {}ACTUAL: {}",
         expected.tree_display(),
         actual.tree_display()

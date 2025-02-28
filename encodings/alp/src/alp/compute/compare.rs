@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(r_gt, vec![true; 10]);
 
         let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gt).unwrap();
-        assert_eq!(r_gte, vec![false; 10]);
+        assert_eq!(r_gte, vec![true; 10]);
 
         let r_lte = test_alp_compare(&encoded, 0.06051_f32, Operator::Lte).unwrap();
         assert_eq!(r_lte, vec![true; 10]);
