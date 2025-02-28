@@ -1,7 +1,6 @@
 name: "Generate TPC-H files to S3"
 
 on:
-  pull_request: { }
   workflow_dispatch: {}
   schedule:
     # 5AM UTC
