@@ -12,7 +12,7 @@ fn main() {
     divan::main();
 }
 
-fn generate_primitive_array<T: NativePType + NumCast + PartialOrd>(
+fn generate_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
     len: usize,
 ) -> PrimitiveArray {
@@ -21,7 +21,7 @@ fn generate_primitive_array<T: NativePType + NumCast + PartialOrd>(
         .collect::<PrimitiveArray>()
 }
 
-fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
+fn generate_bit_pack_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
     len: usize,
 ) -> ArrayRef {
@@ -32,7 +32,7 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     bitpack_to_best_bit_width(&a).vortex_expect("").into_array()
 }
 
-fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
+fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
     len: usize,
 ) -> ArrayRef {

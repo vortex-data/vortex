@@ -6,10 +6,12 @@ mod invert;
 mod scalar_at;
 mod slice;
 pub(crate) mod take;
+mod take_from;
 
 use vortex_array::Array;
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
+    TakeFromFn,
 };
 use vortex_array::vtable::ComputeVTable;
 
@@ -45,6 +47,10 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
         Some(self)
     }
 }

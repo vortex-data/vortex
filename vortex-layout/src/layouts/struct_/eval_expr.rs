@@ -85,6 +85,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};
+    use vortex_error::VortexUnwrap;
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
 
@@ -101,7 +102,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
-        let layout = StructLayoutWriter::new(
+        let layout = StructLayoutWriter::try_new(
             DType::Struct(
                 Arc::new(StructDType::new(
                     vec!["a".into(), "b".into(), "c".into()].into(),
@@ -127,6 +128,7 @@ mod tests {
                 )),
             ],
         )
+        .vortex_unwrap()
         .push_all(
             &mut segments,
             [Ok(StructArray::from_fields(

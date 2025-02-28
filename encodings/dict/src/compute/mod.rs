@@ -58,9 +58,6 @@ impl ScalarAtFn<&DictArray> for DictEncoding {
 
 impl TakeFn<&DictArray> for DictEncoding {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // Dict
-        //   codes: 0 0 1
-        //   dict: a b c d e f g h
         let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
     }

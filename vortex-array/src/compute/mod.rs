@@ -29,6 +29,7 @@ pub use search_sorted::*;
 pub use slice::{SliceFn, slice};
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};
+pub use take_from::TakeFromFn;
 pub use to_arrow::*;
 pub use uncompressed_size::*;
 
@@ -50,6 +51,7 @@ mod search_sorted;
 mod slice;
 mod sum;
 mod take;
+mod take_from;
 mod to_arrow;
 mod uncompressed_size;
 

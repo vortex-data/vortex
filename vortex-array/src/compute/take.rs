@@ -180,6 +180,13 @@ fn derive_take_stats(arr: &dyn Array) -> StatsSet {
 }
 
 fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    // First look for a TakeFrom specialized on the indices.
+    if let Some(take_from_fn) = indices.vtable().take_from_fn() {
+        if let Some(arr) = take_from_fn.take_from(indices, array)? {
+            return Ok(arr);
+        }
+    }
+
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.vtable().take_fn() {
