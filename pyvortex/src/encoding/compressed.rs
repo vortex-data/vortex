@@ -21,7 +21,7 @@ impl EncodingSubclass for PyAlpEncoding {
 impl PyAlpEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyAlpEncoding)
+        PyArray::init_encoding(array, &ALPEncoding, PyAlpEncoding)
     }
 }
 
@@ -37,7 +37,7 @@ impl EncodingSubclass for PyAlpRdEncoding {
 impl PyAlpRdEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyAlpRdEncoding)
+        PyArray::init_encoding(array, &ALPRDEncoding, PyAlpRdEncoding)
     }
 }
 
@@ -53,7 +53,7 @@ impl EncodingSubclass for PyDateTimePartsEncoding {
 impl PyDateTimePartsEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyDateTimePartsEncoding)
+        PyArray::init_encoding(array, &DateTimePartsEncoding, PyDateTimePartsEncoding)
     }
 }
 
@@ -69,7 +69,7 @@ impl EncodingSubclass for PyDictEncoding {
 impl PyDictEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyDictEncoding)
+        PyArray::init_encoding(array, &DictEncoding, PyDictEncoding)
     }
 }
 
@@ -85,7 +85,7 @@ impl EncodingSubclass for PyFsstEncoding {
 impl PyFsstEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyFsstEncoding)
+        PyArray::init_encoding(array, &FSSTEncoding, PyFsstEncoding)
     }
 }
 
@@ -101,7 +101,7 @@ impl EncodingSubclass for PyRunEndEncoding {
 impl PyRunEndEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyRunEndEncoding)
+        PyArray::init_encoding(array, &RunEndEncoding, PyRunEndEncoding)
     }
 }
 
@@ -117,7 +117,7 @@ impl EncodingSubclass for PySparseEncoding {
 impl PySparseEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PySparseEncoding)
+        PyArray::init_encoding(array, &SparseEncoding, PySparseEncoding)
     }
 }
 
@@ -133,6 +133,6 @@ impl EncodingSubclass for PyZigZagEncoding {
 impl PyZigZagEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyZigZagEncoding)
+        PyArray::init_encoding(array, &ZigZagEncoding, PyZigZagEncoding)
     }
 }

@@ -16,7 +16,7 @@ impl EncodingSubclass for PyStructEncoding {
 impl PyStructEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyStructEncoding)
+        PyArray::init_encoding(array, &StructEncoding, PyStructEncoding)
     }
 
     /// Returns the given field of the struct array.

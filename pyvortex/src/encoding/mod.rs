@@ -14,7 +14,7 @@ use compressed::{
     PyAlpEncoding, PyAlpRdEncoding, PyDateTimePartsEncoding, PyDictEncoding, PyFsstEncoding,
     PyRunEndEncoding, PySparseEncoding, PyZigZagEncoding,
 };
-use fastlanes::{PyFastLanesBitPackedEncoding, PyFastLanesDeltaEncoding, PyFastLanesForEncoding};
+use fastlanes::{PyFastLanesBitPackedEncoding, PyFastLanesDeltaEncoding, PyFastLanesFoREncoding};
 
 use crate::install_module;
 
@@ -48,7 +48,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     // Fastlanes encodings
     m.add_class::<PyFastLanesBitPackedEncoding>()?;
     m.add_class::<PyFastLanesDeltaEncoding>()?;
-    m.add_class::<PyFastLanesForEncoding>()?;
+    m.add_class::<PyFastLanesFoREncoding>()?;
 
     // Python encodings
     m.add_class::<py::PyEncoding>()?;

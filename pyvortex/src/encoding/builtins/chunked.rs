@@ -16,7 +16,7 @@ impl EncodingSubclass for PyChunkedEncoding {
 impl PyChunkedEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyChunkedEncoding)
+        PyArray::init_encoding(array, &ChunkedEncoding, PyChunkedEncoding)
     }
 
     pub fn chunks(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<'_, PyArray>>> {

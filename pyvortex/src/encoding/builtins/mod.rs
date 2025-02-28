@@ -26,7 +26,7 @@ impl EncodingSubclass for PyNullEncoding {
 impl PyNullEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyNullEncoding)
+        PyArray::init_encoding(array, &NullEncoding, PyNullEncoding)
     }
 }
 
@@ -42,7 +42,7 @@ impl EncodingSubclass for PyBoolEncoding {
 impl PyBoolEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyBoolEncoding)
+        PyArray::init_encoding(array, &BoolEncoding, PyBoolEncoding)
     }
 }
 
@@ -58,7 +58,7 @@ impl EncodingSubclass for PyByteBoolEncoding {
 impl PyByteBoolEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyByteBoolEncoding)
+        PyArray::init_encoding(array, &ByteBoolEncoding, PyByteBoolEncoding)
     }
 }
 
@@ -74,7 +74,7 @@ impl EncodingSubclass for PyPrimitiveEncoding {
 impl PyPrimitiveEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyPrimitiveEncoding)
+        PyArray::init_encoding(array, &PrimitiveEncoding, PyPrimitiveEncoding)
     }
 }
 
@@ -90,7 +90,7 @@ impl EncodingSubclass for PyVarBinEncoding {
 impl PyVarBinEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyVarBinEncoding)
+        PyArray::init_encoding(array, &VarBinEncoding, PyVarBinEncoding)
     }
 }
 
@@ -106,7 +106,7 @@ impl EncodingSubclass for PyVarBinViewEncoding {
 impl PyVarBinViewEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyVarBinViewEncoding)
+        PyArray::init_encoding(array, &VarBinViewEncoding, PyVarBinViewEncoding)
     }
 }
 
@@ -122,7 +122,7 @@ impl EncodingSubclass for PyListEncoding {
 impl PyListEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyListEncoding)
+        PyArray::init_encoding(array, &ListEncoding, PyListEncoding)
     }
 }
 
@@ -138,6 +138,6 @@ impl EncodingSubclass for PyExtensionEncoding {
 impl PyExtensionEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyExtensionEncoding)
+        PyArray::init_encoding(array, &ExtensionEncoding, PyExtensionEncoding)
     }
 }

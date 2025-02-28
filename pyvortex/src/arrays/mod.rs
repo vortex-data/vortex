@@ -16,6 +16,7 @@ use vortex::dtype::{DType, PType};
 use vortex::error::VortexExpect;
 use vortex::mask::Mask;
 use vortex::nbytes::NBytes;
+use vortex::vtable::EncodingVTable;
 use vortex::{Array, ArrayExt, ArrayRef, Encoding};
 
 use crate::arrays::typed::{
@@ -164,20 +165,18 @@ impl PyArray {
     }
 
     /// Initialize a [`PyArray`] with an [`EncodingSubclass`].
-    pub fn init_encoding<S: EncodingSubclass>(
-        array: Bound<PyArray>,
+    pub fn init_encoding<'py, S: EncodingSubclass>(
+        array: Bound<'py, PyArray>,
+        encoding: &'static <S as EncodingSubclass>::Encoding,
         subclass: S,
-    ) -> PyResult<Bound<S>> {
-        // FIXME
-        // if array.get().deref().encoding()
-        //     != <<S as EncodingSubclass>::Encoding as EncodingVTable>::id(&subclass)
-        // {
-        //     return Err(PyValueError::new_err(format!(
-        //         "Array has encoding {}, expected {}",
-        //         array.get().deref().encoding(),
-        //         <<S as EncodingSubclass>::Encoding as EncodingVTable>::id(&subclass)
-        //     )));
-        // }
+    ) -> PyResult<Bound<'py, S>> {
+        if array.get().deref().encoding() != encoding.id() {
+            return Err(PyValueError::new_err(format!(
+                "Array has encoding {}, expected {}",
+                array.get().deref().encoding(),
+                encoding.id()
+            )));
+        }
         Bound::new(
             array.py(),
             PyClassInitializer::from(array.get().clone()).add_subclass(subclass),

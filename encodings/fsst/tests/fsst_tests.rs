@@ -2,7 +2,8 @@
 
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
-use vortex_array::{Array, ArrayRef, Encoding, IntoArray, ToCanonical};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{FSSTEncoding, fsst_compress, fsst_train_compressor};
@@ -52,7 +53,7 @@ fn test_fsst_array_ops() {
 
     // test slice
     let fsst_sliced = slice(&fsst_array, 1, 3).unwrap();
-    assert_eq!(fsst_sliced.encoding(), FSSTEncoding::ID);
+    assert_eq!(fsst_sliced.encoding(), FSSTEncoding.id());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
         fsst_sliced,
@@ -84,7 +85,7 @@ fn test_fsst_array_ops() {
     let mask = Mask::from_iter([false, true, false]);
 
     let fsst_filtered = filter(&fsst_array, &mask).unwrap();
-    assert_eq!(fsst_filtered.encoding(), FSSTEncoding::ID);
+    assert_eq!(fsst_filtered.encoding(), FSSTEncoding.id());
     assert_eq!(fsst_filtered.len(), 1);
     assert_nth_scalar!(
         fsst_filtered,

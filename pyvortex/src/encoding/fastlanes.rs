@@ -15,7 +15,7 @@ impl EncodingSubclass for PyFastLanesBitPackedEncoding {
 impl PyFastLanesBitPackedEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyFastLanesBitPackedEncoding)
+        PyArray::init_encoding(array, &BitPackedEncoding, PyFastLanesBitPackedEncoding)
     }
 
     /// Returns the bit width of the packed values.
@@ -37,22 +37,22 @@ impl EncodingSubclass for PyFastLanesDeltaEncoding {
 impl PyFastLanesDeltaEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyFastLanesDeltaEncoding)
+        PyArray::init_encoding(array, &DeltaEncoding, PyFastLanesDeltaEncoding)
     }
 }
 
 /// Concrete class for arrays with `fastlanes.for` encoding.
-#[pyclass(name = "FastLanesForEncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyFastLanesForEncoding;
+#[pyclass(name = "FastLanesFoREncoding", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyFastLanesFoREncoding;
 
-impl EncodingSubclass for PyFastLanesForEncoding {
+impl EncodingSubclass for PyFastLanesFoREncoding {
     type Encoding = FoREncoding;
 }
 
 #[pymethods]
-impl PyFastLanesForEncoding {
+impl PyFastLanesFoREncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyFastLanesForEncoding)
+        PyArray::init_encoding(array, &FoREncoding, PyFastLanesFoREncoding)
     }
 }

@@ -15,7 +15,8 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ListEncoding;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at};
-use vortex_array::{Array, ArrayRef, ArrayVisitorExt, Encoding, EncodingId, IntoArray};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayRef, ArrayVisitorExt, EncodingId, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -177,7 +178,7 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
 fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
-    if ListEncoding::ID == encoding_id {
+    if ListEncoding.id() == encoding_id {
         // compress, slice
         vec![0, 1].into_iter().collect()
     } else {

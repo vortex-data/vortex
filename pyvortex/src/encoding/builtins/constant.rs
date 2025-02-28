@@ -16,7 +16,7 @@ impl EncodingSubclass for PyConstantEncoding {
 impl PyConstantEncoding {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, PyConstantEncoding)
+        PyArray::init_encoding(array, &ConstantEncoding, PyConstantEncoding)
     }
 
     /// Return the scalar value of the constant array.
