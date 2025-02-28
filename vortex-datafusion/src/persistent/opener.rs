@@ -24,7 +24,6 @@ pub(crate) struct VortexFileOpener {
     pub filter: Option<ExprRef>,
     pub(crate) footer_cache: FooterCache,
     pub projected_arrow_schema: SchemaRef,
-    pub batch_size: usize,
     metrics: VortexMetrics,
 }
 
@@ -37,7 +36,7 @@ impl VortexFileOpener {
         filter: Option<Arc<dyn VortexExpr>>,
         footer_cache: FooterCache,
         projected_arrow_schema: SchemaRef,
-        batch_size: usize,
+        _batch_size: usize,
         metrics: VortexMetrics,
     ) -> VortexResult<Self> {
         Ok(Self {
@@ -47,7 +46,6 @@ impl VortexFileOpener {
             filter,
             footer_cache,
             projected_arrow_schema,
-            batch_size,
             metrics,
         })
     }
@@ -72,7 +70,6 @@ impl FileOpener for VortexFileOpener {
         let footer_cache = self.footer_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
-        let batch_size = self.batch_size;
         let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
@@ -94,7 +91,7 @@ impl FileOpener for VortexFileOpener {
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
-                .with_split_by(SplitBy::RowCount(8 * batch_size))
+                .with_split_by(SplitBy::Layout)
                 .with_task_executor(executor)
                 .into_array_stream()?
                 .map(move |array| {
