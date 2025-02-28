@@ -152,8 +152,7 @@ impl Scalar {
                 .as_buffer()
                 .ok()
                 .flatten()
-                .map(|s| s.len())
-                .unwrap_or_default(),
+                .map_or(0, |s| s.len()),
             DType::Struct(_dtype, _) => self
                 .as_struct()
                 .fields()

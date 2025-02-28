@@ -4,7 +4,6 @@ mod cast;
 mod compare;
 mod invert;
 mod search_sorted;
-mod uncompressed_size;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -91,7 +90,13 @@ impl FilterFn<&ConstantArray> for ConstantEncoding {
 
 impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
     fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {
-        Ok(array.scalar().nbytes() * array.len())
+        let scalar = array.scalar();
+
+        let size = match scalar.as_bool_opt() {
+            Some(_) => array.len() / 8,
+            None => array.scalar().nbytes() * array.len(),
+        };
+        Ok(size)
     }
 }
 

@@ -1,4 +1,4 @@
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_panic};
 
 use crate::stats::{Precision, Stat};
 use crate::{Array, Encoding};
@@ -42,7 +42,7 @@ pub fn uncompressed_size(array: &dyn Array) -> VortexResult<usize> {
             if let Some(size_fn) = array_ref.vtable().uncompressed_size_fn() {
                 size_fn.uncompressed_size(array_ref)
             } else {
-                vortex_bail!(
+                vortex_panic!(
                     "No uncompressed_size function for canonical array: {}",
                     array.as_ref().encoding(),
                 )

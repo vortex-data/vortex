@@ -100,7 +100,8 @@ impl IsConstantFn<&ListArray> for ListEncoding {
 
 impl UncompressedSizeFn<&ListArray> for ListEncoding {
     fn uncompressed_size(&self, array: &ListArray) -> VortexResult<usize> {
-        uncompressed_size(array.elements().as_ref())
+        let size = uncompressed_size(array.elements())? + uncompressed_size(array.offsets())?;
+        Ok(size + array.validity().uncompressed_size()?)
     }
 }
 

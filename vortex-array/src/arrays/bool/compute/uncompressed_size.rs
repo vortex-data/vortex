@@ -6,6 +6,6 @@ use crate::nbytes::NBytes;
 
 impl UncompressedSizeFn<&BoolArray> for BoolEncoding {
     fn uncompressed_size(&self, array: &BoolArray) -> VortexResult<usize> {
-        Ok(array.nbytes())
+        Ok(array.nbytes() + array.validity().uncompressed_size()?)
     }
 }
