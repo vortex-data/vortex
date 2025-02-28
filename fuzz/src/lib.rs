@@ -1,3 +1,4 @@
+mod compare;
 mod filter;
 mod search_sorted;
 mod slice;
@@ -14,15 +15,17 @@ pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ListEncoding;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at};
+use vortex_array::compute::{Operator, SearchResult, SearchSortedSide, scalar_at};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayVisitorExt, EncodingId, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
+use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 
+use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;
 use crate::slice::slice_canonical_array;
@@ -38,14 +41,14 @@ impl ExpectedValue {
     pub fn array(self) -> ArrayRef {
         match self {
             ExpectedValue::Array(array) => array,
-            _ => panic!("expected array"),
+            _ => vortex_panic!("expected array"),
         }
     }
 
     pub fn search(self) -> SearchResult {
         match self {
             ExpectedValue::Search(s) => s,
-            _ => panic!("expected search"),
+            _ => vortex_panic!("expected search"),
         }
     }
 }
@@ -58,11 +61,12 @@ pub struct FuzzArrayAction {
 
 #[derive(Debug)]
 pub enum Action {
-    Compress(BtrBlocksCompressor),
+    Compress,
     Slice(Range<usize>),
     Take(ArrayRef),
     SearchSorted(Scalar, SearchSortedSide),
     Filter(Mask),
+    Compare(Scalar, Operator),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -73,26 +77,27 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         let valid_actions = actions_for_array(&current_array);
 
         let mut actions = Vec::new();
-        let action_count = u.int_in_range(1..=4)?;
+        let action_count = u.int_in_range(1..=5)?;
         for _ in 0..action_count {
             actions.push(match random_value_from_list(u, valid_actions.as_slice())? {
                 0 => {
                     if actions
                         .last()
-                        .map(|(l, _)| matches!(l, Action::Compress(_)))
+                        .map(|(l, _)| matches!(l, Action::Compress))
                         .unwrap_or(false)
                     {
                         return Err(EmptyChoose);
                     }
                     (
-                        Action::Compress(BtrBlocksCompressor),
+                        Action::Compress,
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 1 => {
                     let start = u.choose_index(current_array.len())?;
                     let stop = u.int_in_range(start..=current_array.len())?;
-                    current_array = slice_canonical_array(&current_array, start, stop).unwrap();
+                    current_array =
+                        slice_canonical_array(&current_array, start, stop).vortex_unwrap();
 
                     (
                         Action::Slice(start..stop),
@@ -105,21 +110,26 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
-                    current_array = take_canonical_array(&current_array, &indices).unwrap();
+                    current_array = take_canonical_array(&current_array, &indices).vortex_unwrap();
                     let indices_array = indices
                         .iter()
                         .map(|i| *i as u64)
                         .collect::<Buffer<u64>>()
                         .into_array();
-                    let compressed = BtrBlocksCompressor.compress(&indices_array).unwrap();
+                    let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
                     (
                         Action::Take(compressed.into_array()),
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 3 => {
+                    if current_array.dtype().is_struct() {
+                        return Err(EmptyChoose);
+                    }
+
                     let scalar = if u.arbitrary()? {
-                        scalar_at(&current_array, u.choose_index(current_array.len())?).unwrap()
+                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                            .vortex_unwrap()
                     } else {
                         random_scalar(u, current_array.dtype())?
                     };
@@ -128,7 +138,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    let sorted = sort_canonical_array(&current_array).unwrap();
+                    let sorted = sort_canonical_array(&current_array).vortex_unwrap();
 
                     let side = if u.arbitrary()? {
                         SearchSortedSide::Left
@@ -138,7 +148,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     (
                         Action::SearchSorted(scalar.clone(), side),
                         ExpectedValue::Search(
-                            search_sorted_canonical_array(&sorted, &scalar, side).unwrap(),
+                            search_sorted_canonical_array(&sorted, &scalar, side).vortex_unwrap(),
                         ),
                     )
                 }
@@ -146,9 +156,25 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
                         .collect::<Result<Vec<_>>>()?;
-                    current_array = filter_canonical_array(&current_array, &mask).unwrap();
+                    current_array = filter_canonical_array(&current_array, &mask).vortex_unwrap();
                     (
                         Action::Filter(Mask::from_iter(mask)),
+                        ExpectedValue::Array(current_array.to_array()),
+                    )
+                }
+                5 => {
+                    let scalar = if u.arbitrary()? {
+                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                            .vortex_unwrap()
+                    } else {
+                        random_scalar(u, current_array.dtype())?
+                    };
+
+                    let op = u.arbitrary()?;
+                    current_array =
+                        compare_canonical_array(&current_array, &scalar, op).vortex_unwrap();
+                    (
+                        Action::Compare(scalar, op),
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
@@ -162,11 +188,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
 fn random_vec_in_range(u: &mut Unstructured<'_>, min: usize, max: usize) -> Result<Vec<usize>> {
     iter::from_fn(|| {
-        if u.arbitrary().unwrap_or(false) {
-            Some(u.int_in_range(min..=max))
-        } else {
-            None
-        }
+        u.arbitrary()
+            .unwrap_or(false)
+            .then(|| u.int_in_range(min..=max))
     })
     .collect::<Result<Vec<_>>>()
 }

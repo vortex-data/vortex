@@ -1,9 +1,8 @@
 #![no_main]
 
-use arrow_buffer::BooleanBufferBuilder;
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
-use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::aliases::hash_set::HashSet;
@@ -13,59 +12,66 @@ use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
+use vortex_error::VortexUnwrap;
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
 fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
     let array_data = array_data.0;
 
-    if !array_data.dtype().is_struct()
-        || has_nullable_struct(array_data.dtype())
-        || has_duplicate_field_names(array_data.dtype())
-    {
+    if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
         return Corpus::Reject;
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .vortex_unwrap();
 
     runtime.block_on(async move {
-        let buf = Vec::new();
         let full_buff = VortexWriteOptions::default()
-            .write(buf, array_data.to_array_stream())
+            .write(ByteBufferMut::empty(), array_data.to_array_stream())
             .await
-            .unwrap();
+            .vortex_unwrap();
 
-        let written = Bytes::from(full_buff);
-
-        let output = VortexOpenOptions::in_memory(written)
+        let output = VortexOpenOptions::in_memory(full_buff)
             .open()
             .await
-            .unwrap()
+            .vortex_unwrap()
             .scan()
             .into_array_stream()
-            .unwrap()
+            .vortex_unwrap()
             .try_collect::<Vec<_>>()
             .await
-            .unwrap();
+            .vortex_unwrap();
 
         let output = if output.is_empty() {
             ChunkedArray::try_new(output, array_data.dtype().clone())
-                .unwrap()
+                .vortex_unwrap()
                 .into_array()
         } else {
             ChunkedArray::from_iter(output).into_array()
         };
 
         assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
+        assert_eq!(
+            array_data.dtype(),
+            output.dtype(),
+            "DTypes aren't preserved expected {}, actual {}",
+            array_data.dtype(),
+            output.dtype()
+        );
 
         if array_data.dtype().is_struct() {
             compare_struct(array_data, output);
         } else {
-            let r = compare(&array_data, &output, Operator::Eq).unwrap();
-            let true_count = r.to_bool().unwrap().boolean_buffer().count_set_bits();
+            let r = compare(&array_data, &output, Operator::Eq).vortex_unwrap();
+            let true_count = r
+                .to_bool()
+                .vortex_unwrap()
+                .boolean_buffer()
+                .count_set_bits();
             assert_eq!(true_count, array_data.len());
         }
     });
@@ -74,41 +80,18 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
 });
 
 fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
-    assert_eq!(
-        expected.dtype(),
-        actual.dtype(),
-        "DTypes aren't preserved expected {}, actual {}",
-        expected.dtype(),
-        actual.dtype()
-    );
-    assert_eq!(
-        expected.len(),
-        actual.len(),
-        "Arrays length isn't preserved expected: {}, actual: {}",
-        expected.len(),
-        actual.len()
-    );
+    let arrow_expected = expected.clone().into_arrow_preferred().vortex_unwrap();
+    let arrow_actual = actual.clone().into_arrow_preferred().vortex_unwrap();
 
-    if expected.dtype().as_struct().unwrap().names().is_empty()
-        && actual.dtype().as_struct().unwrap().names().is_empty()
-    {
-        return;
-    }
+    let cmp_fn =
+        make_comparator(&arrow_expected, &arrow_actual, SortOptions::default()).vortex_unwrap();
 
-    let arrow_lhs = expected.clone().into_arrow_preferred().unwrap();
-    let arrow_rhs = actual.clone().into_arrow_preferred().unwrap();
-
-    let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
-
-    let mut bool_builder = BooleanBufferBuilder::new(arrow_lhs.len());
-
-    for idx in 0..arrow_lhs.len() {
-        bool_builder.append(cmp_fn(idx, idx).is_eq());
-    }
+    let comparison_result =
+        BooleanBuffer::collect_bool(arrow_expected.len(), |idx| cmp_fn(idx, idx).is_eq());
 
     assert_eq!(
-        bool_builder.finish().count_set_bits(),
-        arrow_lhs.len(),
+        comparison_result.count_set_bits(),
+        arrow_expected.len(),
         "\nEXPECTED: {}ACTUAL: {}",
         expected.tree_display(),
         actual.tree_display()

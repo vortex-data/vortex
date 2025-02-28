@@ -5678,7 +5678,6 @@ version = "0.25.2"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
- "bytes",
  "futures-util",
  "libfuzzer-sys",
  "tokio",

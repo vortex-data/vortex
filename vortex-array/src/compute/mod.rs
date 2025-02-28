@@ -45,6 +45,8 @@ use crate::arcref::ArcRef;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
 mod between;
 mod binary_numeric;
 mod boolean;

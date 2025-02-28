@@ -20,7 +20,6 @@ cargo-fuzz = true
 [dependencies]
 arrow-buffer = { workspace = true }
 arrow-ord = { workspace = true }
-bytes = { workspace = true }
 futures-util = { workspace = true }
 libfuzzer-sys = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -32,6 +31,9 @@ vortex-error = { workspace = true }
 vortex-file = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
+
+[lints]
+workspace = true
 
 [[bin]]
 bench = false

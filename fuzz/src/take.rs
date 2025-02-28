@@ -12,13 +12,9 @@ use vortex_error::VortexResult;
 
 pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_idx = array
-            .validity_mask()?
-            .to_boolean_buffer()
-            .iter()
-            .collect::<Vec<_>>();
+        let validity_idx = array.validity_mask()?.to_boolean_buffer();
 
-        Validity::from_iter(indices.iter().map(|i| validity_idx[*i]))
+        Validity::from_iter(indices.iter().map(|i| validity_idx.value(*i)))
     } else {
         Validity::NonNullable
     };
@@ -71,7 +67,7 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
             }
             Ok(builder.finish())
         }
-        _ => unreachable!("Not a canonical array"),
+        d => unreachable!("DType {d} not supported for fuzzing"),
     }
 }
 
