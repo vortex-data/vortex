@@ -7,7 +7,7 @@ use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
 use vortex::vtable::{ComputeVTable, EncodingVTable, SerdeVTable, StatisticsVTable};
 use vortex::{Array, EmptyMetadata, Encoding, EncodingId};
 
-use crate::encoding::py::array::PyEncodingInstance;
+use crate::arrays::py::array::PyEncodingInstance;
 
 /// Wrapper struct encapsulating a Python encoding.
 pub struct PyEncodingClass {

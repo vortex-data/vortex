@@ -6,7 +6,7 @@ use vortex::arcref::ArcRef;
 use vortex::error::VortexExpect;
 use vortex::file::DEFAULT_REGISTRY;
 
-use crate::encoding::py::PyEncodingClass;
+use crate::arrays::py::PyEncodingClass;
 
 static ARRAY_REGISTRY: LazyLock<Arc<RwLock<ArrayRegistry>>> = LazyLock::new(|| {
     // Set up a registry using the default encodings from vortex-file.

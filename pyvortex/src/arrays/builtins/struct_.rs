@@ -5,18 +5,18 @@ use vortex::variants::StructArrayTrait;
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
 
 /// Concrete class for arrays with `vortex.struct` encoding.
-#[pyclass(name = "StructEncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyStructEncoding;
+#[pyclass(name = "StructArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyStructArray;
 
-impl EncodingSubclass for PyStructEncoding {
+impl EncodingSubclass for PyStructArray {
     type Encoding = StructEncoding;
 }
 
 #[pymethods]
-impl PyStructEncoding {
+impl PyStructArray {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, &StructEncoding, PyStructEncoding)
+        PyArray::init_encoding(array, &StructEncoding, PyStructArray)
     }
 
     /// Returns the given field of the struct array.

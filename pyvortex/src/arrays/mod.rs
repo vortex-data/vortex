@@ -1,5 +1,9 @@
-mod from_arrow;
-mod typed;
+pub(crate) mod builtins;
+pub(crate) mod compressed;
+pub(crate) mod fastlanes;
+pub(crate) mod from_arrow;
+pub(crate) mod py;
+pub(crate) mod typed;
 
 use std::ops::Deref;
 
@@ -21,9 +25,10 @@ use vortex::{Array, ArrayExt, ArrayRef, Encoding};
 
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
-    PyFloat32TypeArray, PyFloat64TypeArray, PyInt8TypeArray, PyInt16TypeArray, PyInt32TypeArray,
-    PyInt64TypeArray, PyListTypeArray, PyNullTypeArray, PyStructTypeArray, PyUInt8TypeArray,
-    PyUInt16TypeArray, PyUInt32TypeArray, PyUInt64TypeArray, PyUtf8TypeArray,
+    PyFloat32TypeArray, PyFloat64TypeArray, PyFloatTypeArray, PyInt8TypeArray, PyInt16TypeArray,
+    PyInt32TypeArray, PyInt64TypeArray, PyIntTypeArray, PyIntegerTypeArray, PyListTypeArray,
+    PyNullTypeArray, PyPrimitiveTypeArray, PyStructTypeArray, PyUInt8TypeArray, PyUInt16TypeArray,
+    PyUInt32TypeArray, PyUInt64TypeArray, PyUIntTypeArray, PyUtf8TypeArray,
 };
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -37,9 +42,44 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
 
+    // Canonical encodings
+    m.add_class::<builtins::PyConstantArray>()?;
+    m.add_class::<builtins::PyChunkedArray>()?;
+    m.add_class::<builtins::PyNullArray>()?;
+    m.add_class::<builtins::PyBoolArray>()?;
+    m.add_class::<builtins::PyPrimitiveArray>()?;
+    m.add_class::<builtins::PyVarBinArray>()?;
+    m.add_class::<builtins::PyVarBinViewArray>()?;
+    m.add_class::<builtins::PyStructArray>()?;
+    m.add_class::<builtins::PyListArray>()?;
+    m.add_class::<builtins::PyExtensionArray>()?;
+
+    // Compressed encodings
+    m.add_class::<compressed::PyAlpArray>()?;
+    m.add_class::<compressed::PyAlpRdArray>()?;
+    m.add_class::<compressed::PyDateTimePartsArray>()?;
+    m.add_class::<compressed::PyDictArray>()?;
+    m.add_class::<compressed::PyFsstArray>()?;
+    m.add_class::<compressed::PyRunEndArray>()?;
+    m.add_class::<compressed::PySparseArray>()?;
+    m.add_class::<compressed::PyZigZagArray>()?;
+
+    // Fastlanes encodings
+    m.add_class::<fastlanes::PyFastLanesBitPackedArray>()?;
+    m.add_class::<fastlanes::PyFastLanesDeltaArray>()?;
+    m.add_class::<fastlanes::PyFastLanesFoRArray>()?;
+
+    // Python encodings
+    m.add_class::<py::PyEncoding>()?;
+
     // Typed arrays
     m.add_class::<PyNullTypeArray>()?;
     m.add_class::<PyBoolTypeArray>()?;
+    m.add_class::<PyPrimitiveTypeArray>()?;
+    m.add_class::<PyIntegerTypeArray>()?;
+    m.add_class::<PyUIntTypeArray>()?;
+    m.add_class::<PyIntTypeArray>()?;
+    m.add_class::<PyFloatTypeArray>()?;
     m.add_class::<PyUInt8TypeArray>()?;
     m.add_class::<PyUInt16TypeArray>()?;
     m.add_class::<PyUInt32TypeArray>()?;
@@ -140,21 +180,73 @@ impl PyArray {
     /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
     pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyArray>> {
+        fn unsigned(array: ArrayRef) -> PyClassInitializer<PyUIntTypeArray> {
+            PyClassInitializer::from(PyArray(array))
+                .add_subclass(PyPrimitiveTypeArray)
+                .add_subclass(PyIntegerTypeArray)
+                .add_subclass(PyUIntTypeArray)
+        }
+
+        fn signed(array: ArrayRef) -> PyClassInitializer<PyIntTypeArray> {
+            PyClassInitializer::from(PyArray(array))
+                .add_subclass(PyPrimitiveTypeArray)
+                .add_subclass(PyIntegerTypeArray)
+                .add_subclass(PyIntTypeArray)
+        }
+
+        fn float(array: ArrayRef) -> PyClassInitializer<PyFloatTypeArray> {
+            PyClassInitializer::from(PyArray(array))
+                .add_subclass(PyPrimitiveTypeArray)
+                .add_subclass(PyFloatTypeArray)
+        }
+
         match array.dtype() {
             DType::Null => Self::with_subclass(py, array, PyNullTypeArray),
             DType::Bool(_) => Self::with_subclass(py, array, PyBoolTypeArray),
             DType::Primitive(ptype, _) => match ptype {
-                PType::U8 => Self::with_subclass(py, array, PyUInt8TypeArray),
-                PType::U16 => Self::with_subclass(py, array, PyUInt16TypeArray),
-                PType::U32 => Self::with_subclass(py, array, PyUInt32TypeArray),
-                PType::U64 => Self::with_subclass(py, array, PyUInt64TypeArray),
-                PType::I8 => Self::with_subclass(py, array, PyInt8TypeArray),
-                PType::I16 => Self::with_subclass(py, array, PyInt16TypeArray),
-                PType::I32 => Self::with_subclass(py, array, PyInt32TypeArray),
-                PType::I64 => Self::with_subclass(py, array, PyInt64TypeArray),
-                PType::F16 => Self::with_subclass(py, array, PyFloat16TypeArray),
-                PType::F32 => Self::with_subclass(py, array, PyFloat32TypeArray),
-                PType::F64 => Self::with_subclass(py, array, PyFloat64TypeArray),
+                PType::U8 => Self::with_subclass_initializer(
+                    py,
+                    unsigned(array).add_subclass(PyUInt8TypeArray),
+                ),
+                PType::U16 => Self::with_subclass_initializer(
+                    py,
+                    unsigned(array).add_subclass(PyUInt16TypeArray),
+                ),
+                PType::U32 => Self::with_subclass_initializer(
+                    py,
+                    unsigned(array).add_subclass(PyUInt32TypeArray),
+                ),
+                PType::U64 => Self::with_subclass_initializer(
+                    py,
+                    unsigned(array).add_subclass(PyUInt64TypeArray),
+                ),
+                PType::I8 => {
+                    Self::with_subclass_initializer(py, signed(array).add_subclass(PyInt8TypeArray))
+                }
+                PType::I16 => Self::with_subclass_initializer(
+                    py,
+                    signed(array).add_subclass(PyInt16TypeArray),
+                ),
+                PType::I32 => Self::with_subclass_initializer(
+                    py,
+                    signed(array).add_subclass(PyInt32TypeArray),
+                ),
+                PType::I64 => Self::with_subclass_initializer(
+                    py,
+                    signed(array).add_subclass(PyInt64TypeArray),
+                ),
+                PType::F16 => Self::with_subclass_initializer(
+                    py,
+                    float(array).add_subclass(PyFloat16TypeArray),
+                ),
+                PType::F32 => Self::with_subclass_initializer(
+                    py,
+                    float(array).add_subclass(PyFloat32TypeArray),
+                ),
+                PType::F64 => Self::with_subclass_initializer(
+                    py,
+                    float(array).add_subclass(PyFloat64TypeArray),
+                ),
             },
             DType::Utf8(_) => Self::with_subclass(py, array, PyUtf8TypeArray),
             DType::Binary(_) => Self::with_subclass(py, array, PyBinaryTypeArray),
@@ -194,6 +286,15 @@ impl PyArray {
         )?
         .into_any()
         .downcast_into::<PyArray>()?)
+    }
+
+    fn with_subclass_initializer<S: PyClass>(
+        py: Python,
+        intializer: PyClassInitializer<S>,
+    ) -> PyResult<Bound<PyArray>> {
+        Ok(Bound::new(py, intializer)?
+            .into_any()
+            .downcast_into::<PyArray>()?)
     }
 
     pub fn inner(&self) -> &ArrayRef {

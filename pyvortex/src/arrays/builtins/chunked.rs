@@ -5,18 +5,18 @@ use vortex::arrays::ChunkedEncoding;
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
 
 /// Concrete class for arrays with `vortex.chunked` encoding.
-#[pyclass(name = "ChunkedEncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyChunkedEncoding;
+#[pyclass(name = "ChunkedArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyChunkedArray;
 
-impl EncodingSubclass for PyChunkedEncoding {
+impl EncodingSubclass for PyChunkedArray {
     type Encoding = ChunkedEncoding;
 }
 
 #[pymethods]
-impl PyChunkedEncoding {
+impl PyChunkedArray {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, &ChunkedEncoding, PyChunkedEncoding)
+        PyArray::init_encoding(array, &ChunkedEncoding, PyChunkedArray)
     }
 
     pub fn chunks(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<'_, PyArray>>> {

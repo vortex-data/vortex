@@ -4,18 +4,18 @@ use vortex::encodings::fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
 
 /// Concrete class for arrays with `fastlanes.bitpacked` encoding.
-#[pyclass(name = "FastLanesBitPackedEncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyFastLanesBitPackedEncoding;
+#[pyclass(name = "FastLanesBitPackedArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyFastLanesBitPackedArray;
 
-impl EncodingSubclass for PyFastLanesBitPackedEncoding {
+impl EncodingSubclass for PyFastLanesBitPackedArray {
     type Encoding = BitPackedEncoding;
 }
 
 #[pymethods]
-impl PyFastLanesBitPackedEncoding {
+impl PyFastLanesBitPackedArray {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, &BitPackedEncoding, PyFastLanesBitPackedEncoding)
+        PyArray::init_encoding(array, &BitPackedEncoding, PyFastLanesBitPackedArray)
     }
 
     /// Returns the bit width of the packed values.
@@ -26,33 +26,33 @@ impl PyFastLanesBitPackedEncoding {
 }
 
 /// Concrete class for arrays with `fastlanes.delta` encoding.
-#[pyclass(name = "FastLanesDeltaEncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyFastLanesDeltaEncoding;
+#[pyclass(name = "FastLanesDeltaArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyFastLanesDeltaArray;
 
-impl EncodingSubclass for PyFastLanesDeltaEncoding {
+impl EncodingSubclass for PyFastLanesDeltaArray {
     type Encoding = DeltaEncoding;
 }
 
 #[pymethods]
-impl PyFastLanesDeltaEncoding {
+impl PyFastLanesDeltaArray {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, &DeltaEncoding, PyFastLanesDeltaEncoding)
+        PyArray::init_encoding(array, &DeltaEncoding, PyFastLanesDeltaArray)
     }
 }
 
 /// Concrete class for arrays with `fastlanes.for` encoding.
-#[pyclass(name = "FastLanesFoREncoding", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyFastLanesFoREncoding;
+#[pyclass(name = "FastLanesFoRArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyFastLanesFoRArray;
 
-impl EncodingSubclass for PyFastLanesFoREncoding {
+impl EncodingSubclass for PyFastLanesFoRArray {
     type Encoding = FoREncoding;
 }
 
 #[pymethods]
-impl PyFastLanesFoREncoding {
+impl PyFastLanesFoRArray {
     #[new]
     fn new(array: Bound<PyArray>) -> PyResult<Bound<Self>> {
-        PyArray::init_encoding(array, &FoREncoding, PyFastLanesFoREncoding)
+        PyArray::init_encoding(array, &FoREncoding, PyFastLanesFoRArray)
     }
 }

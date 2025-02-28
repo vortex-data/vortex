@@ -11,8 +11,7 @@ use vortex::{
     ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
-use crate::encoding::py::PyEncoding;
-use crate::encoding::py::encoding::PyEncodingClass;
+use crate::arrays::py::{PyEncoding, PyEncodingClass};
 
 #[derive(Debug)]
 pub struct PyEncodingInstance(Py<PyEncoding>);
