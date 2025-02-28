@@ -125,7 +125,6 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
         let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
         let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
         let mut patch_values = BufferMut::<Self>::with_capacity(values.len());
-        let mut fill_value: Option<Self::ALPInt> = None;
 
         // this is intentionally branchless
         // we batch this into 32KB of values at a time to make it more L1 cache friendly
@@ -137,7 +136,6 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
                 &mut encoded_output,
                 &mut patch_indices,
                 &mut patch_values,
-                &mut fill_value,
             );
         }
 
@@ -208,12 +206,10 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     encoded_output: &mut BufferMut<T::ALPInt>,
     patch_indices: &mut BufferMut<u64>,
     patch_values: &mut BufferMut<T>,
-    fill_value: &mut Option<T::ALPInt>,
 ) {
     let num_prev_encoded = encoded_output.len();
     let num_prev_patches = patch_indices.len();
     assert_eq!(patch_indices.len(), patch_values.len());
-    let has_filled = fill_value.is_some();
 
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
@@ -248,28 +244,6 @@ fn encode_chunk_unchecked<T: ALPFloat>(
         unsafe {
             patch_indices.set_len(num_prev_patches + chunk_patch_count);
             patch_values.set_len(num_prev_patches + chunk_patch_count);
-        }
-    }
-
-    // find the first successfully encoded value (i.e., not patched)
-    // this is our fill value for missing values
-    if fill_value.is_none() && (num_prev_encoded + chunk_patch_count < encoded_output.len()) {
-        assert_eq!(num_prev_encoded, num_prev_patches);
-        for i in num_prev_encoded..encoded_output.len() {
-            if i >= patch_indices.len() || patch_indices[i] != i as u64 {
-                *fill_value = Some(encoded_output[i]);
-                break;
-            }
-        }
-    }
-
-    // replace the patched values in the encoded array with the fill value
-    // for better downstream compression
-    if let Some(fill_value) = fill_value {
-        // handle the edge case where the first N >= 1 chunks are all patches
-        let start_patch = if !has_filled { 0 } else { num_prev_patches };
-        for patch_idx in &patch_indices[start_patch..] {
-            encoded_output[*patch_idx as usize] = *fill_value;
         }
     }
 }
