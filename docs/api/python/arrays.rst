@@ -7,10 +7,10 @@ functions, serialized, and otherwise manipulated as a generic array.
 
 There are two ways of "downcasting" an array for more specific access patterns:
 
-1. Into an encoding-specific array, like :class:`vortex.FastLanesBitPackedEncoding`.vortex.
+1. Into an encoding-specific array, like :class:`vortex.FastLanesBitPackedArray`.vortex.
 2. Into a type-specific array, like :class:`vortex.BoolTypeArray`.
 
-Be careful to note that :class:`vortex.BoolEncoding` represents an array that stores physical data
+Be careful to note that :class:`vortex.BoolArray` represents an array that stores physical data
  as a bit-buffer of booleans, vs :class:`vortex.BoolTypeArray` which represents any array that has a logical
  type of boolean.
 
@@ -41,6 +41,12 @@ functionality.
 .. autoclass:: vortex.BoolTypeArray
      :members:
 
+.. autoclass:: vortex.PrimitiveTypeArray
+     :members:
+
+.. autoclass:: vortex.UIntTypeArray
+     :members:
+
 .. autoclass:: vortex.UInt8TypeArray
      :members:
 
@@ -53,6 +59,9 @@ functionality.
 .. autoclass:: vortex.UInt64TypeArray
      :members:
 
+.. autoclass:: vortex.IntTypeArray
+     :members:
+
 .. autoclass:: vortex.Int8TypeArray
      :members:
 
@@ -63,6 +72,9 @@ functionality.
      :members:
 
 .. autoclass:: vortex.Int64TypeArray
+     :members:
+
+.. autoclass:: vortex.FloatTypeArray
      :members:
 
 .. autoclass:: vortex.Float16TypeArray
@@ -88,3 +100,106 @@ functionality.
 
 .. autoclass:: vortex.ExtensionTypeArray
      :members:
+
+
+Canonical Encodings
+-------------------
+
+Each :class:`~vortex.DType` has a corresponding canonical encoding. These encodings represent the uncompressed version
+of the array, and are also zero-copy to Apache Arrow.
+
+.. autoclass:: vortex.NullArray
+     :members:
+
+
+.. autoclass:: vortex.BoolArray
+     :members:
+
+
+.. autoclass:: vortex.PrimitiveArray
+     :members:
+
+
+.. autoclass:: vortex.VarBinArray
+    :members:
+
+
+.. autoclass:: vortex.VarBinViewArray
+    :members:
+
+
+.. autoclass:: vortex.StructArray
+    :members:
+
+
+.. autoclass:: vortex.ListArray
+    :members:
+
+
+.. autoclass:: vortex.ExtensionArray
+    :members:
+
+
+Utility Encodings
+-----------------
+
+.. autoclass:: vortex.ChunkedArray
+    :members:
+
+
+.. autoclass:: vortex.ConstantArray
+    :members:
+
+
+.. autoclass:: vortex.SparseArray
+    :members:
+
+
+Compressed Encodings
+--------------------
+
+.. autoclass:: vortex.AlpArray
+    :members:
+
+
+.. autoclass:: vortex.AlpRdArray
+    :members:
+
+
+.. autoclass:: vortex.DateTimePartsArray
+    :members:
+
+
+.. autoclass:: vortex.DictArray
+    :members:
+
+
+.. autoclass:: vortex.FsstArray
+    :members:
+
+
+.. autoclass:: vortex.RunEndArray
+    :members:
+
+
+.. autoclass:: vortex.ZigZagArray
+    :members:
+
+
+.. autoclass:: vortex.FastLanesBitPackedArray
+    :members:
+
+
+.. autoclass:: vortex.FastLanesDeltaArray
+    :members:
+
+
+.. autoclass:: vortex.FastLanesFoRArray
+    :members:
+
+
+Pluggable Encodings
+-------------------
+
+.. autoclass:: vortex.PyEncoding
+    :members:

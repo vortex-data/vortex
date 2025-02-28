@@ -7,7 +7,7 @@ use pyo3::{pyclass, pymethods};
 use crate::arrays::PyArray;
 
 /// Base class for array encodings implemented in Python.
-#[pyclass(name = "PyArray", module = "vortex", extends=PyArray, frozen, subclass)]
+#[pyclass(name = "PyEncoding", module = "vortex", extends=PyArray, frozen, subclass)]
 pub(crate) struct PyEncoding;
 
 #[pymethods]

@@ -3,7 +3,7 @@
 Encoding vtables can define optional implementations of compute functions where it's possible to optimize the
 implementation beyond the default behavior of canonicalizing the array and then performing the operation.
 
-For example, `DictEncoding` defines an implementation of compare where given a constant right-hand side argument,
+For example, `DictArray` defines an implementation of compare where given a constant right-hand side argument,
 the operation is performed only over the dictionary values and the result is wrapped up with the original dictionary
 codes.
 

@@ -69,7 +69,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<fastlanes::PyFastLanesDeltaArray>()?;
     m.add_class::<fastlanes::PyFastLanesFoRArray>()?;
 
-    // Python encodings
+    // Pluggable encodings
     m.add_class::<py::PyEncoding>()?;
 
     // Typed arrays

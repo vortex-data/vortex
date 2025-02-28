@@ -42,22 +42,22 @@ is an overview:
 * `into_canonical`: decodes the array into a canonical encoding.
 * `into_arrow`: decodes the array into an Arrow array.
 * `metadata`
-  * `validate`: validates the array's metadata buffer.
-  * `display`: returns a human-readable representation of the array metadata.
+    * `validate`: validates the array's metadata buffer.
+    * `display`: returns a human-readable representation of the array metadata.
 * `validity`
-  * `is_valid`: returns whether the element at a given row is valid.
-  * `all_valid`: returns whether all elements are valid.
-  * `invalid_count` returns the number of invalid elements.
-  * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
+    * `is_valid`: returns whether the element at a given row is valid.
+    * `all_valid`: returns whether all elements are valid.
+    * `invalid_count` returns the number of invalid elements.
+    * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
 * `compute`: a collection of compute functions vtables.
-  * `filter`: a function for filtering the array using a given selection mask.
-  * ...
+    * `filter`: a function for filtering the array using a given selection mask.
+    * ...
 * `statistics`: a function for computing a statistic for the array data, for example `min`.
 * `variants`: a collection of optional DType-specific functions for operation over the array.
-  * `struct`: functions for operating over arrays with a `StructDType`.
-    * `get_field`: returns the array for a given field of the struct.
+    * `struct`: functions for operating over arrays with a `StructDType`.
+        * `get_field`: returns the array for a given field of the struct.
+        * ...
     * ...
-  * ...
 
 Encoding vtables can even be constructed from non-static sources, such as _WebAssembly_ modules, which enables the
 [forward compatibility](/specs/file-format.md#forward-compatibility) feature of the Vortex File Format.
@@ -74,16 +74,16 @@ better suited to a particular operation or compute engine.
 
 The canonical encodings support **zero-copy** conversion to and from _Apache Arrow_ arrays.
 
-| Data Type          | Canonical Encoding   |
-|--------------------|----------------------|
-| `DType::Null`      | `NullEncoding`       |
-| `DType::Bool`      | `BoolEncoding`       |
-| `DType::Primitive` | `PrimitiveEncoding`  |
-| `DType::UTF8`      | `VarBinViewEncoding` |
-| `DType::Binary`    | `VarBinViewEncoding` |
-| `DType::Struct`    | `StructEncoding`     |
-| `DType::List`      | `ListEncoding`       |
-| `DType::Extension` | `ExtensionEncoding`  |
+| Data Type          | Canonical Encoding |
+|--------------------|--------------------|
+| `DType::Null`      | `NullArray`        |
+| `DType::Bool`      | `BoolArray`        |
+| `DType::Primitive` | `PrimitiveArray`   |
+| `DType::UTF8`      | `VarBinViewArray`  |
+| `DType::Binary`    | `VarBinViewArray`  |
+| `DType::Struct`    | `StructArray`      |
+| `DType::List`      | `ListArray`        |
+| `DType::Extension` | `ExtensionArray`   |
 
 (data-type)=
 

@@ -7,7 +7,6 @@ Python API
    dtypes
    scalars
    arrays
-   encodings
    expr
    compress
    io
