@@ -31,5 +31,7 @@ jobs:
           aws-region: us-east-1
       - name: Generate files locally
         run: |
-          cargo run --release --bin tpch -- --formats parquet,vortex
+          cargo run --release --bin tpch -- --formats parquet,vortex -i0
           aws s3 cp --recursive bench-vortex/data/tpch/1 $REMOTE_PATH
+          # We can now clear generated data
+          rm -rf bench-vortex/data/
