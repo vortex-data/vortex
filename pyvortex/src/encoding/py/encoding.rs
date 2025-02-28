@@ -53,6 +53,6 @@ impl EncodingVTable for PyEncodingClass {
 
 impl ComputeVTable for PyEncodingClass {}
 
-impl<'a> SerdeVTable<&'a dyn Array> for PyEncodingClass {}
+impl SerdeVTable<&dyn Array> for PyEncodingClass {}
 
-impl<'a> StatisticsVTable<&'a dyn Array> for PyEncodingClass {}
+impl StatisticsVTable<&dyn Array> for PyEncodingClass {}
