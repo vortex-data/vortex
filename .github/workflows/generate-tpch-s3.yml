@@ -31,7 +31,6 @@ jobs:
           aws-region: us-east-1
       - name: Generate files locally
         run: |
-          # Apparently this is the fastest way to run the binary
           cargo run --release --bin tpch -- --formats parquet,vortex -i0 -q1
           aws s3 cp --recursive bench-vortex/data/tpch/1 $REMOTE_PATH
           # We can now clear generated data
