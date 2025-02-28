@@ -1,0 +1,32 @@
+name: "Generate TPC-H files to S3"
+
+on:
+  workflow_dispatch: {}
+  schedule: 0 5 * * * # 5AM UTC
+
+permissions:
+  actions: write
+  id-token: write
+
+jobs:
+  generate_files:
+  name: Generate S3 TPCH files
+  runs-on:
+    - self-hosted
+    - aws
+  env:
+    REMOTE_PATH: s3://vortex-bench-dev/tpch-sf1/
+    TMPDIR: /work
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/cleanup
+    - uses: ./.github/actions/setup-rust
+    - name: Setup AWS CLI
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+        aws-region: us-east-1
+    - name: Generate files locally
+      run: |
+        cargo run --release --bin tpch -- --formats parquet,vortex
+        aws s3 cp --recursive bench-vortex/data/tpch/1 $REMOTE_PATH
