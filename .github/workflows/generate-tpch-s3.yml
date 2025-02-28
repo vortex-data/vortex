@@ -6,6 +6,9 @@ on:
     # 5AM UTC
     - cron: "0 5 * * *"
 
+concurrency:
+  group: ${{ github.workflow }}
+
 permissions:
   actions: write
   id-token: write
