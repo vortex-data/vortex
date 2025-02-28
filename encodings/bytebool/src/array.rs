@@ -8,8 +8,7 @@ use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, encoding_ids,
-    try_from_array_ref,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -28,7 +27,7 @@ try_from_array_ref!(ByteBoolArray);
 
 pub struct ByteBoolEncoding;
 impl Encoding for ByteBoolEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.bytebool", encoding_ids::BYTE_BOOL);
+    const ID: EncodingId = EncodingId::new_ref("vortex.bytebool");
     type Array = ByteBoolArray;
     type Metadata = EmptyMetadata;
 }

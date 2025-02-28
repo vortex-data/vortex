@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, encoding_ids,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -34,7 +34,7 @@ pub struct DeltaArray {
 
 pub struct DeltaEncoding;
 impl Encoding for DeltaEncoding {
-    const ID: EncodingId = EncodingId::new("fastlanes.delta", encoding_ids::FL_DELTA);
+    const ID: EncodingId = EncodingId::new_ref("fastlanes.delta");
     type Array = DeltaArray;
     type Metadata = RkyvMetadata<DeltaMetadata>;
 }

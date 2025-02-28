@@ -17,7 +17,6 @@ use vortex_mask::Mask;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
@@ -228,7 +227,7 @@ try_from_array_ref!(VarBinViewArray);
 
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.varbinview", encoding_ids::VAR_BIN_VIEW);
+    const ID: EncodingId = EncodingId::new_ref("vortex.varbinview");
     type Array = VarBinViewArray;
     type Metadata = EmptyMetadata;
 }

@@ -23,11 +23,12 @@ use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{FromArrowType, infer_schema};
 use vortex_array::stats::{Stat, StatsProviderExt, StatsSet};
-use vortex_array::{ContextRef, stats};
+use vortex_array::{ArrayRegistry, stats};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
+use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
 use super::cache::FooterCache;
 use super::execution::VortexExec;
@@ -37,7 +38,6 @@ use crate::{PrecisionExt as _, can_be_pushed_down};
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
 pub struct VortexFormat {
-    context: ContextRef,
     footer_cache: FooterCache,
     opts: VortexFormatOptions,
 }
@@ -58,19 +58,23 @@ impl Default for VortexFormatOptions {
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
-    context: ContextRef,
+    array_registry: Arc<ArrayRegistry>,
+    layout_registry: Arc<LayoutRegistry>,
 }
 
 impl VortexFormatFactory {
     // Because FileFormatFactory has a default method
     /// Create a new [`VortexFormatFactory`] with the default encoding context.
     pub fn default_config() -> Self {
-        Self::with_context(ContextRef::default())
+        Self::with_registry(Arc::new(ArrayRegistry::default()))
     }
 
-    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::Context).
-    pub fn with_context(context: ContextRef) -> Self {
-        Self { context }
+    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::ArrayContext).
+    pub fn with_registry(registry: Arc<ArrayRegistry>) -> Self {
+        Self {
+            array_registry: registry,
+            layout_registry: Arc::new(LayoutRegistry::default()),
+        }
     }
 }
 
@@ -93,7 +97,10 @@ impl FileFormatFactory for VortexFormatFactory {
             ));
         }
 
-        Ok(Arc::new(VortexFormat::new(self.context.clone())))
+        Ok(Arc::new(VortexFormat::new(
+            self.array_registry.clone(),
+            self.layout_registry.clone(),
+        )))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
@@ -107,17 +114,19 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl Default for VortexFormat {
     fn default() -> Self {
-        Self::new(Default::default())
+        Self::new(
+            Arc::new(ArrayRegistry::default()),
+            Arc::new(LayoutRegistry::default()),
+        )
     }
 }
 
 impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
-    pub fn new(context: ContextRef) -> Self {
+    pub fn new(array_registry: Arc<ArrayRegistry>, layout_registry: Arc<LayoutRegistry>) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            footer_cache: FooterCache::new(opts.cache_size_mb, context.clone()),
-            context,
+            footer_cache: FooterCache::new(opts.cache_size_mb, array_registry, layout_registry),
             opts,
         }
     }
@@ -314,7 +323,6 @@ impl FileFormat for VortexFormat {
             file_scan_config,
             Default::default(),
             filters.cloned(),
-            self.context.clone(),
             self.footer_cache.clone(),
         )?
         .into_arc();

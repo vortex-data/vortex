@@ -21,13 +21,11 @@ use datafusion_physical_plan::{ExecutionPlan, collect};
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
+use vortex::Array;
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
-use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
-use vortex::file::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{Array, ContextRef, Encoding};
 
 pub mod bench_run;
 pub mod blob;
@@ -55,14 +53,6 @@ macro_rules! feature_flagged_allocator {
         }
     };
 }
-
-pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
-    Arc::new(
-        (*(ALL_ENCODINGS_CONTEXT.clone()))
-            .clone()
-            .with_encoding(DeltaEncoding.vtable()),
-    )
-});
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum Format {

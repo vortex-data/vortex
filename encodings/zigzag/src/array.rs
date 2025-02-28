@@ -4,7 +4,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical, encoding_ids,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical,
     try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
@@ -26,7 +26,7 @@ try_from_array_ref!(ZigZagArray);
 
 pub struct ZigZagEncoding;
 impl Encoding for ZigZagEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.zigzag", encoding_ids::ZIGZAG);
+    const ID: EncodingId = EncodingId::new_ref("vortex.zigzag");
     type Array = ZigZagArray;
     type Metadata = EmptyMetadata;
 }

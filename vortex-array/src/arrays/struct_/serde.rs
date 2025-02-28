@@ -7,7 +7,7 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
+use crate::{Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata};
 
 impl ArrayVisitorImpl for StructArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
@@ -29,7 +29,7 @@ impl SerdeVTable<&StructArray> for StructEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

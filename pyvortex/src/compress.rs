@@ -29,13 +29,13 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    >>> import vortex as vx
 ///    >>> a = vx.array([42 for _ in range(1000)])
 ///    >>> str(vx.compress(a))
-///    'vortex.constant(0x09)(i64, len=1000)'
+///    'vortex.constant(i64, len=1000)'
 ///
 /// Compress an array of increasing integers:
 ///
 ///    >>> a = vx.array(list(range(1000)))
 ///    >>> str(vx.compress(a))
-///    'fastlanes.bitpacked(0x16)(i64, len=1000)'
+///    'fastlanes.bitpacked(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
 ///
@@ -44,7 +44,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    ...     for x in range(1000)
 ///    ... ])
 ///    >>> str(vx.compress(a))
-///    'vortex.alp(0x11)(f64?, len=1000)'
+///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
 pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
     let compressed = BtrBlocksCompressor.compress(array.borrow().as_ref())?;

@@ -8,7 +8,6 @@ use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
-    encoding_ids,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -28,7 +27,7 @@ pub struct ALPArray {
 
 pub struct ALPEncoding;
 impl Encoding for ALPEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.alp", encoding_ids::ALP);
+    const ID: EncodingId = EncodingId::new_ref("vortex.alp");
     type Array = ALPArray;
     type Metadata = SerdeMetadata<ALPMetadata>;
 }

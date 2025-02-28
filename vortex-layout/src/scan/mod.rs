@@ -6,7 +6,7 @@ use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{Array, ArrayRef, ContextRef};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
@@ -45,7 +45,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
     task_executor: Option<TaskExecutor>,
     layout: Layout,
-    ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
+    ctx: ArrayContext, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
@@ -56,7 +56,7 @@ pub struct ScanBuilder<D: ScanDriver> {
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
-    pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
+    pub fn new(driver: D, layout: Layout, ctx: ArrayContext) -> Self {
         Self {
             driver,
             task_executor: None,
@@ -206,7 +206,7 @@ pub struct Scan<D> {
     driver: D,
     task_executor: TaskExecutor,
     layout: Layout,
-    ctx: ContextRef,
+    ctx: ArrayContext,
     // Guaranteed to be simplified
     projection: ExprRef,
     // Guaranteed to be simplified

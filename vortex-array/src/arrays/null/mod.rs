@@ -2,7 +2,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::encoding::encoding_ids;
 use crate::nbytes::NBytes;
 use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::variants::NullArrayTrait;
@@ -23,7 +22,7 @@ pub struct NullArray {
 
 pub struct NullEncoding;
 impl Encoding for NullEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.null", encoding_ids::NULL);
+    const ID: EncodingId = EncodingId::new_ref("vortex.null");
     type Array = NullArray;
     type Metadata = EmptyMetadata;
 }

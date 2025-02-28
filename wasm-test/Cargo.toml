@@ -1,0 +1,29 @@
+[package]
+name = "wasm-test"
+description = "Small integration smoketest for wasm32-unknown-unknown target support"
+repository = "https://github.com/spiraldb/vortex"
+authors = ["Vortex Authors <hello@vortex.dev>"]
+license = "Apache-2.0"
+version = "0.0.1"
+publish = false
+edition = "2024"
+rust-version = "1.86"
+
+#[lib]
+#crate-type = ["cdylib"]
+
+[dependencies]
+vortex = { path = "../vortex", default-features = false }
+arrow = "54.2"
+arrow-arith = "54.2"
+arrow-array = "54.2"
+arrow-buffer = "54.2"
+arrow-cast = "54.2"
+arrow-ord = "54.2"
+arrow-schema = "54.2"
+arrow-select = "54.2"
+arrow-string = "54.2"
+
+# Pin until we can bump to get: https://github.com/apache/arrow-rs/pull/7198
+chrono = { version = "=0.4.39", default-features = false }
+

@@ -20,8 +20,7 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId,
-    IntoArray, encoding_ids,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
@@ -41,7 +40,7 @@ pub struct ChunkedArray {
 
 pub struct ChunkedEncoding;
 impl Encoding for ChunkedEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.chunked", encoding_ids::CHUNKED);
+    const ID: EncodingId = EncodingId::new_ref("vortex.chunked");
     type Array = ChunkedArray;
     type Metadata = EmptyMetadata;
 }

@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use flatbuffers::FlatBufferBuilder;
-use vortex_array::Array;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::{Array, ArrayContext};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -47,16 +47,29 @@ impl MessageEncoder {
 
         let (header, body_len) = match message {
             EncoderMessage::Array(array) => {
+                // Currently we include a Context in every message. We could convert this to
+                // sending deltas later.
+                let ctx = ArrayContext::empty();
+                let array_buffers = array.serialize(&ctx, &SerializeOptions::default());
+                let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
+
+                let array_encodings = ctx
+                    .encodings()
+                    .iter()
+                    .map(|e| fbb.create_string(e.id().as_ref()))
+                    .collect::<Vec<_>>();
+                let array_encodings = fbb.create_vector(array_encodings.as_slice());
+
                 let header = fb::ArrayMessage::create(
                     &mut fbb,
                     &fb::ArrayMessageArgs {
                         row_count: u32::try_from(array.len())
                             .vortex_expect("Array length must fit into u32"),
+                        encodings: Some(array_encodings),
                     },
                 )
                 .as_union_value();
-                let array_buffers = array.serialize(&SerializeOptions::default());
-                let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
+
                 buffers.extend(array_buffers.into_iter().map(|b| b.into_inner()));
 
                 (header, body_len)

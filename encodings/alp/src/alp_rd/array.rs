@@ -7,7 +7,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, EncodingId, SerdeMetadata, ToCanonical, encoding_ids,
+    Canonical, Encoding, EncodingId, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -30,7 +30,7 @@ pub struct ALPRDArray {
 
 pub struct ALPRDEncoding;
 impl Encoding for ALPRDEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.alprd", encoding_ids::ALP_RD);
+    const ID: EncodingId = EncodingId::new_ref("vortex.alprd");
     type Array = ALPRDArray;
     type Metadata = SerdeMetadata<ALPRDMetadata>;
 }

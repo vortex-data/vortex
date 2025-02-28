@@ -6,7 +6,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, encoding_ids,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -28,7 +28,7 @@ pub struct FoRArray {
 
 pub struct FoREncoding;
 impl Encoding for FoREncoding {
-    const ID: EncodingId = EncodingId::new("fastlanes.for", encoding_ids::FL_FOR);
+    const ID: EncodingId = EncodingId::new_ref("fastlanes.for");
     type Array = FoRArray;
     type Metadata = ScalarValueMetadata;
 }

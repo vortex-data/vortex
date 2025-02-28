@@ -4,6 +4,7 @@ use std::task::{Context, Poll, ready};
 use bytes::BytesMut;
 use futures_util::{AsyncRead, Stream};
 use pin_project_lite::pin_project;
+use vortex_array::ArrayRegistry;
 use vortex_error::VortexResult;
 
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
@@ -20,11 +21,11 @@ pin_project! {
 }
 
 impl<R> AsyncMessageReader<R> {
-    pub fn new(read: R) -> Self {
+    pub fn new(read: R, registry: ArrayRegistry) -> Self {
         AsyncMessageReader {
             read,
             buffer: BytesMut::new(),
-            decoder: MessageDecoder::default(),
+            decoder: MessageDecoder::new(registry),
             bytes_read: 0,
         }
     }

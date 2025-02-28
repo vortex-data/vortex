@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayBufferVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata};
 
 impl ArrayVisitorImpl for ConstantArray {
     fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
@@ -23,7 +23,7 @@ impl SerdeVTable<&ConstantArray> for ConstantEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        _ctx: &ContextRef,
+        _ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

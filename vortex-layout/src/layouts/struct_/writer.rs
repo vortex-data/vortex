@@ -1,6 +1,6 @@
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIteratorArrayExt;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
@@ -34,6 +34,7 @@ impl StructLayoutWriter {
     }
 
     pub fn try_new_with_factory<F: LayoutStrategy>(
+        ctx: &ArrayContext,
         dtype: &DType,
         factory: F,
     ) -> VortexResult<Self> {
@@ -42,7 +43,7 @@ impl StructLayoutWriter {
             dtype.clone(),
             struct_dtype
                 .fields()
-                .map(|dtype| factory.new_writer(&dtype))
+                .map(|dtype| factory.new_writer(ctx, &dtype))
                 .try_collect()?,
         ))
     }

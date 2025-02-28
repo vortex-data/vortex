@@ -18,7 +18,6 @@ use crate::arrays::list::serde::ListMetadata;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
-use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
@@ -39,7 +38,7 @@ pub struct ListArray {
 
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.list", encoding_ids::LIST);
+    const ID: EncodingId = EncodingId::new_ref("vortex.list");
     type Array = ListArray;
     type Metadata = RkyvMetadata<ListMetadata>;
 }

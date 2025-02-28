@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use async_once_cell::OnceCell;
-use vortex_array::ContextRef;
+use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_dtype::TryFromBytes;
@@ -22,7 +22,7 @@ type PruningCache = Arc<OnceCell<Option<Mask>>>;
 #[derive(Clone)]
 pub struct StatsReader {
     layout: Layout,
-    ctx: ContextRef,
+    ctx: ArrayContext,
     segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// The number of blocks
@@ -42,10 +42,10 @@ pub struct StatsReader {
 impl StatsReader {
     pub(super) fn try_new(
         layout: Layout,
-        ctx: ContextRef,
+        ctx: ArrayContext,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != StatsLayout.id() {
+        if layout.vtable().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 

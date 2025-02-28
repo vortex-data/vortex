@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
@@ -25,7 +24,7 @@ pub struct ExtensionArray {
 
 pub struct ExtensionEncoding;
 impl Encoding for ExtensionEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.ext", encoding_ids::EXTENSION);
+    const ID: EncodingId = EncodingId::new_ref("vortex.ext");
     type Array = ExtensionArray;
     type Metadata = EmptyMetadata;
 }
