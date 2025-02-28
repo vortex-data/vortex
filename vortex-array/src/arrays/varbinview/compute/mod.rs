@@ -97,7 +97,7 @@ impl UncompressedSizeFn<&VarBinViewArray> for VarBinViewEncoding {
             buffers_size += buffer.len();
         }
 
-        Ok(views + buffers_size + array.validity().uncompressed_size()?)
+        Ok(views + buffers_size + array.validity().uncompressed_size())
     }
 }
 

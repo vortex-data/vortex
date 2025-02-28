@@ -203,7 +203,7 @@ impl IsConstantFn<&StructArray> for StructEncoding {
 
 impl UncompressedSizeFn<&StructArray> for StructEncoding {
     fn uncompressed_size(&self, array: &StructArray) -> VortexResult<usize> {
-        let mut sum = array.validity().uncompressed_size()?;
+        let mut sum = array.validity().uncompressed_size();
         for child in array.children().into_iter() {
             sum += uncompressed_size(child.as_ref())?;
         }

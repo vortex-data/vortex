@@ -358,15 +358,12 @@ impl Validity {
         }
     }
 
-    pub fn uncompressed_size(&self) -> VortexResult<usize> {
-        // Validity is always at least 1 byte, if its an array it also has the length of the array's underlying buffer.
-        let mut baseline = 1;
-
+    pub fn uncompressed_size(&self) -> usize {
         if let Validity::Array(a) = self {
-            baseline += a.len().div_ceil(8);
+            a.len().div_ceil(8)
+        } else {
+            0
         }
-
-        Ok(baseline)
     }
 }
 

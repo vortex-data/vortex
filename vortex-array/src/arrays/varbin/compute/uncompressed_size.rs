@@ -7,6 +7,6 @@ impl UncompressedSizeFn<&VarBinArray> for VarBinEncoding {
     fn uncompressed_size(&self, array: &VarBinArray) -> VortexResult<usize> {
         let offsets = uncompressed_size(array.offsets().as_ref())?;
 
-        Ok(offsets + array.bytes().len() + array.validity().uncompressed_size()?)
+        Ok(offsets + array.bytes().len() + array.validity().uncompressed_size())
     }
 }
