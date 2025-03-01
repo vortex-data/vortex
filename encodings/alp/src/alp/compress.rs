@@ -270,8 +270,11 @@ mod tests {
     }
 
     #[test]
-    fn negative_zero() {
-        let original = PrimitiveArray::new(buffer![0.0f32, -0.0], Validity::NonNullable);
+    fn non_finite_numbers() {
+        let original = PrimitiveArray::new(
+            buffer![0.0f32, -0.0, f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
+            Validity::NonNullable,
+        );
         let encoded = alp_encode(&original).unwrap();
         let decoded = encoded.to_primitive().unwrap();
         for idx in 0..original.len() {
