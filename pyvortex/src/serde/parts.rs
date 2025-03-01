@@ -1,6 +1,8 @@
 use std::ops::Deref;
 
-use pyo3::{Bound, PyResult, Python, pyclass, pymethods};
+use pyo3::prelude::PyAnyMethods;
+use pyo3::{Bound, PyAny, PyRef, PyResult, Python, pyclass, pymethods};
+use vortex::buffer::ByteBuffer;
 use vortex::serde::ArrayParts;
 
 use crate::arrays::PyArray;
@@ -54,6 +56,30 @@ impl PyArrayParts {
     #[getter]
     fn nbuffers(&self) -> usize {
         self.0.nbuffers()
+    }
+
+    /// Return the buffers of the array, currently as :class:`pyarrow.Buffer`.
+    // TODO(ngates): ideally we'd use the buffer protocol, but that requires the 3.11 ABI.
+    #[getter]
+    fn buffers<'py>(slf: PyRef<'py, Self>, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+        if slf.nbuffers() == 0 {
+            return Ok(Vec::new());
+        }
+
+        let pyarrow = py.import("pyarrow")?;
+
+        let mut buffers = Vec::with_capacity(slf.nbuffers());
+        for buffer in (0..slf.nbuffers()).map(|i| slf.buffer(i)) {
+            let buffer: ByteBuffer = buffer?;
+
+            let addr = buffer.as_ptr() as usize;
+            let size = buffer.len();
+            let base = &slf;
+            let pa_buffer = pyarrow.call_method("foreign_buffer", (addr, size, base), None)?;
+            buffers.push(pa_buffer);
+        }
+
+        Ok(buffers)
     }
 
     /// The number of child arrays the array has.
