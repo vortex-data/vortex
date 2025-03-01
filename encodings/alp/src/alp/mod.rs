@@ -92,6 +92,14 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     }
 
     #[inline]
+    fn is_unencodable(self) -> bool {
+        !self.is_finite()
+            || self.is_gt(Self::MAX_INT)
+            || self.is_lt(Self::MIN_INT)
+            || (self.is_zero() && self.is_sign_negative())
+    }
+
+    #[inline]
     fn estimate_encoded_size(encoded: &[Self::ALPInt], patches: &[Self]) -> usize {
         let bits_per_encoded = encoded
             .iter()
@@ -193,7 +201,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     #[inline(always)]
     fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
         let encoded = value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize];
-        if is_unencodable(encoded) {
+        if encoded.is_unencodable() {
             Self::MAX_INT.as_int()
         } else {
             encoded.fast_round().as_int()
@@ -217,10 +225,10 @@ fn encode_chunk_unchecked<T: ALPFloat>(
 
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
-    encoded_output.extend(chunk.iter().map(|v| {
-        let encoded = T::encode_single_unchecked(*v, exp);
+    encoded_output.extend(chunk.iter().map(|&v| {
+        let encoded = T::encode_single_unchecked(v, exp);
         let decoded = T::decode_single(encoded, exp);
-        let neq = !decoded.is_eq(*v) as usize;
+        let neq = !decoded.is_eq(v) as usize;
         chunk_patch_count += neq;
         encoded
     }));
@@ -272,14 +280,6 @@ fn encode_chunk_unchecked<T: ALPFloat>(
             encoded_output[*patch_idx as usize] = *fill_value;
         }
     }
-}
-
-#[inline]
-fn is_unencodable<T: ALPFloat>(value: T) -> bool {
-    !value.is_finite()
-        || value.is_gt(T::MAX_INT)
-        || value.is_lt(T::MIN_INT)
-        || (value == T::zero() && value.is_sign_negative())
 }
 
 impl ALPFloat for f32 {
