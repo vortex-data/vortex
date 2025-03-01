@@ -152,14 +152,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     /// Encode single float value. If the value cannot be encoded with given exponents the return is None
     #[inline]
     fn encode_single(value: Self, exponents: Exponents) -> Option<Self::ALPInt> {
-        let shifted_value =
-            value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize];
-
-        if is_unencodable(shifted_value) {
-            return None;
-        }
-
-        let encoded = shifted_value.fast_round().as_int();
+        let encoded = Self::encode_single_unchecked(value, exponents);
         let decoded = Self::decode_single(encoded, exponents);
         if decoded == value {
             return Some(encoded);
@@ -195,6 +188,17 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     fn decode_single(encoded: Self::ALPInt, exponents: Exponents) -> Self {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]
     }
+
+    /// /// Encode single float value. The returned value may not decode back to the original value.
+    #[inline(always)]
+    fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
+        let encoded = value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize];
+        if is_unencodable(encoded) {
+            Self::MAX_INT.as_int()
+        } else {
+            encoded.fast_round().as_int()
+        }
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -213,10 +217,12 @@ fn encode_chunk_unchecked<T: ALPFloat>(
 
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
-    encoded_output.extend(chunk.iter().copied().map(|v| {
-        let encoded = T::encode_single(v, exp);
-        chunk_patch_count += if encoded.is_none() { 1 } else { 0 };
-        encoded.unwrap_or_else(|| T::MAX_INT.as_int())
+    encoded_output.extend(chunk.iter().map(|&v| {
+        let encoded = T::encode_single_unchecked(v, exp);
+        let decoded = T::decode_single(encoded, exp);
+        let neq = (decoded != v) as usize;
+        chunk_patch_count += neq;
+        encoded
     }));
     let chunk_patch_count = chunk_patch_count; // immutable hereafter
     assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
