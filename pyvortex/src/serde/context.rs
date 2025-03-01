@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use itertools::Itertools;
 use pyo3::{pyclass, pymethods};
 use vortex::ArrayContext;
 
@@ -26,6 +27,15 @@ impl Deref for PyArrayContext {
 
 #[pymethods]
 impl PyArrayContext {
+    #[new]
+    fn new() -> Self {
+        Self(ArrayContext::empty())
+    }
+
+    fn __str__(&self) -> String {
+        format!("{}", self.0.encodings().iter().join(", "))
+    }
+
     fn __len__(&self) -> usize {
         self.encodings().len()
     }
