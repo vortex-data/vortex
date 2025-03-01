@@ -16,6 +16,7 @@ mod python_repr;
 mod record_batch_reader;
 mod registry;
 pub(crate) mod scalar;
+mod serde;
 
 use log::LevelFilter;
 use pyo3_log::{Caching, Logger};

@@ -4,8 +4,11 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use vortex::dtype::DType;
+use vortex::error::VortexResult;
+use vortex::serde::ArrayParts;
 use vortex::vtable::{ComputeVTable, EncodingVTable, SerdeVTable, StatisticsVTable};
-use vortex::{Array, EmptyMetadata, Encoding, EncodingId};
+use vortex::{Array, ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
 
 use crate::arrays::py::array::PyEncodingInstance;
 
@@ -51,8 +54,18 @@ impl EncodingVTable for PyEncodingClass {
     }
 }
 
-impl ComputeVTable for PyEncodingClass {}
+impl SerdeVTable<&dyn Array> for PyEncodingClass {
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        _dtype: DType,
+        _len: usize,
+    ) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+}
 
-impl SerdeVTable<&dyn Array> for PyEncodingClass {}
+impl ComputeVTable for PyEncodingClass {}
 
 impl StatisticsVTable<&dyn Array> for PyEncodingClass {}
