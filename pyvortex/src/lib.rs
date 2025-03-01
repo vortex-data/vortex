@@ -6,6 +6,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 mod arrays;
+mod buffer;
 mod compress;
 mod dataset;
 mod dtype;
