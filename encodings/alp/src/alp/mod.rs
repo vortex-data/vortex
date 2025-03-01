@@ -189,7 +189,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]
     }
 
-    /// /// Encode single float value. The returned value may not decode back to the original value.
+    /// Encode single float value. The returned value may not decode back to the original value.
     #[inline(always)]
     fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
         let encoded = value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize];
