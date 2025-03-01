@@ -6,7 +6,6 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 mod arrays;
-mod buffer;
 mod compress;
 mod dataset;
 mod dtype;
@@ -50,6 +49,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     expr::init(py, m)?;
     io::init(py, m)?;
     scalar::init(py, m)?;
+    serde::init(py, m)?;
 
     m.add_function(wrap_pyfunction!(registry::register, m)?)?;
 

@@ -34,6 +34,7 @@ use crate::dtype::PyDType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
+use crate::serde::context::PyArrayContext;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;
@@ -754,6 +755,15 @@ impl PyArray {
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn tree_display(&self) -> String {
         self.0.tree_display().to_string()
+    }
+
+    fn serialize(&self, ctx: &PyArrayContext) -> Vec<Vec<u8>> {
+        // FIXME(ngates): do not copy to vec, use buffer protocol
+        self.0
+            .serialize(ctx, &Default::default())
+            .into_iter()
+            .map(|buffer| buffer.to_vec())
+            .collect()
     }
 }
 

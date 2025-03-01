@@ -357,6 +357,10 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let value = value.aligned(Alignment::none());
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
+        if value.len() < 4 + fb_length {
+            vortex_bail!("ArrayParts buffer is too short for flatbuffer");
+        }
+
         let fb_offset = value.len() - 4 - fb_length;
         let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
         let fb_buffer = FlatBuffer::align_from(fb_buffer);

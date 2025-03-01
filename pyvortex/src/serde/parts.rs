@@ -31,6 +31,14 @@ impl From<ArrayParts> for PyArrayParts {
 
 #[pymethods]
 impl PyArrayParts {
+    /// Parse a serialized array into its parts.
+    #[staticmethod]
+    fn parse(data: &[u8]) -> PyResult<PyArrayParts> {
+        // TODO(ngates): create a buffer from a slice of bytes?
+        let buffer = ByteBuffer::copy_from(data);
+        Ok(PyArrayParts(ArrayParts::try_from(buffer)?))
+    }
+
     /// Decode the array parts into a full array.
     ///
     /// # Returns
