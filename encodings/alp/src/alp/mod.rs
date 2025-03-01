@@ -220,7 +220,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     encoded_output.extend(chunk.iter().map(|v| {
         let encoded = T::encode_single_unchecked(*v, exp);
         let decoded = T::decode_single(encoded, exp);
-        let neq = (decoded != *v) as usize;
+        let neq = !decoded.is_eq(*v) as usize;
         chunk_patch_count += neq;
         encoded
     }));
@@ -276,8 +276,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
 
 #[inline]
 fn is_unencodable<T: ALPFloat>(value: T) -> bool {
-    value.is_infinite()
-        || NativePType::is_nan(value)
+    !value.is_finite()
         || value.is_gt(T::MAX_INT)
         || value.is_lt(T::MIN_INT)
         || (value == T::zero() && value.is_sign_negative())
