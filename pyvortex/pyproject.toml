@@ -40,5 +40,6 @@ dev = [
     "mypy>=1.14.1",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",
+    "pcodec>=0.3.3",
     "pyarrow-stubs>=17.16",
 ]

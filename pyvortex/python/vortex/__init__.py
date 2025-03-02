@@ -32,7 +32,6 @@ from ._lib.arrays import (
     NullTypeArray,
     PrimitiveArray,
     PrimitiveTypeArray,
-    PyEncoding,
     RunEndArray,
     SparseArray,
     StructArray,
@@ -81,7 +80,7 @@ from ._lib.scalar import (
     scalar,
 )
 from ._lib.serde import ArrayContext, ArrayParts
-from .arrays import Array, array
+from .arrays import Array, PyArray, array
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
@@ -91,6 +90,7 @@ __all__ = [
     "register",
     # Arrays
     "Array",
+    "PyArray",
     "NullTypeArray",
     "BoolTypeArray",
     "PrimitiveTypeArray",

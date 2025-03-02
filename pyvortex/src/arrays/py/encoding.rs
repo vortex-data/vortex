@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-#![allow(dead_code)]
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
@@ -10,9 +8,11 @@ use vortex::serde::ArrayParts;
 use vortex::vtable::{ComputeVTable, EncodingVTable, SerdeVTable, StatisticsVTable};
 use vortex::{Array, ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
 
-use crate::arrays::py::array::PyEncodingInstance;
+use crate::arrays::py::array::PyArrayInstance;
 
 /// Wrapper struct encapsulating a Python encoding.
+#[allow(dead_code)]
+#[derive(Debug)]
 pub struct PyEncodingClass {
     id: EncodingId,
     cls: Py<PyType>,
@@ -44,7 +44,7 @@ impl<'py> FromPyObject<'py> for PyEncodingClass {
 }
 
 impl Encoding for PyEncodingClass {
-    type Array = PyEncodingInstance;
+    type Array = PyArrayInstance;
     type Metadata = EmptyMetadata;
 }
 
@@ -57,8 +57,8 @@ impl EncodingVTable for PyEncodingClass {
 impl SerdeVTable<&dyn Array> for PyEncodingClass {
     fn decode(
         &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _parts: &ArrayParts,
+        _ctx: &ArrayContext,
         _dtype: DType,
         _len: usize,
     ) -> VortexResult<ArrayRef> {
