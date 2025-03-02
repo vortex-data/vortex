@@ -10,7 +10,7 @@ use crate::serde::parts::PyArrayParts;
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "dtype")?;
+    let m = PyModule::new(py, "serde")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.serde", &m)?;
 

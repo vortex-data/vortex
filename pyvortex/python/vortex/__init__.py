@@ -80,6 +80,7 @@ from ._lib.scalar import (
     Utf8Scalar,
     scalar,
 )
+from ._lib.serde import ArrayContext, ArrayParts
 from .arrays import Array, array
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
