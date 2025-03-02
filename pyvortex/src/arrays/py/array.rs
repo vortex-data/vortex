@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyType;
-use pyo3::{Bound, FromPyObject, Py, PyAny, PyClass, PyResult};
+use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -15,6 +15,7 @@ use vortex::{
 };
 
 use crate::arrays::py::PyEncodingClass;
+use crate::dtype::PyDType;
 
 /// Wrapper struct encapsulating a Vortex array implemented using a Python object.
 
@@ -24,7 +25,7 @@ use crate::arrays::py::PyEncodingClass;
 #[derive(Debug, Clone)]
 pub struct PyArrayInstance {
     obj: Arc<Py<PyAny>>,
-    cls: Arc<PyEncodingClass>,
+    cls: VTableRef,
     len: usize,
     dtype: DType,
 }
@@ -41,7 +42,7 @@ impl ArrayImpl for PyArrayInstance {
     }
 
     fn _vtable(&self) -> VTableRef {
-        self.cls.clone() as VTableRef
+        self.cls.clone()
     }
 }
 
@@ -88,11 +89,8 @@ impl<'py> FromPyObject<'py> for PyArrayInstance {
         let py = ob.py();
 
         // Check if the object is a subclass of `vx.PyArray`.
-        let pyarray_cls = py
-            .import("vortex")
-            .and_then(|m| m.getattr("PyArray"))
-            .and_then(|cls| cls.downcast::<PyType>())?;
-        if !ob.is_instance(pyarray_cls)? {
+        let pyarray_cls = py.import("vortex").and_then(|m| m.getattr("PyArray"))?;
+        if !ob.is_instance(&pyarray_cls)? {
             return Err(PyTypeError::new_err("Expected a subclass of `vx.PyArray`"));
         }
 
@@ -100,15 +98,16 @@ impl<'py> FromPyObject<'py> for PyArrayInstance {
         let len = ob.len()?;
         let dtype = ob
             .getattr("dtype")
-            .map_err(|_| PyValueError("Missing `dtype` property"))?
-            .extract::<DType>()?;
+            .map_err(|_| PyValueError::new_err("Missing `dtype` property"))?
+            .extract::<PyDType>()?
+            .into_inner();
 
         // Use the Python class as the encoding VTable.
-        let cls = PyEncodingClass::extract_bound(ob.get_type())?;
+        let cls = PyEncodingClass::extract_bound(&ob.get_type())?;
 
         Ok(Self {
-            obj: Arc::new(ob.clone_ref(py)),
-            cls: Arc::new(cls),
+            obj: Arc::new(ob.clone().unbind()),
+            cls: ArcRef::new_arc(Arc::new(cls) as _),
             len,
             dtype,
         })
