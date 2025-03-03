@@ -101,7 +101,7 @@ impl PyArrayParts {
     fn children(&self) -> Vec<PyArrayParts> {
         (0..self.0.nchildren())
             .map(|idx| self.0.child(idx))
-            .map(|parts| PyArrayParts(parts))
+            .map(PyArrayParts)
             .collect()
     }
 }

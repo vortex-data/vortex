@@ -201,5 +201,8 @@ Compressed Encodings
 Pluggable Encodings
 -------------------
 
-.. autoclass:: vortex.PyEncoding
+Subclasses of :class:`~vortex.PyArray` can be used to implement custom Vortex encodings in Python. These encodings
+can be registered with the :attr:`~vortex.registry` so they are available to use when reading Vortex files.
+
+.. autoclass:: vortex.PyArray
     :members:

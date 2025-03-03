@@ -18,7 +18,7 @@ use crate::arrays::py::PyEncodingClass;
 use crate::dtype::PyDType;
 
 /// Wrapper struct encapsulating a Vortex array implemented using a Python object.
-
+///
 /// The user-code object is expected to subclass the abstract base class `vx.PyArray` which
 /// will ensure the object implements the necessary methods.
 #[allow(dead_code)]

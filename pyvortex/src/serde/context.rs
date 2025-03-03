@@ -33,7 +33,7 @@ impl PyArrayContext {
     }
 
     fn __str__(&self) -> String {
-        format!("{}", self.0.encodings().iter().join(", "))
+        self.0.encodings().iter().join(", ")
     }
 
     fn __len__(&self) -> usize {
