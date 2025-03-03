@@ -5,7 +5,7 @@ git_release_enable = false
 git_tag_enable = false
 release_always = false # https://github.com/MarcoIeni/release-plz/issues/1805#issuecomment-2453048989
 
-# This uses the single-changelog template from https://release-plz.ieni.dev/docs/extra/single-changelog
+# This uses the single-changelog template from https://release-plz.dev/docs/extra/single-changelog
 [changelog]
 body = """
 
@@ -28,3 +28,5 @@ git_tag_enable = true
 git_release_enable = true
 git_release_name = "{{ version }}"
 git_tag_name = "{{ version }}"
+# Use the main changelog
+changelog_path = "./CHANGELOG.md"
