@@ -305,7 +305,6 @@ jobs:
       - name: Run Miri
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer
 
-
   release_dry_run:
     name: "Release dry run"
     runs-on:
@@ -318,11 +317,9 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - run: |
-          cargo install --locked release-plz
-          release-plz release --dry-run -v
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          cargo +nightly publish --workspace --dry-run \
+            --exclude bench-vortex --exclude vortex-fuzz --exclude xtask --exclude pyvortex \
+            -Z package-workspace
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"
