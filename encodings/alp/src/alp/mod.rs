@@ -36,7 +36,7 @@ mod private {
     impl Sealed for f64 {}
 }
 
-pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
+pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     type ALPInt: PrimInt + Display + ToPrimitive + Copy;
 
     const FRACTIONAL_BITS: u8;
