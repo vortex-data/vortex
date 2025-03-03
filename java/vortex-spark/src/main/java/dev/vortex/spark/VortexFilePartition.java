@@ -15,18 +15,28 @@
  */
 package dev.vortex.spark;
 
-import org.apache.spark.sql.connector.read.Batch;
+import com.google.common.collect.ImmutableList;
+import java.io.Serializable;
+import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.InputPartition;
-import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 
-final class VortexBatchSource implements Batch {
-    @Override
-    public InputPartition[] planInputPartitions() {
-        return new InputPartition[0];
+/**
+ * An {link InputPartition} for reading a whole Vortex file.
+ */
+public final class VortexFilePartition implements InputPartition, Serializable {
+    private final String path;
+    private final ImmutableList<Column> columns;
+
+    public VortexFilePartition(String path, ImmutableList<Column> columns) {
+        this.path = path;
+        this.columns = columns;
     }
 
-    @Override
-    public PartitionReaderFactory createReaderFactory() {
-        return null;
+    public String getPath() {
+        return path;
+    }
+
+    public ImmutableList<Column> getColumns() {
+        return columns;
     }
 }

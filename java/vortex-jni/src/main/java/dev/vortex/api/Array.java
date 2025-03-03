@@ -22,7 +22,13 @@ public interface Array extends Closeable {
 
     DType getDataType();
 
+    Array getField(int index);
+
     boolean getNull(int index);
+
+    byte getByte(int index);
+
+    short getShort(int index);
 
     int getInt(int index);
 

@@ -13,11 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.spark;
+package dev.vortex.api;
 
-import java.io.Serializable;
-import org.apache.spark.sql.connector.read.InputPartition;
+import java.io.Closeable;
 
-public record VortexInputPartition() implements InputPartition, Serializable {
-    private static final long serialVersionUID = 1L;
+public interface ArrayStream extends Closeable {
+    Array getCurrent();
+
+    /**
+     * Fetch the next element of the stream.
+     * <p>
+     * The value will be available via {@link #getCurrent()}. If the stream is finished, this will return false.
+     * <p>
+     * It is an error to call this method if a previous invocation returned false.
+     */
+    boolean next();
 }

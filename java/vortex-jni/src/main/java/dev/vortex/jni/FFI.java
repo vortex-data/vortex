@@ -35,6 +35,8 @@ public final class FFI {
 
     public static native void FFIArray_free(FFIArray array);
 
+    public static native FFIArray FFIArray_get_field(FFIArray array, int index);
+
     public static native byte FFIArray_get_u8(FFIArray array, int index);
 
     public static native short FFIArray_get_u16(FFIArray array, int index);
@@ -73,6 +75,10 @@ public final class FFI {
 
     public static native void DType_field_name(FFIDType dtype, int index, Pointer name, IntByReference len);
 
+    public static native FFIDType DType_field_dtype(FFIDType dtype, int index);
+
+    public static native FFIDType DType_element_type(FFIDType dtype);
+
     public static native void DType_free(FFIDType dtype);
 
     // File interactions
@@ -94,24 +100,20 @@ public final class FFI {
     /**
      * Opaque pointer to an {@code FFIFile} from the Vortex FFI.
      */
-    public static final class FFIFile extends PointerType {
-    }
+    public static final class FFIFile extends PointerType {}
 
     /**
      * Opaque pointer to an {@code FFIArray} from the Vortex FFI.
      */
-    public static final class FFIArray extends PointerType {
-    }
+    public static final class FFIArray extends PointerType {}
 
     /**
      * Representation of the {@code DType} structure from the Vortex FFI.
      */
-    public static final class FFIDType extends PointerType {
-    }
+    public static final class FFIDType extends PointerType {}
 
     /**
      * Opaque pointer to an {@code FFIArrayStream} from the Vortex FFI.
      */
-    public static final class FFIArrayStream extends PointerType {
-    }
+    public static final class FFIArrayStream extends PointerType {}
 }

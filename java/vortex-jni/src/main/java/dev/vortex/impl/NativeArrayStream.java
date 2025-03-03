@@ -15,15 +15,15 @@
  */
 package dev.vortex.impl;
 
-import dev.vortex.api.Array;
-import dev.vortex.api.Scan;
-import dev.vortex.jni.FFI;
-
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public final class NativeScan extends BaseWrapped<FFI.FFIArrayStream> implements Scan {
+import dev.vortex.api.Array;
+import dev.vortex.api.ArrayStream;
+import dev.vortex.jni.FFI;
 
-    public NativeScan(FFI.FFIArrayStream inner) {
+public final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> implements ArrayStream {
+
+    public NativeArrayStream(FFI.FFIArrayStream inner) {
         super(inner);
     }
 

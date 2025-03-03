@@ -13,28 +13,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.spark;
+package dev.vortex.spark.read;
 
+import dev.vortex.spark.VortexFilePartition;
+import java.io.Serializable;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
-final class VortexPartitionReaderFactory implements PartitionReaderFactory {
+/**
+ * A {@link PartitionReaderFactory} for Vortex file partitions.
+ * <p>
+ * This class must be serializable as it is shipped to executors at execution time.
+ */
+enum ReaderFactory implements PartitionReaderFactory, Serializable {
+    INSTANCE;
+
+    private static final boolean SUPPORTS_COLUMNAR_READS = true;
+
     @Override
     public PartitionReader<InternalRow> createReader(InputPartition partition) {
-        throw new UnsupportedOperationException("VortexPartitionReaderFactory can only emit ColumnarBatch");
+        throw new UnsupportedOperationException("ReaderFactory only supports columnar reads");
     }
 
     @Override
     public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
-        return PartitionReaderFactory.super.createColumnarReader(partition);
+        return new VortexPartitionReader((VortexFilePartition) partition);
     }
 
-    // We always read into ColumnarBatch from Vortex.
     @Override
     public boolean supportColumnarReads(InputPartition partition) {
-        return true;
+        return SUPPORTS_COLUMNAR_READS;
     }
 }

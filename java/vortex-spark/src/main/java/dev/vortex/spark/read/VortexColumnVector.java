@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.spark;
+package dev.vortex.spark.read;
 
-import org.apache.spark.sql.types.DataType;
+import dev.vortex.api.Array;
+import dev.vortex.spark.SparkTypes;
+import java.io.IOException;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarArray;
@@ -23,106 +25,105 @@ import org.apache.spark.sql.vectorized.ColumnarMap;
 import org.apache.spark.unsafe.types.UTF8String;
 
 public final class VortexColumnVector extends ColumnVector {
-    private VortexColumnVector(DataType dataType) {
-        super(dataType);
-    }
+    private final Array array;
 
-    // From a VortexArray.
+    public VortexColumnVector(Array array) {
+        super(SparkTypes.toDataType(array.getDataType()));
+        this.array = array;
+    }
 
     @Override
     public void close() {
-        // TODO(aduffy): free the data.
+        try {
+            array.close();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to close Vortex Array", e);
+        }
     }
 
     @Override
     public boolean hasNull() {
-        // TODO(aduffy): do Validity checking.
-        return false;
+        return array.getDataType().isNullable();
     }
 
     @Override
     public int numNulls() {
-        // TODO(aduffy): Validity check
+        // TODO(aduffy): Ad FFI function for mask.
         return 0;
     }
 
     @Override
     public boolean isNullAt(int rowId) {
         // TODO(aduffy): Validity check
-        return false;
+        return array.getNull(rowId);
     }
 
     @Override
     public boolean getBoolean(int rowId) {
         // TODO(aduffy): perform unsafe access to the rows
-        return false;
-    }
-
-    @Override
-    public boolean[] getBooleans(int rowId, int count) {
-        // TODO(aduffy): implement using slice + canonicalize
-        //  Perhaps we can scatter bools out into an output vector instead.
-        return super.getBooleans(rowId, count);
+        return array.getBool(rowId);
     }
 
     @Override
     public byte getByte(int rowId) {
         // TODO(aduffy): implement using the binary return values here instead.
-        return 0;
+        return array.getByte(rowId);
     }
 
     @Override
     public short getShort(int rowId) {
-        return 0;
+        return array.getShort(rowId);
     }
 
     @Override
     public int getInt(int rowId) {
-        return 0;
+        return array.getInt(rowId);
     }
 
     @Override
     public long getLong(int rowId) {
-        return 0;
+        return array.getLong(rowId);
     }
 
     @Override
     public float getFloat(int rowId) {
-        return 0;
+        return array.getFloat(rowId);
     }
 
     @Override
     public double getDouble(int rowId) {
-        return 0;
+        return array.getDouble(rowId);
     }
 
     @Override
     public ColumnarArray getArray(int rowId) {
-        return null;
+        // TODO(aduffy): figure out array FFI support
+        throw new UnsupportedOperationException("TODO: implement getArray");
     }
 
     @Override
     public ColumnarMap getMap(int ordinal) {
-        return null;
+        // TODO(aduffy): figure out struct FFI support
+        throw new UnsupportedOperationException("TODO: implement getMap");
     }
 
     @Override
     public Decimal getDecimal(int rowId, int precision, int scale) {
-        return null;
+        throw new UnsupportedOperationException("Vortex does not support DECIMAL types");
     }
 
     @Override
     public UTF8String getUTF8String(int rowId) {
-        return null;
+        throw new UnsupportedOperationException("TODO(aduffy): implement getUTF8String");
     }
 
     @Override
     public byte[] getBinary(int rowId) {
-        return new byte[0];
+        throw new UnsupportedOperationException("TODO(aduffy): implement getUTF8String");
     }
 
     @Override
     public ColumnVector getChild(int ordinal) {
-        return null;
+        throw new UnsupportedOperationException("TODO(aduffy): implement getChild");
     }
 }

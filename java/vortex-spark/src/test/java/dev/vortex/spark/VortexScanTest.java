@@ -15,10 +15,26 @@
  */
 package dev.vortex.spark;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
+    private static final Path BENCH_PATH = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed");
+
     @Test
     public void testSparkRead() {
+        SparkSession spark =
+                SparkSession.builder().appName("test").master("local").getOrCreate();
+
+        var filePath = BENCH_PATH.resolve("part.vortex").toAbsolutePath().toString();
+
+        System.out.println("Loading table from " + filePath);
+
+        var parts = spark.read().format("vortex").load(filePath);
+        assertEquals(200_000L, parts.count());
     }
 }

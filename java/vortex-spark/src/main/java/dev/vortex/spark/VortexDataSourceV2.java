@@ -15,16 +15,20 @@
  */
 package dev.vortex.spark;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import dev.vortex.api.File;
+import dev.vortex.impl.NativeFile;
+import dev.vortex.spark.read.VortexTable;
 import java.util.Map;
-import java.util.Optional;
+import org.apache.spark.sql.connector.catalog.CatalogV2Util;
+import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
@@ -39,41 +43,51 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     private static final String PATH_KEY = "path";
     private static final String PATHS_KEY = "paths";
 
-    // Only create the table one time.
-    private Optional<Table> cachedTable;
-
-    public VortexDataSourceV2() {
-        // Create a new one with options.
-    }
+    public VortexDataSourceV2() {}
 
     @Override
     public StructType inferSchema(CaseInsensitiveStringMap options) {
-        ImmutableList.Builder<String> pathsBuilder = ImmutableList.builder();
-        if (options.containsKey(PATH_KEY)) {
-            pathsBuilder.add(options.get(PATH_KEY));
-        } else if (options.containsKey(PATHS_KEY)) {
-            try {
-                pathsBuilder.add(MAPPER.readValue(options.get(PATHS_KEY), String[].class));
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException("Failed to deserialize option \"paths\" as String[]", e);
-            }
-        }
-        ImmutableList<String> paths = pathsBuilder.build();
+        // Look at the last file in the listing and dump its schema.
+        // TODO(aduffy): support schema evolution/merging?
+        var pathToInfer = Iterables.getLast(getPaths(options));
 
-        return StructType$.MODULE$.apply(ImmutableList.of(
-                StructField.apply("simple_field", StringType$.MODULE$, true, new MetadataBuilder().build())));
+        try (File file = NativeFile.open(pathToInfer)) {
+            var columns = SparkTypes.toColumns(file.getDType());
+            return CatalogV2Util.v2ColumnsToStructType(columns);
+        }
     }
 
-    // Infer schema using one of the files instead.
-    // We can load one of the files, open a handle, and see about caching the schema names here.
-
     @Override
-    public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> _properties) {
-        return new VortexTable("my_new_table", schema);
+    public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
+        var uncased = new CaseInsensitiveStringMap(properties);
+
+        var paths = getPaths(uncased);
+        var columns = ImmutableList.<Column>builder()
+                .add(CatalogV2Util.structTypeToV2Columns(schema))
+                .build();
+        return new VortexTable(paths, columns);
     }
 
     @Override
     public String shortName() {
         return "vortex";
+    }
+
+    private static ImmutableList<String> getPaths(CaseInsensitiveStringMap uncased) {
+        if (uncased.containsKey(PATH_KEY)) {
+            return ImmutableList.of(uncased.get(PATH_KEY));
+        } else if (uncased.containsKey(PATHS_KEY)) {
+            return decodePathsSafe(uncased.get(PATHS_KEY));
+        } else {
+            throw new IllegalArgumentException("Missing required option: \"path\" or \"paths\"");
+        }
+    }
+
+    private static ImmutableList<String> decodePathsSafe(String pathsJson) {
+        try {
+            return ImmutableList.copyOf(MAPPER.readValue(pathsJson, String[].class));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to decode \"paths\" option", e);
+        }
     }
 }

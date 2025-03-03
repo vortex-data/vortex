@@ -15,16 +15,15 @@
  */
 package dev.vortex.impl;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.collect.ImmutableList;
 import com.sun.jna.Memory;
 import com.sun.jna.ptr.IntByReference;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
-
 import java.nio.charset.StandardCharsets;
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
 
@@ -100,7 +99,22 @@ public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DTyp
 
     @Override
     public ImmutableList<DType> getFieldTypes() {
-        throw new UnsupportedOperationException("");
+        checkNotNull(inner);
+        checkArgument(Variant.STRUCT == variant, "getStructFieldNames() for non-struct DType");
+        ImmutableList.Builder<DType> builder = ImmutableList.builder();
+        var fieldCount = FFI.DType_field_count(inner);
+        for (int i = 0; i < fieldCount; i++) {
+            var fieldType = FFI.DType_field_dtype(inner, i);
+            builder.add(new NativeDType(fieldType));
+        }
+
+        return builder.build();
+    }
+
+    @Override
+    public DType getElementType() {
+        var elementType = FFI.DType_element_type(inner);
+        return new NativeDType(elementType);
     }
 
     @Override

@@ -20,7 +20,7 @@ import java.io.Closeable;
 public interface File extends Closeable {
     DType getDType();
 
-    Scan newScan(ScanOptions options);
+    ArrayStream newScan(ScanOptions options);
 
     @Override
     void close();

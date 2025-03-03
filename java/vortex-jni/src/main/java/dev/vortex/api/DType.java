@@ -16,7 +16,6 @@
 package dev.vortex.api;
 
 import com.google.common.collect.ImmutableList;
-
 import java.io.Closeable;
 
 /**
@@ -28,9 +27,20 @@ public interface DType extends Closeable {
 
     boolean isNullable();
 
+    /**
+     * Get the field names for a STRUCT type.
+     */
     ImmutableList<String> getFieldNames();
 
+    /**
+     * Get the field types for a STRUCT type.
+     */
     ImmutableList<DType> getFieldTypes();
+
+    /**
+     * Get the element type for a LIST type.
+     */
+    DType getElementType();
 
     @Override
     void close();

@@ -15,12 +15,12 @@
  */
 package dev.vortex.impl;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.jakewharton.nopen.annotation.Open;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Core Vortex array type that all logical arrays inherit from.
@@ -58,9 +58,28 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     }
 
     @Override
+    public Array getField(int index) {
+        checkNotNull(inner, "inner");
+
+        return new NativeArray(FFI.FFIArray_get_field(inner, index));
+    }
+
+    @Override
     public boolean getNull(int index) {
         // check validity of the array
         return false;
+    }
+
+    @Override
+    public byte getByte(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_i8(inner, index);
+    }
+
+    @Override
+    public short getShort(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_i16(inner, index);
     }
 
     @Override

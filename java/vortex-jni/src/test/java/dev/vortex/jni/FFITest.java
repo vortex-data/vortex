@@ -15,17 +15,16 @@
  */
 package dev.vortex.jni;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import com.google.common.io.Closer;
 import dev.vortex.api.DType;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.impl.NativeFile;
-import org.junit.jupiter.api.Test;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
 
 public final class FFITest {
     private static final Path LINEITEM = Paths.get(".")

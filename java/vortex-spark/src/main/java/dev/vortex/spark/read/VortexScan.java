@@ -13,27 +13,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.spark;
+package dev.vortex.spark.read;
 
-import org.apache.spark.sql.connector.read.*;
+import com.google.common.collect.ImmutableList;
+import org.apache.spark.sql.connector.catalog.CatalogV2Util;
+import org.apache.spark.sql.connector.catalog.Column;
+import org.apache.spark.sql.connector.read.Batch;
+import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.types.StructType;
 
-public final class VortexScan implements Scan {
+/**
+ * Spark V2 {@link Scan} over a table of Vortex files.
+ */
+public record VortexScan(ImmutableList<String> paths, ImmutableList<Column> readColumns) implements Scan {
     @Override
     public StructType readSchema() {
-        return null;
+        return CatalogV2Util.v2ColumnsToStructType(readColumns().toArray(new Column[0]));
     }
 
+    /**
+     * Logging-friendly readable description of the scan source.
+     */
     @Override
     public String description() {
-        return Scan.super.description();
+        return String.format("VortexScan{paths=%s, columns=%s}", paths(), readColumns());
     }
 
     @Override
     public Batch toBatch() {
-        return Scan.super.toBatch();
+        return new VortexBatchExec(paths, readColumns);
     }
 
+    // We always provide columnar scans.
     @Override
     public ColumnarSupportMode columnarSupportMode() {
         return ColumnarSupportMode.SUPPORTED;

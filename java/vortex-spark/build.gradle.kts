@@ -7,6 +7,9 @@ dependencies {
     api("org.apache.spark:spark-sql_2.12")
     api(project(":vortex-jni"))
 
+    compileOnly("org.immutables:value")
+    annotationProcessor("org.immutables:value")
+
     implementation("com.google.guava:guava")
     testImplementation("org.junit.jupiter:junit-jupiter")
 }

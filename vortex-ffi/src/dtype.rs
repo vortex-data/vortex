@@ -219,6 +219,42 @@ pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType
     element_dtype.as_ref()
 }
 
+// Return some memory, have it get freed, etc.
+// It's possible that you might allocate the memory in some other arena, and then that memory gets freed.
+// pub unsafe extern "C" fn DType_extension_metadata(
+//     dtype: *const DType,
+//     output: *mut c_void,
+//     len: *mut c_int,
+// ) {
+// }
+//
+// pub const TIMESTAMP_MICRO: u8 = 0;
+// pub const TIMESTAMP_NANO: u8 = 1;
+// pub const TIME_DAY: u8 = 2;
+// pub const TIME_MICRO: u8 = 3;
+// pub const DATE: u8 = 4;
+//
+// /// Get which kind of temporal type this is.
+// ///
+// /// Returns one of [`TIMESTAMP_MICRO`], [`TIMESTAMP_NANO`], [`TIME_DAY`], [`TIME_MICRO`], or [`DATE`].
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn DType_temporal_type(dtype: *const DType) -> u8 {
+//     let dtype = &*dtype;
+//
+//     let DType::Extension(ext) = dtype else {
+//         return false;
+//     };
+//
+//     if let Ok(temporal) = TemporalMetadata::try_from(ext.as_ref()) {
+//         match temporal {
+//             TemporalMetadata::Timestamp(..) => true,
+//             _ => false,
+//         }
+//     } else {
+//         false
+//     }
+// }
+
 pub const DTYPE_NULL: u8 = 0;
 pub const DTYPE_BOOL: u8 = 1;
 pub const DTYPE_PRIMITIVE_U8: u8 = 2;

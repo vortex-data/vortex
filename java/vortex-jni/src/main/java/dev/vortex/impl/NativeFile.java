@@ -15,9 +15,9 @@
  */
 package dev.vortex.impl;
 
+import dev.vortex.api.ArrayStream;
 import dev.vortex.api.DType;
 import dev.vortex.api.File;
-import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.jni.FFI;
 
@@ -42,9 +42,9 @@ public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
      * Create a new ScanBuilder with all of the relevant settings.
      */
     @Override
-    public Scan newScan(ScanOptions options) {
+    public ArrayStream newScan(ScanOptions options) {
         var scan = FFI.File_scan(inner);
-        return new NativeScan(scan);
+        return new NativeArrayStream(scan);
     }
 
     @Override

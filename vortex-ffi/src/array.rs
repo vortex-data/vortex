@@ -6,7 +6,7 @@ use vortex::compute::scalar_at;
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
-use vortex::{Array, ArrayRef};
+use vortex::{Array, ArrayRef, ArrayVariants};
 
 /// The FFI interface for an [`Array`].
 ///
@@ -21,10 +21,8 @@ pub struct FFIArray {
 /// Get the length of the array.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
-    println!("ARRAY LEN");
     let array = non_null!(&*ffi_array, returning: u64::MAX);
-    println!("LEN out");
-    println!("LEN IS {}", array.inner.len());
+
     array.inner.len() as u64
 }
 
@@ -37,6 +35,25 @@ pub unsafe extern "C" fn FFIArray_dtype(ffi_array: *const FFIArray) -> *const DT
     let array = non_null!(&*ffi_array, returning: std::ptr::null());
 
     array.inner.dtype()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_get_field(
+    ffi_array: *const FFIArray,
+    index: u32,
+) -> *const FFIArray {
+    let array = non_null!(&*ffi_array, returning: std::ptr::null());
+
+    let field_array = array
+        .inner
+        .as_struct_typed()
+        .vortex_expect("FFIArray_get_field: expected struct-typed array")
+        .maybe_null_field_by_idx(index as usize)
+        .vortex_expect("FFIArray_get_field: field by index");
+
+    let ffi_array = Box::new(FFIArray { inner: field_array });
+
+    Box::into_raw(ffi_array)
 }
 
 // Get a pointer to the child array reference here instead...we have no concept of references
