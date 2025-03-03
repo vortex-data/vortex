@@ -268,4 +268,22 @@ mod tests {
             Scalar::null_typed::<f64>()
         );
     }
+
+    #[test]
+    fn non_finite_numbers() {
+        let original = PrimitiveArray::new(
+            buffer![0.0f32, -0.0, f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
+            Validity::NonNullable,
+        );
+        let encoded = alp_encode(&original).unwrap();
+        let decoded = encoded.to_primitive().unwrap();
+        for idx in 0..original.len() {
+            let decoded_val = decoded.as_slice::<f32>()[idx];
+            let original_val = original.as_slice::<f32>()[idx];
+            assert!(
+                decoded_val.is_eq(original_val),
+                "Expected {original_val} but got {decoded_val}"
+            );
+        }
+    }
 }

@@ -27,6 +27,7 @@ oneshot = { workspace = true, features = ["async"] }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
+tracing-futures = { workspace = true, features = ["futures-03"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
 vortex-alp = { workspace = true }
@@ -60,4 +61,4 @@ workspace = true
 
 [features]
 object_store = ["vortex-error/object_store", "vortex-io/object_store"]
-tracing = ["dep:tracing", "vortex-io/tracing"]
+tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing", "vortex-layout/tracing"]

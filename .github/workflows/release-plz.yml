@@ -25,7 +25,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Run release-plz
         id: run-release-plz
         uses: MarcoIeni/release-plz-action@v0.5
@@ -49,7 +48,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         with:
@@ -58,6 +56,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
   macos:
+    name: "build OSX wheel"
     needs: release-plz-release
     if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: macos-13
@@ -101,6 +100,7 @@ jobs:
           name: osx-wheels
           path: target/wheels
   linux:
+    name: "Build linux-x86 wheel"
     needs: release-plz-release
     if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
@@ -137,6 +137,7 @@ jobs:
           name: linux-wheels
           path: target/wheels
   release:
+    name: "Release to PyPi"
     needs: [ release-plz-release, macos, linux ]
     if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest

@@ -58,8 +58,13 @@ tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
 
 [features]
-tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing"]
-
+tracing = [
+    "dep:tracing",
+    "dep:tracing-futures",
+    "vortex-io/tracing",
+    "vortex-layout/tracing",
+    "vortex-file/tracing",
+]
 
 [lints]
 workspace = true

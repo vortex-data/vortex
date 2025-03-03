@@ -10,7 +10,7 @@ use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
 };
-use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::{Format, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
 use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
@@ -68,7 +68,32 @@ fn main() -> ExitCode {
     let args = Args::parse();
 
     let filter = default_env_filter(args.verbose);
-    setup_logger(filter);
+    #[cfg(not(feature = "tracing"))]
+    bench_vortex::setup_logger(filter);
+
+    // We need the guard to live to the end of the function, so can't create it in the if-block
+    #[cfg(feature = "tracing")]
+    let _trace_guard = {
+        use tracing_subscriber::prelude::*;
+
+        let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(true)
+            .trace_style(tracing_chrome::TraceStyle::Async)
+            .file("tpch.trace.json")
+            .build();
+
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_level(true)
+            .with_line_number(true);
+
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(layer)
+            .with(fmt_layer)
+            .init();
+        _guard
+    };
 
     if args.only_vortex {
         panic!("use `--formats vortex,arrow` instead of `--only-vortex`");

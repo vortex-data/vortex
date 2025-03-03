@@ -9,6 +9,7 @@ use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
+use vortex_layout::instrument;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
@@ -186,7 +187,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         });
 
         // Buffer some number of concurrent I/O operations.
-        io_stream.buffer_unordered(self.options.io_concurrency)
+        instrument!(
+            "io_stream",
+            io_stream.buffer_unordered(self.options.io_concurrency)
+        )
     }
 }
 

@@ -13,6 +13,7 @@ mod serde;
 pub use array::*;
 pub use compress::*;
 use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::NativePType;
 
 const SAMPLE_SIZE: usize = 32;
 
@@ -35,7 +36,7 @@ mod private {
     impl Sealed for f64 {}
 }
 
-pub trait ALPFloat: private::Sealed + Float + Display + 'static {
+pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     type ALPInt: PrimInt + Display + ToPrimitive + Copy;
 
     const FRACTIONAL_BITS: u8;
@@ -148,9 +149,9 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
 
     #[inline]
     fn encode_single(value: Self, exponents: Exponents) -> Option<Self::ALPInt> {
-        let encoded = unsafe { Self::encode_single_unchecked(value, exponents) };
+        let encoded = Self::encode_single_unchecked(value, exponents);
         let decoded = Self::decode_single(encoded, exponents);
-        if decoded == value {
+        if decoded.is_eq(value) {
             return Some(encoded);
         }
         None
@@ -185,11 +186,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]
     }
 
-    /// # Safety
-    ///
-    /// The returned value may not decode back to the original value.
+    /// Encode single float value. The returned value might decode to a different value than passed in.
+    /// Consider using [`Self::encode_single`] if you want the checked version of this function.
     #[inline(always)]
-    unsafe fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
+    fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
         (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
             .fast_round()
             .as_int()
@@ -212,10 +212,10 @@ fn encode_chunk_unchecked<T: ALPFloat>(
 
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
-    encoded_output.extend(chunk.iter().map(|v| {
-        let encoded = unsafe { T::encode_single_unchecked(*v, exp) };
+    encoded_output.extend(chunk.iter().map(|&v| {
+        let encoded = T::encode_single_unchecked(v, exp);
         let decoded = T::decode_single(encoded, exp);
-        let neq = (decoded != *v) as usize;
+        let neq = !decoded.is_eq(v) as usize;
         chunk_patch_count += neq;
         encoded
     }));
@@ -237,7 +237,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
             // write() is only safe to call more than once because the values are primitive (i.e., Drop is a no-op)
             patch_indices_mut[chunk_patch_index].write(i as u64);
             patch_values_mut[chunk_patch_index].write(chunk[i - num_prev_encoded]);
-            chunk_patch_index += (decoded != chunk[i - num_prev_encoded]) as usize;
+            chunk_patch_index += !decoded.is_eq(chunk[i - num_prev_encoded]) as usize;
         }
         assert_eq!(chunk_patch_index, chunk_patch_count);
         unsafe {
