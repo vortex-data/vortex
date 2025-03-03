@@ -7,6 +7,816 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.24.0...vortex-tui-v0.25.0) - 2025-02-28
+
+### Added
+- Select filtered child in the browser (#2224)
+
+### Other
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove sampling compressor ([#2497](https://github.com/spiraldb/vortex/pull/2497))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- FileLayout -> Footer ([#2491](https://github.com/spiraldb/vortex/pull/2491))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Add a StatsLayout to store logical statistics ([#2340](https://github.com/spiraldb/vortex/pull/2340))
+- Add layout logging ([#2300](https://github.com/spiraldb/vortex/pull/2300))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+
+## `vortex-datafusion` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.24.0...vortex-datafusion-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- is_constant VTable (#2476)
+- Spawn layout evaluation (#2348)
+- Add tracing (#2276)
+
+### Other
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- simplify statistics conversions to datafusion ([#2494](https://github.com/spiraldb/vortex/pull/2494))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- FileLayout -> Footer ([#2491](https://github.com/spiraldb/vortex/pull/2491))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Tpch bench to report metrics ([#2453](https://github.com/spiraldb/vortex/pull/2453))
+- Deny dbg macro in code ([#2440](https://github.com/spiraldb/vortex/pull/2440))
+- emit per partition and per file metrics in VortexExec ([#2431](https://github.com/spiraldb/vortex/pull/2431))
+- minor datafusion improvement and make all eprintln use proper logging (#2438)
+- Don't allow scanning tables with defined output ordering ([#2429](https://github.com/spiraldb/vortex/pull/2429))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- read and coalescing metrics ([#2413](https://github.com/spiraldb/vortex/pull/2413))
+- propagate vortex scan metrics ([#2379](https://github.com/spiraldb/vortex/pull/2379))
+- ObjectStoreReadAt to optionally accept scheme for more accurate perf hints ([#2343](https://github.com/spiraldb/vortex/pull/2343))
+- Run stream on main runtime ([#2332](https://github.com/spiraldb/vortex/pull/2332))
+- DictArray handles codes or values being nullable ([#2260](https://github.com/spiraldb/vortex/pull/2260))
+- actually bound size of FileLayoutCache ([#2327](https://github.com/spiraldb/vortex/pull/2327))
+- Layout Things ([#2310](https://github.com/spiraldb/vortex/pull/2310))
+- simplify RecordBatch stream in opener ([#2309](https://github.com/spiraldb/vortex/pull/2309))
+- Vortex layout strategy ([#2217](https://github.com/spiraldb/vortex/pull/2217))
+- Upgrade to arrow 54 and datafusion 45 ([#2271](https://github.com/spiraldb/vortex/pull/2271))
+- File stats ([#2277](https://github.com/spiraldb/vortex/pull/2277))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- Move all arrow/datafusion -> Vortex translation efforts to `VortexExec` ([#2266](https://github.com/spiraldb/vortex/pull/2266))
+- periodic cargo sort + remove unused dependencies (#2265)
+- error on unsupported datafusion configs ([#2258](https://github.com/spiraldb/vortex/pull/2258))
+- random touchups that might be more performant ([#2242](https://github.com/spiraldb/vortex/pull/2242))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+
+## `vortex` - [0.25.0](https://github.com/spiraldb/vortex/compare/0.24.0...0.25.0) - 2025-02-28
+
+### Other
+- run wasm integration test in CI (#2535)
+- Remove sampling compressor ([#2497](https://github.com/spiraldb/vortex/pull/2497))
+- Some fixes to BtrBlocks compressor ([#2500](https://github.com/spiraldb/vortex/pull/2500))
+- Docs oriented cleanup and some minor refactoring ([#2432](https://github.com/spiraldb/vortex/pull/2432))
+- FilterEvaluator for scans  ([#2334](https://github.com/spiraldb/vortex/pull/2334))
+- periodic cargo sort + remove unused dependencies (#2265)
+
+## `vortex-ipc` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.24.0...vortex-ipc-v0.25.0) - 2025-02-28
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+
+## `vortex-file` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.24.0...vortex-file-v0.25.0) - 2025-02-28
+
+### Added
+- use BtrBlocks compressor in vortex-file strategy (#2423)
+- Spawn layout evaluation (#2348)
+- Add tracing (#2276)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove sampling compressor ([#2497](https://github.com/spiraldb/vortex/pull/2497))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- FileLayout -> Footer ([#2491](https://github.com/spiraldb/vortex/pull/2491))
+- *(deps)* update all patch updates (patch) (#2339)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Tpch bench to report metrics ([#2453](https://github.com/spiraldb/vortex/pull/2453))
+- *(deps)* update rust crate uuid to v1.14.0 (#2239)
+- drop unused deps as pointed out by `cargo-machete` (#2449)
+- emit per partition and per file metrics in VortexExec ([#2431](https://github.com/spiraldb/vortex/pull/2431))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- Add a StatsLayout to store logical statistics ([#2340](https://github.com/spiraldb/vortex/pull/2340))
+- read and coalescing metrics ([#2413](https://github.com/spiraldb/vortex/pull/2413))
+- add max coalesced read performance hint ([#2346](https://github.com/spiraldb/vortex/pull/2346))
+- remove unused scan driver options ([#2342](https://github.com/spiraldb/vortex/pull/2342))
+- Use ChunkedArray::try_new_unchecked in more places ([#2322](https://github.com/spiraldb/vortex/pull/2322))
+- Layout Things ([#2310](https://github.com/spiraldb/vortex/pull/2310))
+- `canonicalize_into` for utf8/binary and list arrays ([#2286](https://github.com/spiraldb/vortex/pull/2286))
+- Add layout logging ([#2300](https://github.com/spiraldb/vortex/pull/2300))
+- Remove stats eval ([#2290](https://github.com/spiraldb/vortex/pull/2290))
+- Fix dumb object store bug ([#2287](https://github.com/spiraldb/vortex/pull/2287))
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- Scan builder ([#2283](https://github.com/spiraldb/vortex/pull/2283))
+- Vortex layout strategy ([#2217](https://github.com/spiraldb/vortex/pull/2217))
+- Avoid unncessary allocations in file reading logic ([#2282](https://github.com/spiraldb/vortex/pull/2282))
+- File stats ([#2277](https://github.com/spiraldb/vortex/pull/2277))
+- Remove static bound from VortexReadAt futures ([#2275](https://github.com/spiraldb/vortex/pull/2275))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- periodic cargo sort + remove unused dependencies (#2265)
+- random touchups that might be more performant ([#2242](https://github.com/spiraldb/vortex/pull/2242))
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+- Per `VortexReadAt` coalescing window ([#2241](https://github.com/spiraldb/vortex/pull/2241))
+
+## `vortex-layout` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.24.0...vortex-layout-v0.25.0) - 2025-02-28
+
+### Added
+- uncompressed_size vtable fn (#2499)
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- Spawn layout evaluation (#2348)
+- Add tracing (#2276)
+
+### Fixed
+- StructLayoutWriter requires unique field names (#2519)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove frequency stats ([#2533](https://github.com/spiraldb/vortex/pull/2533))
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Fix null coercion of scalars ([#2172](https://github.com/spiraldb/vortex/pull/2172))
+- FileLayout -> Footer ([#2491](https://github.com/spiraldb/vortex/pull/2491))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Ensure that between is faster than multiple compares (in arrow) ([#2457](https://github.com/spiraldb/vortex/pull/2457))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- *(deps)* update all patch updates (patch) (#2339)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Safer tokio task executor ([#2445](https://github.com/spiraldb/vortex/pull/2445))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- Add a StatsLayout to store logical statistics ([#2340](https://github.com/spiraldb/vortex/pull/2340))
+- Scan canonicalize with into_builder ([#2421](https://github.com/spiraldb/vortex/pull/2421))
+- errors in Builder::finish are panics (#2392)
+- Add poisoned and tokio errors to vortex-error ([#2376](https://github.com/spiraldb/vortex/pull/2376))
+- remove unused scan driver options ([#2342](https://github.com/spiraldb/vortex/pull/2342))
+- FilterEvaluator for scans  ([#2334](https://github.com/spiraldb/vortex/pull/2334))
+- Use ChunkedArray::try_new_unchecked in more places ([#2322](https://github.com/spiraldb/vortex/pull/2322))
+- Layout Things ([#2310](https://github.com/spiraldb/vortex/pull/2310))
+- temporary patch to UnifiedDriverStream ([#2305](https://github.com/spiraldb/vortex/pull/2305))
+- Add layout logging ([#2300](https://github.com/spiraldb/vortex/pull/2300))
+- Remove stats eval ([#2290](https://github.com/spiraldb/vortex/pull/2290))
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- Scan builder ([#2283](https://github.com/spiraldb/vortex/pull/2283))
+- Vortex layout strategy ([#2217](https://github.com/spiraldb/vortex/pull/2217))
+- Avoid unncessary allocations in file reading logic ([#2282](https://github.com/spiraldb/vortex/pull/2282))
+- Store partition field names once ([#2279](https://github.com/spiraldb/vortex/pull/2279))
+- File stats ([#2277](https://github.com/spiraldb/vortex/pull/2277))
+- Cache pruning predicate ([#2274](https://github.com/spiraldb/vortex/pull/2274))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- periodic cargo sort + remove unused dependencies (#2265)
+- random touchups that might be more performant ([#2242](https://github.com/spiraldb/vortex/pull/2242))
+- Rename Array::null_count to invalid_count (#2244)
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+
+## `vortex-io` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.24.0...vortex-io-v0.25.0) - 2025-02-28
+
+### Added
+- Add tracing (#2276)
+
+### Other
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- *(deps)* update all patch updates (patch) (#2339)
+- read and coalescing metrics ([#2413](https://github.com/spiraldb/vortex/pull/2413))
+- add max coalesced read performance hint ([#2346](https://github.com/spiraldb/vortex/pull/2346))
+- ObjectStoreReadAt to optionally accept scheme for more accurate perf hints ([#2343](https://github.com/spiraldb/vortex/pull/2343))
+- FilterEvaluator for scans  ([#2334](https://github.com/spiraldb/vortex/pull/2334))
+- Default to using a shared dispatcher ([#2304](https://github.com/spiraldb/vortex/pull/2304))
+- Fix dumb object store bug ([#2287](https://github.com/spiraldb/vortex/pull/2287))
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- Remove static bound from VortexReadAt futures ([#2275](https://github.com/spiraldb/vortex/pull/2275))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Per `VortexReadAt` coalescing window ([#2241](https://github.com/spiraldb/vortex/pull/2241))
+
+## `vortex-metrics` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-metrics-v0.24.0...vortex-metrics-v0.25.0) - 2025-02-28
+
+### Fixed
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- *(deps)* update all patch updates (patch) (#2339)
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- emit per partition and per file metrics in VortexExec ([#2431](https://github.com/spiraldb/vortex/pull/2431))
+- read and coalescing metrics ([#2413](https://github.com/spiraldb/vortex/pull/2413))
+- remove unused Decimal dtype in proto/fbs (#2156)
+- Add bibtex to docs ([#2094](https://github.com/spiraldb/vortex/pull/2094))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-expr` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.24.0...vortex-expr-v0.25.0) - 2025-02-28
+
+### Fixed
+- potential nullability bug in `Literal` return dtype (#2464)
+
+### Other
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Ensure that between is faster than multiple compares (in arrow) ([#2457](https://github.com/spiraldb/vortex/pull/2457))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- between(array, lower, lower_op, upper, upper_op) compute function ([#2391](https://github.com/spiraldb/vortex/pull/2391))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- Add layout logging ([#2300](https://github.com/spiraldb/vortex/pull/2300))
+- Store partition field names once ([#2279](https://github.com/spiraldb/vortex/pull/2279))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- expr.transform is actually post-order transform ([#2226](https://github.com/spiraldb/vortex/pull/2226))
+
+## `vortex-bytebool` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.24.0...vortex-bytebool-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- mask (#1900)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+
+## `vortex-btrblocks` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.24.0...vortex-btrblocks-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- is_constant VTable (#2476)
+- use BtrBlocks compressor in vortex-file strategy (#2423)
+- btrblocks compressor v0 (#2247)
+
+### Fixed
+- Avoid overflow when computing FoR's difference of min and max (#2549)
+- BtrBlocks stats distinct count doesn't ignore last value (#2534)
+- more robust handling of empty array compression (#2520)
+- *(btrblocks)* do not attempt BP with current ptype width (#2428)
+- codspeed build (#2422)
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- Remove sampling compressor ([#2497](https://github.com/spiraldb/vortex/pull/2497))
+- Some fixes to BtrBlocks compressor ([#2500](https://github.com/spiraldb/vortex/pull/2500))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- divan runs single threaded by default (#2450)
+- minor datafusion improvement and make all eprintln use proper logging (#2438)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- clean up cfg codspeed handling (#2424)
+- remove unused Decimal dtype in proto/fbs (#2156)
+- Add bibtex to docs ([#2094](https://github.com/spiraldb/vortex/pull/2094))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-zigzag` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.24.0...vortex-zigzag-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+
+## `vortex-sparse` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.24.0...vortex-sparse-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- mask (#1900)
+
+### Fixed
+- Validity::to_logical asserts mask length equals argument length (#2397)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove frequency stats ([#2533](https://github.com/spiraldb/vortex/pull/2533))
+- Write for reference to metadata ([#2506](https://github.com/spiraldb/vortex/pull/2506))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Patches stores offset for lazy slicing ([#2308](https://github.com/spiraldb/vortex/pull/2308))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+- Validate the visitor visits everything ([#2214](https://github.com/spiraldb/vortex/pull/2214))
+
+## `vortex-runend` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.24.0...vortex-runend-v0.25.0) - 2025-02-28
+
+### Added
+- fuse index runend decoding - `take_from` (#2527)
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- fix bench iter ranges (#2546)
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Faster runend decompress ([#2537](https://github.com/spiraldb/vortex/pull/2537))
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- convert sampling compressor bench to divan (#2425)
+- remove Option because a Box of ZST does not allocate (#2415)
+- convert more benchmarks from criterion to divan (#2418)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- run_end_compress benchmark (#2317)
+- drop superfluous `black_box` calls (#2289)
+- periodic cargo sort + remove unused dependencies (#2265)
+- remove bound checks when decoding primitive runend arrays ([#2251](https://github.com/spiraldb/vortex/pull/2251))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+
+## `vortex-dict` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.24.0...vortex-dict-v0.25.0) - 2025-02-28
+
+### Added
+- fuse index runend decoding - `take_from` (#2527)
+- move SIMD gather to `PrimitiveArray::take` (#2538)
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- is_constant VTable (#2476)
+- mask (#1900)
+- SIMD dictionary decoding (#2363)
+
+### Fixed
+- prove to miri buf can be written up to capacity (#2436)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- one last is_constant followup ([#2488](https://github.com/spiraldb/vortex/pull/2488))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- divan runs single threaded by default (#2450)
+- drop unused deps as pointed out by `cargo-machete` (#2449)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- convert sampling compressor bench to divan (#2425)
+- remove Option because a Box of ZST does not allocate (#2415)
+- convert more benchmarks from criterion to divan (#2418)
+- reduce micro-benchmark input sizes (#2408)
+- errors in Builder::finish are panics (#2392)
+- pass input by ref if possible (#2390)
+- convert dict compression benchs to divan (#2388)
+- extract varbinview shift offset method (#2364)
+- `take_into` for varbinview  ([#2359](https://github.com/spiraldb/vortex/pull/2359))
+- Dict encoder can encode multiple arrays with same dictionary again ([#2353](https://github.com/spiraldb/vortex/pull/2353))
+- `take_into` compute function ([#2344](https://github.com/spiraldb/vortex/pull/2344))
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- DictArray handles codes or values being nullable ([#2260](https://github.com/spiraldb/vortex/pull/2260))
+- don't call `clone` in criterion benchmarks (#2315)
+- `canonicalize_into` for utf8/binary and list arrays ([#2286](https://github.com/spiraldb/vortex/pull/2286))
+- drop superfluous `black_box` calls (#2289)
+- don't call `clone` in divan benchmarks (#2288)
+- periodic cargo sort + remove unused dependencies (#2265)
+- compare dict by value (#2085)
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+- Dict all valid ([#2206](https://github.com/spiraldb/vortex/pull/2206))
+
+## `vortex-fsst` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.24.0...vortex-fsst-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- Add tracing (#2276)
+- lift comparison to constant null to the top-level (#2233)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- fsst pushdown compare vs canonical compare (#2545)
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- divan runs single threaded by default (#2450)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- reduce micro-benchmark input sizes (#2408)
+- errors in Builder::finish are panics (#2392)
+- `take_into` for varbinview  ([#2359](https://github.com/spiraldb/vortex/pull/2359))
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- canonicalize_into for fsst ([#2313](https://github.com/spiraldb/vortex/pull/2313))
+- don't call `clone` in divan benchmarks (#2288)
+- `pushdown_compare` & `canonicalize_compare` for fsst (#2269)
+- fsst (#2268)
+- specialize fsst compare to empty const value ([#2234](https://github.com/spiraldb/vortex/pull/2234))
+
+## `vortex-datetime-parts` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.24.0...vortex-datetime-parts-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- lift comparison to constant null to the top-level (#2233)
+- `Lt` & `Gt` ops for `DateTimePartsEncoding` (#2225)
+- `Lte`, `Gte` & `NotEq` operators for `DateTimePartsEncoding` (#2218)
+- impl CompareFn for DateTimePartsEncoding (#2207)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- between(array, lower, lower_op, upper, upper_op) compute function ([#2391](https://github.com/spiraldb/vortex/pull/2391))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Rename Array::null_count to invalid_count (#2244)
+
+## `vortex-alp` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.24.0...vortex-alp-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- is_constant VTable (#2476)
+- mask (#1900)
+- teach ALPArray to store validity only in the encoded array (#2216)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Some fixes to BtrBlocks compressor ([#2500](https://github.com/spiraldb/vortex/pull/2500))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Optional fallback in new is_constant compute function ([#2485](https://github.com/spiraldb/vortex/pull/2485))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- divan runs single threaded by default (#2450)
+- between(array, lower, lower_op, upper, upper_op) compute function ([#2391](https://github.com/spiraldb/vortex/pull/2391))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- reduce micro-benchmark input sizes (#2408)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Fix take with nullable indices on arrays with patches ([#2336](https://github.com/spiraldb/vortex/pull/2336))
+- DictArray handles codes or values being nullable ([#2260](https://github.com/spiraldb/vortex/pull/2260))
+- Patches stores offset for lazy slicing ([#2308](https://github.com/spiraldb/vortex/pull/2308))
+- don't call `clone` in divan benchmarks (#2288)
+
+## `vortex-fastlanes` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.24.0...vortex-fastlanes-v0.25.0) - 2025-02-28
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- is_constant VTable (#2476)
+- add new `uninit_range` API for PrimitiveBuilder (#2443)
+- btrblocks compressor v0 (#2247)
+- teach BitPackedEncoding canonical_into (#2324)
+- for array will set null values to the zero value (#2253)
+- lift comparison to constant null to the top-level (#2233)
+- faster bitpacking filter for selectivities from 5% to 80% (#2068)
+
+### Fixed
+- NativePType reimplements Ord and Eq using it's own semantics (#2550)
+- bitpacking respects patches and zero bit width cases (#2368)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove frequency stats ([#2533](https://github.com/spiraldb/vortex/pull/2533))
+- Some fixes to BtrBlocks compressor ([#2500](https://github.com/spiraldb/vortex/pull/2500))
+- Write for reference to metadata ([#2506](https://github.com/spiraldb/vortex/pull/2506))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Optional fallback in new is_constant compute function ([#2485](https://github.com/spiraldb/vortex/pull/2485))
+- Ensure that between is faster than multiple compares (in arrow) ([#2457](https://github.com/spiraldb/vortex/pull/2457))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- BitPackedArray#search_sorted correctly handles null ordering for elements smaller than smallest element in array ([#2465](https://github.com/spiraldb/vortex/pull/2465))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- divan runs single threaded by default (#2450)
+- between(array, lower, lower_op, upper, upper_op) compute function ([#2391](https://github.com/spiraldb/vortex/pull/2391))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- remove Option because a Box of ZST does not allocate (#2415)
+- convert more benchmarks from criterion to divan (#2418)
+- reduce micro-benchmark input sizes (#2408)
+- errors in Builder::finish are panics (#2392)
+- `take_into` for varbinview  ([#2359](https://github.com/spiraldb/vortex/pull/2359))
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Fix take with nullable indices on arrays with patches ([#2336](https://github.com/spiraldb/vortex/pull/2336))
+- Patches stores offset for lazy slicing ([#2308](https://github.com/spiraldb/vortex/pull/2308))
+- drop superfluous `black_box` calls (#2289)
+- Added `canonicalize_into` and a new array builder method `extend_from_array` ([#2259](https://github.com/spiraldb/vortex/pull/2259))
+- Adjust FoR search_sorted after null ordering change (#2262)
+- don't call `clone` in divan benchmarks (#2288)
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Use Validity::null_count in BitPacked::search_sorted ([#2243](https://github.com/spiraldb/vortex/pull/2243))
+- Correctly handle searching bitpacked arrays with only valid patches ([#2236](https://github.com/spiraldb/vortex/pull/2236))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+- Remove FoR shift ([#2215](https://github.com/spiraldb/vortex/pull/2215))
+
+## `vortex-array` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.24.0...vortex-array-v0.25.0) - 2025-02-28
+
+### Added
+- uncompressed_size vtable fn (#2499)
+- fuse index runend decoding - `take_from` (#2527)
+- move SIMD gather to `PrimitiveArray::take` (#2538)
+- Refining`Statistics`, `StatsSet` and related functionality (#2522)
+- inherit is way faster (#2507)
+- is_constant VTable (#2476)
+- use BtrBlocks compressor in vortex-file strategy (#2423)
+- add new `uninit_range` API for PrimitiveBuilder (#2443)
+- mask (#1900)
+- btrblocks compressor v0 (#2247)
+- teach BitPackedEncoding canonical_into (#2324)
+- for array will set null values to the zero value (#2253)
+- lift comparison to constant null to the top-level (#2233)
+- min_max compute, function and update compute_stats to use this (#2213)
+
+### Fixed
+- NativePType reimplements Ord and Eq using it's own semantics (#2550)
+- ConstantArray#_to_canonical supports ListDType (#2521)
+- teach list builder to slice off trailing garbage (#2514)
+- TreeDisplayWrapper is private (#2433)
+- Validity::to_logical asserts mask length equals argument length (#2397)
+- take_into mask length must equal _indices_ length (#2396)
+- BoolArray take must not look up invalid indices (#2371)
+- Validity take must never return nullable Boolean arrays (#2370)
+- min_max compute stat for chunked (#2228)
+
+### Other
+- Basic Python encoding ([#2551](https://github.com/spiraldb/vortex/pull/2551))
+- Reduce allocations in `StatsSet` ([#2541](https://github.com/spiraldb/vortex/pull/2541))
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove frequency stats ([#2533](https://github.com/spiraldb/vortex/pull/2533))
+- StructScalar#field_by_idx doesn't mutate fields nullability (#2536)
+- ConstantArray#_to_canonical supports StructDType (#2517)
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- VarBinViewArray now has a trivial to_canonical (#2508)
+- Write for reference to metadata ([#2506](https://github.com/spiraldb/vortex/pull/2506))
+- one last is_constant followup ([#2488](https://github.com/spiraldb/vortex/pull/2488))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Fix null coercion of scalars ([#2172](https://github.com/spiraldb/vortex/pull/2172))
+- Create an ArcRef type ([#2489](https://github.com/spiraldb/vortex/pull/2489))
+- Delete old macros file ([#2487](https://github.com/spiraldb/vortex/pull/2487))
+- Optional fallback in new is_constant compute function ([#2485](https://github.com/spiraldb/vortex/pull/2485))
+- Remove unchecked take ([#2484](https://github.com/spiraldb/vortex/pull/2484))
+- Fix all null float sum ([#2482](https://github.com/spiraldb/vortex/pull/2482))
+- Do not include sum in empty stats ([#2480](https://github.com/spiraldb/vortex/pull/2480))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Ensure that between is faster than multiple compares (in arrow) ([#2457](https://github.com/spiraldb/vortex/pull/2457))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- Unleash clippy... ([#2470](https://github.com/spiraldb/vortex/pull/2470))
+- Remove VTable downcasting ([#2469](https://github.com/spiraldb/vortex/pull/2469))
+- *(deps)* update rust crate rand to 0.9.0 (#2082)
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- divan runs single threaded by default (#2450)
+- between(array, lower, lower_op, upper, upper_op) compute function ([#2391](https://github.com/spiraldb/vortex/pull/2391))
+- Docs oriented cleanup and some minor refactoring ([#2432](https://github.com/spiraldb/vortex/pull/2432))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- Add a StatsLayout to store logical statistics ([#2340](https://github.com/spiraldb/vortex/pull/2340))
+- remove Option because a Box of ZST does not allocate (#2415)
+- convert more benchmarks from criterion to divan (#2418)
+- reduce micro-benchmark input sizes (#2408)
+- errors in Builder::finish are panics (#2392)
+- null length must match values length in prim. builder finish (#2369)
+- extract varbinview shift offset method (#2364)
+- `take_into` for varbinview  ([#2359](https://github.com/spiraldb/vortex/pull/2359))
+- `take_into` compute function ([#2344](https://github.com/spiraldb/vortex/pull/2344))
+- Fuzzer random list scalar generator doesn't introduce nulls into non nullable arrays (#2345)
+- Nullability of take ([#2341](https://github.com/spiraldb/vortex/pull/2341))
+- Fix take with nullable indices on arrays with patches ([#2336](https://github.com/spiraldb/vortex/pull/2336))
+- canonicalize_into for fsst ([#2313](https://github.com/spiraldb/vortex/pull/2313))
+- DictArray handles codes or values being nullable ([#2260](https://github.com/spiraldb/vortex/pull/2260))
+- Remove tree display from logging ([#2331](https://github.com/spiraldb/vortex/pull/2331))
+- Implement CastFn for ConstantArray ([#2323](https://github.com/spiraldb/vortex/pull/2323))
+- Chunked array offsets are stored as buffer and not as a child ([#2318](https://github.com/spiraldb/vortex/pull/2318))
+- Fix seed for bench ([#2316](https://github.com/spiraldb/vortex/pull/2316))
+- don't call `clone` in criterion benchmarks (#2315)
+- Patched array patching respects offset ([#2314](https://github.com/spiraldb/vortex/pull/2314))
+- `canonicalize_into` for utf8/binary and list arrays ([#2286](https://github.com/spiraldb/vortex/pull/2286))
+- Patches stores offset for lazy slicing ([#2308](https://github.com/spiraldb/vortex/pull/2308))
+- compute and propagate is_constant more carefully (#2292)
+- FilterFn for ExtArray ([#2301](https://github.com/spiraldb/vortex/pull/2301))
+- Implement cast function for VarBin/VarBinView ([#2291](https://github.com/spiraldb/vortex/pull/2291))
+- Add vortex to `to_arrow` test ([#2295](https://github.com/spiraldb/vortex/pull/2295))
+- drop superfluous `black_box` calls (#2289)
+- Added `canonicalize_into` and a new array builder method `extend_from_array` ([#2259](https://github.com/spiraldb/vortex/pull/2259))
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- Vortex layout strategy ([#2217](https://github.com/spiraldb/vortex/pull/2217))
+- Upgrade to arrow 54 and datafusion 45 ([#2271](https://github.com/spiraldb/vortex/pull/2271))
+- :try_new doesn't force fields copy (#2281)
+- File stats ([#2277](https://github.com/spiraldb/vortex/pull/2277))
+- Avoid fill_null when constructing a mask ([#2278](https://github.com/spiraldb/vortex/pull/2278))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- `pushdown_compare` & `canonicalize_compare` for fsst (#2269)
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- Move all arrow/datafusion -> Vortex translation efforts to `VortexExec` ([#2266](https://github.com/spiraldb/vortex/pull/2266))
+- compare dict by value (#2085)
+- random touchups that might be more performant ([#2242](https://github.com/spiraldb/vortex/pull/2242))
+- Rename Array::null_count to invalid_count (#2244)
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+- Fix min-max stats computation ([#2237](https://github.com/spiraldb/vortex/pull/2237))
+- specialize fsst compare to empty const value ([#2234](https://github.com/spiraldb/vortex/pull/2234))
+- Avoid creating errors when converting Arrow DataType to Vortex DType ([#2235](https://github.com/spiraldb/vortex/pull/2235))
+- Specialize empty varbin const compare ([#2227](https://github.com/spiraldb/vortex/pull/2227))
+- added a comment to explain chunked min max (#2229)
+- Validate the visitor visits everything ([#2214](https://github.com/spiraldb/vortex/pull/2214))
+- Use rkyv unchecked deserialize ([#2212](https://github.com/spiraldb/vortex/pull/2212))
+- Dict all valid ([#2206](https://github.com/spiraldb/vortex/pull/2206))
+
+## `vortex-scalar` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.24.0...vortex-scalar-v0.25.0) - 2025-02-28
+
+### Added
+- uncompressed_size vtable fn (#2499)
+
+### Fixed
+- ConstantArray#_to_canonical supports ListDType (#2521)
+
+### Other
+- StructScalar#field_by_idx doesn't mutate fields nullability (#2536)
+- Write for reference to metadata ([#2506](https://github.com/spiraldb/vortex/pull/2506))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Fix null coercion of scalars ([#2172](https://github.com/spiraldb/vortex/pull/2172))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+- DictArray handles codes or values being nullable ([#2260](https://github.com/spiraldb/vortex/pull/2260))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Serialize floats as integer bit patterns ([#2250](https://github.com/spiraldb/vortex/pull/2250))
+- specialize fsst compare to empty const value ([#2234](https://github.com/spiraldb/vortex/pull/2234))
+
+## `vortex-mask` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.24.0...vortex-mask-v0.25.0) - 2025-02-28
+
+### Added
+- btrblocks compressor v0 (#2247)
+
+### Other
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- periodic cargo sort + remove unused dependencies (#2265)
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+
+## `vortex-datetime-dtype` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.24.0...vortex-datetime-dtype-v0.25.0) - 2025-02-28
+
+### Other
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- *(deps)* update rust crate getrandom to 0.3.0 (#2074)
+
+## `vortex-dtype` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.24.0...vortex-dtype-v0.25.0) - 2025-02-28
+
+### Added
+- teach BitPackedEncoding canonical_into (#2324)
+- SIMD dictionary decoding (#2363)
+
+### Fixed
+- StructLayoutWriter requires unique field names (#2519)
+- NativePType reimplements Ord and Eq using it's own semantics (#2550)
+- Validity::to_logical asserts mask length equals argument length (#2397)
+- take_into mask length must equal _indices_ length (#2396)
+
+### Other
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- Added `canonicalize_into` and a new array builder method `extend_from_array` ([#2259](https://github.com/spiraldb/vortex/pull/2259))
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+- Move scan from vortex-file to vortex-layout ([#2264](https://github.com/spiraldb/vortex/pull/2264))
+- periodic cargo sort + remove unused dependencies (#2265)
+- Remove PartialOrd from DType ([#2257](https://github.com/spiraldb/vortex/pull/2257))
+
+## `vortex-proto` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.24.0...vortex-proto-v0.25.0) - 2025-02-28
+
+### Other
+- Improve expression performance ([#2273](https://github.com/spiraldb/vortex/pull/2273))
+
+## `vortex-flatbuffers` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.24.0...vortex-flatbuffers-v0.25.0) - 2025-02-28
+
+### Other
+- Context -> Registry ([#2529](https://github.com/spiraldb/vortex/pull/2529))
+- Remove frequency stats ([#2533](https://github.com/spiraldb/vortex/pull/2533))
+- Remove run-count statistic ([#2530](https://github.com/spiraldb/vortex/pull/2530))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- FileLayout -> Footer ([#2491](https://github.com/spiraldb/vortex/pull/2491))
+- Remove true count statistic in favor of sum ([#2478](https://github.com/spiraldb/vortex/pull/2478))
+- Sum statistic + compute fn ([#2474](https://github.com/spiraldb/vortex/pull/2474))
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- File stats ([#2277](https://github.com/spiraldb/vortex/pull/2277))
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+
+## `vortex-buffer` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.24.0...vortex-buffer-v0.25.0) - 2025-02-28
+
+### Added
+- mask (#1900)
+
+### Other
+- Faster runend decompress ([#2537](https://github.com/spiraldb/vortex/pull/2537))
+- Write for reference to metadata ([#2506](https://github.com/spiraldb/vortex/pull/2506))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Fix null coercion of scalars ([#2172](https://github.com/spiraldb/vortex/pull/2172))
+- divan runs single threaded by default (#2450)
+- drop flaky buffer push benchmark parameter (#2448)
+- Specialize BufferMut extend ([#2439](https://github.com/spiraldb/vortex/pull/2439))
+- fix buffer push benchmarks (#2437)
+- disable lint fails for test/build steps, bump toolchain (#2430)
+- pass input by ref if possible (#2390)
+- Use ptr increment instead of add  ([#2337](https://github.com/spiraldb/vortex/pull/2337))
+- `canonicalize_into` for utf8/binary and list arrays ([#2286](https://github.com/spiraldb/vortex/pull/2286))
+- drop superfluous `black_box` calls (#2289)
+- don't call `clone` in divan benchmarks (#2288)
+- Add padding ([#2284](https://github.com/spiraldb/vortex/pull/2284))
+- Upgrade to arrow 54 and datafusion 45 ([#2271](https://github.com/spiraldb/vortex/pull/2271))
+- Remove static bound from VortexReadAt futures ([#2275](https://github.com/spiraldb/vortex/pull/2275))
+- Array Serde ([#2240](https://github.com/spiraldb/vortex/pull/2240))
+
+## `vortex-error` - [0.25.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.24.0...vortex-error-v0.25.0) - 2025-02-28
+
+### Other
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Add poisoned and tokio errors to vortex-error ([#2376](https://github.com/spiraldb/vortex/pull/2376))
+- :flatten -> unnest (#2361)
+- add ext trait and function to flatten nested VortexResult ([#2360](https://github.com/spiraldb/vortex/pull/2360))
+
 ## `vortex-tui` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.23.0...vortex-tui-v0.24.0) - 2025-02-03
 
 ### Added
