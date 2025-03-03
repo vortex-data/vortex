@@ -1,7 +1,7 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BinaryNumericFn, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
-    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
+    BinaryNumericFn, FilterFn, InvertFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn,
+    TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -13,6 +13,7 @@ use crate::{SparseArray, SparseEncoding};
 
 mod binary_numeric;
 mod invert;
+mod search_sorted;
 mod slice;
 mod take;
 
@@ -59,34 +60,6 @@ impl ScalarAtFn<&SparseArray> for SparseEncoding {
     }
 }
 
-// FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
-impl SearchSortedFn<&SparseArray> for SparseEncoding {
-    fn search_sorted(
-        &self,
-        array: &SparseArray,
-        value: &Scalar,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        array.patches().search_sorted(value.clone(), side)
-    }
-}
-
-// FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
-impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
-    fn search_sorted_usize(
-        &self,
-        array: &SparseArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        let Ok(target) = Scalar::from(value).cast(array.dtype()) else {
-            // If the downcast fails, then the target is too large for the dtype.
-            return Ok(SearchResult::NotFound(array.len()));
-        };
-        SearchSortedFn::search_sorted(self, array, &target, side)
-    }
-}
-
 impl FilterFn<&SparseArray> for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
@@ -107,9 +80,7 @@ mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
-    use vortex_array::compute::{
-        SearchResult, SearchSortedSide, filter, search_sorted, slice, try_cast,
-    };
+    use vortex_array::compute::{filter, try_cast};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -129,60 +100,6 @@ mod test {
         )
         .unwrap()
         .into_array()
-    }
-
-    #[rstest]
-    fn search_larger_than(array: ArrayRef) {
-        let res = search_sorted(&array, 66, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::NotFound(16));
-    }
-
-    #[rstest]
-    fn search_less_than(array: ArrayRef) {
-        let res = search_sorted(&array, 22, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::NotFound(2));
-    }
-
-    #[rstest]
-    fn search_found(array: ArrayRef) {
-        let res = search_sorted(&array, 44, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::Found(9));
-    }
-
-    #[rstest]
-    fn search_not_found_right(array: ArrayRef) {
-        let res = search_sorted(&array, 56, SearchSortedSide::Right).unwrap();
-        assert_eq!(res, SearchResult::NotFound(16));
-    }
-
-    #[rstest]
-    fn search_sliced(array: ArrayRef) {
-        let array = slice(&array, 7, 20).unwrap();
-        assert_eq!(
-            search_sorted(&array, 22, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(2)
-        );
-    }
-
-    #[test]
-    fn search_right() {
-        let array = SparseArray::try_new(
-            buffer![0u64].into_array(),
-            PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
-            2,
-            Scalar::null_typed::<u8>(),
-        )
-        .unwrap()
-        .into_array();
-
-        assert_eq!(
-            search_sorted(&array, 0, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(1)
-        );
-        assert_eq!(
-            search_sorted(&array, 1, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(1)
-        );
     }
 
     #[rstest]
