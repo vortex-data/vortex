@@ -317,11 +317,9 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - name: Run release-plz
-        id: run-release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
-        with:
-          command: release --dry-run -v
+      - run: |
+          cargo install --locked release-plz
+          release-plz release --dry-run -v
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
