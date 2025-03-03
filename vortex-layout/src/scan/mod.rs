@@ -18,7 +18,7 @@ use vortex_mask::Mask;
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
+use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument};
 
 pub mod executor;
 pub(crate) mod filter;
@@ -261,7 +261,7 @@ impl<D: ScanDriver> Scan<D> {
                 let reader = reader.clone();
 
                 // This future is the processing task
-                async move {
+                instrument!("process", async move {
                     let row_mask = match pruning {
                         None => row_mask,
                         Some(pruning_filter) => {
@@ -284,12 +284,13 @@ impl<D: ScanDriver> Scan<D> {
                         }
                         VortexResult::Ok(Some(array))
                     }
-                }
+                })
             })
             .map(move |processing_task| task_executor.spawn(processing_task))
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.unnest().transpose() });
 
+        let exec_stream = instrument!("exec_stream", exec_stream);
         let io_stream = self.driver.io_stream();
 
         let unified = UnifiedDriverStream {
