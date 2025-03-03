@@ -286,7 +286,7 @@ jobs:
         working-directory: ./wasm-test
 
   miri:
-    name: "miri"
+    name: "Miri"
     runs-on: ubuntu-latest
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
@@ -306,8 +306,9 @@ jobs:
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer
 
   release_dry_run:
+    name: "Release dry run"
     runs-on:
-      - ubunutu-latest
+      - ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
