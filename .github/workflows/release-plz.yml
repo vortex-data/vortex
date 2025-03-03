@@ -25,7 +25,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Run release-plz
         id: run-release-plz
         uses: MarcoIeni/release-plz-action@v0.5
@@ -49,7 +48,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         with:
@@ -136,7 +134,7 @@ jobs:
         with:
           name: linux-wheels
           path: target/wheels
-  release:
+  release_pypi:
     needs: [ release-plz-release, macos, linux ]
     if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
