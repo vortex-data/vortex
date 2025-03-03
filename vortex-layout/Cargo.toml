@@ -28,6 +28,8 @@ itertools = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["sync"], optional = true }
+tracing = { workspace = true, optional = true }
+tracing-futures = { workspace = true, features = ["futures-03"], optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -43,6 +45,7 @@ rstest = { workspace = true }
 
 [features]
 tokio = ["dep:tokio", "vortex-error/tokio"]
+tracing = ["dep:tracing", "dep:tracing-futures"]
 
 [lints]
 workspace = true

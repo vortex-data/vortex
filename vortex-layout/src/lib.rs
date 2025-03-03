@@ -15,6 +15,7 @@ mod row_mask;
 pub use row_mask::*;
 use vortex_array::arcref::ArcRef;
 
+pub mod macros;
 mod reader;
 pub mod scan;
 pub mod segments;

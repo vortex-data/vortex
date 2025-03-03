@@ -51,7 +51,7 @@ vortex-layout = { workspace = true, features = ["tokio"] }
 vortex-metrics = { workspace = true }
 
 [features]
-tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing"]
+tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing", "vortex-layout/tracing", "vortex-file/tracing"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
