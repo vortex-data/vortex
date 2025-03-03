@@ -24,6 +24,3 @@ arrow-schema = "54.2"
 arrow-select = "54.2"
 arrow-string = "54.2"
 
-# Pin until we can bump to get: https://github.com/apache/arrow-rs/pull/7198
-chrono = { version = "=0.4.40", default-features = false }
-
