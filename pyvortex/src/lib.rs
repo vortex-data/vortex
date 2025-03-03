@@ -1,11 +1,12 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use std::ops::Deref;
 use std::sync::LazyLock;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-mod arrays;
+pub(crate) mod arrays;
 mod compress;
 mod dataset;
 mod dtype;
@@ -90,3 +91,27 @@ pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
 
 /// An adapter struct used to localize trait impls to this crate.
 pub struct PyVortex<T>(pub T);
+
+impl<T> From<T> for PyVortex<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> PyVortex<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+
+    pub fn inner(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> Deref for PyVortex<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}

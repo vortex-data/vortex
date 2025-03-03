@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
 use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
-use vortex::error::VortexResult;
+use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
@@ -111,5 +111,15 @@ impl<'py> FromPyObject<'py> for PyArrayInstance {
             len,
             dtype,
         })
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyArrayInstance {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = VortexError;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.obj.as_ref().bind(py).to_owned())
     }
 }

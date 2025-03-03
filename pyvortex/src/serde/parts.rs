@@ -5,7 +5,7 @@ use pyo3::{Bound, PyAny, PyRef, PyResult, Python, pyclass, pymethods};
 use vortex::buffer::ByteBuffer;
 use vortex::serde::ArrayParts;
 
-use crate::arrays::PyArray;
+use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::serde::context::PyArrayContext;
 
@@ -44,14 +44,12 @@ impl PyArrayParts {
     /// # Returns
     ///
     /// The decoded array.
-    fn decode<'py>(
-        &self,
-        py: Python<'py>,
-        ctx: &PyArrayContext,
-        dtype: PyDType,
-        len: usize,
-    ) -> PyResult<Bound<'py, PyArray>> {
-        PyArray::init(py, self.0.decode(ctx, dtype.into_inner(), len)?)
+    fn decode(&self, ctx: &PyArrayContext, dtype: PyDType, len: usize) -> PyResult<PyArrayRef> {
+        Ok(PyArrayRef::from(self.0.decode(
+            ctx,
+            dtype.into_inner(),
+            len,
+        )?))
     }
 
     /// Fetch the serialized metadata of the array.
