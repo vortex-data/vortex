@@ -69,7 +69,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             split_by: SplitBy::Layout,
             canonicalize: false,
             prefetch_conjuncts: false,
-            concurrency: 32,
+            concurrency: 1024,
         }
     }
 
