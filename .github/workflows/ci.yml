@@ -307,8 +307,7 @@ jobs:
 
   release_dry_run:
     name: "Release dry run"
-    runs-on:
-      - ubuntu-latest
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
         with:
