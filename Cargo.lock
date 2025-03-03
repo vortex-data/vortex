@@ -5495,7 +5495,6 @@ dependencies = [
  "num-traits",
  "rand 0.9.0",
  "rkyv",
- "serde",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
