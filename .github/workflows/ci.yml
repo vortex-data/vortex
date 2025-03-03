@@ -225,9 +225,15 @@ jobs:
 
   bench-codspeed:
     name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i.2xlarge
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+
     steps:
       - uses: actions/checkout@v4
+      - uses: runs-on/action@v1
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
