@@ -236,7 +236,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
             // write() is only safe to call more than once because the values are primitive (i.e., Drop is a no-op)
             patch_indices_mut[chunk_patch_index].write(i as u64);
             patch_values_mut[chunk_patch_index].write(chunk[i - num_prev_encoded]);
-            chunk_patch_index += (decoded != chunk[i - num_prev_encoded]) as usize;
+            chunk_patch_index += !decoded.is_eq(chunk[i - num_prev_encoded]) as usize;
         }
         assert_eq!(chunk_patch_index, chunk_patch_count);
         unsafe {
