@@ -7,7 +7,10 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
-use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{
+    MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+};
+use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical};
@@ -34,6 +37,10 @@ impl ComputeVTable for NullEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -89,6 +96,12 @@ impl ToArrowFn<&NullArray> for NullEncoding {
 impl MinMaxFn<&NullArray> for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
+    }
+}
+
+impl UncompressedSizeFn<&NullArray> for NullEncoding {
+    fn uncompressed_size(&self, array: &NullArray) -> VortexResult<usize> {
+        Ok(array.nbytes())
     }
 }
 

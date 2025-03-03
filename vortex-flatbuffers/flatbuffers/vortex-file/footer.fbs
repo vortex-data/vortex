@@ -7,6 +7,8 @@ table Footer {
     layout: Layout;
     segments: [Segment];
     statistics: [ArrayStats];
+    array_encodings: [ArrayEncoding];
+    layout_encodings: [LayoutEncoding];
 }
 
 /// A `Segment` acts as the locator for a buffer within the file.
@@ -20,6 +22,23 @@ struct Segment {
     _compression: uint8;
     _encryption: uint16;
 }
+
+/// An `ArrayEncoding` describes the type of a particular array.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+table ArrayEncoding {
+    id: string (required);
+}
+
+/// A `LayoutEncoding` describes the type of a particular layout.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+table LayoutEncoding {
+    id: string (required);
+}
+
 // [footer]
 
 // [postscript]

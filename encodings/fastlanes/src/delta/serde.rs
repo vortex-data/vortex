@@ -2,7 +2,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
     RkyvMetadata,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
@@ -37,7 +37,7 @@ impl SerdeVTable<&DeltaArray> for DeltaEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

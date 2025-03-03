@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use vortex_array::ContextRef;
+use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
@@ -15,7 +15,7 @@ use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 #[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
-    ctx: ContextRef,
+    ctx: ArrayContext,
     segment_reader: Arc<dyn AsyncSegmentReader>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
@@ -26,10 +26,10 @@ pub struct StructReader {
 impl StructReader {
     pub(super) fn try_new(
         layout: Layout,
-        ctx: ContextRef,
+        ctx: ArrayContext,
         segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
-        if layout.encoding().id() != StructLayout.id() {
+        if layout.vtable().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 

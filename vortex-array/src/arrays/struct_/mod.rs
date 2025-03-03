@@ -1,16 +1,15 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::encoding::encoding_ids;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
     Encoding, EncodingId,
@@ -24,14 +23,19 @@ pub struct StructArray {
     dtype: DType,
     fields: Vec<ArrayRef>,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 pub struct StructEncoding;
 impl Encoding for StructEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.struct", encoding_ids::STRUCT);
     type Array = StructArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for StructEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.struct")
+    }
 }
 
 impl StructArray {
@@ -144,8 +148,8 @@ impl ArrayImpl for StructArray {
 }
 
 impl ArrayStatisticsImpl for StructArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 
@@ -192,14 +196,6 @@ impl ArrayValidityImpl for StructArray {
 impl StatisticsVTable<&StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
-            Stat::UncompressedSizeInBytes => array
-                .fields()
-                .iter()
-                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-                .flatten()
-                .map(|size| StatsSet::of(stat, Precision::exact(size)))
-                .unwrap_or_default(),
             Stat::NullCount => StatsSet::of(
                 stat,
                 Precision::exact(array.validity().null_count(array.len())?),

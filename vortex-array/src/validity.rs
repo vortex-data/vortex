@@ -357,6 +357,14 @@ impl Validity {
             Self::Array(a) => Some(a.len()),
         }
     }
+
+    pub fn uncompressed_size(&self) -> usize {
+        if let Validity::Array(a) = self {
+            a.len().div_ceil(8)
+        } else {
+            0
+        }
+    }
 }
 
 impl PartialEq for Validity {

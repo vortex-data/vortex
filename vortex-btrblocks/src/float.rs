@@ -405,11 +405,27 @@ impl Scheme for RunEndScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer_mut;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_buffer::{Buffer, buffer_mut};
 
     use crate::float::FloatCompressor;
     use crate::{Compressor, MAX_CASCADE};
+
+    #[test]
+    fn test_empty() {
+        // Make sure empty array compression does not fail
+        let result = FloatCompressor::compress(
+            &PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable),
+            false,
+            3,
+            &[],
+        )
+        .unwrap();
+
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_compress() {

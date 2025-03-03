@@ -1,6 +1,6 @@
 //! This module contains the VTable definitions for a Vortex Array.
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 mod compute;
@@ -11,9 +11,9 @@ pub use compute::*;
 pub use serde::*;
 pub use statistics::*;
 
+use crate::Array;
 use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
-use crate::{Array, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 pub type VTableRef = ArcRef<dyn EncodingVTable>;
@@ -56,14 +56,8 @@ impl Debug for dyn EncodingVTable + '_ {
     }
 }
 
-impl<
-    E: Encoding
-        + ComputeVTable
-        + for<'a> SerdeVTable<&'a dyn Array>
-        + for<'a> StatisticsVTable<&'a dyn Array>,
-> EncodingVTable for E
-{
-    fn id(&self) -> EncodingId {
-        E::ID
+impl Display for dyn EncodingVTable + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
     }
 }

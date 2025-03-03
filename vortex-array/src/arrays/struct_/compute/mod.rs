@@ -10,7 +10,8 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     CastFn, FilterFn, IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
-    SliceFn, TakeFn, ToArrowFn, filter, is_constant_opts, scalar_at, slice, take, try_cast,
+    SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts, scalar_at, slice,
+    take, try_cast, uncompressed_size,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -50,6 +51,10 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -193,6 +198,17 @@ impl IsConstantFn<&StructArray> for StructEncoding {
         }
 
         Ok(Some(true))
+    }
+}
+
+impl UncompressedSizeFn<&StructArray> for StructEncoding {
+    fn uncompressed_size(&self, array: &StructArray) -> VortexResult<usize> {
+        let mut sum = array.validity().uncompressed_size();
+        for child in array.children().into_iter() {
+            sum += uncompressed_size(child.as_ref())?;
+        }
+
+        Ok(sum)
     }
 }
 

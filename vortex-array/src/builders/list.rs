@@ -119,23 +119,33 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let list = array.to_canonical()?.into_list()?;
 
-        let offset = self.value_builder.len();
-        self.value_builder.extend_from_array(list.elements())?;
+        let cursor_usize = self.value_builder.len();
+        let cursor = O::from_usize(cursor_usize).ok_or_else(|| {
+            vortex_err!(
+                "cannot convert length {} to type {:?}",
+                cursor_usize,
+                O::PTYPE
+            )
+        })?;
 
         let offsets = binary_numeric(
             &try_cast(
                 &slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
-            &ConstantArray::new(
-                O::from_usize(offset).ok_or_else(|| {
-                    vortex_err!("cannot convert offset {} to type {:?}", offset, O::PTYPE)
-                })?,
-                list.len(),
-            ),
+            &ConstantArray::new(cursor, list.len()),
             BinaryNumericOperator::Add,
         )?;
         self.index_builder.extend_from_array(&offsets)?;
+
+        if !list.is_empty() {
+            let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
+            self.value_builder.extend_from_array(&slice(
+                list.elements(),
+                0,
+                last_used_index.as_() - cursor_usize,
+            )?)?;
+        }
 
         Ok(())
     }
@@ -162,15 +172,18 @@ mod tests {
     use std::sync::Arc;
 
     use Nullability::{NonNullable, Nullable};
+    use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::ToCanonical;
     use crate::array::Array;
-    use crate::arrays::{ListArray, OffsetPType};
+    use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
+    use crate::compute::scalar_at;
+    use crate::validity::Validity;
+    use crate::{IntoArray as _, ToCanonical};
 
     #[test]
     fn test_empty() {
@@ -327,5 +340,41 @@ mod tests {
         test_extend_builder_gen::<u16>();
         test_extend_builder_gen::<u32>();
         test_extend_builder_gen::<u64>();
+    }
+
+    #[test]
+    pub fn test_array_with_gap() {
+        let one_trailing_unused_element = ListArray::try_new(
+            buffer![1, 2, 3, 4].into_array(),
+            buffer![0, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let second_array = ListArray::try_new(
+            buffer![5, 6].into_array(),
+            buffer![0, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let chunked_list = ChunkedArray::try_new(
+            vec![
+                one_trailing_unused_element.clone().into_array(),
+                second_array.clone().into_array(),
+            ],
+            DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
+        );
+
+        let canon_values = chunked_list.unwrap().to_list().unwrap();
+
+        assert_eq!(
+            scalar_at(&one_trailing_unused_element, 0).unwrap(),
+            scalar_at(&canon_values, 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(&second_array, 0).unwrap(),
+            scalar_at(&canon_values, 1).unwrap()
+        );
     }
 }

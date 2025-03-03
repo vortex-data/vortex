@@ -3,6 +3,7 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
@@ -11,9 +12,9 @@ use vortex::file::{Footer, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -25,31 +26,6 @@ pub enum Tab {
     Encodings,
     // TODO(aduffy): SQL query page powered by DF
     // Query,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Encoding {
-    Flat,
-    Chunked,
-    Columnar,
-    Stats,
-    Unknown,
-}
-
-impl From<u16> for Encoding {
-    fn from(value: u16) -> Self {
-        if value == FLAT_LAYOUT_ID.0 {
-            Encoding::Flat
-        } else if value == CHUNKED_LAYOUT_ID.0 {
-            Encoding::Chunked
-        } else if value == COLUMNAR_LAYOUT_ID.0 {
-            Encoding::Columnar
-        } else if value == STATS_LAYOUT_ID.0 {
-            Encoding::Stats
-        } else {
-            Encoding::Unknown
-        }
-    }
 }
 
 /// A pointer into the `Layout` hierarchy that can be advanced.
@@ -79,40 +55,41 @@ impl LayoutCursor {
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
             // Find the DType of the child based on the DType of the current node.
-            dtype = match layout.encoding().id() {
-                CHUNKED_LAYOUT_ID => {
-                    // If metadata is present, last child is stats table
-                    if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
-                        let present_stats = stats_from_bitset_bytes(
-                            layout.metadata().expect("extracting stats").as_ref(),
-                        );
+            // TODO(ngates): add visitor pattern to layout
+            dtype = if layout.id() == CHUNKED_LAYOUT_ID {
+                // If metadata is present, last child is stats table
+                if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
+                    let present_stats = stats_from_bitset_bytes(
+                        layout.metadata().expect("extracting stats").as_ref(),
+                    );
 
-                        StatsTable::dtype_for_stats_table(&dtype, &present_stats)
-                    } else {
-                        // If there is no metadata, all children
-                        dtype.clone()
-                    }
+                    StatsTable::dtype_for_stats_table(&dtype, &present_stats)
+                } else {
+                    // If there is no metadata, all children
+                    dtype.clone()
                 }
-                COLUMNAR_LAYOUT_ID => dtype
+            } else if layout.id() == STRUCT_LAYOUT_ID {
+                dtype
                     .as_struct()
                     .expect("struct dtype")
                     .field_by_index(component)
-                    .expect("struct dtype component access"),
+                    .expect("struct dtype component access")
+            } else if layout.id() == FLAT_LAYOUT_ID {
                 // Flat layouts have no children
-                FLAT_LAYOUT_ID => unreachable!("flat layouts have no children"),
-                STATS_LAYOUT_ID => {
-                    if component == 0 {
-                        // This is the child data
-                        dtype.clone()
-                    } else {
-                        // Otherwise, it's the stats table
-                        let present_stats = stats_from_bitset_bytes(
-                            &layout.metadata().expect("extracting stats").as_ref()[4..],
-                        );
-                        StatsTable::dtype_for_stats_table(&dtype, &present_stats)
-                    }
+                unreachable!("flat layouts have no children")
+            } else if layout.id() == STATS_LAYOUT_ID {
+                if component == 0 {
+                    // This is the child data
+                    dtype.clone()
+                } else {
+                    // Otherwise, it's the stats table
+                    let present_stats = stats_from_bitset_bytes(
+                        &layout.metadata().expect("extracting stats").as_ref()[4..],
+                    );
+                    StatsTable::dtype_for_stats_table(&dtype, &present_stats)
                 }
-                _ => todo!("unknown DType"),
+            } else {
+                todo!("unknown DType")
             };
 
             layout = layout
@@ -181,7 +158,7 @@ impl LayoutCursor {
     }
 
     pub fn encoding(&self) -> &LayoutVTableRef {
-        self.layout.encoding()
+        self.layout.vtable()
     }
 
     pub fn layout(&self) -> &Layout {
@@ -215,7 +192,8 @@ pub struct AppState {
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
 
-    pub reader: TokioFile,
+    pub footer: Footer,
+    pub reader: Arc<dyn AsyncSegmentReader>,
     pub cursor: LayoutCursor,
     pub current_tab: Tab,
 
@@ -224,25 +202,6 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn read_segment(&self, segment_id: SegmentId) -> ByteBuffer {
-        let segment = self.cursor.segment(segment_id);
-        let range = segment.offset..(segment.offset + segment.length as u64);
-        self.read_bytes_sync(range, segment.alignment)
-    }
-
-    // Read the provided byte range
-    pub fn read_bytes_sync(&self, range: Range<u64>, alignment: Alignment) -> ByteBuffer {
-        let mut buf = ByteBufferMut::zeroed_aligned(
-            (range.end - range.start).try_into().vortex_expect("range"),
-            alignment,
-        );
-        self.reader
-            .read_exact_at(&mut buf, range.start)
-            .expect("read_exact_at sync");
-
-        buf.freeze()
-    }
-
     pub fn clear_search(&mut self) {
         self.search_filter.clear();
         self.filter.take();
@@ -251,12 +210,22 @@ impl AppState {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
-    let reader = TokioFile::open(path)?;
-    let file = VortexOpenOptions::file(reader.clone()).open().await?;
+    let file = TokioFile::open(path)?;
+    let footer = VortexOpenOptions::file(file.clone())
+        .open()
+        .await?
+        .footer()
+        .clone();
 
-    let cursor = LayoutCursor::new(file.footer().clone());
+    let reader = Arc::new(SegmentReader {
+        reader: file.clone(),
+        footer: footer.clone(),
+    }) as _;
+
+    let cursor = LayoutCursor::new(footer.clone());
 
     Ok(AppState {
+        footer,
         reader,
         cursor,
         key_mode: KeyMode::default(),
@@ -265,4 +234,32 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
     })
+}
+
+struct SegmentReader {
+    pub reader: TokioFile,
+    pub footer: Footer,
+}
+
+impl SegmentReader {
+    // Read the provided byte range
+    fn read_bytes_sync(&self, range: Range<u64>, alignment: Alignment) -> ByteBuffer {
+        let mut buf = ByteBufferMut::zeroed_aligned(
+            (range.end - range.start).try_into().vortex_expect("range"),
+            alignment,
+        );
+        self.reader
+            .read_exact_at(&mut buf, range.start)
+            .expect("read_exact_at sync");
+        buf.freeze()
+    }
+}
+
+#[async_trait]
+impl AsyncSegmentReader for SegmentReader {
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        let segment = &self.footer.segment_map()[*id as usize];
+        let range = segment.offset..(segment.offset + segment.length as u64);
+        Ok(self.read_bytes_sync(range, segment.alignment))
+    }
 }

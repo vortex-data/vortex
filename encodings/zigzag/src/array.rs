@@ -1,12 +1,10 @@
-use std::sync::{Arc, RwLock};
-
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical, encoding_ids,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical,
     try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
@@ -21,16 +19,21 @@ use crate::zigzag_decode;
 pub struct ZigZagArray {
     dtype: DType,
     encoded: ArrayRef,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(ZigZagArray);
 
 pub struct ZigZagEncoding;
 impl Encoding for ZigZagEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.zigzag", encoding_ids::ZIGZAG);
     type Array = ZigZagArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for ZigZagEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.zigzag")
+    }
 }
 
 impl ZigZagArray {
@@ -84,8 +87,8 @@ impl ArrayCanonicalImpl for ZigZagArray {
 }
 
 impl ArrayStatisticsImpl for ZigZagArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

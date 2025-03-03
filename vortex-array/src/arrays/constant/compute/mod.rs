@@ -13,7 +13,7 @@ use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterFn, InvertFn, ScalarAtFn,
-    SearchSortedFn, SliceFn, TakeFn,
+    SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -58,6 +58,10 @@ impl ComputeVTable for ConstantEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
+        Some(self)
+    }
 }
 
 impl ScalarAtFn<&ConstantArray> for ConstantEncoding {
@@ -81,6 +85,18 @@ impl SliceFn<&ConstantArray> for ConstantEncoding {
 impl FilterFn<&ConstantArray> for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array())
+    }
+}
+
+impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
+    fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {
+        let scalar = array.scalar();
+
+        let size = match scalar.as_bool_opt() {
+            Some(_) => array.len() / 8,
+            None => array.scalar().nbytes() * array.len(),
+        };
+        Ok(size)
     }
 }
 

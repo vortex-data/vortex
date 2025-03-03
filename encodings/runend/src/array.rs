@@ -1,17 +1,16 @@
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, IntoArray, SerdeMetadata, ToCanonical,
-    encoding_ids, try_from_array_ref,
+    try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -27,16 +26,21 @@ pub struct RunEndArray {
     values: ArrayRef,
     offset: usize,
     length: usize,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(RunEndArray);
 
 pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.runend", encoding_ids::RUN_END);
     type Array = RunEndArray;
     type Metadata = SerdeMetadata<RunEndMetadata>;
+}
+
+impl EncodingVTable for RunEndEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.runend")
+    }
 }
 
 impl RunEndArray {
@@ -225,8 +229,8 @@ impl ArrayCanonicalImpl for RunEndArray {
 }
 
 impl ArrayStatisticsImpl for RunEndArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

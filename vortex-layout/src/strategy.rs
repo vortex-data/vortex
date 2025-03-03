@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -16,13 +17,13 @@ use crate::writer::{LayoutWriter, LayoutWriterExt};
 
 /// A trait for creating new layout writers given a DType.
 pub trait LayoutStrategy: 'static + Send + Sync {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
 }
 
 /// Implement the [`LayoutStrategy`] trait for the [`FlatLayout`] for easy use.
 impl LayoutStrategy for FlatLayout {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), Default::default()).boxed())
     }
 }
 
@@ -30,11 +31,11 @@ impl LayoutStrategy for FlatLayout {
 pub struct StructStrategy;
 
 impl LayoutStrategy for StructStrategy {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         if let DType::Struct(..) = dtype {
-            StructLayoutWriter::try_new_with_factory(dtype, StructStrategy).map(|w| w.boxed())
+            StructLayoutWriter::try_new_with_factory(ctx, dtype, StructStrategy).map(|w| w.boxed())
         } else {
-            Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
+            Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), Default::default()).boxed())
         }
     }
 }
@@ -53,8 +54,9 @@ impl Default for ChunkedStrategy {
 }
 
 impl LayoutStrategy for ChunkedStrategy {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         Ok(ChunkedLayoutWriter::new(
+            ctx.clone(),
             dtype,
             ChunkedLayoutOptions {
                 chunk_strategy: self.chunk_strategy.clone(),

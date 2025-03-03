@@ -130,7 +130,7 @@ where
         .vortex_expect("Reference value cannot be null");
     let primitive_value: T = value.cast(array.dtype())?.as_ref().try_into()?;
     // Make sure that smaller values are still smaller and not larger than (which they would be after wrapping_sub)
-    if primitive_value < min {
+    if primitive_value.is_lt(min) {
         return Ok(SearchResult::NotFound(array.invalid_count()?));
     }
 

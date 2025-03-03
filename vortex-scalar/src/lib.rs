@@ -140,6 +140,32 @@ impl Scalar {
             value: self.value,
         }
     }
+
+    /// Size of the scalar in bytes, uncompressed.
+    pub fn nbytes(&self) -> usize {
+        match self.dtype() {
+            DType::Null => 0,
+            DType::Bool(_) => 1,
+            DType::Primitive(ptype, _) => ptype.byte_width(),
+            DType::Binary(_) | DType::Utf8(_) => self
+                .value()
+                .as_buffer()
+                .ok()
+                .flatten()
+                .map_or(0, |s| s.len()),
+            DType::Struct(_dtype, _) => self
+                .as_struct()
+                .fields()
+                .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
+                .unwrap_or_default(),
+            DType::List(_dtype, _) => self
+                .as_list()
+                .elements()
+                .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
+                .unwrap_or_default(),
+            DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
+        }
+    }
 }
 
 impl Scalar {

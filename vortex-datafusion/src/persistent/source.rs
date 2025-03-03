@@ -8,7 +8,6 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::{ObjectStore, ObjectStoreScheme};
-use vortex_array::ContextRef;
 use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
@@ -23,7 +22,6 @@ use super::opener::VortexFileOpener;
 /// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
-    pub(crate) ctx: ContextRef,
     pub(crate) footer_cache: FooterCache,
     pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
     pub(crate) projection: Option<Arc<dyn VortexExpr>>,
@@ -34,13 +32,8 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(
-        ctx: ContextRef,
-        footer_cache: FooterCache,
-        metrics: VortexExecMetrics,
-    ) -> Self {
+    pub(crate) fn new(footer_cache: FooterCache, metrics: VortexExecMetrics) -> Self {
         Self {
-            ctx,
             footer_cache,
             metrics,
             projection: None,
@@ -79,7 +72,6 @@ impl FileSource for VortexSource {
             .vortex_expect("batch_size must be supplied to VortexSource");
 
         let opener = VortexFileOpener::new(
-            self.ctx.clone(),
             scheme,
             object_store,
             self.projection.clone().unwrap_or_else(Identity::new_expr),

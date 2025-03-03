@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
@@ -17,10 +17,9 @@ use vortex_mask::Mask;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
     EncodingId, TryFromArrayRef, try_from_array_ref,
@@ -221,16 +220,21 @@ pub struct VarBinViewArray {
     buffers: Vec<ByteBuffer>,
     views: Buffer<BinaryView>,
     validity: Validity,
-    stats_set: Arc<RwLock<StatsSet>>,
+    stats_set: ArrayStats,
 }
 
 try_from_array_ref!(VarBinViewArray);
 
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
-    const ID: EncodingId = EncodingId::new("vortex.varbinview", encoding_ids::VAR_BIN_VIEW);
     type Array = VarBinViewArray;
     type Metadata = EmptyMetadata;
+}
+
+impl EncodingVTable for VarBinViewEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.varbinview")
+    }
 }
 
 impl VarBinViewArray {
@@ -449,8 +453,8 @@ impl ArrayImpl for VarBinViewArray {
 }
 
 impl ArrayStatisticsImpl for VarBinViewArray {
-    fn _stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
+    fn _stats_ref(&self) -> StatsSetRef<'_> {
+        self.stats_set.to_ref(self)
     }
 }
 

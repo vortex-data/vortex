@@ -15,10 +15,11 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ListEncoding;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at};
-use vortex_array::{Array, ArrayRef, ArrayVisitorExt, Encoding, EncodingId, IntoArray};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayRef, ArrayVisitorExt, EncodingId, IntoArray};
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
-use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 
@@ -57,7 +58,7 @@ pub struct FuzzArrayAction {
 
 #[derive(Debug)]
 pub enum Action {
-    Compress(SamplingCompressor<'static>),
+    Compress(BtrBlocksCompressor),
     Slice(Range<usize>),
     Take(ArrayRef),
     SearchSorted(Scalar, SearchSortedSide),
@@ -84,7 +85,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
                     (
-                        Action::Compress(u.arbitrary()?),
+                        Action::Compress(BtrBlocksCompressor),
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
@@ -110,9 +111,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .map(|i| *i as u64)
                         .collect::<Buffer<u64>>()
                         .into_array();
-                    let compressed = SamplingCompressor::default()
-                        .compress(&indices_array, None)
-                        .unwrap();
+                    let compressed = BtrBlocksCompressor.compress(&indices_array).unwrap();
                     (
                         Action::Take(compressed.into_array()),
                         ExpectedValue::Array(current_array.to_array()),
@@ -179,7 +178,7 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
 fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
-    if ListEncoding::ID == encoding_id {
+    if ListEncoding.id() == encoding_id {
         // compress, slice
         vec![0, 1].into_iter().collect()
     } else {

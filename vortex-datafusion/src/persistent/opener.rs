@@ -6,7 +6,7 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
-use vortex_array::{ContextRef, ToCanonical};
+use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
@@ -17,7 +17,6 @@ use super::cache::FooterCache;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
-    pub ctx: ContextRef,
     pub scheme: ObjectStoreScheme,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
@@ -31,7 +30,6 @@ pub(crate) struct VortexFileOpener {
 impl VortexFileOpener {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        ctx: ContextRef,
         scheme: ObjectStoreScheme,
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
@@ -42,7 +40,6 @@ impl VortexFileOpener {
         metrics: VortexMetrics,
     ) -> Self {
         Self {
-            ctx,
             scheme,
             object_store,
             projection,
@@ -71,7 +68,6 @@ impl FileOpener for VortexFileOpener {
 
         let filter = self.filter.clone();
         let projection = self.projection.clone();
-        let ctx = self.ctx.clone();
         let footer_cache = self.footer_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
@@ -80,7 +76,6 @@ impl FileOpener for VortexFileOpener {
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
-                .with_ctx(ctx)
                 .with_metrics(file_metrics)
                 .with_footer(
                     footer_cache

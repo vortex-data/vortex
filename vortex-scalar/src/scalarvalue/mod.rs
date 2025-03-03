@@ -208,6 +208,11 @@ impl InnerScalarValue {
         match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(b.as_ref().clone())),
+            InnerScalarValue::BufferString(b) => {
+                let buffer_string = b.as_ref();
+                let buffer_string = buffer_string.clone();
+                Ok(Some(buffer_string.into_inner()))
+            }
             _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }

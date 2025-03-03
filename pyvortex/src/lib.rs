@@ -9,12 +9,12 @@ mod arrays;
 mod compress;
 mod dataset;
 mod dtype;
-mod encoding;
 mod expr;
 mod io;
 mod object_store_urls;
 mod python_repr;
 mod record_batch_reader;
+mod registry;
 pub(crate) mod scalar;
 
 use log::LevelFilter;
@@ -45,10 +45,11 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     compress::init(py, m)?;
     dataset::init(py, m)?;
     dtype::init(py, m)?;
-    encoding::init(py, m)?;
     expr::init(py, m)?;
     io::init(py, m)?;
     scalar::init(py, m)?;
+
+    m.add_function(wrap_pyfunction!(registry::register, m)?)?;
 
     Ok(())
 }

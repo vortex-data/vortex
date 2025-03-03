@@ -9,8 +9,8 @@ use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     CastFn, CompareFn, FilterFn, IsConstantFn, IsConstantOpts, MinMaxFn, MinMaxResult, ScalarAtFn,
-    SliceFn, SumFn, TakeFn, ToArrowFn, filter, is_constant_opts, min_max, scalar_at, slice, sum,
-    take,
+    SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts, min_max,
+    scalar_at, slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -57,6 +57,10 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -122,5 +126,11 @@ impl IsConstantFn<&ExtensionArray> for ExtensionEncoding {
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         is_constant_opts(array.storage(), opts).map(Some)
+    }
+}
+
+impl UncompressedSizeFn<&ExtensionArray> for ExtensionEncoding {
+    fn uncompressed_size(&self, array: &ExtensionArray) -> VortexResult<usize> {
+        uncompressed_size(array.storage())
     }
 }

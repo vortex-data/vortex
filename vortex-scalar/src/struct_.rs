@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, Nullability, StructDType};
+use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
@@ -80,24 +80,16 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> VortexResult<Scalar> {
-        let DType::Struct(st, nullability) = self.dtype() else {
+        let fields = self
+            .fields
+            .vortex_expect("Can't take field out of null struct scalar");
+        let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
 
-        let mut field_dtype = st.field_by_index(idx)?;
-        if matches!(nullability, Nullability::Nullable) {
-            field_dtype = field_dtype.with_nullability(Nullability::Nullable);
-        }
-
-        Ok(match self.fields {
-            None => Scalar::null(field_dtype),
-            Some(fields) => {
-                let value = &fields[idx];
-                Scalar {
-                    dtype: field_dtype,
-                    value: value.clone(),
-                }
-            }
+        Ok(Scalar {
+            dtype: st.field_by_index(idx)?,
+            value: fields[idx].clone(),
         })
     }
 
@@ -217,42 +209,31 @@ mod tests {
     fn setup_types() -> (DType, DType, DType) {
         let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
         let f1_dt = DType::Utf8(Nullability::NonNullable);
-        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
-        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
             Arc::new(StructDType::new(
                 vec!["a".into(), "b".into()].into(),
-                vec![f0_dt, f1_dt],
+                vec![f0_dt.clone(), f1_dt.clone()],
             )),
             Nullability::Nullable,
         );
 
-        (f0_dt_null, f1_dt_null, dtype)
+        (f0_dt, f1_dt, dtype)
     }
 
     #[test]
+    #[should_panic]
     fn test_struct_scalar_null() {
-        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
+        let (_, _, dtype) = setup_types();
 
         let scalar = Scalar::null(dtype);
 
-        let scalar_f0 = scalar.as_struct().field_by_idx(0);
-        assert!(scalar_f0.is_ok());
-        let scalar_f0 = scalar_f0.unwrap();
-        assert_eq!(scalar_f0, Scalar::null(f0_dt_null.clone()));
-        assert_eq!(scalar_f0.dtype(), &f0_dt_null);
-
-        let scalar_f1 = scalar.as_struct().field_by_idx(1);
-        assert!(scalar_f1.is_ok());
-        let scalar_f1 = scalar_f1.unwrap();
-        assert_eq!(scalar_f1, Scalar::null(f1_dt_null.clone()));
-        assert_eq!(scalar_f1.dtype(), &f1_dt_null);
+        scalar.as_struct().field_by_idx(0).unwrap();
     }
 
     #[test]
     fn test_struct_scalar_non_null() {
-        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
+        let (f0_dt, f1_dt, dtype) = setup_types();
 
         let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
         let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
@@ -266,12 +247,12 @@ mod tests {
         assert!(scalar_f0.is_ok());
         let scalar_f0 = scalar_f0.unwrap();
         assert_eq!(scalar_f0, f0_val_null);
-        assert_eq!(scalar_f0.dtype(), &f0_dt_null);
+        assert_eq!(scalar_f0.dtype(), &f0_dt);
 
         let scalar_f1 = scalar.as_struct().field_by_idx(1);
         assert!(scalar_f1.is_ok());
         let scalar_f1 = scalar_f1.unwrap();
         assert_eq!(scalar_f1, f1_val_null);
-        assert_eq!(scalar_f1.dtype(), &f1_dt_null);
+        assert_eq!(scalar_f1.dtype(), &f1_dt);
     }
 }

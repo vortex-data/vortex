@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
-    scalar_at, slice,
+    UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -37,6 +37,10 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -91,6 +95,13 @@ impl IsConstantFn<&ListArray> for ListEncoding {
     ) -> VortexResult<Option<bool>> {
         // TODO(adam): Do we want to fallback to arrow here?
         Ok(None)
+    }
+}
+
+impl UncompressedSizeFn<&ListArray> for ListEncoding {
+    fn uncompressed_size(&self, array: &ListArray) -> VortexResult<usize> {
+        let size = uncompressed_size(array.elements())? + uncompressed_size(array.offsets())?;
+        Ok(size + array.validity().uncompressed_size())
     }
 }
 

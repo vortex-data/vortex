@@ -64,8 +64,6 @@ pub trait NativePType:
     + Copy
     + Debug
     + Display
-    + PartialEq
-    + PartialOrd
     + Default
     + RefUnwindSafe
     + Num
@@ -84,6 +82,30 @@ pub trait NativePType:
 
     /// Compare another instance of this type to `self`, providing a total ordering
     fn total_compare(self, other: Self) -> Ordering;
+
+    /// Test whether self is less than or equal to the other
+    #[inline]
+    fn is_le(self, other: Self) -> bool {
+        self.total_compare(other).is_le()
+    }
+
+    /// Test whether self is less than the other
+    #[inline]
+    fn is_lt(self, other: Self) -> bool {
+        self.total_compare(other).is_lt()
+    }
+
+    /// Test whether self is greater than or equal to the other
+    #[inline]
+    fn is_ge(self, other: Self) -> bool {
+        self.total_compare(other).is_ge()
+    }
+
+    /// Test whether self is greater than the other
+    #[inline]
+    fn is_gt(self, other: Self) -> bool {
+        self.total_compare(other).is_gt()
+    }
 
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;

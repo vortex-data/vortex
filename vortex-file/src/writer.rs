@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -21,7 +22,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy::default()),
+            strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
             file_statistics: Some(PRUNING_STATS.to_vec()),
         }
@@ -57,9 +58,12 @@ impl VortexWriteOptions {
         write: W,
         mut stream: S,
     ) -> VortexResult<W> {
+        // Set up a Context to capture the encodings used in the file.
+        let ctx = ArrayContext::empty();
+
         // Set up the root layout
         let mut layout_writer = FileStatsLayoutWriter::new(
-            self.strategy.new_writer(stream.dtype())?,
+            self.strategy.new_writer(&ctx, stream.dtype())?,
             stream.dtype(),
             self.file_statistics.clone().unwrap_or_default().into(),
         )?;
@@ -97,10 +101,12 @@ impl VortexWriteOptions {
         } else {
             Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
         };
+
         let footer_segment = self
             .write_flatbuffer(
                 &mut write,
-                &Footer::new(
+                &Footer::flatbuffer_writer(
+                    ctx,
                     layout,
                     segments.into(),
                     self.file_statistics

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -31,6 +31,7 @@ impl Default for StatsLayoutOptions {
 }
 
 pub struct StatsLayoutWriter {
+    ctx: ArrayContext,
     options: StatsLayoutOptions,
     child_writer: Box<dyn LayoutWriter>,
     stats_strategy: Arc<dyn LayoutStrategy>,
@@ -44,6 +45,7 @@ pub struct StatsLayoutWriter {
 
 impl StatsLayoutWriter {
     pub fn try_new(
+        ctx: ArrayContext,
         dtype: &DType,
         // TODO(ngates): we should arrive at a convention on this. I think we should maybe just
         //  impl LayoutStrategy for StatsLayoutStrategy, which holds options, and options contain
@@ -56,6 +58,7 @@ impl StatsLayoutWriter {
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
 
         Ok(Self {
+            ctx,
             options,
             child_writer,
             stats_strategy,
@@ -105,7 +108,9 @@ impl LayoutWriter for StatsLayoutWriter {
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
         let stats_array = stats_table.array();
-        let mut stats_writer = self.stats_strategy.new_writer(stats_array.dtype())?;
+        let mut stats_writer = self
+            .stats_strategy
+            .new_writer(&self.ctx, stats_array.dtype())?;
         let stats_layout = stats_writer.push_one(segments, stats_table.array().clone())?;
 
         let mut metadata = ByteBufferMut::empty();

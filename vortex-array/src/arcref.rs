@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
@@ -72,13 +73,24 @@ where
     }
 }
 
+impl<T> Eq for ArcRef<T> where T: ?Sized + 'static + Eq {}
+
 impl<S, T> PartialOrd<ArcRef<S>> for ArcRef<T>
 where
     S: ?Sized + 'static,
     T: ?Sized + 'static + PartialOrd<S>,
 {
-    fn partial_cmp(&self, other: &ArcRef<S>) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &ArcRef<S>) -> Option<Ordering> {
         self.deref().partial_cmp(other.deref())
+    }
+}
+
+impl<T> Ord for ArcRef<T>
+where
+    T: ?Sized + 'static + Ord,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.deref().cmp(other.deref())
     }
 }
 
