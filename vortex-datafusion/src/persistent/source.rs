@@ -2,10 +2,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::datasource::data_source::FileSource;
 use datafusion::datasource::listing::PartitionedFile;
-use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig};
-use datafusion_common::{Result as DFResult, Statistics, internal_datafusion_err};
+use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
+use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::{ObjectStore, ObjectStoreScheme};
@@ -63,23 +62,21 @@ impl VortexSource {
 impl FileSource for VortexSource {
     fn create_file_opener(
         &self,
-        object_store: DFResult<Arc<dyn ObjectStore>>,
+        object_store: Arc<dyn ObjectStore>,
         base_config: &FileScanConfig,
         partition: usize,
-    ) -> DFResult<Arc<dyn FileOpener>> {
-        let object_store = object_store?;
+    ) -> Arc<dyn FileOpener> {
         let (scheme, _) = ObjectStoreScheme::parse(base_config.object_store_url.as_ref())
-            .map_err(object_store::Error::from)?;
+            .ok()
+            .vortex_expect("Couldn't parse object store URL");
 
         let partition_metrics = self
             .metrics
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
 
-        let Some(batch_size) = self.batch_size else {
-            return Err(internal_datafusion_err!(
-                "batch_size must be supplied to VortexSource"
-            ));
-        };
+        let batch_size = self
+            .batch_size
+            .vortex_expect("batch_size must be supplied to VortexSource");
 
         let opener = VortexFileOpener::new(
             self.ctx.clone(),
@@ -93,9 +90,9 @@ impl FileSource for VortexSource {
                 .vortex_expect("We should have a schema here"),
             batch_size,
             partition_metrics,
-        )?;
+        );
 
-        Ok(Arc::new(opener))
+        Arc::new(opener)
     }
 
     fn as_any(&self) -> &dyn Any {

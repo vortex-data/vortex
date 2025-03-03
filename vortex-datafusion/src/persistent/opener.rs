@@ -7,7 +7,6 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::{ContextRef, ToCanonical};
-use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
@@ -41,8 +40,8 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             ctx,
             scheme,
             object_store,
@@ -52,7 +51,7 @@ impl VortexFileOpener {
             projected_arrow_schema,
             batch_size,
             metrics,
-        })
+        }
     }
 }
 
