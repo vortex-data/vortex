@@ -5500,6 +5500,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-bytebool",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",

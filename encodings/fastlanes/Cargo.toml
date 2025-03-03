@@ -31,11 +31,12 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-bytebool = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
 rand = { workspace = true }
-vortex-alp = { workspace = true }
+vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-fastlanes = { path = ".", features = ["test-harness"] }
 
