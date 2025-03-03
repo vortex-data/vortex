@@ -316,7 +316,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Run release-plz
         id: run-release-plz
         uses: MarcoIeni/release-plz-action@v0.5
