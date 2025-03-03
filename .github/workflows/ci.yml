@@ -314,6 +314,7 @@ jobs:
           # Needed to pull full commit history for release version number inference
           fetch-depth: 0
       - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - run: |
           cargo publish --workspace --dry-run \
