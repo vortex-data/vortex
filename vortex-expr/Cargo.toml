@@ -26,13 +26,11 @@ datafusion-expr = { workspace = true, optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
-prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-proto = { workspace = true, optional = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
@@ -43,12 +41,6 @@ datafusion = [
     "dep:datafusion-expr",
     "dep:datafusion-physical-expr",
     "vortex-scalar/datafusion",
-]
-proto = [
-    "dep:prost",
-    "vortex-dtype/proto",
-    "vortex-scalar/proto",
-    "vortex-proto/expr",
 ]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-scalar/serde"]
 test-harness = []

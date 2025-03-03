@@ -19,7 +19,6 @@ workspace = true
 [dependencies]
 getrandom_v02 = { workspace = true }
 rkyv = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
