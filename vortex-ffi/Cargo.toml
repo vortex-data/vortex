@@ -20,6 +20,7 @@ crate-type = ["cdylib"]
 [dependencies]
 futures = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
+paste = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio", "object_store"] }
 

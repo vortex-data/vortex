@@ -5,12 +5,11 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use object_store::local::LocalFileSystem;
+use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
-use vortex::stream::ArrayStream;
 
-use crate::dtype::FFIDType;
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string};
 
@@ -19,13 +18,9 @@ pub struct FFIFile {
     pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
 }
 
-// #[repr(C)]
-// pub struct FFIFileScanOptions {
-// }
-
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIFile_open(path: *const c_char) -> *mut FFIFile {
+pub unsafe extern "C" fn File_open(path: *const c_char) -> *mut FFIFile {
     // TODO(aduffy): switch the ObjectStore based on scheme. Need to find a reasonable way to do this.
     let object_store = Arc::new(LocalFileSystem::new());
     let read_at = ObjectStoreReadAt::new(object_store, to_string(path).into(), None);
@@ -38,16 +33,21 @@ pub unsafe extern "C" fn FFIFile_open(path: *const c_char) -> *mut FFIFile {
     Box::into_raw(Box::new(ffi_file))
 }
 
+/// Get a readonly pointer to the DType of the data inside of the file.
+///
+/// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
+/// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIFile_dtype(file: *const FFIFile) -> *const FFIDType {
-    let file = unsafe { &*file };
-    let dtype = Box::new(FFIDType::from(file.inner.dtype()));
-    Box::into_raw(dtype)
+pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
+    assert!(!file.is_null(), "File_dtype: file is null");
+
+    let file = &*file;
+    file.inner.dtype()
 }
 
 /// Build a new Scan that will stream batches of `FFIArray` from the file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIFile_scan(
+pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
     // options: Option<*const FFIFileScanOptions>,
 ) -> *mut FFIArrayStream {
@@ -59,13 +59,11 @@ pub unsafe extern "C" fn FFIFile_scan(
         .scan()
         .into_array_stream()
         .vortex_expect("into_array_stream");
-    let dtype = Box::new(FFIDType::from(stream.dtype()));
     let inner = Some(Box::new(FFIArrayStreamInner {
         stream: stream.boxed(),
     }));
 
     Box::into_raw(Box::new(FFIArrayStream {
-        dtype,
         inner,
         current: None,
     }))
@@ -76,6 +74,6 @@ pub unsafe extern "C" fn FFIFile_scan(
 /// This function will not automatically free any `FFIArrayStream`s that were built from this
 /// file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIFile_free(file: *mut FFIFile) {
+pub unsafe extern "C" fn File_free(file: *mut FFIFile) {
     drop(Box::from_raw(file));
 }

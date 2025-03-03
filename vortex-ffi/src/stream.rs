@@ -1,16 +1,14 @@
 use futures::StreamExt;
 use futures::stream::BoxStream;
+use vortex::ArrayRef;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::{Array, ArrayRef};
 
 use crate::RUNTIME;
-use crate::array::FFIArray;
-use crate::dtype::{FFIDType, FFIDType_free};
+use crate::array::{FFIArray, FFIArray_free};
 
 /// FFI-exposed stream interface.
 #[repr(C)]
 pub struct FFIArrayStream {
-    pub dtype: Box<FFIDType>,
     pub inner: Option<Box<FFIArrayStreamInner>>,
     pub current: Option<Box<FFIArray>>,
 }
@@ -39,8 +37,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> boo
 
     if let Some(element) = element {
         let inner = element.vortex_expect("element");
-        let dtype = Box::new(FFIDType::from(inner.dtype()));
-        let ffi_array = FFIArray { inner, dtype };
+        let ffi_array = FFIArray { inner };
         stream.current = Some(Box::new(ffi_array));
 
         true
@@ -69,7 +66,7 @@ pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) 
 /// This function is unsafe because it dereferences the `stream` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> *mut FFIArray {
-    let stream = &mut *stream;
+    let stream = non_null!(&mut *stream, returning: std::ptr::null_mut());
 
     let current = stream
         .current
@@ -81,10 +78,14 @@ pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> 
 
 /// Free the array stream and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_free(stream: *mut FFIArrayStream) {
-    let mut stream = *Box::from_raw(stream);
-    drop(stream.current.take());
+pub unsafe extern "C" fn FFIArrayStream_free(stream: *mut FFIArrayStream) -> i32 {
+    let mut stream = non_null!(Box::from_raw(stream), returning: -1);
+
+    if let Some(current) = stream.current.take() {
+        FFIArray_free(Box::into_raw(current));
+    }
+
     drop(stream.inner.take());
 
-    FFIDType_free(Box::into_raw(stream.dtype));
+    0
 }

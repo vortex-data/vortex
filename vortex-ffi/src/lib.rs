@@ -2,6 +2,9 @@
 
 //! Native interface exposed to Java for reading and querying Vortex files.
 
+#[macro_use]
+mod macros;
+
 pub mod array;
 pub mod dtype;
 pub mod file;

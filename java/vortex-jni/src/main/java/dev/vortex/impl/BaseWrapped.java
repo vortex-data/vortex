@@ -13,15 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.api;
+package dev.vortex.impl;
 
 import java.io.Closeable;
 
-public interface File extends Closeable {
-    DType getDType();
+/**
+ * Base class for all objects that are wrappers around some native {@code T} exposed by FFI.
+ * <p>
+ * Each wrapped type has a close implementation that will free the native resource.
+ */
+public abstract class BaseWrapped<T> implements Closeable {
+    protected T inner;
 
-    Scan newScan(ScanOptions options);
+    protected BaseWrapped(T inner) {
+        this.inner = inner;
+    }
 
     @Override
-    void close();
+    public abstract void close();
 }

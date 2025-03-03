@@ -15,13 +15,18 @@
  */
 package dev.vortex.api;
 
-import java.io.Closeable;
+import org.immutables.value.Value;
 
-public interface File extends Closeable {
-    DType getDType();
+/**
+ * Create a new set of options for configuring the scan.
+ */
+@Value.Immutable
+public interface ScanOptions {
+    static ScanOptions of() {
+        return ImmutableScanOptions.builder().build();
+    }
 
-    Scan newScan(ScanOptions options);
-
-    @Override
-    void close();
+    static ImmutableScanOptions.Builder builder() {
+        return ImmutableScanOptions.builder();
+    }
 }

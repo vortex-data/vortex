@@ -1,87 +1,83 @@
+/**
+ * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
+ * <p>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package dev.vortex.api;
 
-import dev.vortex.jni.FFI;
+import com.google.common.collect.ImmutableList;
+
+import java.io.Closeable;
 
 /**
  * Vortex logical type.
  */
-public final class DType extends BaseWrapped<FFI.FFIDType> {
-    private final Variant variant;
+public interface DType extends Closeable {
 
-    public DType(FFI.FFIDType inner) {
-        super(inner);
-        this.variant = Variant.from(FFI.FFIDType_get(inner));
-    }
+    Variant getVariant();
 
-    public Variant getVariant() {
-        return variant;
-    }
+    boolean isNullable();
 
-    public boolean isNullable() {
-        return inner.getPointer().getByte(1) == 1;
-    }
+    ImmutableList<String> getFieldNames();
+
+    ImmutableList<DType> getFieldTypes();
 
     @Override
-    public String toString() {
-        return "DType{" + this.variant.toString() + ", nullable=" + isNullable() + "}";
-    }
+    void close();
 
-    @Override
-    public void close() {
-        FFI.FFIDType_free(inner);
-    }
-
-    public enum Variant {
-        NULL(0), BOOL(1), PRIMITIVE_U8(2), PRIMITIVE_U16(3), PRIMITIVE_U32(4), PRIMITIVE_U64(5), PRIMITIVE_I8(6), PRIMITIVE_I16(7), PRIMITIVE_I32(8), PRIMITIVE_I64(9), PRIMITIVE_F16(10), PRIMITIVE_F32(11), PRIMITIVE_F64(12), UTF8(13), BINARY(14), STRUCT(15), LIST(16), EXTENSION(17);;
-
-        private int variant;
-
-        Variant(int variant) {
-            this.variant = variant;
-        }
+    enum Variant {
+        NULL,
+        BOOL,
+        PRIMITIVE_U8,
+        PRIMITIVE_U16,
+        PRIMITIVE_U32,
+        PRIMITIVE_U64,
+        PRIMITIVE_I8,
+        PRIMITIVE_I16,
+        PRIMITIVE_I32,
+        PRIMITIVE_I64,
+        PRIMITIVE_F16,
+        PRIMITIVE_F32,
+        PRIMITIVE_F64,
+        UTF8,
+        BINARY,
+        STRUCT,
+        LIST,
+        EXTENSION,
+        ;
 
         public static Variant from(byte variant) {
-            switch (variant) {
-                case 0:
-                    return NULL;
-                case 1:
-                    return BOOL;
-                case 2:
-                    return PRIMITIVE_U8;
-                case 3:
-                    return PRIMITIVE_U16;
-                case 4:
-                    return PRIMITIVE_U32;
-                case 5:
-                    return PRIMITIVE_U64;
-                case 6:
-                    return PRIMITIVE_I8;
-                case 7:
-                    return PRIMITIVE_I16;
-                case 8:
-                    return PRIMITIVE_I32;
-                case 9:
-                    return PRIMITIVE_I64;
-                case 10:
-                    return PRIMITIVE_F16;
-                case 11:
-                    return PRIMITIVE_F32;
-                case 12:
-                    return PRIMITIVE_F64;
-                case 13:
-                    return UTF8;
-                case 14:
-                    return BINARY;
-                case 15:
-                    return STRUCT;
-                case 16:
-                    return LIST;
-                case 17:
-                    return EXTENSION;
-                default:
-                    throw new IllegalArgumentException("Unknown DType variant: " + variant);
-            }
+            return switch (variant) {
+                case 0 -> NULL;
+                case 1 -> BOOL;
+                case 2 -> PRIMITIVE_U8;
+                case 3 -> PRIMITIVE_U16;
+                case 4 -> PRIMITIVE_U32;
+                case 5 -> PRIMITIVE_U64;
+                case 6 -> PRIMITIVE_I8;
+                case 7 -> PRIMITIVE_I16;
+                case 8 -> PRIMITIVE_I32;
+                case 9 -> PRIMITIVE_I64;
+                case 10 -> PRIMITIVE_F16;
+                case 11 -> PRIMITIVE_F32;
+                case 12 -> PRIMITIVE_F64;
+                case 13 -> UTF8;
+                case 14 -> BINARY;
+                case 15 -> STRUCT;
+                case 16 -> LIST;
+                case 17 -> EXTENSION;
+                default -> throw new IllegalArgumentException("Unknown DType variant: " + variant);
+            };
         }
     }
-
 }

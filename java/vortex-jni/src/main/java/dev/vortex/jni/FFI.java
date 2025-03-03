@@ -15,9 +15,10 @@
  */
 package dev.vortex.jni;
 
-import com.sun.jna.*;
-
-import java.awt.*;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.PointerType;
+import com.sun.jna.ptr.IntByReference;
 
 /**
  * Bindings from the {@code vortex-ffi} C ABI to Java using JNA.
@@ -34,25 +35,54 @@ public final class FFI {
 
     public static native void FFIArray_free(FFIArray array);
 
+    public static native byte FFIArray_get_u8(FFIArray array, int index);
+
+    public static native short FFIArray_get_u16(FFIArray array, int index);
+
+    public static native int FFIArray_get_u32(FFIArray array, int index);
+
+    public static native long FFIArray_get_u64(FFIArray array, int index);
+
+    public static native byte FFIArray_get_i8(FFIArray array, int index);
+
+    public static native short FFIArray_get_i16(FFIArray array, int index);
+
+    public static native int FFIArray_get_i32(FFIArray array, int index);
+
+    public static native long FFIArray_get_i64(FFIArray array, int index);
+
+    // TODO(aduffy): better f16?
+    public static native short FFIArray_get_f16(FFIArray array, int index);
+
+    public static native float FFIArray_get_f32(FFIArray array, int index);
+
+    public static native double FFIArray_get_f64(FFIArray array, int index);
+
     // DType interactions.
-    public static native byte FFIDType_get(FFIDType dtype);
+    public static native byte DType_get(FFIDType dtype);
 
-    public static native FFIDType FFIDType_new(byte variant, boolean nullable);
+    public static native boolean DType_nullable(FFIDType dtype);
 
-    public static native FFIDType FFIDType_new_list(FFIDType elementType, boolean nullable);
+    public static native FFIDType DType_new(byte variant, boolean nullable);
 
-    public static native FFIDType FFIDType_new_struct(Pointer names, Pointer types, int len, boolean nullable);
+    public static native FFIDType DType_new_list(FFIDType elementType, boolean nullable);
 
-    public static native void FFIDType_free(FFIDType dtype);
+    public static native FFIDType DType_new_struct(Pointer names, Pointer types, int len, boolean nullable);
+
+    public static native int DType_field_count(FFIDType dtype);
+
+    public static native void DType_field_name(FFIDType dtype, int index, Pointer name, IntByReference len);
+
+    public static native void DType_free(FFIDType dtype);
 
     // File interactions
-    public static native FFIFile FFIFile_open(String path);
+    public static native FFIFile File_open(String path);
 
-    public static native FFIDType FFIFile_dtype(FFIFile file);
+    public static native FFIDType File_dtype(FFIFile file);
 
-    public static native void FFIFile_free(FFIFile file);
+    public static native void File_free(FFIFile file);
 
-    public static native FFIArrayStream FFIFile_scan(FFIFile file);
+    public static native FFIArrayStream File_scan(FFIFile file);
 
     // ArrayStream interaction
     public static native boolean FFIArrayStream_next(FFIArrayStream stream);
@@ -74,37 +104,9 @@ public final class FFI {
     }
 
     /**
-     * Representation of the {@code FFIDType} structure from the Vortex FFI.
+     * Representation of the {@code DType} structure from the Vortex FFI.
      */
-    @Structure.FieldOrder({"dtype", "nullable", "typeInfo"})
-    public static final class FFIDType extends Structure {
-        public byte dtype;
-        public boolean nullable;
-        public Pointer typeInfo;
-    }
-
-
-    /**
-     * union { StructDType, ListDType, ExtensionDType }
-     */
-    public static final class TypeInfo extends Union {
-        public StructDType.ByReference struct_dtype;
-        public ListDType.ByReference list_dtype;
-        public ExtensionDType.ByReference extension_dtype;
-    }
-
-    public static final class StructDType extends Structure {
-        public String[] names;
-        public FFIDType.ByReference[] dtypes;
-    }
-
-    public static final class ListDType extends Structure {
-        public FFIDType.ByReference elementType;
-    }
-
-    public static final class ExtensionDType extends Structure {
-        // Pointer to a vector of bytes must be implied here...I think
-        public byte[] id;
+    public static final class FFIDType extends PointerType {
     }
 
     /**

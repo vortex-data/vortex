@@ -17,11 +17,15 @@ package dev.vortex.api;
 
 import java.io.Closeable;
 
-public interface File extends Closeable {
-    DType getDType();
+public interface Scan extends Closeable {
+    Array getCurrent();
 
-    Scan newScan(ScanOptions options);
-
-    @Override
-    void close();
+    /**
+     * Fetch the next element of the stream.
+     * <p>
+     * The value will be available via {@link #getCurrent()}. If the stream is finished, this will return false.
+     * <p>
+     * It is an error to call this method if a previous invocation returned false.
+     */
+    boolean next();
 }

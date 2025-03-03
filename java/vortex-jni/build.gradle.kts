@@ -4,6 +4,10 @@ plugins {
 
 dependencies {
     api("net.java.dev.jna:jna-platform")
+
+    compileOnly("org.immutables:value")
+    annotationProcessor("org.immutables:value")
+
     errorprone("com.google.errorprone:error_prone_core")
     errorprone("com.jakewharton.nopen:nopen-checker")
 

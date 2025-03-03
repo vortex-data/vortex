@@ -5,6 +5,7 @@ com.google.guava:listenablefuture = 9999.0-empty-to-avoid-conflict-with-guava
 com.jakewharton.nopen:* = 1.0.1
 net.java.dev.jna:* = 5.16.0
 org.apache.spark:* = 3.5.4
+org.immutables:value = 2.10.1
 
 # Test dependencies
 org.junit.jupiter:* = 5.11.4

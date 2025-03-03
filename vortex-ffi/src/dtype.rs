@@ -1,148 +1,105 @@
-use std::ffi::{CStr, CString, c_char};
-use std::mem::ManuallyDrop;
-use std::str::FromStr;
+use std::ffi::{CStr, CString, c_char, c_int};
+use std::sync::Arc;
 
-use vortex::dtype::{DType, ExtDType, PType, StructDType};
-use vortex::error::VortexExpect;
+use vortex::dtype::{DType, FieldNames, PType, StructDType};
+use vortex::error::{VortexExpect, VortexUnwrap};
 
-/// A version of [`DType`] that can be sent/received over the FFI interface.
-#[repr(C)]
-pub struct FFIDType {
-    pub dtype: u8,
-    pub nullable: bool,
-    pub type_info: Option<FFIDTypeInfo>,
-}
-
-#[repr(C)]
-pub union FFIDTypeInfo {
-    pub struct_dtype: ManuallyDrop<Box<FFIStructDType>>,
-    pub list_dtype: ManuallyDrop<Box<FFIDType>>,
-    pub extension_dtype: ManuallyDrop<Box<FFIExtensionDType>>,
-}
-
-/// Native FFI interface for Rust [`StructDType`].
-#[repr(C)]
-pub struct FFIStructDType {
-    pub names: Vec<CString>,
-    pub types: Vec<Box<FFIDType>>,
-}
-
-/// FFI interface for the element type of a `List` DType.
-#[repr(C)]
-pub struct FFIListDType {
-    pub element: Box<FFIDType>,
-}
-
-/// FFI interface for [`ExtDType`].
-#[repr(C)]
-pub struct FFIExtensionDType {
-    pub id: Vec<u8>,
-    pub storage_dtype: Box<FFIDType>,
-    pub metadata: Option<Vec<u8>>,
-}
+/// Pointer to a `DType` value that has been heap-allocated.
+pub type DTypePtr = *mut DType;
 
 /// Create a new simple dtype.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_new(variant: u8, nullable: bool) -> *mut FFIDType {
+pub unsafe extern "C" fn DType_new(variant: u8, nullable: bool) -> DTypePtr {
     assert!(
         variant < DTYPE_STRUCT,
         "FFIDType_new: invalid variant: {variant}"
     );
 
-    let ffi_dtype = Box::new(FFIDType {
-        dtype: variant,
-        nullable,
-        type_info: None,
-    });
+    let dtype = match variant {
+        DTYPE_NULL => DType::Null,
+        DTYPE_BOOL => DType::Bool(nullable.into()),
+        DTYPE_PRIMITIVE_U8 => DType::Primitive(PType::U8, nullable.into()),
+        DTYPE_PRIMITIVE_U16 => DType::Primitive(PType::U16, nullable.into()),
+        DTYPE_PRIMITIVE_U32 => DType::Primitive(PType::U32, nullable.into()),
+        DTYPE_PRIMITIVE_U64 => DType::Primitive(PType::U64, nullable.into()),
+        DTYPE_PRIMITIVE_I8 => DType::Primitive(PType::I8, nullable.into()),
+        DTYPE_PRIMITIVE_I16 => DType::Primitive(PType::I16, nullable.into()),
+        DTYPE_PRIMITIVE_I32 => DType::Primitive(PType::I32, nullable.into()),
+        DTYPE_PRIMITIVE_I64 => DType::Primitive(PType::I64, nullable.into()),
+        DTYPE_PRIMITIVE_F16 => DType::Primitive(PType::F16, nullable.into()),
+        DTYPE_PRIMITIVE_F32 => DType::Primitive(PType::F32, nullable.into()),
+        DTYPE_PRIMITIVE_F64 => DType::Primitive(PType::F64, nullable.into()),
+        DTYPE_UTF8 => DType::Utf8(nullable.into()),
+        DTYPE_BINARY => DType::Binary(nullable.into()),
+        DTYPE_STRUCT => unimplemented!("DTYPE_STRUCT is not supported in FFIDType_new"),
+        DTYPE_LIST => unimplemented!("DTYPE_LIST is not supported in FFIDType_new"),
+        DTYPE_EXTENSION => unimplemented!("DTYPE_EXTENSION is not supported in FFIDType_new"),
+        _ => panic!("DType_new: invalid DType variant: {variant}"),
+    };
 
-    Box::into_raw(ffi_dtype)
+    Box::into_raw(Box::new(dtype))
+}
+
+/// Create a new List type with the provided element type.
+///
+/// Upon successful return, this function moves the value out of the provided element pointer,
+/// so it is not safe to reference afterward.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DType_new_list(element: DTypePtr, nullable: bool) -> DTypePtr {
+    assert!(!element.is_null(), "DType_new_list: null ptr");
+
+    let element_type = *Box::from_raw(element);
+    let element_dtype = Arc::new(element_type);
+    let list_dtype = DType::List(element_dtype, nullable.into());
+
+    Box::into_raw(Box::new(list_dtype))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_new_list(
-    element: *mut FFIDType,
-    nullable: bool,
-) -> *mut FFIDType {
-    let element = Box::from_raw(element);
-
-    Box::into_raw(Box::new(FFIDType {
-        dtype: DTYPE_LIST,
-        nullable,
-        type_info: Some(FFIDTypeInfo {
-            list_dtype: ManuallyDrop::new(element),
-        }),
-    }))
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_new_struct(
+pub unsafe extern "C" fn DType_new_struct(
     names: *const *const c_char,
-    types: *const *mut FFIDType,
-    len: usize,
+    dtypes: *const DTypePtr,
+    len: u32,
     nullable: bool,
-) -> *mut FFIDType {
-    let names = (0..len)
-        .map(|i| CStr::from_ptr(*names.add(i)).into())
-        .collect();
+) -> DTypePtr {
+    assert!(!names.is_null(), "DType_new_struct: names is null");
+    assert!(!dtypes.is_null(), "DType_new_struct: dtypes is null");
 
-    let types = (0..len).map(|i| Box::from_raw(*types.add(i))).collect();
+    // Check that all of the field names/dtypes are non-null
+    for i in 0..len {
+        let name_ptr = *names.add(i as usize);
+        assert!(!name_ptr.is_null(), "DType_new_struct: null name ptr");
 
-    Box::into_raw(Box::new(FFIDType {
-        dtype: DTYPE_STRUCT,
-        nullable,
-        type_info: Some(FFIDTypeInfo {
-            struct_dtype: ManuallyDrop::new(Box::new(FFIStructDType { names, types })),
-        }),
-    }))
+        let dtype_ptr = *dtypes.add(i as usize);
+        assert!(!dtype_ptr.is_null(), "DType_new_struct: null dtype ptr");
+    }
+
+    let mut rust_names = Vec::with_capacity(len as usize);
+    let mut field_dtypes = Vec::with_capacity(len as usize);
+
+    for i in 0..len {
+        let name_ptr = *names.add(i as usize);
+        let name: Arc<str> = CStr::from_ptr(name_ptr).to_str().unwrap().into();
+        let dtype = (**dtypes.add(i as usize)).clone();
+
+        rust_names.push(name);
+        field_dtypes.push(dtype);
+    }
+
+    let field_names = FieldNames::from(rust_names);
+    let struct_dtype = Arc::new(StructDType::new(field_names, field_dtypes));
+
+    Box::into_raw(Box::new(DType::Struct(struct_dtype, nullable.into())))
 }
 
 // TODO(aduffy): create constructors for StructDType and ExtDType.
 
 /// Free an [`FFIDType`] and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_free(ffi_dtype: *mut FFIDType) {
-    let mut ffi_dtype = Box::from_raw(ffi_dtype);
+pub unsafe extern "C" fn DType_free(dtype: DTypePtr) {
+    assert!(!dtype.is_null(), "DType_free: null ptr");
 
-    // Handle freeing resources for all of the nested DType variants.
-    match ffi_dtype.dtype {
-        DTYPE_LIST => {
-            let type_info = ffi_dtype
-                .type_info
-                .take()
-                .vortex_expect("list type_info")
-                .list_dtype;
-
-            FFIDType_free(Box::into_raw(ManuallyDrop::into_inner(type_info)));
-        }
-        DTYPE_STRUCT => {
-            let type_info = ffi_dtype
-                .type_info
-                .take()
-                .vortex_expect("list type_info")
-                .struct_dtype;
-
-            let struct_type_info = *ManuallyDrop::into_inner(type_info);
-            // Iterate over all of the DTypes internally.
-            for dtype in struct_type_info.types {
-                FFIDType_free(Box::into_raw(dtype));
-            }
-        }
-        DTYPE_EXTENSION => {
-            let type_info = ffi_dtype
-                .type_info
-                .take()
-                .vortex_expect("list type_info")
-                .extension_dtype;
-
-            let ext_type_info = *ManuallyDrop::into_inner(type_info);
-            FFIDType_free(Box::into_raw(ext_type_info.storage_dtype));
-        }
-        _ => {
-            // non-nested DType, no special cleanup
-        }
-    }
-
-    drop(ffi_dtype);
+    drop(Box::from_raw(dtype));
 }
 
 /// Get the dtype variant tag for an [`FFIDType`].
@@ -158,79 +115,108 @@ pub unsafe extern "C" fn FFIDType_free(ffi_dtype: *mut FFIDType) {
 /// assert_eq!(FFIDType_get(&ffi_dtype), DTYPE_BOOL);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_get(ffi_dtype: *const FFIDType) -> u8 {
-    let ffi_dtype = &*ffi_dtype;
-    ffi_dtype.dtype
+pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
+    assert!(!dtype.is_null(), "DType_get: null ptr");
+
+    let dtype = &*dtype;
+
+    match dtype {
+        DType::Null => DTYPE_NULL,
+        DType::Bool(_) => DTYPE_BOOL,
+        DType::Primitive(ptype, _) => match ptype {
+            PType::U8 => DTYPE_PRIMITIVE_U8,
+            PType::U16 => DTYPE_PRIMITIVE_U16,
+            PType::U32 => DTYPE_PRIMITIVE_U32,
+            PType::U64 => DTYPE_PRIMITIVE_U64,
+            PType::I8 => DTYPE_PRIMITIVE_I8,
+            PType::I16 => DTYPE_PRIMITIVE_I16,
+            PType::I32 => DTYPE_PRIMITIVE_I32,
+            PType::I64 => DTYPE_PRIMITIVE_I64,
+            PType::F16 => DTYPE_PRIMITIVE_F16,
+            PType::F32 => DTYPE_PRIMITIVE_F32,
+            PType::F64 => DTYPE_PRIMITIVE_F64,
+        },
+        DType::Utf8(_) => DTYPE_UTF8,
+        DType::Binary(_) => DTYPE_BINARY,
+        DType::Struct(..) => DTYPE_STRUCT,
+        DType::List(..) => DTYPE_LIST,
+        DType::Extension(_) => DTYPE_EXTENSION,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DType_nullable(dtype: *const DType) -> bool {
+    assert!(!dtype.is_null(), "DType_nullable: null ptr");
+    let dtype = &*dtype;
+
+    dtype.is_nullable()
 }
 
 /// For `DTYPE_STRUCT` variant DTypes, get the number of fields.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_field_count(ffi_dtype: *const FFIDType) -> u32 {
-    let ffi_dtype = &*ffi_dtype;
+pub unsafe extern "C" fn DType_field_count(dtype: *const DType) -> u32 {
+    assert!(!dtype.is_null(), "DType_field_count: null ptr");
 
-    assert_eq!(
-        ffi_dtype.dtype, DTYPE_STRUCT,
-        "FFIDType_field_count: not a struct dtype"
-    );
-
-    let struct_dtype = ffi_dtype
-        .type_info
-        .as_ref()
-        .vortex_expect("struct type_info")
-        .struct_dtype
-        .as_ref();
+    let DType::Struct(struct_dtype, _) = &*dtype else {
+        panic!("FFIDType_field_count: not a struct dtype")
+    };
 
     struct_dtype
-        .names
-        .len()
+        .nfields()
         .try_into()
-        .vortex_expect("names length must fit in u32")
+        .vortex_expect("field count must fit in u32")
 }
 
-/// Get the name of a field in a `DTYPE_STRUCT` variant DType.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_field_name(
-    ffi_dtype: *const FFIDType,
+pub unsafe extern "C" fn DType_field_name(
+    dtype: *const DType,
     index: u32,
-) -> *const c_char {
-    let ffi_dtype = &*ffi_dtype;
+    dst: *mut c_char,
+    len: *mut c_int,
+) {
+    assert!(!dtype.is_null(), "DType_field_name: null dtype ptr");
 
-    assert_eq!(
-        ffi_dtype.dtype, DTYPE_STRUCT,
-        "FFIDType_field_name: not a struct dtype"
-    );
+    let DType::Struct(struct_dtype, _) = &*dtype else {
+        panic!("FFIDType_field_name: not a struct dtype")
+    };
 
-    let struct_dtype = ffi_dtype
-        .type_info
-        .as_ref()
-        .vortex_expect("struct type_info")
-        .struct_dtype
-        .as_ref();
+    let field_name = struct_dtype.names()[index as usize].as_ref();
 
-    struct_dtype.names[index as usize].as_ptr()
+    let cstr = CString::new(field_name).expect("CString");
+
+    // write the cstr + NUL byte to dst
+    std::ptr::copy(cstr.as_ptr(), dst, cstr.as_bytes().len());
+
+    *len = cstr.as_bytes().len().try_into().vortex_unwrap();
 }
 
 /// Get the dtype of a field in a `DTYPE_STRUCT` variant DType.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDType_field_dtype(
-    ffi_dtype: *const FFIDType,
-    index: u32,
-) -> *const FFIDType {
-    let ffi_dtype = &*ffi_dtype;
+pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> DTypePtr {
+    let DType::Struct(struct_dtype, _) = &*dtype else {
+        panic!("FFIDType_field_dtype: not a struct dtype")
+    };
 
-    assert_eq!(
-        ffi_dtype.dtype, DTYPE_STRUCT,
-        "FFIDType_field_dtype: not a struct dtype"
-    );
+    let field = struct_dtype
+        .field_by_index(index as usize)
+        .vortex_expect("field index out of bounds");
 
-    let struct_dtype = ffi_dtype
-        .type_info
-        .as_ref()
-        .vortex_expect("struct type_info")
-        .struct_dtype
-        .as_ref();
+    Box::into_raw(Box::new(field))
+}
 
-    struct_dtype.types[index as usize].as_ref()
+/// For a list DType, get the inner element type.
+///
+/// The pointee's lifetime is tied to the lifetime of the list DType. It should not be
+/// accessed after the list DType has been freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType {
+    assert!(!dtype.is_null(), "DType_element_type: null ptr");
+
+    let DType::List(element_dtype, _) = &*dtype else {
+        panic!("FFIDType_element_type: not a list dtype")
+    };
+
+    element_dtype.as_ref()
 }
 
 pub const DTYPE_NULL: u8 = 0;
@@ -252,163 +238,77 @@ pub const DTYPE_STRUCT: u8 = 15;
 pub const DTYPE_LIST: u8 = 16;
 pub const DTYPE_EXTENSION: u8 = 17;
 
-impl From<&DType> for FFIDType {
-    fn from(value: &DType) -> Self {
-        match value {
-            DType::Null => FFIDType {
-                dtype: DTYPE_NULL,
-                nullable: true,
-                type_info: None,
-            },
-            DType::Bool(nullability) => FFIDType {
-                dtype: DTYPE_BOOL,
-                nullable: (*nullability).into(),
-                type_info: None,
-            },
-            DType::Primitive(ptype, nullability) => FFIDType {
-                dtype: match &ptype {
-                    PType::U8 => DTYPE_PRIMITIVE_U8,
-                    PType::U16 => DTYPE_PRIMITIVE_U16,
-                    PType::U32 => DTYPE_PRIMITIVE_U32,
-                    PType::U64 => DTYPE_PRIMITIVE_U64,
-                    PType::I8 => DTYPE_PRIMITIVE_I8,
-                    PType::I16 => DTYPE_PRIMITIVE_I16,
-                    PType::I32 => DTYPE_PRIMITIVE_I32,
-                    PType::I64 => DTYPE_PRIMITIVE_I64,
-                    PType::F16 => DTYPE_PRIMITIVE_F16,
-                    PType::F32 => DTYPE_PRIMITIVE_F32,
-                    PType::F64 => DTYPE_PRIMITIVE_F64,
-                },
-                nullable: (*nullability).into(),
-                type_info: None,
-            },
-            DType::Utf8(nullability) => FFIDType {
-                dtype: DTYPE_UTF8,
-                nullable: (*nullability).into(),
-                type_info: None,
-            },
-            DType::Binary(nullability) => FFIDType {
-                dtype: DTYPE_BINARY,
-                nullable: (*nullability).into(),
-                type_info: None,
-            },
-            DType::Struct(struct_dtype, nullability) => FFIDType {
-                dtype: DTYPE_STRUCT,
-                nullable: (*nullability).into(),
-                type_info: Some(FFIDTypeInfo {
-                    struct_dtype: ManuallyDrop::new(Box::new(FFIStructDType::from(
-                        struct_dtype.as_ref(),
-                    ))),
-                }),
-            },
-            DType::List(element_type, nullability) => FFIDType {
-                dtype: DTYPE_LIST,
-                nullable: (*nullability).into(),
-                type_info: Some(FFIDTypeInfo {
-                    list_dtype: ManuallyDrop::new(Box::new(FFIDType::from(element_type.as_ref()))),
-                }),
-            },
-            DType::Extension(ext_dtype) => FFIDType {
-                dtype: DTYPE_EXTENSION,
-                nullable: ext_dtype.storage_dtype().nullability().into(),
-                type_info: Some(FFIDTypeInfo {
-                    extension_dtype: ManuallyDrop::new(Box::new(FFIExtensionDType::from(
-                        ext_dtype.as_ref(),
-                    ))),
-                }),
-            },
-        }
-    }
-}
-
-impl From<&StructDType> for FFIStructDType {
-    #[allow(clippy::expect_used)]
-    fn from(struct_dtype: &StructDType) -> Self {
-        let names: Vec<CString> = struct_dtype
-            .names()
-            .iter()
-            .map(|x| CString::from_str(x).expect("CString"))
-            .collect();
-        let types: Vec<Box<FFIDType>> = struct_dtype
-            .fields()
-            .map(|x| Box::new(FFIDType::from(&x)))
-            .collect();
-
-        FFIStructDType { names, types }
-    }
-}
-
-impl From<&ExtDType> for FFIExtensionDType {
-    fn from(ext_dtype: &ExtDType) -> Self {
-        let id = ext_dtype.id().as_ref().as_bytes().to_vec();
-        let metadata = ext_dtype.metadata().map(|x| x.as_ref().to_vec());
-
-        FFIExtensionDType {
-            id,
-            metadata,
-            storage_dtype: Box::new(FFIDType::from(ext_dtype.storage_dtype())),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::ffi::CStr;
+    use std::ffi::{c_char, c_int};
+
+    use vortex::dtype::DType;
 
     use crate::dtype::{
-        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, FFIDType_field_count,
-        FFIDType_field_dtype, FFIDType_field_name, FFIDType_free, FFIDType_get, FFIDType_new,
-        FFIDType_new_struct,
+        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, DType_field_count,
+        DType_field_dtype, DType_field_name, DType_free, DType_get, DType_new, DType_new_struct,
     };
 
     #[test]
     fn test_simple() {
         unsafe {
-            let ffi_dtype = FFIDType_new(DTYPE_BOOL, true);
+            let ffi_dtype = DType_new(DTYPE_BOOL, true);
 
             // functions check
-            assert_eq!(FFIDType_get(ffi_dtype), DTYPE_BOOL);
+            assert_eq!(DType_get(ffi_dtype), DTYPE_BOOL);
 
             // Field access checks.
             let dtype = &*ffi_dtype;
-
-            assert_eq!(dtype.dtype, DTYPE_BOOL);
-            assert!(dtype.nullable);
-            assert!(dtype.type_info.is_none());
+            assert_eq!(dtype, &DType::Bool(true.into()));
 
             // Free the memory.
-            FFIDType_free(ffi_dtype);
+            DType_free(ffi_dtype);
         }
     }
 
     #[test]
     fn test_struct() {
         unsafe {
-            let name = FFIDType_new(DTYPE_UTF8, false);
-            let age = FFIDType_new(DTYPE_PRIMITIVE_U8, true);
+            let name = DType_new(DTYPE_UTF8, false);
+            let age = DType_new(DTYPE_PRIMITIVE_U8, true);
 
             let names = [c"name".as_ptr(), c"age".as_ptr()];
 
             let dtypes = [name, age];
 
-            let person = FFIDType_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
+            let person = DType_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
 
-            assert_eq!(FFIDType_get(&*person), DTYPE_STRUCT);
-            assert_eq!(FFIDType_field_count(&*person), 2);
+            assert_eq!(DType_get(person), DTYPE_STRUCT);
+            assert_eq!(DType_field_count(person), 2);
 
-            let name0 = FFIDType_field_name(&*person, 0);
-            let name1 = FFIDType_field_name(&*person, 1);
+            let mut name_bytes = vec![0u8; 64];
+            let mut name_len: c_int = 0;
+            DType_field_name(
+                person,
+                0,
+                name_bytes.as_mut_ptr() as *mut c_char,
+                &mut name_len,
+            );
+            // Check name_bytes
+            let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);
+            assert_eq!(field_name, "name");
 
-            // Check that name0 and name1 are correct
-            assert_eq!(CStr::from_ptr(name0), c"name",);
-            assert_eq!(CStr::from_ptr(name1), c"age");
+            DType_field_name(
+                person,
+                1,
+                name_bytes.as_mut_ptr() as *mut c_char,
+                &mut name_len,
+            );
+            // Check name_bytes
+            let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);
+            assert_eq!(field_name, "age");
 
-            let dtype0 = FFIDType_field_dtype(&*person, 0);
-            let dtype1 = FFIDType_field_dtype(&*person, 1);
-            assert_eq!(FFIDType_get(dtype0), DTYPE_UTF8);
-            assert_eq!(FFIDType_get(dtype1), DTYPE_PRIMITIVE_U8);
+            let dtype0 = DType_field_dtype(person, 0);
+            let dtype1 = DType_field_dtype(person, 1);
+            assert_eq!(DType_get(dtype0), DTYPE_UTF8);
+            assert_eq!(DType_get(dtype1), DTYPE_PRIMITIVE_U8);
 
-            FFIDType_free(person);
+            DType_free(person);
         }
     }
 }

@@ -1,0 +1,94 @@
+/**
+ * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
+ * <p>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package dev.vortex.impl;
+
+import com.jakewharton.nopen.annotation.Open;
+import dev.vortex.api.Array;
+import dev.vortex.api.DType;
+import dev.vortex.jni.FFI;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
+/**
+ * Core Vortex array type that all logical arrays inherit from.
+ */
+@Open
+public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
+    public NativeArray(FFI.FFIArray inner) {
+        super(inner);
+    }
+
+    @Override
+    public void close() {
+        checkNotNull(inner, "inner");
+
+        // Free all resources
+        FFI.FFIArray_free(inner);
+
+        inner = null;
+    }
+
+    /**
+     * Get the length of the array.
+     */
+    @Override
+    public long getLen() {
+        return FFI.FFIArray_len(inner);
+    }
+
+    @Override
+    public DType getDataType() {
+        checkNotNull(inner, "inner");
+
+        var dtype = FFI.FFIArray_dtype(inner);
+        return new NativeDType(dtype);
+    }
+
+    @Override
+    public boolean getNull(int index) {
+        // check validity of the array
+        return false;
+    }
+
+    @Override
+    public int getInt(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_i32(inner, index);
+    }
+
+    @Override
+    public long getLong(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_i64(inner, index);
+    }
+
+    @Override
+    public boolean getBool(int index) {
+        return false;
+    }
+
+    @Override
+    public float getFloat(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_f32(inner, index);
+    }
+
+    @Override
+    public double getDouble(int index) {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_get_f64(inner, index);
+    }
+}

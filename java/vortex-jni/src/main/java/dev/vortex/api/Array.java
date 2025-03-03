@@ -17,11 +17,20 @@ package dev.vortex.api;
 
 import java.io.Closeable;
 
-public interface File extends Closeable {
-    DType getDType();
+public interface Array extends Closeable {
+    long getLen();
 
-    Scan newScan(ScanOptions options);
+    DType getDataType();
 
-    @Override
-    void close();
+    boolean getNull(int index);
+
+    int getInt(int index);
+
+    long getLong(int index);
+
+    boolean getBool(int index);
+
+    float getFloat(int index);
+
+    double getDouble(int index);
 }

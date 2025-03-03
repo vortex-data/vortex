@@ -15,9 +15,6 @@
  */
 package dev.vortex.spark;
 
-import static dev.vortex.jni.FFI.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
