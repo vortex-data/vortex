@@ -48,10 +48,9 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     dtype::init(py, m)?;
     expr::init(py, m)?;
     io::init(py, m)?;
+    registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
-
-    m.add_function(wrap_pyfunction!(registry::register, m)?)?;
 
     Ok(())
 }
