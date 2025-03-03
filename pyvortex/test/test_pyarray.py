@@ -3,7 +3,7 @@ from pcodec import wrapped as pco
 import vortex as vx
 
 
-class PCodecArray(vx.PyEncoding):
+class PCodecArray(vx.PyArray):
     id = "pcodec"
 
     @classmethod
@@ -13,4 +13,4 @@ class PCodecArray(vx.PyEncoding):
 
 
 def test_pcodec():
-    vx.register(PCodecArray)
+    vx.registry.register(PCodecArray)
