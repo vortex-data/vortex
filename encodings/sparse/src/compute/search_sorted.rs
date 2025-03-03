@@ -23,7 +23,8 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
             {
                 Ordering::Less => array.patches().search_sorted(value.clone(), side),
                 Ordering::Equal => Ok(SearchResult::Found(if side == SearchSortedSide::Left {
-                    array.patches().max_index()?
+                    // In case of patches being at the beginning we want the first index after the end of patches
+                    array.patches().indices().len()
                 } else {
                     array.len()
                 })),
@@ -38,6 +39,7 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
                 Ordering::Equal => Ok(SearchResult::Found(if side == SearchSortedSide::Left {
                     0
                 } else {
+                    // Searching from right the min_index is one value after the last fill value
                     min_index
                 })),
                 Ordering::Greater => array.patches().search_sorted(value.clone(), side),
@@ -172,7 +174,7 @@ mod tests {
     #[case(
         sparse_low(),
         Scalar::primitive(60, Nullability::NonNullable),
-        SearchResult::Found(2)
+        SearchResult::Found(3)
     )]
     fn search_fill_left(
         #[case] array: ArrayRef,
