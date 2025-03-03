@@ -42,8 +42,6 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     const FRACTIONAL_BITS: u8;
     const MAX_EXPONENT: u8;
     const SWEET: Self;
-    const MIN_INT: Self;
-    const MAX_INT: Self;
     const F10: &'static [Self];
     const IF10: &'static [Self];
 
@@ -89,14 +87,6 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
         }
 
         best_exp
-    }
-
-    #[inline]
-    fn is_unencodable(self) -> bool {
-        !self.is_finite()
-            || self.is_gt(Self::MAX_INT)
-            || self.is_lt(Self::MIN_INT)
-            || (self.is_zero() && self.is_sign_negative())
     }
 
     #[inline]
@@ -157,15 +147,9 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
         )
     }
 
-    /// Encode single float value. If the value cannot be encoded with given exponents the return is None
     #[inline]
     fn encode_single(value: Self, exponents: Exponents) -> Option<Self::ALPInt> {
-        let scaled = value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize];
-        if scaled.is_unencodable() {
-            return None;
-        }
-
-        let encoded = scaled.fast_round().as_int();
+        let encoded = Self::encode_single_unchecked(value, exponents);
         let decoded = Self::decode_single(encoded, exponents);
         if decoded.is_eq(value) {
             return Some(encoded);
@@ -201,6 +185,14 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static + NativePType {
     fn decode_single(encoded: Self::ALPInt, exponents: Exponents) -> Self {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]
     }
+
+    /// Encode single float value. If the value cannot be encoded with given exponents the return is None
+    #[inline(always)]
+    fn encode_single_unchecked(value: Self, exponents: Exponents) -> Self::ALPInt {
+        (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
+            .fast_round()
+            .as_int()
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -220,10 +212,11 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
     encoded_output.extend(chunk.iter().map(|&v| {
-        let encoded = T::encode_single(v, exp);
-        let neq = encoded.is_none() as usize;
+        let encoded = T::encode_single_unchecked(v, exp);
+        let decoded = T::decode_single(encoded, exp);
+        let neq = !decoded.is_eq(v) as usize;
         chunk_patch_count += neq;
-        encoded.unwrap_or_else(|| T::MAX_INT.as_int())
+        encoded
     }));
     let chunk_patch_count = chunk_patch_count; // immutable hereafter
     assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
@@ -281,8 +274,6 @@ impl ALPFloat for f32 {
     const MAX_EXPONENT: u8 = 10;
     const SWEET: Self =
         (1 << Self::FRACTIONAL_BITS) as Self + (1 << (Self::FRACTIONAL_BITS - 1)) as Self;
-    const MIN_INT: Self = i32::MIN as f32;
-    const MAX_INT: Self = i32::MAX as f32;
 
     const F10: &'static [Self] = &[
         1.0,
@@ -329,8 +320,6 @@ impl ALPFloat for f64 {
     const MAX_EXPONENT: u8 = 18; // 10^18 is the maximum i64
     const SWEET: Self =
         (1u64 << Self::FRACTIONAL_BITS) as Self + (1u64 << (Self::FRACTIONAL_BITS - 1)) as Self;
-    const MIN_INT: Self = i64::MIN as f64;
-    const MAX_INT: Self = i64::MAX as f64;
     const F10: &'static [Self] = &[
         1.0,
         10.0,
