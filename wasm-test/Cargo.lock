@@ -2038,7 +2038,6 @@ dependencies = [
  "itertools",
  "num-traits",
  "rkyv",
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
