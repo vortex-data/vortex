@@ -31,6 +31,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+vortex-proto = { workspace = true, optional = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
@@ -43,4 +44,5 @@ datafusion = [
     "vortex-scalar/datafusion",
 ]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-scalar/serde"]
+proto = ["vortex-dtype/proto", "vortex-scalar/proto", "vortex-proto/expr"]
 test-harness = []

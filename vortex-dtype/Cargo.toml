@@ -39,4 +39,5 @@ serde_test = { workspace = true }
 workspace = true
 
 [features]
+proto = ["vortex-proto/dtype"]
 serde = ["dep:serde"]
