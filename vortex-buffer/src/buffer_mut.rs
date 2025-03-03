@@ -22,11 +22,13 @@ pub struct BufferMut<T> {
 
 impl<T> BufferMut<T> {
     /// Create a new `BufferMut` with the requested alignment and capacity.
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_aligned(capacity, Alignment::of::<T>())
     }
 
     /// Create a new `BufferMut` with the requested alignment and capacity.
+    #[inline]
     pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
@@ -48,11 +50,13 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a new zeroed `BufferMut`.
+    #[inline]
     pub fn zeroed(len: usize) -> Self {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
     /// Create a new zeroed `BufferMut`.
+    #[inline]
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
         let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
@@ -66,16 +70,19 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a new empty `BufferMut` with the provided alignment.
+    #[inline]
     pub fn empty() -> Self {
         Self::empty_aligned(Alignment::of::<T>())
     }
 
     /// Create a new empty `BufferMut` with the provided alignment.
+    #[inline]
     pub fn empty_aligned(alignment: Alignment) -> Self {
         BufferMut::with_capacity_aligned(0, alignment)
     }
 
     /// Create a new full `BufferMut` with the given value.
+    #[inline]
     pub fn full(item: T, len: usize) -> Self
     where
         T: Copy,
@@ -86,6 +93,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a mutable scalar buffer by copying the contents of the slice.
+    #[inline]
     pub fn copy_from(other: impl AsRef<[T]>) -> Self {
         Self::copy_from_aligned(other, Alignment::of::<T>())
     }
@@ -95,6 +103,7 @@ impl<T> BufferMut<T> {
     /// ## Panics
     ///
     /// Panics when the requested alignment isn't itself aligned to type T.
+    #[inline]
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Given alignment is not aligned to type T")
@@ -184,6 +193,7 @@ impl<T> BufferMut<T> {
 
     /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
     /// this has significant performance implications.
+    #[inline]
     fn reserve_allocate(&mut self, additional: usize) {
         let new_capacity: usize = ((self.length + additional) * size_of::<T>()) + *self.alignment;
         // Make sure we at least double in size each time we re-allocate to amortize the cost
@@ -325,6 +335,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Freeze the `BufferMut` into a `Buffer`.
+    #[inline]
     pub fn freeze(self) -> Buffer<T> {
         Buffer {
             bytes: self.bytes.freeze(),
@@ -335,6 +346,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Map each element of the buffer with a closure.
+    #[inline]
     pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
     where
         T: Copy,
@@ -353,6 +365,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
+    #[inline]
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
             self
@@ -363,6 +376,7 @@ impl<T> BufferMut<T> {
 }
 
 impl<T> Clone for BufferMut<T> {
+    #[inline]
     fn clone(&self) -> Self {
         // NOTE(ngates): we cannot derive Clone since BytesMut copies on clone and the alignment
         //  might be messed up.
@@ -391,24 +405,28 @@ impl<T> Default for BufferMut<T> {
 impl<T> Deref for BufferMut<T> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T> DerefMut for BufferMut<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
 impl<T> AsRef<[T]> for BufferMut<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T> AsMut<[T]> for BufferMut<T> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
@@ -432,6 +450,7 @@ where
 }
 
 impl<T> FromIterator<T> for BufferMut<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
@@ -442,14 +461,17 @@ impl<T> FromIterator<T> for BufferMut<T> {
 }
 
 impl Buf for ByteBufferMut {
+    #[inline]
     fn remaining(&self) -> usize {
         self.len()
     }
 
+    #[inline]
     fn chunk(&self) -> &[u8] {
         self.as_slice()
     }
 
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         if !cnt.is_multiple_of(*self.alignment) {
             vortex_panic!(
@@ -490,6 +512,7 @@ unsafe impl BufMut for ByteBufferMut {
         self.bytes.chunk_mut()
     }
 
+    #[inline]
     fn put<T: Buf>(&mut self, mut src: T)
     where
         Self: Sized,
@@ -523,6 +546,7 @@ trait AlignedBytesMut {
 }
 
 impl AlignedBytesMut for BytesMut {
+    #[inline]
     fn align_empty(&mut self, alignment: Alignment) {
         if !self.is_empty() {
             vortex_panic!("ByteBufferMut must be empty");
