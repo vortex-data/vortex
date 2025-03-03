@@ -317,7 +317,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - run: |
-          cargo +nightly publish --workspace --dry-run \
+          cargo publish --workspace --dry-run \
             --exclude bench-vortex --exclude vortex-fuzz --exclude xtask --exclude pyvortex \
             -Z package-workspace
 
