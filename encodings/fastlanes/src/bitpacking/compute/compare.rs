@@ -1,5 +1,5 @@
 use arrow_buffer::{BooleanBuffer, bit_util};
-use fastlanes::BitPackingCompare;
+use fastlanes::{BitPacking, BitPackingCompare, FastLanesComparable};
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -42,8 +42,6 @@ impl CompareFn<&BitPackedArray> for BitPackedEncoding {
             Mask::AllFalse(lhs.len())
         })?;
 
-        // println!("a {}", lhs.to_array().tree_display());
-
         let res = match lhs.ptype() {
             PType::U32 => compare_impl::<u32>(lhs, rhs, operator),
             PType::U64 => compare_impl::<u64>(lhs, rhs, operator),
@@ -53,10 +51,6 @@ impl CompareFn<&BitPackedArray> for BitPackedEncoding {
         };
 
         Ok(res?.map(|buffer| BoolArray::new(buffer, validity).into_array()))
-        // match_each_integer_ptype!(lhs.ptype(), |$P| {
-        //     Ok(compare_impl::<$P>(lhs, rhs, operator)?
-        //         .map(|buffer| BoolArray::new(buffer, validity).into_array()))
-        // })
     }
 }
 
@@ -66,9 +60,10 @@ fn compare_impl<T>(
     operator: Operator,
 ) -> VortexResult<Option<BooleanBuffer>>
 where
-    T: NativePType + fastlanes::FastLanesComparable + TryFrom<Scalar, Error = VortexError>,
-    T::Bitpacked: NativePType + BitPackingCompare,
+    T: NativePType + FastLanesComparable + TryFrom<Scalar, Error = VortexError>,
+    T::Bitpacked: NativePType + BitPackingCompare + BitPacking,
 {
+    let mut bout = [false; 1024];
     const CHUNK_SIZE: usize = 1024;
     if array.bit_width() == 0 {
         return Ok(Some(BooleanBuffer::new_unset(array.len())));
@@ -107,6 +102,7 @@ where
             unchecked_unpack_cmp_impl::<T>(
                 bit_width,
                 chunk,
+                &mut bout,
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
                 &mut *(output.spare_capacity_mut().assume_init_mut()[i * 16..(i + 1) * 16]
                     .as_mut_ptr() as *mut [u64; 16]),
@@ -123,7 +119,16 @@ where
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
-        unsafe { unchecked_unpack_cmp_impl::<T>(bit_width, chunk, &mut decoded, operator, value) };
+        unsafe {
+            unchecked_unpack_cmp_impl::<T>(
+                bit_width,
+                chunk,
+                &mut bout,
+                &mut decoded,
+                operator,
+                value,
+            )
+        };
         output.spare_capacity_mut()[0..last_chunk_length.div_ceil(16)]
             .write_copy_of_slice(&decoded[..last_chunk_length.div_ceil(16)]);
         unsafe {
@@ -139,50 +144,79 @@ where
     )))
 }
 
-// unsafe fn unchecked_unpack_cmp_impl<T: NativePType + fastlanes::FastLanesComparable>(
-//     _width: usize,
-//     _input: &[T::Bitpacked],
-//     _output: &mut [u64; 16],
-//     _comparison: Operator,
-//     _value: T,
-// ) where
-//     T::Bitpacked: NativePType + BitPackingCompare,
-// {
-//     todo!()
+// thread_local! {
+//     pub static BOUT: Cell<[bool; 1024]> = Cell::new([false; 1024]);
 // }
 
-unsafe fn unchecked_unpack_cmp_impl<T: NativePType + fastlanes::FastLanesComparable>(
+unsafe fn unchecked_unpack_cmp_impl<T>(
     width: usize,
     input: &[T::Bitpacked],
+    bout: &mut [bool; 1024],
     output: &mut [u64; 16],
     comparison: Operator,
     value: T,
 ) where
+    T: NativePType + FastLanesComparable,
     T::Bitpacked: NativePType + BitPackingCompare,
 {
     match comparison {
         Operator::Eq => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a == b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a == b, value)
         },
         Operator::NotEq => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a != b, value)
         },
         Operator::Gte => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a >= b, value)
         },
         Operator::Gt => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a > b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a > b, value)
         },
         Operator::Lte => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a <= b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a <= b, value)
         },
         Operator::Lt => unsafe {
-            T::Bitpacked::unchecked_unpack_cmp(width, input, output, |a, b| a < b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, bout, |a, b| a < b, value)
         },
+    };
+
+    collect_byte_to_bit_4(bout, output);
+}
+
+pub fn collect_byte_to_bit_4(bools: &[bool; 1024], result: &mut [u64; 16]) {
+    for i in 0..16 {
+        for j in (0..64).step_by(4) {
+            result[i] = (bools[i * 64 + j + 0] as u64) << (j + 0)
+                | (bools[i * 64 + j + 1] as u64) << (j + 1)
+                | (bools[i * 64 + j + 2] as u64) << (j + 2)
+                | (bools[i * 64 + j + 3] as u64) << (j + 3)
+        }
     }
 }
 
-// impl CompareFn<&ConstantArray> for ConstantEncoding {
+#[allow(dead_code)]
+pub fn collect_byte_to_bit_16(bools: &[bool; 1024], result: &mut [u64; 16]) {
+    for i in 0..16 {
+        for j in (0..64).step_by(16) {
+            result[i] = (bools[i * 64 + j + 0] as u64) << (j + 0)
+                | (bools[i * 64 + j + 1] as u64) << (j + 1)
+                | (bools[i * 64 + j + 2] as u64) << (j + 2)
+                | (bools[i * 64 + j + 3] as u64) << (j + 3)
+                | (bools[i * 64 + j + 4] as u64) << (j + 4)
+                | (bools[i * 64 + j + 5] as u64) << (j + 5)
+                | (bools[i * 64 + j + 6] as u64) << (j + 6)
+                | (bools[i * 64 + j + 7] as u64) << (j + 7)
+                | (bools[i * 64 + j + 8] as u64) << (j + 8)
+                | (bools[i * 64 + j + 9] as u64) << (j + 9)
+                | (bools[i * 64 + j + 10] as u64) << (j + 10)
+                | (bools[i * 64 + j + 11] as u64) << (j + 11)
+                | (bools[i * 64 + j + 12] as u64) << (j + 12)
+                | (bools[i * 64 + j + 13] as u64) << (j + 13)
+                | (bools[i * 64 + j + 14] as u64) << (j + 14)
+                | (bools[i * 64 + j + 15] as u64) << (j + 15)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

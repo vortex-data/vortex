@@ -58,18 +58,21 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[
+    (1 << 12, 10),
     (1 << 12, 50),
     (1 << 12, 100),
     (1 << 12, 1000),
     (1 << 12, 10_000),
+    (1 << 14, 10),
     (1 << 14, 50),
     (1 << 14, 10_000),
+    (1 << 16, 10),
     (1 << 16, 50),
     (1 << 16, 10_000),
 ];
 
 #[divan::bench(
-        types = [i32, i64, u32, u64, f32, f64],
+        types = [i16, i32, i64, u16, u32, u64, f32, f64],
         args = BENCH_ARGS,
     )]
 fn raw_prim_test_compare<T>(bencher: Bencher, (len, max_value): (usize, usize))
@@ -79,7 +82,6 @@ where
 {
     let min = T::from_usize(5561).vortex_expect("");
     let arr = generate_primitive_array::<T>(len, max_value);
-    // println!("{}", arr.to_array().tree_display());
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect("")
@@ -97,7 +99,6 @@ where
 {
     let min = T::from_usize(5561).vortex_expect("");
     let arr = generate_bit_pack_primitive_array::<T>(len, max_value);
-    // println!("{}", arr.to_array().tree_display());
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect("")
@@ -115,7 +116,6 @@ where
 {
     let min = T::from_usize(5561).vortex_expect("");
     let arr = generate_alp_bit_pack_primitive_array::<T>(len, max_value);
-    // println!("{}", arr.to_array().tree_display());
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect("")

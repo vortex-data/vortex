@@ -24,7 +24,6 @@ impl ComputeVTable for ALPEncoding {
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
-        // None
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
