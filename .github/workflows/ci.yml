@@ -305,25 +305,6 @@ jobs:
       - name: Run Miri
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer
 
-  bench-test:
-    name: "bench test"
-    runs-on: ubuntu-latest
-    # NOTE(ngates): disable running benchmark tests for now since they take a very long time and don't often fail.
-    #  Instead, the Slack channel notifications have been made to subscribe only to CI failures.
-    if: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      # Required to run benchmarks
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.11
-        with:
-          version: v1.0.0
-      - name: Rust TPC-H and Random access Bench as test
-        run: cargo bench --bench tpch --bench random_access --profile benchtest -- --test
-
   generated-files:
     name: "Check generated proto/fbs files are up to date"
     runs-on: ubuntu-latest
