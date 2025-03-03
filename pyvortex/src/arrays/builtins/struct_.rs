@@ -16,7 +16,7 @@ impl EncodingSubclass for PyStructArray {
 #[pymethods]
 impl PyStructArray {
     /// Returns the given field of the struct array.
-    pub fn field<'py>(self_: PyRef<'py, Self>, name: &str) -> PyResult<PyArrayRef> {
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
         let field = self_.as_array_ref().maybe_null_field_by_name(name)?;
         Ok(PyArrayRef::from(field))
     }

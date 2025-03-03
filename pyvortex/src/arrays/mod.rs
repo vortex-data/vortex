@@ -126,7 +126,6 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
         }
 
         // Otherwise, wrap the ArrayRef in a PyNativeArray.
-        // TODO(ngates): this is where the init downcasting should happen
         Ok(PyNativeArray::init(py, self.0.clone())?.into_any())
     }
 }
@@ -290,7 +289,7 @@ impl PyArray {
 
     /// Returns the encoding ID of this array.
     #[getter]
-    fn encoding(slf: &Bound<Self>) -> PyResult<String> {
+    fn id(slf: &Bound<Self>) -> PyResult<String> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?
             .encoding()
             .to_string())

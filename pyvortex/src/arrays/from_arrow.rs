@@ -14,7 +14,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use crate::arrays::PyArrayRef;
 
 /// Convert an Arrow object to a Vortex array.
-pub(super) fn from_arrow<'py>(obj: &Bound<'py, PyAny>) -> PyResult<PyArrayRef> {
+pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
     let pa = obj.py().import("pyarrow")?;
     let pa_array = pa.getattr("Array")?;
     let chunked_array = pa.getattr("ChunkedArray")?;
