@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   release_dry_run:
-    runs-on: 
+    runs-on:
       - ubunutu-latest
     steps:
       - uses: actions/checkout@v4
