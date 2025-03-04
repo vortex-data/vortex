@@ -14,35 +14,52 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let min_index = array.patches().min_index()?;
-        // For a sorted array the patches can be either at the beginning or at the end of the array
-        if min_index == 0 {
-            match value
-                .partial_cmp(array.fill_scalar())
-                .vortex_expect("value and fill scalar must have same dtype")
-            {
-                Ordering::Less => array.patches().search_sorted(value.clone(), side),
-                Ordering::Equal => Ok(SearchResult::Found(if side == SearchSortedSide::Left {
-                    // In case of patches being at the beginning we want the first index after the end of patches
-                    array.patches().indices().len()
+        // first search result in patches
+        let patches_result = array.patches().search_sorted(value.clone(), side)?;
+        match patches_result {
+            SearchResult::Found(i) => Ok(SearchResult::Found(i)),
+            SearchResult::NotFound(i) => {
+                let fill_result = if array.fill_scalar().is_null() {
+                    SearchResult::NotFound(array.patches().min_index()?)
                 } else {
-                    array.len()
-                })),
-                Ordering::Greater => Ok(SearchResult::NotFound(array.len())),
-            }
-        } else {
-            match value
-                .partial_cmp(array.fill_scalar())
-                .vortex_expect("value and fill scalar must have same dtype")
-            {
-                Ordering::Less => Ok(SearchResult::NotFound(0)),
-                Ordering::Equal => Ok(SearchResult::Found(if side == SearchSortedSide::Left {
-                    0
-                } else {
-                    // Searching from right the min_index is one value after the last fill value
-                    min_index
-                })),
-                Ordering::Greater => array.patches().search_sorted(value.clone(), side),
+                    array
+                        .patches()
+                        .search_sorted(array.fill_scalar().clone(), side)?
+                };
+                let fill_index = fill_result.to_index();
+                let min_index = array.patches().min_index()?;
+                let max_index = array.patches().max_index()?;
+                let value_index = match side {
+                    SearchSortedSide::Left => {
+                        if fill_index <= min_index {
+                            0
+                        } else if fill_index > max_index {
+                            array.len()
+                        } else {
+                            fill_index
+                        }
+                    }
+                    SearchSortedSide::Right => {
+                        if fill_index <= min_index {
+                            0
+                        } else if fill_index > min_index {
+                            array.len() - array.patches().num_patches() + fill_index
+                        } else {
+                            fill_index
+                        }
+                    }
+                };
+                match value
+                    .partial_cmp(array.fill_scalar())
+                    .vortex_expect("value and fill scalar must have same dtype")
+                {
+                    Ordering::Less => Ok(SearchResult::NotFound(i.min(value_index))),
+                    Ordering::Equal => match side {
+                        SearchSortedSide::Left => Ok(SearchResult::Found(i.min(value_index))),
+                        SearchSortedSide::Right => Ok(SearchResult::Found(i.max(value_index))),
+                    },
+                    Ordering::Greater => Ok(SearchResult::NotFound(i.max(value_index))),
+                }
             }
         }
     }
@@ -109,10 +126,22 @@ mod tests {
         .into_array()
     }
 
+    fn sparse_low_high() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 1, 17, 18, 19].into_array(),
+            buffer![11i32, 22, 33, 44, 55].into_array(),
+            20,
+            Scalar::primitive(30, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
     #[rstest]
     #[case(sparse_high_null_fill(), SearchResult::NotFound(20))]
     #[case(sparse_high_non_null_fill(), SearchResult::NotFound(20))]
     #[case(sparse_low(), SearchResult::NotFound(20))]
+    #[case(sparse_low_high(), SearchResult::NotFound(20))]
     fn search_larger_than_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 66, SearchSortedSide::Left).unwrap();
         assert_eq!(res, expected);
@@ -122,6 +151,7 @@ mod tests {
     #[case(sparse_high_null_fill(), SearchResult::NotFound(20))]
     #[case(sparse_high_non_null_fill(), SearchResult::NotFound(20))]
     #[case(sparse_low(), SearchResult::NotFound(20))]
+    #[case(sparse_low_high(), SearchResult::NotFound(20))]
     fn search_larger_than_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 66, SearchSortedSide::Right).unwrap();
         assert_eq!(res, expected);
@@ -131,6 +161,7 @@ mod tests {
     #[case(sparse_high_null_fill(), SearchResult::NotFound(17))]
     #[case(sparse_high_non_null_fill(), SearchResult::NotFound(0))]
     #[case(sparse_low(), SearchResult::NotFound(0))]
+    #[case(sparse_low_high(), SearchResult::NotFound(1))]
     fn search_less_than_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 21, SearchSortedSide::Left).unwrap();
         assert_eq!(res, expected);
@@ -140,6 +171,7 @@ mod tests {
     #[case(sparse_high_null_fill(), SearchResult::NotFound(17))]
     #[case(sparse_high_non_null_fill(), SearchResult::NotFound(0))]
     #[case(sparse_low(), SearchResult::NotFound(0))]
+    #[case(sparse_low_high(), SearchResult::NotFound(1))]
     fn search_less_than_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 21, SearchSortedSide::Right).unwrap();
         assert_eq!(res, expected);
@@ -149,6 +181,7 @@ mod tests {
     #[case(sparse_high_null_fill(), SearchResult::Found(18))]
     #[case(sparse_high_non_null_fill(), SearchResult::Found(18))]
     #[case(sparse_low(), SearchResult::Found(1))]
+    #[case(sparse_low_high(), SearchResult::Found(18))]
     fn search_patches_found_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 44, SearchSortedSide::Left).unwrap();
         assert_eq!(res, expected);
@@ -158,8 +191,29 @@ mod tests {
     #[case(sparse_high_null_fill(), SearchResult::Found(19))]
     #[case(sparse_high_non_null_fill(), SearchResult::Found(19))]
     #[case(sparse_low(), SearchResult::Found(2))]
+    #[case(sparse_low_high(), SearchResult::Found(19))]
     fn search_patches_found_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
         let res = search_sorted(&array, 44, SearchSortedSide::Right).unwrap();
+        assert_eq!(res, expected);
+    }
+
+    #[rstest]
+    #[case(sparse_high_null_fill(), SearchResult::NotFound(19))]
+    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(19))]
+    #[case(sparse_low(), SearchResult::NotFound(2))]
+    #[case(sparse_low_high(), SearchResult::NotFound(19))]
+    fn search_mid_patches_not_found_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
+        let res = search_sorted(&array, 45, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, expected);
+    }
+
+    #[rstest]
+    #[case(sparse_high_null_fill(), SearchResult::NotFound(19))]
+    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(19))]
+    #[case(sparse_low(), SearchResult::NotFound(2))]
+    #[case(sparse_low_high(), SearchResult::NotFound(19))]
+    fn search_mid_patches_not_found_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
+        let res = search_sorted(&array, 45, SearchSortedSide::Right).unwrap();
         assert_eq!(res, expected);
     }
 
@@ -175,6 +229,11 @@ mod tests {
         sparse_low(),
         Scalar::primitive(60, Nullability::NonNullable),
         SearchResult::Found(3)
+    )]
+    #[case(
+        sparse_low_high(),
+        Scalar::primitive(30, Nullability::NonNullable),
+        SearchResult::Found(2)
     )]
     fn search_fill_left(
         #[case] array: ArrayRef,
@@ -197,6 +256,11 @@ mod tests {
         sparse_low(),
         Scalar::primitive(60, Nullability::NonNullable),
         SearchResult::Found(20)
+    )]
+    #[case(
+        sparse_low_high(),
+        Scalar::primitive(30, Nullability::NonNullable),
+        SearchResult::Found(17)
     )]
     fn search_fill_right(
         #[case] array: ArrayRef,
