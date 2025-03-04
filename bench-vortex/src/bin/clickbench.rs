@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         None => Builder::new_multi_thread().enable_all().build(),
     }
     .expect("Failed building the Runtime");
-    let basepath = format!("clickbench_{:?}", args.flavor).to_data_path();
+    let basepath = format!("clickbench_{}", args.flavor).to_data_path();
     let client = reqwest::blocking::Client::default();
 
     args.flavor.download(&client, basepath.as_path())?;

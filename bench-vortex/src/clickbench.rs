@@ -282,6 +282,12 @@ pub enum Flavor {
     Single,
 }
 
+impl std::fmt::Display for Flavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_possible_value().unwrap().get_name())
+    }
+}
+
 impl Flavor {
     pub fn download(
         &self,
@@ -294,7 +300,7 @@ impl Flavor {
                 let output_path = basepath.join("parquet").join(format!("hits.parquet"));
                 idempotent(&output_path, |output_path| {
                     info!("Downloading single clickbench file");
-                    let url = "https://datasets.clickhouse.com/hits_compatible/hits.parquet";
+                    let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
 
                     let mut response = client.get(url).send()?.error_for_status()?;
                     let mut file = File::create(output_path)?;
