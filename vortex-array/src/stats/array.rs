@@ -10,7 +10,9 @@ use super::{
     Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
 };
 use crate::Array;
-use crate::compute::{MinMaxResult, is_constant, min_max, sum, uncompressed_size};
+use crate::compute::{
+    MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, sum, uncompressed_size,
+};
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -130,16 +132,9 @@ impl StatsSetRef<'_> {
                     Some(is_constant(self.dyn_array_ref)?.into())
                 }
             }
+            Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => Some(uncompressed_size(self.dyn_array_ref)?.into()),
-            _ => {
-                let vtable = self.dyn_array_ref.vtable();
-                let stats_set = vtable.compute_statistics(self.dyn_array_ref, stat)?;
-                // Update the stats set with all the computed stats.
-                for (stat, value) in stats_set.into_iter() {
-                    self.set(stat, value);
-                }
-                self.get(stat).and_then(|p| p.as_exact())
-            }
         })
     }
 

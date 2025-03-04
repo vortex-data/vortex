@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::Array;
@@ -57,10 +55,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             stats
         }
         Stat::IsStrictSorted => {
-            let is_strict_sorted = array.with_iterator(|iter| {
-                iter.flatten()
-                    .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
-            })?;
+            let is_strict_sorted = array.with_iterator(|iter| iter.is_sorted_by(|a, b| a < b))?;
             let mut stats = StatsSet::of(Stat::IsStrictSorted, Precision::exact(is_strict_sorted));
             if is_strict_sorted {
                 stats.set(Stat::IsSorted, Precision::exact(true));

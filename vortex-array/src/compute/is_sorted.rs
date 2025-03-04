@@ -6,7 +6,10 @@ use crate::{Array, ArrayExt, Encoding};
 
 pub trait IsSortedFn<A> {
     /// # Preconditions
-    /// Array is not `NullArray` or `ConstantArray`, and has length > 1.
+    /// - The array's length is > 1.
+    /// - The array is not encoded as `NullArray` or `ConstantArray`.
+    /// - If doing a `strict` check, if the array is nullable, it'll have at most 1 null element
+    ///   as the first item in the array.
     fn is_sorted(&self, array: A, strict: bool) -> VortexResult<bool>;
 }
 
@@ -21,6 +24,39 @@ where
             .vortex_expect("Failed to downcast array");
         IsSortedFn::is_sorted(self, array_ref, strict)
     }
+}
+
+/// Helper methods to check sortedness with strictness
+pub trait IteratorExt: Iterator
+where
+    <Self as Iterator>::Item: PartialOrd,
+{
+    fn is_sorted_with_strictness(self, strict: bool) -> bool
+    where
+        Self: Sized,
+        Self::Item: PartialOrd,
+    {
+        if strict {
+            Iterator::is_sorted_by(self, |a, b| a < b)
+        } else {
+            Iterator::is_sorted(self)
+        }
+    }
+
+    fn is_strict_sorted(self) -> bool
+    where
+        Self: Sized,
+        Self::Item: PartialOrd,
+    {
+        self.is_sorted_with_strictness(true)
+    }
+}
+
+impl<T> IteratorExt for T
+where
+    T: Iterator + ?Sized,
+    T::Item: PartialOrd,
+{
 }
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
@@ -40,9 +76,17 @@ pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
         return Ok(!strict);
     }
 
-    // If all values are null, the array is always strictly sorted.
-    if array.all_invalid()? {
-        return Ok(true);
+    let invalid_count = array.invalid_count()?;
+
+    // Enforce strictness before we even try to check if the array is sorted.
+    if strict {
+        match invalid_count {
+            // We can keep going
+            0 => {}
+            // If we have a potential null value - it has to be the first one.
+            1 => return Ok(array.is_invalid(0)?),
+            _ => return Ok(false),
+        }
     }
 
     let target_stat = if strict {

@@ -1,5 +1,6 @@
 mod cast;
 mod is_constant;
+mod is_sorted;
 mod min_max;
 mod take;
 mod to_arrow;
@@ -13,7 +14,7 @@ use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::compute::{
-    CastFn, IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    CastFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
     UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
@@ -25,6 +26,10 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 
