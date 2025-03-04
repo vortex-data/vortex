@@ -1862,7 +1862,7 @@ dependencies = [
 [[package]]
 name = "fastlanes"
 version = "0.1.8"
-source = "git+https://github.com/spiraldb/fastlanes.git?rev=59df1d4#59df1d48d5e46880a3d63d9ce877f4870ad74ef6"
+source = "git+https://github.com/spiraldb/fastlanes.git?rev=a8ae00423d1747e2c932456ae0551d65d7b048dd#a8ae00423d1747e2c932456ae0551d65d7b048dd"
 dependencies = [
  "arrayref",
  "const_for",

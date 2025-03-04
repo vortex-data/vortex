@@ -1,3 +1,7 @@
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
+#![allow(unexpected_cfgs)]
+
 use divan::Bencher;
 use num_traits::NumCast;
 use rand::rngs::StdRng;
@@ -58,21 +62,23 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[
+    (1024, 10),
     (1 << 12, 10),
     (1 << 12, 50),
+    // (1 << 12, 100),
     (1 << 12, 100),
-    (1 << 12, 1000),
-    (1 << 12, 10_000),
+    // (1 << 12, 1_000),
     (1 << 14, 10),
     (1 << 14, 50),
-    (1 << 14, 10_000),
-    (1 << 16, 10),
-    (1 << 16, 50),
-    (1 << 16, 10_000),
+    (1 << 14, 100),
+    // (1 << 14, 1_000),
+    // (1 << 16, 10),
+    // (1 << 16, 50),
+    // (1 << 16, 100),
 ];
 
 #[divan::bench(
-        types = [i16, i32, i64, u16, u32, u64, f32, f64],
+        types = [u8, u32, i16, u64, f32, f64],
         args = BENCH_ARGS,
     )]
 fn raw_prim_test_compare<T>(bencher: Bencher, (len, max_value): (usize, usize))
@@ -80,7 +86,7 @@ where
     T: NumCast + NativePType,
     vortex_scalar::Scalar: From<T>,
 {
-    let min = T::from_usize(5561).vortex_expect("");
+    let min = T::from_usize(243).vortex_expect("");
     let arr = generate_primitive_array::<T>(len, max_value);
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
@@ -89,7 +95,7 @@ where
 }
 
 #[divan::bench(
-    types = [i16, i32, i64, u16, u32, u64],
+    types = [u8, u32, i16, i64],
     args = BENCH_ARGS,
 )]
 fn bp_prim_test_between<T>(bencher: Bencher, (len, max_value): (usize, usize))
@@ -97,7 +103,7 @@ where
     T: NumCast + NativePType,
     vortex_scalar::Scalar: From<T>,
 {
-    let min = T::from_usize(5561).vortex_expect("");
+    let min = T::from_usize(243).vortex_expect("");
     let arr = generate_bit_pack_primitive_array::<T>(len, max_value);
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
@@ -114,10 +120,40 @@ where
     T: NumCast + NativePType,
     vortex_scalar::Scalar: From<T>,
 {
-    let min = T::from_usize(5561).vortex_expect("");
+    let min = T::from_usize(243).vortex_expect("");
     let arr = generate_alp_bit_pack_primitive_array::<T>(len, max_value);
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect("")
     })
 }
+
+// #[divan::bench(types=[u8, u16, u32, u64], consts = [2,3,5,7])]
+// fn bitpacking_cmp_fused<T, const W: usize>(bencher: Bencher)
+// where
+//     T: BitPacking + FastLanesComparable<Bitpacked = T> + FromPrimitive + Copy,
+//     T: BitPacking + BitPackingCompare + Copy,
+//     [(); 128 * W / size_of::<T>()]:,
+// {
+//     let value = T::from_usize(1).expect("");
+//     let values = [T::from_usize(2).expect(""); 1024];
+//     let mut packed = [T::zero(); 128 * W / size_of::<T>()];
+//
+//     unsafe { BitPacking::unchecked_pack(W, &values, &mut packed) };
+//
+//     let mut unpacked = [false; 1024];
+//
+//     bencher.bench_local(|| {
+//         unsafe {
+//             unchecked_unpack_cmp_impl(W, &packed, &mut unpacked, Operator::Gte, value);
+//             // BitPackingCompare::unchecked_unpack_cmp(
+//             //     W,
+//             //     &packed,
+//             //     &mut unpacked,
+//             //     |a, b| a == b,
+//             //     black_box(value),
+//             // );
+//             // black_box(unpacked)
+//         };
+//     });
+// }

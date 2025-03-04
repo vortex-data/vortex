@@ -42,8 +42,12 @@ impl CompareFn<&BitPackedArray> for BitPackedEncoding {
         })?;
 
         let res = match lhs.ptype() {
+            PType::U8 => compare_impl::<u8>(lhs, rhs, operator),
+            PType::U16 => compare_impl::<u16>(lhs, rhs, operator),
             PType::U32 => compare_impl::<u32>(lhs, rhs, operator),
             PType::U64 => compare_impl::<u64>(lhs, rhs, operator),
+            PType::I8 => compare_impl::<i8>(lhs, rhs, operator),
+            PType::I16 => compare_impl::<i16>(lhs, rhs, operator),
             PType::I32 => compare_impl::<i32>(lhs, rhs, operator),
             PType::I64 => compare_impl::<i64>(lhs, rhs, operator),
             _ => return Ok(None),
@@ -91,24 +95,27 @@ where
 
     let value = T::try_from(scalar)?;
 
-    for i in full_chunks_range.clone() {
+    let full_chunks_range_len = full_chunks_range.len();
+
+    let output_buf = unsafe { output.spare_capacity_mut().assume_init_mut() };
+    for i in full_chunks_range {
         let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
 
         unsafe {
             unchecked_unpack_cmp_impl::<T>(
                 bit_width,
                 chunk,
-                &mut *(output.spare_capacity_mut().assume_init_mut()[i * 1024..(i + 1) * 1024]
-                    .as_mut_ptr() as *mut [bool; 1024]),
+                &mut *(output_buf[i * 1024..(i + 1) * 1024].as_mut_ptr() as *mut [bool; 1024]),
                 operator,
                 value,
             )
         }
     }
-    unsafe { output.set_len(full_chunks_range.len() * 1024) }
+    unsafe { output.set_len(full_chunks_range_len * 1024) }
 
     if last_chunk_is_sliced {
         let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
+        // stack allocate the last chunk since the buffer might not be big enough.
         let mut decoded = [false; 1024];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
@@ -118,7 +125,7 @@ where
             unsafe { std::mem::transmute(&decoded[..last_chunk_length.div_ceil(16)]) },
         );
         unsafe {
-            output.set_len(full_chunks_range.len() * 1024 + last_chunk_length);
+            output.set_len(full_chunks_range_len * 1024 + last_chunk_length);
         }
     }
 
@@ -126,7 +133,7 @@ where
     Ok(Some(output.freeze()))
 }
 
-unsafe fn unchecked_unpack_cmp_impl<T>(
+pub unsafe fn unchecked_unpack_cmp_impl<T>(
     width: usize,
     input: &[T::Bitpacked],
     output: &mut [bool; 1024],
@@ -143,9 +150,7 @@ unsafe fn unchecked_unpack_cmp_impl<T>(
         Operator::NotEq => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
         },
-        Operator::Gte => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
-        },
+        Operator::Gte => unchecked_unpack_cmp_gte(width, input, output, value),
         Operator::Gt => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a > b, value)
         },
@@ -156,6 +161,19 @@ unsafe fn unchecked_unpack_cmp_impl<T>(
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a < b, value)
         },
     };
+}
+
+#[inline(never)]
+pub fn unchecked_unpack_cmp_gte<T>(
+    width: usize,
+    input: &[T::Bitpacked],
+    output: &mut [bool; 1024],
+    value: T,
+) where
+    T: NativePType + FastLanesComparable,
+    T::Bitpacked: NativePType + BitPackingCompare,
+{
+    unsafe { BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value) }
 }
 
 #[allow(dead_code)]
