@@ -166,16 +166,21 @@ pub async fn register_vortex_files(
         .iter()
         .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"));
 
-    stream::iter(iter.enumerate())
-        .map(|(idx, _dir_entry)| {
-            let parquet_file_path = parquet_path.join(format!("hits_{idx}.parquet"));
-            let output_path = vortex_dir.join(format!("hits_{idx}.{VORTEX_FILE_EXTENSION}"));
+    stream::iter(iter)
+        .map(|dir_entry| {
+            let filename = {
+                let mut temp = dir_entry.path();
+                temp.set_extension("");
+                temp.file_name().unwrap().to_str().unwrap().to_string()
+            };
+            let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
+            let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
             let session = session.clone();
 
             tokio::spawn(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
-                    info!("Processing file {idx}");
+                    info!("Processing file '{filename}'");
                     let record_batches = session
                         .read_parquet(
                             parquet_file_path.to_str().unwrap(),
