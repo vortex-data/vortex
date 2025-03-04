@@ -671,10 +671,14 @@ mod test {
             buffer![0u64, 1, 17, 18, 19].into_array(),
             buffer![11i32, 22, 33, 44, 55].into_array(),
         );
-        let res = patches.search_sorted(30, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::NotFound(2));
-        let res = patches.search_sorted(54, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::NotFound(19));
+        assert_eq!(
+            patches.search_sorted(30, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(2)
+        );
+        assert_eq!(
+            patches.search_sorted(54, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(19)
+        );
     }
 
     #[rstest]
