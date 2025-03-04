@@ -10,6 +10,6 @@ pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 
-pub mod bitpacking;
+mod bitpacking;
 mod delta;
 mod r#for;

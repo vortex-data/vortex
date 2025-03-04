@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
-pub mod compare;
+mod compare;
 mod filter;
 mod scalar_at;
 mod search_sorted;

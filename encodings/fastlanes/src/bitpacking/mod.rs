@@ -22,7 +22,7 @@ use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
 
-pub mod compress;
+mod compress;
 mod compute;
 mod serde;
 

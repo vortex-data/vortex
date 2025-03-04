@@ -150,7 +150,9 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
         Operator::NotEq => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
         },
-        Operator::Gte => unchecked_unpack_cmp_gte(width, input, output, value),
+        Operator::Gte => unsafe {
+            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
+        },
         Operator::Gt => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a > b, value)
         },
@@ -161,19 +163,6 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a < b, value)
         },
     };
-}
-
-#[inline(never)]
-pub fn unchecked_unpack_cmp_gte<T>(
-    width: usize,
-    input: &[T::Bitpacked],
-    output: &mut [bool; 1024],
-    value: T,
-) where
-    T: NativePType + FastLanesComparable,
-    T::Bitpacked: NativePType + BitPackingCompare,
-{
-    unsafe { BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value) }
 }
 
 #[allow(dead_code)]

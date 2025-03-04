@@ -23,9 +23,11 @@ fn generate_primitive_array<T: NativePType + NumCast + PartialOrd>(
     max_value: usize,
 ) -> PrimitiveArray {
     let mut rng = StdRng::seed_from_u64(0);
-    (0..len)
+    let p = (0..len)
         .map(|_| T::from_usize(rng.random_range(0..max_value)).vortex_expect(""))
-        .collect::<PrimitiveArray>()
+        .collect::<PrimitiveArray>();
+    p.statistics().compute_is_constant();
+    p
 }
 
 fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
@@ -37,7 +39,9 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
         .map(|_| T::from_usize(rng.random_range(0..max_value)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    bitpack_to_best_bit_width(&a).vortex_expect("").into_array()
+    let b = bitpack_to_best_bit_width(&a).vortex_expect("").into_array();
+    b.statistics().compute_is_constant();
+    b
 }
 
 fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
@@ -56,9 +60,12 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::try_new(bp, alp.exponents(), alp.patches().cloned())
+    bp.statistics().compute_is_constant();
+    let a = ALPArray::try_new(bp, alp.exponents(), alp.patches().cloned())
         .vortex_expect("")
-        .into_array()
+        .into_array();
+    a.statistics().compute_is_constant();
+    a
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[
@@ -78,7 +85,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 ];
 
 #[divan::bench(
-        types = [u8, u32, i16, u64, f32, f64],
+        types = [u8, u32, i16, i64, f32, f64],
         args = BENCH_ARGS,
     )]
 fn raw_prim_test_compare<T>(bencher: Bencher, (len, max_value): (usize, usize))
@@ -127,33 +134,3 @@ where
         compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect("")
     })
 }
-
-// #[divan::bench(types=[u8, u16, u32, u64], consts = [2,3,5,7])]
-// fn bitpacking_cmp_fused<T, const W: usize>(bencher: Bencher)
-// where
-//     T: BitPacking + FastLanesComparable<Bitpacked = T> + FromPrimitive + Copy,
-//     T: BitPacking + BitPackingCompare + Copy,
-//     [(); 128 * W / size_of::<T>()]:,
-// {
-//     let value = T::from_usize(1).expect("");
-//     let values = [T::from_usize(2).expect(""); 1024];
-//     let mut packed = [T::zero(); 128 * W / size_of::<T>()];
-//
-//     unsafe { BitPacking::unchecked_pack(W, &values, &mut packed) };
-//
-//     let mut unpacked = [false; 1024];
-//
-//     bencher.bench_local(|| {
-//         unsafe {
-//             unchecked_unpack_cmp_impl(W, &packed, &mut unpacked, Operator::Gte, value);
-//             // BitPackingCompare::unchecked_unpack_cmp(
-//             //     W,
-//             //     &packed,
-//             //     &mut unpacked,
-//             //     |a, b| a == b,
-//             //     black_box(value),
-//             // );
-//             // black_box(unpacked)
-//         };
-//     });
-// }
