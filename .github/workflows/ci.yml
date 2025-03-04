@@ -42,9 +42,11 @@ jobs:
           echo '[net]' >> ~/.cargo/config.toml
           echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
 
-      - name: Install Codspeed
+      - name: Install Codspeed manually
         shell: bash
-        run: cargo install --git ssh://git@github.com/spiraldb/codspeed-rust.git
+        run: |
+          git clone --depth 1 https://github.com/spiraldb/codspeed-rust.git
+          cargo install --path codspeed-rust --force --no-default-features --bin cargo-codspeed --locked
 
       - name: Build benchmarks
         env:
