@@ -233,15 +233,14 @@ impl Patches {
             let index = usize::try_from(&scalar_at(self.indices(), index_idx)?)? - self.offset;
             Ok(match sr {
                 // If we reached the end of patched values when searching then the result is one after the last patch index
-                SearchResult::Found(i) => SearchResult::Found(if i == self.indices().len() {
-                    index + 1
-                } else {
-                    if side == SearchSortedSide::Left {
-                        index
-                    } else {
-                        index + 1
-                    }
-                }),
+                SearchResult::Found(i) => SearchResult::Found(
+                    index
+                        + if i == self.indices().len() || side == SearchSortedSide::Right {
+                            1
+                        } else {
+                            0
+                        },
+                ),
                 // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
                 SearchResult::NotFound(i) => {
                     SearchResult::NotFound(if i == 0 { index } else { index + 1 })
