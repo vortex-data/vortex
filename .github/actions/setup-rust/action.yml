@@ -26,6 +26,10 @@ runs:
       run: ls "$HOME/.cargo/bin"
       shell: bash
 
+    - name: Print rustc version
+      run: rustc --version
+      shell: bash
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@master
@@ -49,6 +53,7 @@ runs:
         echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
         echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+
     - name: Export Path
       shell: bash
       run: echo "PATH=$PATH" >> $GITHUB_ENV
