@@ -5,7 +5,8 @@ use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    IsConstantFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn, try_cast,
+    IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn,
+    try_cast,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -17,6 +18,7 @@ mod fill_null;
 mod filter;
 mod invert;
 mod is_constant;
+mod is_sorted;
 mod mask;
 mod min_max;
 mod scalar_at;
@@ -55,6 +57,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 
