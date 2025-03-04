@@ -30,16 +30,9 @@ jobs:
       # - extras=s3-cache
 
     steps:
-      - name: Rust Version
-        id: rust-version
-        shell: bash
-        run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
-
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: "nightly-2025-02-24-x86_64-unknown-linux-gnu"
+      - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
