@@ -669,4 +669,37 @@ mod test {
             Mask::from_iter(vec![true])
         );
     }
+
+    #[test]
+    fn test_slice() {
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
+
+        let patches = Patches::new(101, 0, indices, values);
+
+        let sliced = patches.slice(15, 100).unwrap().unwrap();
+        assert_eq!(sliced.array_len(), 100 - 15);
+        let primitive = sliced.values().to_primitive().unwrap();
+
+        assert_eq!(primitive.as_slice::<u32>(), &[13531]);
+    }
+
+    #[test]
+    fn doubly_sliced() {
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
+
+        let patches = Patches::new(101, 0, indices, values);
+
+        let sliced = patches.slice(15, 100).unwrap().unwrap();
+        assert_eq!(sliced.array_len(), 100 - 15);
+        let primitive = sliced.values().to_primitive().unwrap();
+
+        assert_eq!(primitive.as_slice::<u32>(), &[13531]);
+
+        let doubly_sliced = sliced.slice(35, 36).unwrap().unwrap();
+        let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
+
+        assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
+    }
 }

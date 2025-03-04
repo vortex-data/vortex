@@ -11,7 +11,7 @@ use crate::Array;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
     Left,
     Right,

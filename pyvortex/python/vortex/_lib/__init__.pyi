@@ -1,3 +1,0 @@
-import vortex as vx
-
-def register(cls: type[vx.PyEncoding]): ...

@@ -68,6 +68,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 
+impl From<DType> for PyDType {
+    fn from(dtype: DType) -> Self {
+        Self(dtype)
+    }
+}
+
 impl Deref for PyDType {
     type Target = DType;
 

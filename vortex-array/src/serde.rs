@@ -205,9 +205,10 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
     }
 }
 
-/// [`ArrayParts`] represents the information from an [`ArrayRef`] that makes up the serialized
-/// form. For example, it uses stores integer encoding IDs rather than a reference to an encoding
-/// vtable, and it doesn't store any [`DType`] information.
+/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`Array`].
+/// It contains all the information from the serialized form, without anything extra. i.e.
+/// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
+/// vtable.
 ///
 /// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 #[derive(Clone)]
@@ -303,16 +304,6 @@ impl ArrayParts {
         self.with_root(children.get(idx))
     }
 
-    /// Iterate the children of this array.
-    pub fn children(&self) -> Vec<ArrayParts> {
-        self.flatbuffer()
-            .children()
-            .iter()
-            .flat_map(|children| children.iter())
-            .map(move |child| self.with_root(child))
-            .collect()
-    }
-
     /// Returns the number of buffers.
     pub fn nbuffers(&self) -> usize {
         self.flatbuffer()
@@ -366,6 +357,10 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let value = value.aligned(Alignment::none());
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
+        if value.len() < 4 + fb_length {
+            vortex_bail!("ArrayParts buffer is too short for flatbuffer");
+        }
+
         let fb_offset = value.len() - 4 - fb_length;
         let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
         let fb_buffer = FlatBuffer::align_from(fb_buffer);

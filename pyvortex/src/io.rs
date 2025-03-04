@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
@@ -7,7 +5,7 @@ use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamArrayExt;
 
-use crate::arrays::PyArray;
+use crate::arrays::PyArrayRef;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
 use crate::{TOKIO_RUNTIME, install_module};
@@ -124,10 +122,10 @@ pub fn read_path<'py>(
     path: Bound<'py, PyString>,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
-    indices: Option<&PyArray>,
-) -> PyResult<Bound<'py, PyArray>> {
+    indices: Option<PyArrayRef>,
+) -> PyResult<PyArrayRef> {
     let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
-    dataset.to_array(path.py(), projection, row_filter, indices)
+    dataset.to_array(projection, row_filter, indices)
 }
 
 /// Read a vortex struct array from a URL.
@@ -178,10 +176,10 @@ pub fn read_url<'py>(
     url: Bound<'py, PyString>,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
-    indices: Option<&PyArray>,
-) -> PyResult<Bound<'py, PyArray>> {
+    indices: Option<PyArrayRef>,
+) -> PyResult<PyArrayRef> {
     let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
-    dataset.to_array(url.py(), projection, row_filter, indices)
+    dataset.to_array(projection, row_filter, indices)
 }
 
 /// Write a vortex struct array to the local filesystem.
@@ -211,9 +209,7 @@ pub fn read_url<'py>(
 ///
 #[pyfunction]
 #[pyo3(signature = (array, path))]
-pub fn write_path(array: PyArray, path: &str) -> PyResult<()> {
-    let array = array.deref().clone();
-
+pub fn write_path(array: PyArrayRef, path: &str) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
             .write(File::create(path).await?, array.to_array_stream())

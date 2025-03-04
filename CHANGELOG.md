@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-metrics` - [0.25.2](https://github.com/spiraldb/vortex/releases/tag/vortex-metrics-v0.25.2) - 2025-03-03
+
+### Fixed
+- update setup instructions (rye -> uv) ([#1176](https://github.com/spiraldb/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- *(deps)* update all patch updates (patch) ([#2339](https://github.com/spiraldb/vortex/pull/2339))
+- *(deps)* update rust crate getrandom to 0.3.0 ([#2074](https://github.com/spiraldb/vortex/pull/2074))
+- emit per partition and per file metrics in VortexExec ([#2431](https://github.com/spiraldb/vortex/pull/2431))
+- read and coalescing metrics ([#2413](https://github.com/spiraldb/vortex/pull/2413))
+- remove unused Decimal dtype in proto/fbs ([#2156](https://github.com/spiraldb/vortex/pull/2156))
+- Add bibtex to docs ([#2094](https://github.com/spiraldb/vortex/pull/2094))
+- link docs from README ([#1521](https://github.com/spiraldb/vortex/pull/1521))
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-btrblocks` - [0.25.2](https://github.com/spiraldb/vortex/releases/tag/vortex-btrblocks-v0.25.2) - 2025-03-03
+
+### Added
+- Refining`Statistics`, `StatsSet` and related functionality ([#2522](https://github.com/spiraldb/vortex/pull/2522))
+- is_constant VTable ([#2476](https://github.com/spiraldb/vortex/pull/2476))
+- use BtrBlocks compressor in vortex-file strategy ([#2423](https://github.com/spiraldb/vortex/pull/2423))
+- btrblocks compressor v0 ([#2247](https://github.com/spiraldb/vortex/pull/2247))
+
+### Fixed
+- Avoid overflow when computing FoR's difference of min and max ([#2549](https://github.com/spiraldb/vortex/pull/2549))
+- BtrBlocks stats distinct count doesn't ignore last value ([#2534](https://github.com/spiraldb/vortex/pull/2534))
+- more robust handling of empty array compression ([#2520](https://github.com/spiraldb/vortex/pull/2520))
+- *(btrblocks)* do not attempt BP with current ptype width ([#2428](https://github.com/spiraldb/vortex/pull/2428))
+- codspeed build ([#2422](https://github.com/spiraldb/vortex/pull/2422))
+- update setup instructions (rye -> uv) ([#1176](https://github.com/spiraldb/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- Remove sampling compressor ([#2497](https://github.com/spiraldb/vortex/pull/2497))
+- Some fixes to BtrBlocks compressor ([#2500](https://github.com/spiraldb/vortex/pull/2500))
+- Move to the 2024 rust edition ([#2490](https://github.com/spiraldb/vortex/pull/2490))
+- Dispatch statistics to compute ([#2477](https://github.com/spiraldb/vortex/pull/2477))
+- *(deps)* update rust crate rand to 0.9.0 ([#2082](https://github.com/spiraldb/vortex/pull/2082))
+- Array Traits ([#2463](https://github.com/spiraldb/vortex/pull/2463))
+- *(deps)* update rust crate getrandom to 0.3.0 ([#2074](https://github.com/spiraldb/vortex/pull/2074))
+- divan runs single threaded by default ([#2450](https://github.com/spiraldb/vortex/pull/2450))
+- minor datafusion improvement and make all eprintln use proper logging ([#2438](https://github.com/spiraldb/vortex/pull/2438))
+- Small one: vortex::array -> vortex::arrays ([#2426](https://github.com/spiraldb/vortex/pull/2426))
+- clean up cfg codspeed handling ([#2424](https://github.com/spiraldb/vortex/pull/2424))
+- remove unused Decimal dtype in proto/fbs ([#2156](https://github.com/spiraldb/vortex/pull/2156))
+- Add bibtex to docs ([#2094](https://github.com/spiraldb/vortex/pull/2094))
+- link docs from README ([#1521](https://github.com/spiraldb/vortex/pull/1521))
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
 ## `vortex-metrics` - [0.25.1](https://github.com/spiraldb/vortex/releases/tag/vortex-metrics-v0.25.1) - 2025-03-03
 
 ### Fixed

@@ -90,7 +90,7 @@ mod test {
     fn nonexistent_take() {
         let sparse = sparse_array();
         let taken = take(&sparse, &buffer![69].into_array()).unwrap();
-        assert!(taken.len() == 1);
+        assert_eq!(taken.len(), 1);
         assert_eq!(scalar_at(&taken, 0).unwrap(), test_array_fill_value());
     }
 
