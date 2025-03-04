@@ -73,3 +73,16 @@ impl Operator {
         }
     }
 }
+
+impl From<compute::Operator> for Operator {
+    fn from(cmp_operator: compute::Operator) -> Self {
+        match cmp_operator {
+            compute::Operator::Eq => Operator::Eq,
+            compute::Operator::NotEq => Operator::NotEq,
+            compute::Operator::Gt => Operator::Gt,
+            compute::Operator::Gte => Operator::Gte,
+            compute::Operator::Lt => Operator::Lt,
+            compute::Operator::Lte => Operator::Lte,
+        }
+    }
+}

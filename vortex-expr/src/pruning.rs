@@ -13,6 +13,7 @@ use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::between::Between;
 use crate::{
     BinaryExpr, ExprRef, GetItem, Identity, Literal, Not, Operator, VortexExprExt, and, eq,
     get_item, gt, ident, lit, not, or,
@@ -224,6 +225,10 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
                 bexp.lhs(),
             );
         };
+    }
+
+    if let Some(between_expr) = expr.as_any().downcast_ref::<Between>() {
+        return convert_to_pruning_expression(&between_expr.to_binary_expr());
     }
 
     not_prunable()

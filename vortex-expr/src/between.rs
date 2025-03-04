@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{BinaryExpr, ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -32,6 +32,20 @@ impl Between {
             upper,
             options,
         })
+    }
+
+    pub fn to_binary_expr(&self) -> ExprRef {
+        let lhs = BinaryExpr::new_expr(
+            self.lower.clone(),
+            self.options.lower_strict.to_operator().into(),
+            self.arr.clone(),
+        );
+        let rhs = BinaryExpr::new_expr(
+            self.arr.clone(),
+            self.options.upper_strict.to_operator().into(),
+            self.upper.clone(),
+        );
+        BinaryExpr::new_expr(lhs, crate::Operator::And, rhs)
     }
 }
 
