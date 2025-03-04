@@ -7,16 +7,16 @@ use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, slice, take, try_cast,
+    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    take, try_cast, SearchResult, SearchSortedSide,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -218,7 +218,7 @@ impl Patches {
     }
 
     /// Return the insertion point of [index] in the [Self::indices].
-    pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
         search_sorted_usize(&self.indices, index + self.offset, SearchSortedSide::Left)
     }
 
