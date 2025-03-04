@@ -53,7 +53,6 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 {
                     sorted = BtrBlocksCompressor.compress(&sorted).unwrap();
                 }
-
                 assert_search_sorted(sorted, s, side, expected.search(), i)
             }
             Action::Filter(mask) => {
