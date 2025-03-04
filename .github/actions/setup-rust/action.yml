@@ -34,11 +34,11 @@ runs:
       run: rustc --version
       shell: bash
 
-    - name: Rust Toolchain
-      id: rust-toolchain
-      uses: dtolnay/rust-toolchain@master
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
-      with:
-        toolchain: "${{ steps.rust-version.outputs.version }}"
-        targets: "${{inputs.targets || ''}}"
-        components: clippy, rustfmt, miri, llvm-tools-preview
+    # - name: Rust Toolchain
+    #   id: rust-toolchain
+    #   uses: dtolnay/rust-toolchain@master
+    #   if: steps.rustup-cache.outputs.cache-hit != 'true'
+    #   with:
+    #     toolchain: "${{ steps.rust-version.outputs.version }}"
+    #     targets: "${{inputs.targets || ''}}"
+    #     components: clippy, rustfmt, miri, llvm-tools-preview
