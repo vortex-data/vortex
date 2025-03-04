@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Codspeed
         shell: bash
-        run: cargo install --force cargo-codspeed --locked
+        run: cargo install --force cargo-codspeed --git https://github.com/spiraldb/codspeed-rust.git --no-default-features --locked
 
       - name: Build benchmarks
         env:
@@ -55,7 +55,6 @@ jobs:
             --profile bench
 
       - name: Run benchmarks
-        uses: spiraldb/codspeed-gh-action@main
-        with:
-          run: RUST_BACKTRACE=1 cargo codspeed run
+        run: |
+          cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
