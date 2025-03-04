@@ -30,9 +30,13 @@ jobs:
       # - extras=s3-cache
 
     steps:
-      - uses: actions/checkout@v4
       - uses: runs-on/action@v1
-      - uses: ./.github/actions/setup-rust
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
 
       - name: Install Codspeed
         shell: bash
