@@ -19,46 +19,44 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
         match patches_result {
             SearchResult::Found(i) => Ok(SearchResult::Found(i)),
             SearchResult::NotFound(i) => {
+                // In not found case we need to find the relative position of fill value to the patches
                 let fill_result = if array.fill_scalar().is_null() {
+                    // For null fill the patches can only ever be after the fill
                     SearchResult::NotFound(array.patches().min_index()?)
                 } else {
                     array
                         .patches()
                         .search_sorted(array.fill_scalar().clone(), side)?
                 };
-                let fill_index = fill_result.to_index();
-                let min_index = array.patches().min_index()?;
-                let max_index = array.patches().max_index()?;
-                let value_index = match side {
-                    SearchSortedSide::Left => {
-                        if fill_index <= min_index {
-                            0
-                        } else if fill_index > max_index {
-                            array.len()
-                        } else {
-                            fill_index
-                        }
-                    }
-                    SearchSortedSide::Right => {
-                        if fill_index <= min_index {
-                            0
-                        } else if fill_index > min_index {
-                            array.len() - array.patches().num_patches() + fill_index
-                        } else {
-                            fill_index
+                let fill_result_index = fill_result.to_index();
+                // Find the relevant position of the fill value in the patches
+                let fill_index = if fill_result_index <= array.patches().min_index()? {
+                    // [fill, ..., patch]
+                    0
+                } else if fill_result_index > array.patches().max_index()? {
+                    // [patch, ..., fill]
+                    array.len()
+                } else {
+                    // [patch, fill, ..., fill, patch]
+                    match side {
+                        SearchSortedSide::Left => fill_result_index,
+                        SearchSortedSide::Right => {
+                            array.len() - array.patches().num_patches() + fill_result_index
                         }
                     }
                 };
+
+                // Adjust the position of the search value relative to the position of the fill value
                 match value
                     .partial_cmp(array.fill_scalar())
                     .vortex_expect("value and fill scalar must have same dtype")
                 {
-                    Ordering::Less => Ok(SearchResult::NotFound(i.min(value_index))),
+                    Ordering::Less => Ok(SearchResult::NotFound(i.min(fill_index))),
                     Ordering::Equal => match side {
-                        SearchSortedSide::Left => Ok(SearchResult::Found(i.min(value_index))),
-                        SearchSortedSide::Right => Ok(SearchResult::Found(i.max(value_index))),
+                        SearchSortedSide::Left => Ok(SearchResult::Found(i.min(fill_index))),
+                        SearchSortedSide::Right => Ok(SearchResult::Found(i.max(fill_index))),
                     },
-                    Ordering::Greater => Ok(SearchResult::NotFound(i.max(value_index))),
+                    Ordering::Greater => Ok(SearchResult::NotFound(i.max(fill_index))),
                 }
             }
         }
