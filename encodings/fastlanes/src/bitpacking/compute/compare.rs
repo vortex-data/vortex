@@ -4,7 +4,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_bytebool::ByteBoolArray;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -41,14 +41,33 @@ impl CompareFn<&BitPackedArray> for BitPackedEncoding {
             Mask::AllFalse(lhs.len())
         })?;
 
+        // We exact that `rhs` scalar value fits into the bit_width domain, otherwise we can skip the comparison
+        // and that the bit_width domain is less than the type::BITS, e.g. W <= 8 for u8, so we can cast
+        // from uX to iX.
         let res = match lhs.ptype() {
-            PType::U8 => compare_impl::<u8>(lhs, rhs, operator),
-            PType::U16 => compare_impl::<u16>(lhs, rhs, operator),
-            PType::U32 => compare_impl::<u32>(lhs, rhs, operator),
-            PType::U64 => compare_impl::<u64>(lhs, rhs, operator),
+            PType::U8 => compare_impl::<i8>(
+                lhs,
+                rhs.cast(&DType::Primitive(PType::I8, rhs.is_null().into()))?,
+                operator,
+            ),
             PType::I8 => compare_impl::<i8>(lhs, rhs, operator),
+            PType::U16 => compare_impl::<i16>(
+                lhs,
+                rhs.cast(&DType::Primitive(PType::I16, rhs.is_null().into()))?,
+                operator,
+            ),
             PType::I16 => compare_impl::<i16>(lhs, rhs, operator),
+            PType::U32 => compare_impl::<i32>(
+                lhs,
+                rhs.cast(&DType::Primitive(PType::I32, rhs.is_null().into()))?,
+                operator,
+            ),
             PType::I32 => compare_impl::<i32>(lhs, rhs, operator),
+            PType::U64 => compare_impl::<i64>(
+                lhs,
+                rhs.cast(&DType::Primitive(PType::I64, rhs.is_null().into()))?,
+                operator,
+            ),
             PType::I64 => compare_impl::<i64>(lhs, rhs, operator),
             _ => return Ok(None),
         };
@@ -133,6 +152,7 @@ where
     Ok(Some(output.freeze()))
 }
 
+/// TODO(joe); fix me with inversions
 pub unsafe fn unchecked_unpack_cmp_impl<T>(
     width: usize,
     input: &[T::Bitpacked],
@@ -144,23 +164,36 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
     T::Bitpacked: NativePType + BitPackingCompare,
 {
     match comparison {
-        Operator::Eq => unsafe {
+        Operator::Eq | Operator::NotEq => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a == b, value)
         },
-        Operator::NotEq => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
-        },
+        // replace with negate end
+        // Operator::NotEq => unsafe {
+        //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
+        // },
         Operator::Gte => unsafe {
             BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
         },
         Operator::Gt => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a > b, value)
+            BitPackingCompare::unchecked_unpack_cmp(
+                width,
+                input,
+                output,
+                |a, b| a >= b,
+                value + T::one(),
+            )
         },
         Operator::Lte => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a <= b, value)
+            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
         },
         Operator::Lt => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a < b, value)
+            BitPackingCompare::unchecked_unpack_cmp(
+                width,
+                input,
+                output,
+                |a, b| a >= b,
+                value - T::one(),
+            )
         },
     };
 }
