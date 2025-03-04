@@ -33,27 +33,27 @@ use crate::nullability::Nullability::NonNullable;
 #[repr(u8)]
 pub enum PType {
     /// An 8-bit unsigned integer
-    U8,
+    U8 = 0,
     /// A 16-bit unsigned integer
-    U16,
+    U16 = 1,
     /// A 32-bit unsigned integer
-    U32,
+    U32 = 2,
     /// A 64-bit unsigned integer
-    U64,
+    U64 = 3,
     /// An 8-bit signed integer
-    I8,
+    I8 = 4,
     /// A 16-bit signed integer
-    I16,
+    I16 = 5,
     /// A 32-bit signed integer
-    I32,
+    I32 = 6,
     /// A 64-bit signed integer
-    I64,
+    I64 = 7,
     /// A 16-bit floating point number
-    F16,
+    F16 = 8,
     /// A 32-bit floating point number
-    F32,
+    F32 = 9,
     /// A 64-bit floating point number
-    F64,
+    F64 = 10,
 }
 
 /// A trait for native Rust types that correspond 1:1 to a PType

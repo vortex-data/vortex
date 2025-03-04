@@ -13,7 +13,9 @@ class NullDType(DType): ...
 class BoolDType(DType): ...
 
 @final
-class PrimitiveDType(DType): ...
+class PrimitiveDType(DType):
+    @property
+    def ptype(self) -> PType: ...
 
 @final
 class Utf8DType(DType): ...
@@ -31,6 +33,20 @@ class ListDType(DType): ...
 
 @final
 class ExtensionDType(DType): ...
+
+@final
+class PType:
+    U8: PType
+    U16: PType
+    U32: PType
+    U64: PType
+    I8: PType
+    I16: PType
+    I32: PType
+    I64: PType
+    F16: PType
+    F32: PType
+    F64: PType
 
 def null() -> DType: ...
 def bool_(*, nullable: bool = False) -> DType: ...

@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 pub(crate) mod arrays;
 mod compress;
 mod dataset;
-mod dtype;
+pub(crate) mod dtype;
 mod expr;
 mod io;
 mod object_store_urls;

@@ -5,6 +5,7 @@ mod factory;
 mod list;
 mod null;
 mod primitive;
+mod ptype;
 mod struct_;
 mod utf8;
 
@@ -12,6 +13,7 @@ use std::ops::Deref;
 
 use arrow::datatypes::{DataType, Field};
 use arrow::pyarrow::FromPyArrow;
+pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
@@ -40,6 +42,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     // Register the DType class.
     m.add_class::<PyDType>()?;
+    m.add_class::<PyPType>()?;
     m.add_class::<PyNullDType>()?;
     m.add_class::<PyBoolDType>()?;
     m.add_class::<PyPrimitiveDType>()?;
@@ -65,7 +68,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 /// Base class for all Vortex data types.
 #[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 
 impl From<DType> for PyDType {
