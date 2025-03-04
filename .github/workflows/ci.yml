@@ -55,7 +55,7 @@ jobs:
             --profile bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: spiraldb/codspeed-gh-action@main
         with:
           run: RUST_BACKTRACE=1 cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
