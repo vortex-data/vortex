@@ -44,7 +44,8 @@ jobs:
 
       - name: Install Codspeed
         shell: bash
-        run: cargo install --force cargo-codspeed --git https://github.com/spiraldb/codspeed-rust.git --no-default-features --locked --bin cargo-codspeed
+        run: cargo install --git ssh://git@github.com/spiraldb/codspeed-rust.git
+
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
