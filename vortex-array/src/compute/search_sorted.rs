@@ -61,11 +61,11 @@ impl SearchResult {
     pub fn to_offsets_index(self, len: usize, side: SearchSortedSide) -> usize {
         match self {
             SearchResult::Found(i) => {
-                if i == len {
-                    i - 1
+                i.saturating_sub(if side == SearchSortedSide::Right || i == len {
+                    1
                 } else {
-                    i.saturating_sub(if side == SearchSortedSide::Left { 0 } else { 1 })
-                }
+                    0
+                })
             }
             SearchResult::NotFound(i) => i.saturating_sub(1),
         }
