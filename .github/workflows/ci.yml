@@ -6,15 +6,15 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: '-A warnings'
+      RUSTFLAGS: "-A warnings"
     strategy:
       fail-fast: false
       matrix:
@@ -257,7 +257,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run
+          run: RUST_BACKTRACE=1 cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   license-check-and-audit-check:
