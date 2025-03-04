@@ -1,11 +1,11 @@
-//! Convert between Vortex [vortex_dtype::DType] and Apache Arrow [arrow_schema::DataType].
+//! Convert between Vortex [`crate::DType`] and Apache Arrow [`arrow_schema::DataType`].
 //!
 //! Apache Arrow's type system includes physical information, which could lead to ambiguities as
 //! Vortex treats encodings as separate from logical types.
 //!
-//! [`infer_schema`] and its sibling [`infer_data_type`] use a simple algorithm, where every
-//! logical type is encoded in its simplest corresponding Arrow type. This reflects the reality that
-//! most compute engines don't make use of the entire type range arrow-rs supports.
+//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow_dtype`] use a simple algorithm,
+//! where every logical type is encoded in its simplest corresponding Arrow type. This reflects the
+//! reality that most compute engines don't make use of the entire type range arrow-rs supports.
 //!
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
