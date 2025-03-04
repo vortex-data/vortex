@@ -17,34 +17,21 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
         // first search result in patches
         let patches_result = array.patches().search_sorted(value.clone(), side)?;
         match patches_result {
-            SearchResult::Found(i) => Ok(SearchResult::Found(i)),
-            SearchResult::NotFound(i) => {
-                // In not found case we need to find the relative position of fill value to the patches
-                let fill_result = if array.fill_scalar().is_null() {
-                    // For null fill the patches can only ever be after the fill
-                    SearchResult::NotFound(array.patches().min_index()?)
-                } else {
-                    array
-                        .patches()
-                        .search_sorted(array.fill_scalar().clone(), side)?
-                };
-                let fill_result_index = fill_result.to_index();
-                // Find the relevant position of the fill value in the patches
-                let fill_index = if fill_result_index <= array.patches().min_index()? {
-                    // [fill, ..., patch]
-                    0
-                } else if fill_result_index > array.patches().max_index()? {
-                    // [patch, ..., fill]
-                    array.len()
-                } else {
-                    // [patch, fill, ..., fill, patch]
+            SearchResult::Found(i) => {
+                if value == array.fill_scalar() {
+                    // Find the relevant position of the fill value in the patches
+                    let fill_index = fill_position(array, side)?;
                     match side {
-                        SearchSortedSide::Left => fill_result_index,
-                        SearchSortedSide::Right => {
-                            array.len() - array.patches().num_patches() + fill_result_index
-                        }
+                        SearchSortedSide::Left => Ok(SearchResult::Found(i.min(fill_index))),
+                        SearchSortedSide::Right => Ok(SearchResult::Found(i.max(fill_index))),
                     }
-                };
+                } else {
+                    Ok(SearchResult::Found(i))
+                }
+            }
+            SearchResult::NotFound(i) => {
+                // Find the relevant position of the fill value in the patches
+                let fill_index = fill_position(array, side)?;
 
                 // Adjust the position of the search value relative to the position of the fill value
                 match value
@@ -61,6 +48,38 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
             }
         }
     }
+}
+
+fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<usize> {
+    // In not found case we need to find the relative position of fill value to the patches
+    let fill_result = if array.fill_scalar().is_null() {
+        // For null fill the patches can only ever be after the fill
+        SearchResult::NotFound(array.patches().min_index()?)
+    } else {
+        array
+            .patches()
+            .search_sorted(array.fill_scalar().clone(), side)?
+    };
+    let fill_result_index = fill_result.to_index();
+    // Find the relevant position of the fill value in the patches
+    Ok(if fill_result_index <= array.patches().min_index()? {
+        // [fill, ..., patch]
+        0
+    } else if fill_result_index > array.patches().max_index()? {
+        // [patch, ..., fill]
+        array.len()
+    } else {
+        // [patch, fill, ..., fill, patch]
+        match side {
+            SearchSortedSide::Left => fill_result_index,
+            SearchSortedSide::Right => match fill_result {
+                SearchResult::Found(i) => i,
+                SearchResult::NotFound(_) => {
+                    array.len() - array.patches().num_patches() + fill_result_index
+                }
+            },
+        }
+    })
 }
 
 impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
@@ -130,6 +149,50 @@ mod tests {
             buffer![11i32, 22, 33, 44, 55].into_array(),
             20,
             Scalar::primitive(30, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn sparse_high_fill_in_patches() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![17u64, 18, 19].into_array(),
+            buffer![33_i32, 44, 55].into_array(),
+            20,
+            Scalar::primitive(33, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn sparse_low_fill_in_patches() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 1, 2].into_array(),
+            buffer![33_i32, 44, 55].into_array(),
+            20,
+            Scalar::primitive(55, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 1, 17, 18, 19].into_array(),
+            buffer![11i32, 22, 33, 44, 55].into_array(),
+            20,
+            Scalar::primitive(22, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 1, 17, 18, 19].into_array(),
+            buffer![11i32, 22, 33, 44, 55].into_array(),
+            20,
+            Scalar::primitive(33, Nullability::NonNullable),
         )
         .unwrap()
         .into_array()
@@ -233,6 +296,26 @@ mod tests {
         Scalar::primitive(30, Nullability::NonNullable),
         SearchResult::Found(2)
     )]
+    #[case(
+        sparse_high_fill_in_patches(),
+        Scalar::primitive(33, Nullability::NonNullable),
+        SearchResult::Found(0)
+    )]
+    #[case(
+        sparse_low_fill_in_patches(),
+        Scalar::primitive(55, Nullability::NonNullable),
+        SearchResult::Found(2)
+    )]
+    #[case(
+        sparse_low_high_fill_in_patches_low(),
+        Scalar::primitive(22, Nullability::NonNullable),
+        SearchResult::Found(1)
+    )]
+    #[case(
+        sparse_low_high_fill_in_patches_high(),
+        Scalar::primitive(33, Nullability::NonNullable),
+        SearchResult::Found(17)
+    )]
     fn search_fill_left(
         #[case] array: ArrayRef,
         #[case] search: Scalar,
@@ -259,6 +342,26 @@ mod tests {
         sparse_low_high(),
         Scalar::primitive(30, Nullability::NonNullable),
         SearchResult::Found(17)
+    )]
+    #[case(
+        sparse_high_fill_in_patches(),
+        Scalar::primitive(33, Nullability::NonNullable),
+        SearchResult::Found(18)
+    )]
+    #[case(
+        sparse_low_fill_in_patches(),
+        Scalar::primitive(55, Nullability::NonNullable),
+        SearchResult::Found(20)
+    )]
+    #[case(
+        sparse_low_high_fill_in_patches_low(),
+        Scalar::primitive(22, Nullability::NonNullable),
+        SearchResult::Found(17)
+    )]
+    #[case(
+        sparse_low_high_fill_in_patches_high(),
+        Scalar::primitive(33, Nullability::NonNullable),
+        SearchResult::Found(18)
     )]
     fn search_fill_right(
         #[case] array: ArrayRef,

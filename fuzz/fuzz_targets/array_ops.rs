@@ -65,10 +65,6 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     Corpus::Keep
 });
 
-fn fuzz_compress(array: &dyn Array, compressor: &BtrBlocksCompressor) -> ArrayRef {
-    compressor.compress(array).unwrap()
-}
-
 fn assert_search_sorted(
     array: ArrayRef,
     s: Scalar,
