@@ -193,7 +193,6 @@ pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> *
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType {
     assert!(!dtype.is_null(), "DType_element_type: null ptr");
-    let dtype = non_null!(&*dtype, returning: std::ptr::null());
 
     let DType::List(element_dtype, _) = &*dtype else {
         panic!("DType_element_type: not a list dtype")
@@ -244,16 +243,12 @@ pub unsafe extern "C" fn DType_time_zone(dtype: *const DType, dst: *mut c_void, 
         panic!("DType_time_unit: not a time dtype")
     };
 
-    if let Ok(temporal) = TemporalMetadata::try_from(ext_dtype) {
-        if let TemporalMetadata::Timestamp(_, zone) = temporal {
-            if let Some(zone) = zone {
-                let bytes = zone.as_bytes();
-                let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
-                dst.copy_from_slice(bytes);
-                *len = bytes.len().try_into().vortex_unwrap();
-                return;
-            }
-        }
+    if let Ok(TemporalMetadata::Timestamp(_, Some(zone))) = TemporalMetadata::try_from(ext_dtype) {
+        let bytes = zone.as_bytes();
+        let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+        dst.copy_from_slice(bytes);
+        *len = bytes.len().try_into().vortex_unwrap();
+        return;
     }
 
     panic!("DType_time_zone: not a timestamp metadata")

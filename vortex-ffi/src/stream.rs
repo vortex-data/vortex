@@ -66,7 +66,7 @@ pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) 
 /// This function is unsafe because it dereferences the `stream` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> *mut FFIArray {
-    let stream = non_null!(&mut *stream, returning: std::ptr::null_mut());
+    let stream = &mut *stream;
 
     let current = stream
         .current
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> 
 /// Free the array stream and all associated resources.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_free(stream: *mut FFIArrayStream) -> i32 {
-    let mut stream = non_null!(Box::from_raw(stream), returning: -1);
+    let mut stream = Box::from_raw(stream);
 
     if let Some(current) = stream.current.take() {
         FFIArray_free(Box::into_raw(current));

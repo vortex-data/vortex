@@ -23,7 +23,7 @@ pub struct FFIArray {
 /// Get the length of the array.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
-    let array = non_null!(&*ffi_array, returning: u64::MAX);
+    let array = &*ffi_array;
 
     array.inner.len() as u64
 }
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
 /// for ensuring that it is never dereferenced after the array has been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_dtype(ffi_array: *const FFIArray) -> *const DType {
-    let array = non_null!(&*ffi_array, returning: std::ptr::null());
+    let array = &*ffi_array;
 
     array.inner.dtype()
 }
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
     ffi_array: *const FFIArray,
     index: u32,
 ) -> *const FFIArray {
-    let array = non_null!(&*ffi_array, returning: std::ptr::null());
+    let array = &*ffi_array;
 
     let field_array = array
         .inner
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
 /// Free the array and all associated resources.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_free(ffi_array: *mut FFIArray) -> i32 {
-    let boxed = non_null!(Box::from_raw(ffi_array), returning: -1);
+    let boxed = Box::from_raw(ffi_array);
     drop(boxed);
 
     0
