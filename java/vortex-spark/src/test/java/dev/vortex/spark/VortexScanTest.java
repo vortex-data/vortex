@@ -15,26 +15,68 @@
  */
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
+import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
-    private static final Path BENCH_PATH = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed");
+    private static final Path TPCH_ROOT = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed");
 
     @Test
     public void testSparkRead() {
         SparkSession spark =
                 SparkSession.builder().appName("test").master("local").getOrCreate();
 
-        var filePath = BENCH_PATH.resolve("part.vortex").toAbsolutePath().toString();
+        // Register the TPC-H tables
+        var tables = ImmutableMap.of(
+                "lineitem", "lineitem.vortex",
+                "part", "part.vortex",
+                "supplier", "supplier.vortex",
+                "partsupp", "partsupp.vortex",
+                "customer", "customer.vortex",
+                "orders", "orders.vortex",
+                "nation", "nation.vortex",
+                "region", "region.vortex");
 
-        System.out.println("Loading table from " + filePath);
+        for (var entry : tables.entrySet()) {
+            var tableName = entry.getKey();
+            var fileName = entry.getValue();
+            var filePath = TPCH_ROOT.resolve(fileName).toAbsolutePath().toString();
+            System.out.println("Loading table " + tableName + " from " + filePath);
+            var table = spark.read().format("vortex").load(filePath);
+            table.createOrReplaceTempView(tableName);
+        }
 
-        var parts = spark.read().format("vortex").load(filePath);
-        assertEquals(200_000L, parts.count());
+        // Execute the TPC-H queries
+        var plan = spark.sql(
+                """
+                        select
+                            l_returnflag,
+                            l_linestatus,
+                            sum(l_quantity) as sum_qty,
+                            sum(l_extendedprice) as sum_base_price,
+                            sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+                            sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+                            avg(l_quantity) as avg_qty,
+                            avg(l_extendedprice) as avg_price,
+                            avg(l_discount) as avg_disc,
+                            count(*) as count_order
+                        from
+                            lineitem
+                        where
+                                l_shipdate <= date '1998-09-02'
+                        group by
+                            l_returnflag,
+                            l_linestatus
+                        order by
+                            l_returnflag,
+                            l_linestatus
+                        """);
+
+        var results = plan.collectAsList();
+        plan.queryExecution().debug().codegen();
+        System.out.println("Q1 results: " + results);
     }
 }

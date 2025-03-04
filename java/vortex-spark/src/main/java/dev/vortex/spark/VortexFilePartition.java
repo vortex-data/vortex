@@ -21,7 +21,7 @@ import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.InputPartition;
 
 /**
- * An {link InputPartition} for reading a whole Vortex file.
+ * An {@link InputPartition} for reading a whole Vortex file.
  */
 public final class VortexFilePartition implements InputPartition, Serializable {
     private final String path;

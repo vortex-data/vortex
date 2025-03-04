@@ -25,8 +25,6 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 /**
  * A {@link PartitionReaderFactory} for Vortex file partitions.
- * <p>
- * This class must be serializable as it is shipped to executors at execution time.
  */
 enum ReaderFactory implements PartitionReaderFactory, Serializable {
     INSTANCE;

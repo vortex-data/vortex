@@ -114,12 +114,12 @@ public final class VortexColumnVector extends ColumnVector {
 
     @Override
     public UTF8String getUTF8String(int rowId) {
-        throw new UnsupportedOperationException("TODO(aduffy): implement getUTF8String");
+        return UTF8String.fromString(array.getUTF8(rowId));
     }
 
     @Override
     public byte[] getBinary(int rowId) {
-        throw new UnsupportedOperationException("TODO(aduffy): implement getUTF8String");
+        return array.getBinary(rowId);
     }
 
     @Override

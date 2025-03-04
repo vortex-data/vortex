@@ -24,11 +24,13 @@ import com.sun.jna.ptr.IntByReference;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
 
     // Assumes no field name is > 1KiB
     private static final int MAX_FIELD_LEN = 1024;
+    private static final int MAX_TIMEZONE_LEN = 2048;
 
     private final Variant variant;
 
@@ -115,6 +117,47 @@ public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DTyp
     public DType getElementType() {
         var elementType = FFI.DType_element_type(inner);
         return new NativeDType(elementType);
+    }
+
+    @Override
+    public boolean isDate() {
+        checkNotNull(inner);
+        return FFI.DType_is_date(inner);
+    }
+
+    @Override
+    public boolean isTime() {
+        checkNotNull(inner);
+        return FFI.DType_is_time(inner);
+    }
+
+    @Override
+    public boolean isTimestamp() {
+        checkNotNull(inner);
+        return FFI.DType_is_timestamp(inner);
+    }
+
+    @Override
+    public TimeUnit getTimeUnit() {
+        checkNotNull(inner);
+        return TimeUnit.from(FFI.DType_time_unit(inner));
+    }
+
+    @Override
+    public Optional<String> getTimeZone() {
+        checkNotNull(inner);
+        try (Memory memory = new Memory(MAX_TIMEZONE_LEN)) {
+            var lenRef = new IntByReference();
+            FFI.DType_time_zone(inner, memory, lenRef);
+
+            if (lenRef.getValue() == 0) {
+                return Optional.empty();
+            }
+
+            var data = memory.getByteArray(0, lenRef.getValue());
+            var zone = new String(data, StandardCharsets.UTF_8);
+            return Optional.of(zone);
+        }
     }
 
     @Override

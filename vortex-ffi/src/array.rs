@@ -2,10 +2,12 @@
 //!
 //! The FFIArray provides both type-erased and type-aware access behind an `ArrayRef`.
 
-use vortex::compute::scalar_at;
+use std::ffi::{c_int, c_void};
+
+use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexUnwrap};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
 /// The FFI interface for an [`Array`].
@@ -68,6 +70,18 @@ pub unsafe extern "C" fn FFIArray_free(ffi_array: *mut FFIArray) -> i32 {
     0
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_slice(
+    array: *const FFIArray,
+    start: u32,
+    stop: u32,
+) -> *mut FFIArray {
+    let array = &*array;
+    let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)
+        .vortex_expect("FFIArray_slice: slice");
+    Box::into_raw(Box::new(FFIArray { inner: sliced }))
+}
+
 macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste::paste! {
@@ -76,6 +90,18 @@ macro_rules! ffiarray_get_ptype {
                 let array = &*array;
                 let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
                 value.as_primitive()
+                    .as_::<$ptype>()
+                    .vortex_expect("as_")
+                    .vortex_expect("null value")
+            }
+
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn [<FFIArray_get_storage_ $ptype>](array: *const FFIArray, index: u32) -> $ptype {
+                let array = &*array;
+                let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+                value.as_extension()
+                    .storage()
+                    .as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("as_")
                     .vortex_expect("null value")
@@ -95,6 +121,45 @@ ffiarray_get_ptype!(i64);
 ffiarray_get_ptype!(f16);
 ffiarray_get_ptype!(f32);
 ffiarray_get_ptype!(f64);
+
+/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
+/// the length in `len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_get_utf8(
+    array: *const FFIArray,
+    index: u32,
+    dst: *mut c_void,
+    len: *mut c_int,
+) {
+    let array = &*array;
+    let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+    let utf8_scalar = value.as_utf8();
+    if let Some(buffer) = utf8_scalar.value() {
+        let bytes = buffer.as_bytes();
+        let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+        dst.copy_from_slice(bytes);
+        *len = bytes.len().try_into().vortex_unwrap();
+    }
+}
+
+/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
+/// the length in `len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_get_binary(
+    array: *const FFIArray,
+    index: u32,
+    dst: *mut c_void,
+    len: *mut c_int,
+) {
+    let array = &*array;
+    let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+    let utf8_scalar = value.as_binary();
+    if let Some(bytes) = utf8_scalar.value() {
+        let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+        dst.copy_from_slice(&bytes);
+        *len = bytes.len().try_into().vortex_unwrap();
+    }
+}
 
 #[cfg(test)]
 mod tests {

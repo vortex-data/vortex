@@ -18,17 +18,29 @@ package dev.vortex.impl;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.jakewharton.nopen.annotation.Open;
+import com.sun.jna.Memory;
+import com.sun.jna.ptr.IntByReference;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Core Vortex array type that all logical arrays inherit from.
  */
 @Open
 public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
+    // Assume no strings larger than 1MiB.
+    private static final int MAX_STRING_LEN = 1_024 * 1_024;
+
+    private final boolean isDate;
+    private final boolean isTimestamp;
+
     public NativeArray(FFI.FFIArray inner) {
         super(inner);
+        var dtype = FFI.FFIArray_dtype(inner);
+        this.isDate = FFI.DType_is_date(dtype);
+        this.isTimestamp = FFI.DType_is_timestamp(dtype);
     }
 
     @Override
@@ -65,6 +77,12 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     }
 
     @Override
+    public Array slice(int start, int stop) {
+        checkNotNull(inner, "inner");
+        return new NativeArray(FFI.FFIArray_slice(inner, start, stop));
+    }
+
+    @Override
     public boolean getNull(int index) {
         // check validity of the array
         return false;
@@ -85,13 +103,21 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     @Override
     public int getInt(int index) {
         checkNotNull(inner, "inner");
-        return FFI.FFIArray_get_i32(inner, index);
+        if (isDate || isTimestamp) {
+            return FFI.FFIArray_get_storage_i32(inner, index);
+        } else {
+            return FFI.FFIArray_get_i32(inner, index);
+        }
     }
 
     @Override
     public long getLong(int index) {
         checkNotNull(inner, "inner");
-        return FFI.FFIArray_get_i64(inner, index);
+        if (isDate || isTimestamp) {
+            return FFI.FFIArray_get_storage_i64(inner, index);
+        } else {
+            return FFI.FFIArray_get_i64(inner, index);
+        }
     }
 
     @Override
@@ -109,5 +135,24 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     public double getDouble(int index) {
         checkNotNull(inner, "inner");
         return FFI.FFIArray_get_f64(inner, index);
+    }
+
+    @Override
+    public String getUTF8(int index) {
+        try (Memory memory = new Memory(MAX_STRING_LEN)) {
+            var lenRef = new IntByReference();
+            FFI.FFIArray_get_utf8(inner, index, memory, lenRef);
+            var written = memory.getByteArray(0, lenRef.getValue());
+            return new String(written, StandardCharsets.UTF_8);
+        }
+    }
+
+    @Override
+    public byte[] getBinary(int index) {
+        try (Memory memory = new Memory(MAX_STRING_LEN)) {
+            var lenRef = new IntByReference();
+            FFI.FFIArray_get_utf8(inner, index, memory, lenRef);
+            return memory.getByteArray(0, lenRef.getValue());
+        }
     }
 }

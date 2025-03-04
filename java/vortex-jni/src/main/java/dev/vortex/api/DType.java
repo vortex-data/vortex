@@ -17,6 +17,7 @@ package dev.vortex.api;
 
 import com.google.common.collect.ImmutableList;
 import java.io.Closeable;
+import java.util.Optional;
 
 /**
  * Vortex logical type.
@@ -42,8 +43,38 @@ public interface DType extends Closeable {
      */
     DType getElementType();
 
+    boolean isDate();
+
+    boolean isTime();
+
+    boolean isTimestamp();
+
+    TimeUnit getTimeUnit();
+
+    Optional<String> getTimeZone();
+
     @Override
     void close();
+
+    enum TimeUnit {
+        NANOSECONDS,
+        MICROSECONDS,
+        MILLISECONDS,
+        SECONDS,
+        DAYS,
+        ;
+
+        public static TimeUnit from(byte unit) {
+            return switch (unit) {
+                case 0 -> NANOSECONDS;
+                case 1 -> MICROSECONDS;
+                case 2 -> MILLISECONDS;
+                case 3 -> SECONDS;
+                case 4 -> DAYS;
+                default -> throw new IllegalArgumentException("Unknown TimeUnit: " + unit);
+            };
+        }
+    }
 
     enum Variant {
         NULL,

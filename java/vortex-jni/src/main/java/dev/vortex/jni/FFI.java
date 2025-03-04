@@ -35,6 +35,8 @@ public final class FFI {
 
     public static native void FFIArray_free(FFIArray array);
 
+    public static native FFIArray FFIArray_slice(FFIArray array, int start, int stop);
+
     public static native FFIArray FFIArray_get_field(FFIArray array, int index);
 
     public static native byte FFIArray_get_u8(FFIArray array, int index);
@@ -53,12 +55,33 @@ public final class FFI {
 
     public static native long FFIArray_get_i64(FFIArray array, int index);
 
+    // Extension type accessors
+    public static native byte FFIArray_get_storage_u8(FFIArray array, int index);
+
+    public static native short FFIArray_get_storage_u16(FFIArray array, int index);
+
+    public static native int FFIArray_get_storage_u32(FFIArray array, int index);
+
+    public static native long FFIArray_get_storage_u64(FFIArray array, int index);
+
+    public static native byte FFIArray_get_storage_i8(FFIArray array, int index);
+
+    public static native short FFIArray_get_storage_i16(FFIArray array, int index);
+
+    public static native int FFIArray_get_storage_i32(FFIArray array, int index);
+
+    public static native long FFIArray_get_storage_i64(FFIArray array, int index);
+
     // TODO(aduffy): better f16?
     public static native short FFIArray_get_f16(FFIArray array, int index);
 
     public static native float FFIArray_get_f32(FFIArray array, int index);
 
     public static native double FFIArray_get_f64(FFIArray array, int index);
+
+    public static native void FFIArray_get_utf8(FFIArray array, int index, Pointer dst, IntByReference len);
+
+    public static native void FFIArray_get_binary(FFIArray array, int index, Pointer dst, IntByReference len);
 
     // DType interactions.
     public static native byte DType_get(FFIDType dtype);
@@ -78,6 +101,16 @@ public final class FFI {
     public static native FFIDType DType_field_dtype(FFIDType dtype, int index);
 
     public static native FFIDType DType_element_type(FFIDType dtype);
+
+    public static native boolean DType_is_time(FFIDType dtype);
+
+    public static native boolean DType_is_date(FFIDType dtype);
+
+    public static native boolean DType_is_timestamp(FFIDType dtype);
+
+    public static native byte DType_time_unit(FFIDType dtype);
+
+    public static native void DType_time_zone(FFIDType dtype, Pointer zone, IntByReference len);
 
     public static native void DType_free(FFIDType dtype);
 

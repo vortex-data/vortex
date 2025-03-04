@@ -24,6 +24,8 @@ public interface Array extends Closeable {
 
     Array getField(int index);
 
+    Array slice(int start, int stop);
+
     boolean getNull(int index);
 
     byte getByte(int index);
@@ -39,4 +41,8 @@ public interface Array extends Closeable {
     float getFloat(int index);
 
     double getDouble(int index);
+
+    String getUTF8(int index);
+
+    byte[] getBinary(int index);
 }
