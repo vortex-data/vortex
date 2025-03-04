@@ -21,8 +21,9 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(c) => {
-                let compressed_array =
-                    fuzz_compress(current_array.to_canonical().unwrap().as_ref(), &c);
+                let compressed_array = c
+                    .compress(current_array.to_canonical().unwrap().as_ref())
+                    .unwrap();
                 assert_array_eq(&expected.array(), &compressed_array, i);
                 current_array = compressed_array;
             }
@@ -50,8 +51,9 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 ])
                 .contains(&current_array.encoding())
                 {
-                    sorted = fuzz_compress(&sorted, &BtrBlocksCompressor);
+                    sorted = BtrBlocksCompressor.compress(&sorted).unwrap();
                 }
+
                 assert_search_sorted(sorted, s, side, expected.search(), i)
             }
             Action::Filter(mask) => {
