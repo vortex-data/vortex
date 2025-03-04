@@ -26,7 +26,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i.2xlarge
-      # - image=ubuntu24-full-x64
+      - image=ubuntu24-full-x64
       - extras=s3-cache
 
     steps:
