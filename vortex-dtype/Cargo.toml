@@ -20,9 +20,12 @@ bench = false
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }
+jiff = { workspace = true }
+num_enum = { workspace = true }
 num-traits = { workspace = true }
 rkyv = { workspace = true, optional = true, features = ["bytecheck"] }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
@@ -39,5 +42,7 @@ serde_test = { workspace = true }
 workspace = true
 
 [features]
+default = ["arrow"]
+arrow = ["dep:arrow-schema"]
 proto = ["vortex-proto/dtype"]
 serde = ["dep:serde"]

@@ -6,7 +6,7 @@ use arrow_array::{
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_schema::DataType;
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexResult, vortex_bail};
 

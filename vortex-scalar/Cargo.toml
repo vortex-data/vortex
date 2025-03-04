@@ -24,8 +24,7 @@ num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 vortex-buffer = { workspace = true }
-vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, optional = true }
 vortex-proto = { workspace = true, optional = true }

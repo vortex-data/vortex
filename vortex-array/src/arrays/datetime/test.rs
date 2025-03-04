@@ -1,6 +1,6 @@
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
+use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 
 use crate::array::Array;
 use crate::arrays::{PrimitiveArray, TemporalArray};

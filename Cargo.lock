@@ -5194,7 +5194,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
@@ -5270,7 +5269,6 @@ dependencies = [
  "static_assertions",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -5294,7 +5292,6 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
@@ -5375,18 +5372,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-datetime-dtype"
-version = "0.25.2"
-dependencies = [
- "arrow-schema",
- "jiff",
- "num_enum 0.7.3",
- "serde",
- "vortex-dtype",
- "vortex-error",
-]
-
-[[package]]
 name = "vortex-datetime-parts"
 version = "0.25.2"
 dependencies = [
@@ -5395,7 +5380,6 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
@@ -5426,10 +5410,13 @@ name = "vortex-dtype"
 version = "0.25.2"
 dependencies = [
  "arbitrary",
+ "arrow-schema",
  "flatbuffers 25.2.10",
  "half",
  "itertools 0.14.0",
+ "jiff",
  "num-traits",
+ "num_enum 0.7.3",
  "rkyv",
  "serde",
  "serde_json",
@@ -5712,7 +5699,6 @@ dependencies = [
  "rstest",
  "serde",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",

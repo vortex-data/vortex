@@ -3,7 +3,6 @@ use arrow_schema::DataType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::Array;
-use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
 
@@ -59,7 +58,7 @@ pub fn preferred_arrow_data_type(array: &dyn Array) -> VortexResult<DataType> {
     }
 
     // Otherwise, we use the default.
-    infer_data_type(array.dtype())
+    array.dtype().to_arrow_dtype()
 }
 
 /// Convert the array to an Arrow array of the given type.
@@ -106,7 +105,6 @@ mod tests {
 
     use crate::array::Array;
     use crate::arrays;
-    use crate::arrow::infer_data_type;
     use crate::compute::to_arrow;
 
     #[test]
@@ -145,7 +143,7 @@ mod tests {
         );
 
         assert_eq!(
-            &to_arrow(&array, &infer_data_type(array.dtype()).unwrap()).unwrap(),
+            &to_arrow(&array, &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
             &arrow_array
         );
     }

@@ -14,7 +14,6 @@ use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrow::infer_schema;
 use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::ExprRef;
@@ -41,7 +40,10 @@ impl VortexMemTable {
     ///
     /// Creation will panic if the provided array is not of `DType::Struct` type.
     pub fn new(array: ArrayRef) -> Self {
-        let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
+        let arrow_schema = array
+            .dtype()
+            .to_arrow_schema()
+            .vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
         let array = match array.as_opt::<ChunkedArray>() {

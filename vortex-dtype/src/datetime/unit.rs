@@ -5,6 +5,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_error::VortexResult;
 
+/// Time units for temporal data.
 #[derive(
     Debug,
     Clone,
@@ -21,14 +22,20 @@ use vortex_error::VortexResult;
 )]
 #[repr(u8)]
 pub enum TimeUnit {
+    /// Nanoseconds
     Ns,
+    /// Microseconds
     Us,
+    /// Milliseconds
     Ms,
+    /// Seconds
     S,
+    /// Days
     D,
 }
 
 impl TimeUnit {
+    /// Convert to a Jiff span.
     pub fn to_jiff_span(&self, v: i64) -> VortexResult<Span> {
         Ok(match self {
             TimeUnit::Ns => Span::new().try_nanoseconds(v)?,

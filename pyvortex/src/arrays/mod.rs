@@ -14,7 +14,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::{IntoArrowArray, infer_data_type};
+use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, fill_forward, scalar_at, slice, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
@@ -243,7 +243,7 @@ impl PyArray {
         if let Some(chunked_array) = array.as_opt::<ChunkedArray>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
-            let arrow_dtype = infer_data_type(chunked_array.dtype())?;
+            let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;
 
             let chunks = chunked_array
                 .chunks()
