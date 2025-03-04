@@ -18,6 +18,10 @@ runs:
       run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       shell: bash
 
+    - name: Print environment variables
+      run: env
+      shell: bash
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@master
