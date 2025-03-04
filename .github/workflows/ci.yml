@@ -36,6 +36,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
 
+      - name: Configure Git to use CLI
+        run: |
+          mkdir -p ~/.cargo
+          echo '[net]' >> ~/.cargo/config.toml
+          echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
+
       - name: Install Codspeed
         shell: bash
         run: cargo install --force cargo-codspeed --git https://github.com/spiraldb/codspeed-rust.git --no-default-features --locked
