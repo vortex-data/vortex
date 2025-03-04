@@ -11,6 +11,7 @@ mod compress;
 mod dataset;
 pub(crate) mod dtype;
 mod expr;
+mod file;
 mod io;
 mod object_store_urls;
 mod python_repr;
