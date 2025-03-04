@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 
 use vortex_array::Array;
-use vortex_array::compute::{SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn};
+use vortex_array::compute::{
+    SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, scalar_at,
+};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -73,7 +75,23 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
         match side {
             SearchSortedSide::Left => fill_result_index,
             SearchSortedSide::Right => match fill_result {
-                SearchResult::Found(i) => i,
+                SearchResult::Found(i) => {
+                    let fill_index = array.patches().search_index(i)?.to_index();
+                    if fill_index < array.patches().num_patches() {
+                        // Since we are searching from right the fill_index is the index one after the found one
+                        let next_index =
+                            usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?;
+                        // fill value is dense with a next patch value we want to return the original fill_index,
+                        // i.e. the fill value cannot exist between fill_index and next_index
+                        if fill_index + 1 == next_index {
+                            fill_index
+                        } else {
+                            next_index
+                        }
+                    } else {
+                        fill_index
+                    }
+                }
                 SearchResult::NotFound(_) => {
                     array.len() - array.patches().num_patches() + fill_result_index
                 }

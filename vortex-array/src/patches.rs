@@ -218,7 +218,7 @@ impl Patches {
     }
 
     /// Return the insertion point of [index] in the [Self::indices].
-    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+    pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
         search_sorted_usize(&self.indices, index + self.offset, SearchSortedSide::Left)
     }
 
@@ -678,6 +678,34 @@ mod test {
             patches.search_sorted(54, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(19)
         );
+    }
+
+    #[test]
+    fn search_left_end() {
+        let patches = Patches::new(
+            32,
+            0,
+            buffer![0u8, 1, 2, 31].into_array(),
+            PrimitiveArray::new(
+                buffer![0u8, 0, 32, 127],
+                Validity::from_iter([false, false, true, true]),
+            )
+            .into_array(),
+        );
+        let res = patches.search_sorted(85, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::NotFound(3));
+    }
+
+    #[test]
+    fn search_left() {
+        let patches = Patches::new(
+            20,
+            0,
+            buffer![0u64, 1, 17, 18, 19].into_array(),
+            buffer![11i32, 22, 33, 44, 55].into_array(),
+        );
+        let res = patches.search_sorted(30, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::NotFound(2));
     }
 
     #[rstest]
