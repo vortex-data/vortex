@@ -20,11 +20,6 @@ impl StatisticsVTable<&DictArray> for DictEncoding {
                     stats.set(Stat::Max, Precision::exact(max));
                 }
             }
-            Stat::IsConstant => {
-                if let Some(is_constant) = array.codes().statistics().compute_is_constant() {
-                    stats.set(Stat::IsConstant, Precision::exact(is_constant));
-                }
-            }
             Stat::NullCount => {
                 if let Some(null_count) =
                     array.codes().statistics().compute_stat(Stat::NullCount)?

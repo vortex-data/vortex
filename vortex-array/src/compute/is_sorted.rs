@@ -26,6 +26,7 @@ where
     }
 }
 
+#[allow(clippy::wrong_self_convention)]
 /// Helper methods to check sortedness with strictness
 pub trait IteratorExt: Iterator
 where
@@ -65,30 +66,8 @@ pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
 pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, true)
 }
+
 pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
-    // Arrays with 0 or 1 elements are strict sorted.
-    if array.len() <= 1 {
-        return Ok(true);
-    }
-
-    // Constant and null arrays are always sorted, but not strict sorted.
-    if array.is::<ConstantArray>() || array.is::<NullArray>() {
-        return Ok(!strict);
-    }
-
-    let invalid_count = array.invalid_count()?;
-
-    // Enforce strictness before we even try to check if the array is sorted.
-    if strict {
-        match invalid_count {
-            // We can keep going
-            0 => {}
-            // If we have a potential null value - it has to be the first one.
-            1 => return Ok(array.is_invalid(0)?),
-            _ => return Ok(false),
-        }
-    }
-
     let target_stat = if strict {
         Stat::IsStrictSorted
     } else {
@@ -100,21 +79,7 @@ pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
         return Ok(value);
     }
 
-    let is_sorted = if let Some(vtable_fn) = array.vtable().is_sorted_fn() {
-        vtable_fn.is_sorted(array, strict)?
-    } else {
-        log::debug!("No is_sorted implementation found for {}", array.encoding());
-        let array = array.to_canonical()?;
-
-        if let Some(vtable_fn) = array.as_ref().vtable().is_sorted_fn() {
-            vtable_fn.is_sorted(array.as_ref(), strict)?
-        } else {
-            vortex_bail!(
-                "No is_constant function for canonical array: {}",
-                array.as_ref().encoding(),
-            )
-        }
-    };
+    let is_sorted = is_sorted_impl(array, strict)?;
 
     let array_stats = array.statistics();
 
@@ -134,6 +99,49 @@ pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
             array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
         }
     }
+
+    Ok(is_sorted)
+}
+
+fn is_sorted_impl(array: &dyn Array, strict: bool) -> VortexResult<bool> {
+    // Arrays with 0 or 1 elements are strict sorted.
+    if array.len() <= 1 {
+        return Ok(true);
+    }
+
+    // Constant and null arrays are always sorted, but not strict sorted.
+    if array.is::<ConstantArray>() || array.is::<NullArray>() {
+        return Ok(!strict);
+    }
+
+    let invalid_count = array.invalid_count()?;
+
+    // Enforce strictness before we even try to check if the array is sorted.
+    if strict {
+        match invalid_count {
+            // We can keep going
+            0 => {}
+            // If we have a potential null value - it has to be the first one.
+            1 => return array.is_invalid(0),
+            _ => return Ok(false),
+        }
+    }
+
+    let is_sorted = if let Some(vtable_fn) = array.vtable().is_sorted_fn() {
+        vtable_fn.is_sorted(array, strict)?
+    } else {
+        log::debug!("No is_sorted implementation found for {}", array.encoding());
+        let array = array.to_canonical()?;
+
+        if let Some(vtable_fn) = array.as_ref().vtable().is_sorted_fn() {
+            vtable_fn.is_sorted(array.as_ref(), strict)?
+        } else {
+            vortex_bail!(
+                "No is_constant function for canonical array: {}",
+                array.as_ref().encoding(),
+            )
+        }
+    };
 
     Ok(is_sorted)
 }

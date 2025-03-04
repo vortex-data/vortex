@@ -23,7 +23,7 @@ fn compute_is_sorted<T: NativePType + PartialOrd>(
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let slice = array.as_slice::<T>();
-            Ok(slice.into_iter().is_sorted_with_strictness(strict))
+            Ok(slice.iter().is_sorted_with_strictness(strict))
         }
         Mask::Values(mask_values) => {
             let slice = array.as_slice::<T>();
