@@ -12,15 +12,15 @@ mod utf8;
 use std::ops::Deref;
 
 use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::FromPyArrow;
+use arrow::pyarrow::{FromPyArrow, IntoPyArrow};
 pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
-    Bound, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
+    Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
-use vortex::arrow::FromArrowType;
+use vortex::arrow::{FromArrowType, infer_data_type, infer_schema};
 use vortex::dtype::DType;
 
 use crate::dtype::binary::PyBinaryDType;
@@ -130,6 +130,14 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
+    fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
+        infer_data_type(&self.0)?.into_pyarrow(py)
+    }
+
+    fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
+        infer_schema(&self.0)?.into_pyarrow(py)
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }

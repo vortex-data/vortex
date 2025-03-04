@@ -4406,6 +4406,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store",
+ "polars-expr",
  "pyo3",
  "pyo3-log",
  "pyo3-polars",

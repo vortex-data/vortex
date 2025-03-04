@@ -45,6 +45,7 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
+from ._lib.file import VortexFile, open
 from ._lib.registry import Registry
 from ._lib.scalar import (
     BinaryScalar,
@@ -127,6 +128,9 @@ __all__ = [
     "Registry",
     "ArrayContext",
     "ArrayParts",
+    # File
+    "VortexFile",
+    "open",
 ]
 
 #: The default registry for Vortex

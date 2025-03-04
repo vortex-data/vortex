@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-
+import pyarrow as pa
 from vortex._lib import file as _file
 
 VortexFile = _file.VortexFile
@@ -10,15 +10,20 @@ def _VortexFile_to_polars(self: VortexFile):
     import polars as pl
     from polars.io.plugins import register_io_source
 
+    schema: pa.Schema = self.dtype.to_arrow_schema()
+
     def _io_source(
         with_columns: list[str] | None,
         predicate: pl.Expr | None,
         n_rows: int | None,
         batch_size: int | None,
     ) -> Iterator[pl.DataFrame]:
-        pass
+        if predicate is not None:
+            predicate
 
-    schema = pl.Schema(self.dtype.to_arrow())
+        self.dtype.
+
+    schema = pl.Schema(self.dtype.to_arrow_schema())
 
     register_io_source(
         _io_source,
