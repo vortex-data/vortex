@@ -22,6 +22,10 @@ runs:
       run: env
       shell: bash
 
+    - name: Print cargo bin directory
+      run: ls "$HOME/.cargo/bin"
+      shell: bash
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@master
