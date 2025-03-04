@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           git clone --depth 1 https://github.com/spiraldb/codspeed-rust.git
-          cargo install --path codspeed-rust --force --no-default-features --bin cargo-codspeed --locked
+          cargo install --path codspeed-rust/crates/cargo-codspeed --force --no-default-features --bin cargo-codspeed --locked
 
       - name: Build benchmarks
         env:
