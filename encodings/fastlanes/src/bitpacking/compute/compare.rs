@@ -164,38 +164,53 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
     T::Bitpacked: NativePType + BitPackingCompare,
 {
     match comparison {
-        Operator::Eq | Operator::NotEq => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a == b, value)
-        },
+        Operator::Eq | Operator::NotEq =>
+            bitpack_compare_eq(width, input, output, value)
+        ,
         // replace with negate end
         // Operator::NotEq => unsafe {
         //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
         // },
-        Operator::Gte => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
-        },
-        Operator::Gt => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(
-                width,
-                input,
-                output,
-                |a, b| a >= b,
-                value + T::one(),
-            )
-        },
-        Operator::Lte => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
-        },
-        Operator::Lt => unsafe {
-            BitPackingCompare::unchecked_unpack_cmp(
-                width,
-                input,
-                output,
-                |a, b| a >= b,
-                value - T::one(),
-            )
-        },
+        Operator::Gte | Operator::Gt | Operator::Lte | Operator::Lt => {
+            bitpack_compare_gte(width, input, output, value)
+        } // Operator::Gt => unsafe {
+          //     BitPackingCompare::unchecked_unpack_cmp(
+          //         width,
+          //         input,
+          //         output,
+          //         |a, b| a >= b,
+          //         value + T::one(),
+          //     )
+          // },
+          // Operator::Lte => unsafe {
+          //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
+          // },
+          // Operator::Lt => unsafe {
+          //     BitPackingCompare::unchecked_unpack_cmp(
+          //         width,
+          //         input,
+          //         output,
+          //         |a, b| a >= b,
+          //         value - T::one(),
+          //     )
+          // },
     };
+}
+
+fn bitpack_compare_eq<T>(width: usize, input: &[T::Bitpacked], output: &mut [bool; 1024], value: T)
+where
+    T: NativePType + FastLanesComparable,
+    T::Bitpacked: NativePType + BitPackingCompare,
+{
+    unsafe { BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a == b, value) }
+}
+
+fn bitpack_compare_gte<T>(width: usize, input: &[T::Bitpacked], output: &mut [bool; 1024], value: T)
+where
+    T: NativePType + FastLanesComparable,
+    T::Bitpacked: NativePType + BitPackingCompare,
+{
+    unsafe { BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value) }
 }
 
 #[allow(dead_code)]
