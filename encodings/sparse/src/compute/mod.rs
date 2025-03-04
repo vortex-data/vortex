@@ -7,7 +7,6 @@ use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::{SparseArray, SparseEncoding};
 
@@ -16,6 +15,7 @@ mod invert;
 mod search_sorted;
 mod slice;
 mod take;
+mod scalar_at;
 
 impl ComputeVTable for SparseEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
@@ -48,15 +48,6 @@ impl ComputeVTable for SparseEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&SparseArray> for SparseEncoding {
-    fn scalar_at(&self, array: &SparseArray, index: usize) -> VortexResult<Scalar> {
-        Ok(array
-            .patches()
-            .get_patched(index)?
-            .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
 

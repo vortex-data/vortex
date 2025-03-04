@@ -139,10 +139,12 @@ impl ArrayStatisticsImpl for SparseArray {
 
 impl ArrayValidityImpl for SparseArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        Ok(match self.patches().get_patched(index)? {
-            None => self.fill_scalar().is_valid(),
-            Some(patch_value) => patch_value.is_valid(),
-        })
+        Ok(
+            match self.patches().get_patched(index)?.filter(|s| s.is_valid()) {
+                None => self.fill_scalar().is_valid(),
+                Some(_) => true,
+            },
+        )
     }
 
     fn _all_valid(&self) -> VortexResult<bool> {
@@ -229,13 +231,11 @@ impl StatisticsVTable<&SparseArray> for SparseEncoding {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::{slice, try_cast};
+    use vortex_array::compute::try_cast;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
-    use vortex_error::VortexError;
-    use vortex_scalar::{PrimitiveScalar, Scalar};
+    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -255,88 +255,6 @@ mod test {
         SparseArray::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()
             .into_array()
-    }
-
-    #[test]
-    pub fn test_scalar_at() {
-        let array = sparse_array(nullable_fill());
-
-        assert_eq!(scalar_at(&array, 0).unwrap(), nullable_fill());
-        assert_eq!(scalar_at(&array, 2).unwrap(), Scalar::from(Some(100_i32)));
-        assert_eq!(scalar_at(&array, 5).unwrap(), Scalar::from(Some(200_i32)));
-
-        let error = scalar_at(&array, 10).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 10);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 10);
-    }
-
-    #[test]
-    pub fn test_scalar_at_again() {
-        let arr = SparseArray::try_new(
-            ConstantArray::new(10u32, 1).into_array(),
-            ConstantArray::new(Scalar::primitive(1234u32, Nullable), 1).into_array(),
-            100,
-            Scalar::null(DType::Primitive(PType::U32, Nullable)),
-        )
-        .unwrap();
-
-        assert_eq!(
-            PrimitiveScalar::try_from(&scalar_at(&arr, 10).unwrap())
-                .unwrap()
-                .typed_value::<u32>(),
-            Some(1234)
-        );
-        assert!(scalar_at(&arr, 0).unwrap().is_null());
-        assert!(scalar_at(&arr, 99).unwrap().is_null());
-    }
-
-    #[test]
-    pub fn scalar_at_sliced() {
-        let sliced = slice(&sparse_array(nullable_fill()), 2, 7).unwrap();
-        assert_eq!(
-            usize::try_from(&scalar_at(&sliced, 0).unwrap()).unwrap(),
-            100
-        );
-        let error = scalar_at(&sliced, 5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 5);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 5);
-    }
-
-    #[test]
-    pub fn scalar_at_sliced_twice() {
-        let sliced_once = slice(&sparse_array(nullable_fill()), 1, 8).unwrap();
-        assert_eq!(
-            usize::try_from(&scalar_at(&sliced_once, 1).unwrap()).unwrap(),
-            100
-        );
-        let error = scalar_at(&sliced_once, 7).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 7);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 7);
-
-        let sliced_twice = slice(&sliced_once, 1, 6).unwrap();
-        assert_eq!(
-            usize::try_from(&scalar_at(&sliced_twice, 3).unwrap()).unwrap(),
-            200
-        );
-        let error2 = scalar_at(&sliced_twice, 5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error2 else {
-            unreachable!()
-        };
-        assert_eq!(i, 5);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 5);
     }
 
     #[test]
