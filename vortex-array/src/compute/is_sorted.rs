@@ -137,7 +137,7 @@ fn is_sorted_impl(array: &dyn Array, strict: bool) -> VortexResult<bool> {
             vtable_fn.is_sorted(array.as_ref(), strict)?
         } else {
             vortex_bail!(
-                "No is_constant function for canonical array: {}",
+                "No is_sorted function for canonical array: {}",
                 array.as_ref().encoding(),
             )
         }

@@ -27,32 +27,6 @@ impl StatisticsVTable<&DictArray> for DictEncoding {
                     stats.set(Stat::NullCount, Precision::exact(null_count));
                 }
             }
-            Stat::IsSorted | Stat::IsStrictSorted => {
-                // if dictionary is sorted
-                if array
-                    .values()
-                    .statistics()
-                    .compute_is_sorted()
-                    .unwrap_or(false)
-                {
-                    if let Some(codes_are_sorted) =
-                        array.codes().statistics().compute_stat(Stat::IsSorted)?
-                    {
-                        stats.set(Stat::IsSorted, Precision::exact(codes_are_sorted));
-                    }
-
-                    if let Some(codes_are_strict_sorted) = array
-                        .codes()
-                        .statistics()
-                        .compute_stat(Stat::IsStrictSorted)?
-                    {
-                        stats.set(
-                            Stat::IsStrictSorted,
-                            Precision::exact(codes_are_strict_sorted),
-                        );
-                    }
-                }
-            }
             _ => {}
         }
 
