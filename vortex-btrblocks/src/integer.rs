@@ -830,22 +830,15 @@ mod tests {
     #[test]
     fn sparse_with_nulls() {
         let array = PrimitiveArray::new(
-            buffer![
-                189u8, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46
-            ],
-            Validity::from_iter(vec![
-                true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                true, true, false,
-            ]),
+            buffer![189u8, 189, 189, 0, 46],
+            Validity::from_iter(vec![true, true, true, true, false]),
         );
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
-        let expected = [
-            189u8, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 189, 0, 0,
-        ];
+        let expected = [189u8, 189, 189, 0, 0];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
     }
