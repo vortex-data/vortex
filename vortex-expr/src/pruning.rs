@@ -10,7 +10,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{FieldName, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::{
@@ -183,8 +183,13 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             let (rewritten_left, mut refs_lhs) = convert_to_pruning_expression(bexp.lhs());
             let (rewritten_right, refs_rhs) = convert_to_pruning_expression(bexp.rhs());
             refs_lhs.extend(refs_rhs);
+            let flipped_op = match bexp.op() {
+                Operator::And => Operator::Or,
+                Operator::Or => Operator::And,
+                _ => vortex_panic!("Can not be any other operator than and / or"),
+            };
             return (
-                BinaryExpr::new_expr(rewritten_left, bexp.op(), rewritten_right),
+                BinaryExpr::new_expr(rewritten_left, flipped_op, rewritten_right),
                 refs_lhs,
             );
         }
@@ -700,10 +705,29 @@ mod tests {
         let predicate = PruningPredicate::try_new(&expr).unwrap();
         assert_eq!(predicate.required_stats(), &expected);
 
-        let expected_expr = or(
+        let expected_expr = and(
             gt_eq(get_item_scope(FieldName::from("min")), lit(10)),
             lt_eq(get_item_scope(FieldName::from("max")), lit(50)),
         );
         assert_eq!(predicate.expr(), &expected_expr)
+    }
+    #[test]
+    pub fn pruning_and_or_operators() {
+        // Test case: a > 10 AND a < 50
+        let column = FieldName::from("a");
+        let and_expr = and(
+            gt(get_item_scope(column.clone()), lit(10)),
+            lt(get_item_scope(column.clone()), lit(50)),
+        );
+        let pruned = PruningPredicate::try_new(&and_expr).unwrap();
+
+        // Expected: a_max <= 10 OR a_min >= 50
+        assert_eq!(
+            pruned.expr(),
+            &or(
+                lt_eq(get_item_scope(FieldName::from("a_max")), lit(10)),
+                gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
+            ),
+        );
     }
 }
