@@ -26,6 +26,10 @@ runs:
       run: ls "$HOME/.cargo/bin"
       shell: bash
 
+    - name: Print rustup version
+      run: rustup --version
+      shell: bash
+
     - name: Print rustc version
       run: rustc --version
       shell: bash
