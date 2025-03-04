@@ -717,7 +717,7 @@ mod tests {
         let column = FieldName::from("a");
         let and_expr = and(
             gt(get_item_scope(column.clone()), lit(10)),
-            lt(get_item_scope(column.clone()), lit(50)),
+            lt(get_item_scope(column), lit(50)),
         );
         let pruned = PruningPredicate::try_new(&and_expr).unwrap();
 
