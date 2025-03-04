@@ -232,8 +232,8 @@ jobs:
       # - extras=s3-cache
 
     steps:
-      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+      - uses: runs-on/action@v1
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
