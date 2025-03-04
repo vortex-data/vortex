@@ -1,7 +1,7 @@
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::Arc;
 
-use vortex::datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
+use vortex::datetime_dtype::{TemporalMetadata, DATE_ID, TIMESTAMP_ID, TIME_ID};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
 use vortex::error::{VortexExpect, VortexUnwrap};
 
@@ -86,18 +86,7 @@ pub unsafe extern "C" fn DType_free(dtype: *mut DType) {
     drop(Box::from_raw(dtype));
 }
 
-/// Get the dtype variant tag for an [`FFIDType`].
-///
-/// # Example
-///
-/// ```rust
-/// use vortex_jni::dtype::{FFIDType, DType, DTYPE_BOOL};
-///
-/// let dtype = DType::Bool(true);
-/// let ffi_dtype = FFIDType::from(&dtype);
-///
-/// assert_eq!(FFIDType_get(&ffi_dtype), DTYPE_BOOL);
-/// ```
+/// Get the dtype variant tag for an [`DType`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
     match &*dtype {
@@ -280,8 +269,8 @@ mod tests {
     use vortex::dtype::DType;
 
     use crate::dtype::{
-        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, DType_field_count,
-        DType_field_dtype, DType_field_name, DType_free, DType_get, DType_new, DType_new_struct,
+        DType_field_count, DType_field_dtype, DType_field_name, DType_free, DType_get,
+        DType_new, DType_new_struct, DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8,
     };
 
     #[test]
