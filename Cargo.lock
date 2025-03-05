@@ -5508,7 +5508,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ffi"
-version = "0.24.0"
+version = "0.25.2"
 dependencies = [
  "futures",
  "object_store",
