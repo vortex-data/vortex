@@ -1,6 +1,6 @@
-#![allow(unsafe_op_in_unsafe_fn, clippy::missing_safety_doc)]
+#![allow(unsafe_op_in_unsafe_fn, clippy::missing_safety_doc, clippy::panic)]
 
-//! Native interface exposed to Java for reading and querying Vortex files.
+//! Native interface to Vortex arrays, types, files and streams.
 
 pub mod array;
 pub mod dtype;

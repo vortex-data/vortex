@@ -5512,6 +5512,7 @@ version = "0.25.2"
 dependencies = [
  "futures",
  "object_store",
+ "paste",
  "tokio",
  "vortex",
 ]

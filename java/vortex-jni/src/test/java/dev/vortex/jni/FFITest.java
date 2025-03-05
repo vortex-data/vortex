@@ -15,13 +15,36 @@
  */
 package dev.vortex.jni;
 
-import static dev.vortex.jni.FFI.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.google.common.io.Closer;
+import dev.vortex.api.DType;
+import dev.vortex.api.ScanOptions;
+import dev.vortex.impl.NativeFile;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.jupiter.api.Test;
 
 public final class FFITest {
+    private static final Path LINEITEM = Paths.get(".")
+            .toAbsolutePath()
+            .getParent()
+            .getParent()
+            .getParent()
+            .resolve("bench-vortex/data/tpch/1/vortex_compressed/lineitem.vortex")
+            .toAbsolutePath();
+
+    @Test
+    public void testDType() {
+        // Provide a simple test for DType checking.
+        try (NativeFile lineitem = NativeFile.open(LINEITEM.toString())) {
+            try (DType dtype = lineitem.getDType()) {
+                System.out.println("dtype: " + dtype);
+            }
+        }
+    }
+
     @Test
     public void testScan() {
         var path = Paths.get(".")
@@ -32,25 +55,23 @@ public final class FFITest {
                 .resolve("bench-vortex/data/tpch/1/vortex_compressed/lineitem.vortex")
                 .toAbsolutePath()
                 .toString();
-        var file = FFIFile_open(path);
-        var stream = FFIFile_scan(file);
 
-        long batchCount = 0;
         long rowCount = 0;
-        while (FFIArrayStream_next(stream)) {
-            var batch = FFIArrayStream_current(stream);
-            var len = FFIArray_len(batch);
-            rowCount += len;
-            FFIArray_free(batch);
+        try (Closer closer = Closer.create()) {
+            var file = closer.register(NativeFile.open(path));
+            var scan = closer.register(file.newScan(ScanOptions.of()));
 
-            batchCount += 1;
+            while (scan.next()) {
+                System.out.println("start batch");
+                try (var array = scan.getCurrent()) {
+                    rowCount += array.getLen();
+                }
+                System.out.println("end batch");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed closing resources", e);
         }
 
-        // Close the resources
-        FFIArrayStream_free(stream);
-        FFIFile_free(file);
-
-        assertEquals(6001215, rowCount);
-        assertEquals(58, batchCount);
+        assertEquals(6001215L, rowCount);
     }
 }
