@@ -27,9 +27,12 @@ impl Display for SearchSortedSide {
 }
 
 /// Result of performing search_sorted on an Array
+///
+/// See [`SearchSortedFn`] documentation for interpretation of the results
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SearchResult {
-    /// Result for a found element was found at the given index in the sorted array
+    /// Result for a found element was found in the array and another one could be inserted at the given position
+    /// in the sorted order
     Found(usize),
 
     /// Result for an element not found, but that could be inserted at the given position
@@ -61,11 +64,11 @@ impl SearchResult {
     pub fn to_offsets_index(self, len: usize, side: SearchSortedSide) -> usize {
         match self {
             SearchResult::Found(i) => {
-                i.saturating_sub(if side == SearchSortedSide::Right || i == len {
-                    1
+                if side == SearchSortedSide::Right || i == len {
+                    i.saturating_sub(1)
                 } else {
-                    0
-                })
+                    i
+                }
             }
             SearchResult::NotFound(i) => i.saturating_sub(1),
         }
@@ -80,18 +83,6 @@ impl SearchResult {
         let idx = self.to_index();
         if idx == len { idx - 1 } else { idx }
     }
-
-    /// Apply a transformation to the Found or NotFound index.
-    #[inline]
-    pub fn map<F>(self, f: F) -> SearchResult
-    where
-        F: FnOnce(usize) -> usize,
-    {
-        match self {
-            SearchResult::Found(i) => SearchResult::Found(f(i)),
-            SearchResult::NotFound(i) => SearchResult::NotFound(f(i)),
-        }
-    }
 }
 
 impl Display for SearchResult {
@@ -105,7 +96,12 @@ impl Display for SearchResult {
 
 /// Searches for value assuming the array is sorted.
 ///
-/// For nullable arrays we assume that the nulls are sorted last, i.e. they're the greatest value
+/// Returned indices satisfy following condition if the search for value was to be inserted into the array at found positions
+///
+/// |side |result satisfies|
+/// |-----|----------------|
+/// |left |array\[i-1\] < value <= array\[i\]|
+/// |right|array\[i-1\] <= value < array\[i\]|
 pub trait SearchSortedFn<A: Copy> {
     fn search_sorted(
         &self,
