@@ -43,6 +43,7 @@ jobs:
           - id: compress
             name: Compression
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
