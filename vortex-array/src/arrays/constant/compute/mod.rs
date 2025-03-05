@@ -5,16 +5,18 @@ mod compare;
 mod invert;
 mod search_sorted;
 
-use vortex_error::VortexResult;
+use vortex_dtype::{NativePType, PType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterFn, InvertFn, ScalarAtFn,
-    SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
+    SearchSortedFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn,
 };
+use crate::stats::Stat;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
@@ -62,6 +64,10 @@ impl ComputeVTable for ConstantEncoding {
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
+
+    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
+        Some(self)
+    }
 }
 
 impl ScalarAtFn<&ConstantArray> for ConstantEncoding {
@@ -98,6 +104,37 @@ impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
         };
         Ok(size)
     }
+}
+
+impl SumFn<&ConstantArray> for ConstantEncoding {
+    fn sum(&self, array: &ConstantArray) -> VortexResult<Scalar> {
+        let sum_dtype = Stat::Sum
+            .dtype(array.dtype())
+            .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
+        let sum_ptype = PType::try_from(&sum_dtype).vortex_expect("sum dtype must be primitive");
+        let valid_count = array.valid_count()?;
+
+        let scalar = array.scalar();
+
+        match_each_native_ptype!(sum_ptype, |$P| {
+            sum_constant::<$P>(scalar.as_primitive(), valid_count)
+        })
+    }
+}
+
+fn sum_constant<'a, T>(
+    primitive_scalar: PrimitiveScalar<'a>,
+    valid_count: usize,
+) -> VortexResult<Scalar>
+where
+    T: FromPrimitiveOrF16 + NativePType,
+    Scalar: From<T>,
+{
+    let v = primitive_scalar.as_::<T>()?;
+    let valid_count = T::from(valid_count).vortex_expect("valid_count must fit the sum type");
+    let sum = v.map(|v| v * valid_count).unwrap_or_default();
+
+    Ok(Scalar::from(sum))
 }
 
 #[cfg(test)]
