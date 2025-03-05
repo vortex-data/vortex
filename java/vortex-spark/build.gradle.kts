@@ -1,5 +1,6 @@
 plugins {
     `java-library`
+    `maven-publish`
 }
 
 dependencies {
@@ -12,6 +13,15 @@ dependencies {
 
     implementation("com.google.guava:guava")
     testImplementation("org.junit.jupiter:junit-jupiter")
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"]) // Publishes the compiled JAR
+            artifactId = "vortex-spark"
+        }
+    }
 }
 
 tasks.withType<Test>().all {

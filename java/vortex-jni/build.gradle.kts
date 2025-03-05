@@ -1,5 +1,6 @@
 plugins {
     `java-library`
+    `maven-publish`
 }
 
 dependencies {
@@ -16,6 +17,15 @@ dependencies {
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 
     testImplementation("org.junit.jupiter:junit-jupiter")
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"]) // Publishes the compiled JAR
+            artifactId = "vortex-jni"
+        }
+    }
 }
 
 val vortexFFI = projectDir.parentFile.parentFile.resolve("vortex-ffi")

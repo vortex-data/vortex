@@ -12,8 +12,22 @@ plugins {
 val gitVersion: groovy.lang.Closure<String> by extra
 version = gitVersion()
 
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            username.set(System.getenv("MAVEN_CENTRAL_USER"))
+            password.set(System.getenv("MAVEN_CENTRAL_PASSWORD"))
+        }
+    }
+}
+
 allprojects {
     apply(plugin = "com.diffplug.spotless")
+
+    group = "dev.vortex"
+    version = rootProject.version
 
     repositories {
         mavenCentral()
