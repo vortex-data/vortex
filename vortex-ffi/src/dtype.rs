@@ -1,7 +1,7 @@
-use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::Arc;
 
-use vortex::datetime_dtype::{TemporalMetadata, DATE_ID, TIMESTAMP_ID, TIME_ID};
+use vortex::datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
 use vortex::error::{VortexExpect, VortexUnwrap};
 
@@ -269,8 +269,8 @@ mod tests {
     use vortex::dtype::DType;
 
     use crate::dtype::{
-        DType_field_count, DType_field_dtype, DType_field_name, DType_free, DType_get,
-        DType_new, DType_new_struct, DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8,
+        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, DType_field_count,
+        DType_field_dtype, DType_field_name, DType_free, DType_get, DType_new, DType_new_struct,
     };
 
     #[test]
