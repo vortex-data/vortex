@@ -26,9 +26,16 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 /**
  * Spark V2 {@link Table} of Vortex files.
  */
-public record VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns)
-        implements Table, SupportsRead {
+public final class VortexTable implements Table, SupportsRead {
     private static final String SHORT_NAME = "vortex";
+
+    private final ImmutableList<String> paths;
+    private final ImmutableList<Column> readColumns;
+
+    public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
+        this.paths = paths;
+        this.readColumns = readColumns;
+    }
 
     @Override
     public ScanBuilder newScanBuilder(CaseInsensitiveStringMap _options) {

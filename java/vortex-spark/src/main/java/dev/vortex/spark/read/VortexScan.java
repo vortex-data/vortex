@@ -25,10 +25,19 @@ import org.apache.spark.sql.types.StructType;
 /**
  * Spark V2 {@link Scan} over a table of Vortex files.
  */
-public record VortexScan(ImmutableList<String> paths, ImmutableList<Column> readColumns) implements Scan {
+public final class VortexScan implements Scan {
+
+    private final ImmutableList<String> paths;
+    private final ImmutableList<Column> readColumns;
+
+    public VortexScan(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
+        this.paths = paths;
+        this.readColumns = readColumns;
+    }
+
     @Override
     public StructType readSchema() {
-        return CatalogV2Util.v2ColumnsToStructType(readColumns().toArray(new Column[0]));
+        return CatalogV2Util.v2ColumnsToStructType(readColumns.toArray(new Column[0]));
     }
 
     /**
@@ -36,7 +45,7 @@ public record VortexScan(ImmutableList<String> paths, ImmutableList<Column> read
      */
     @Override
     public String description() {
-        return String.format("VortexScan{paths=%s, columns=%s}", paths(), readColumns());
+        return String.format("VortexScan{paths=%s, columns=%s}", paths, readColumns);
     }
 
     @Override

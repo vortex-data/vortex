@@ -65,14 +65,20 @@ public interface DType extends Closeable {
         ;
 
         public static TimeUnit from(byte unit) {
-            return switch (unit) {
-                case 0 -> NANOSECONDS;
-                case 1 -> MICROSECONDS;
-                case 2 -> MILLISECONDS;
-                case 3 -> SECONDS;
-                case 4 -> DAYS;
-                default -> throw new IllegalArgumentException("Unknown TimeUnit: " + unit);
-            };
+            switch (unit) {
+                case 0:
+                    return NANOSECONDS;
+                case 1:
+                    return MICROSECONDS;
+                case 2:
+                    return MILLISECONDS;
+                case 3:
+                    return SECONDS;
+                case 4:
+                    return DAYS;
+                default:
+                    throw new IllegalArgumentException("Unknown TimeUnit: " + unit);
+            }
         }
     }
 
@@ -98,27 +104,46 @@ public interface DType extends Closeable {
         ;
 
         public static Variant from(byte variant) {
-            return switch (variant) {
-                case 0 -> NULL;
-                case 1 -> BOOL;
-                case 2 -> PRIMITIVE_U8;
-                case 3 -> PRIMITIVE_U16;
-                case 4 -> PRIMITIVE_U32;
-                case 5 -> PRIMITIVE_U64;
-                case 6 -> PRIMITIVE_I8;
-                case 7 -> PRIMITIVE_I16;
-                case 8 -> PRIMITIVE_I32;
-                case 9 -> PRIMITIVE_I64;
-                case 10 -> PRIMITIVE_F16;
-                case 11 -> PRIMITIVE_F32;
-                case 12 -> PRIMITIVE_F64;
-                case 13 -> UTF8;
-                case 14 -> BINARY;
-                case 15 -> STRUCT;
-                case 16 -> LIST;
-                case 17 -> EXTENSION;
-                default -> throw new IllegalArgumentException("Unknown DType variant: " + variant);
-            };
+            switch (variant) {
+                case 0:
+                    return NULL;
+                case 1:
+                    return BOOL;
+                case 2:
+                    return PRIMITIVE_U8;
+                case 3:
+                    return PRIMITIVE_U16;
+                case 4:
+                    return PRIMITIVE_U32;
+                case 5:
+                    return PRIMITIVE_U64;
+                case 6:
+                    return PRIMITIVE_I8;
+                case 7:
+                    return PRIMITIVE_I16;
+                case 8:
+                    return PRIMITIVE_I32;
+                case 9:
+                    return PRIMITIVE_I64;
+                case 10:
+                    return PRIMITIVE_F16;
+                case 11:
+                    return PRIMITIVE_F32;
+                case 12:
+                    return PRIMITIVE_F64;
+                case 13:
+                    return UTF8;
+                case 14:
+                    return BINARY;
+                case 15:
+                    return STRUCT;
+                case 16:
+                    return LIST;
+                case 17:
+                    return EXTENSION;
+                default:
+                    throw new IllegalArgumentException("Unknown DType variant: " + variant);
+            }
         }
     }
 }

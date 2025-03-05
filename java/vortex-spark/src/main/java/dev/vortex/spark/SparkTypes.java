@@ -33,21 +33,34 @@ public final class SparkTypes {
      * Convert a STRUCT Vortex type to a Spark {@link DataType}.
      */
     public static DataType toDataType(DType dType) {
-        return switch (dType.getVariant()) {
-            case NULL -> DataTypes.NullType;
-            case BOOL -> DataTypes.BooleanType;
-            case PRIMITIVE_U8, PRIMITIVE_I8 -> DataTypes.ByteType;
-            case PRIMITIVE_U16, PRIMITIVE_I16 -> DataTypes.ShortType;
-            case PRIMITIVE_U32, PRIMITIVE_I32 -> DataTypes.IntegerType;
-            case PRIMITIVE_U64, PRIMITIVE_I64 -> DataTypes.LongType;
-            case PRIMITIVE_F16 -> {
+        switch (dType.getVariant()) {
+            case NULL:
+                return DataTypes.NullType;
+            case BOOL:
+                return DataTypes.BooleanType;
+            case PRIMITIVE_U8:
+            case PRIMITIVE_I8:
+                return DataTypes.ByteType;
+            case PRIMITIVE_U16:
+            case PRIMITIVE_I16:
+                return DataTypes.ShortType;
+            case PRIMITIVE_U32:
+            case PRIMITIVE_I32:
+                return DataTypes.IntegerType;
+            case PRIMITIVE_U64:
+            case PRIMITIVE_I64:
+                return DataTypes.LongType;
+            case PRIMITIVE_F16:
                 throw new IllegalArgumentException("Spark does not support f16");
-            }
-            case PRIMITIVE_F32 -> DataTypes.FloatType;
-            case PRIMITIVE_F64 -> DataTypes.DoubleType;
-            case UTF8 -> DataTypes.StringType;
-            case BINARY -> DataTypes.BinaryType;
-            case STRUCT -> {
+            case PRIMITIVE_F32:
+                return DataTypes.FloatType;
+            case PRIMITIVE_F64:
+                return DataTypes.DoubleType;
+            case UTF8:
+                return DataTypes.StringType;
+            case BINARY:
+                return DataTypes.BinaryType;
+            case STRUCT:
                 // For each of the inner struct fields, we capture them together here.
                 var struct = new StructType();
 
@@ -58,10 +71,10 @@ public final class SparkTypes {
                         dType.getFieldNames().stream(),
                         dType.getFieldTypes().stream(),
                         (name, type) -> struct.add(name, toDataType(type)));
-                yield struct;
-            }
-            case LIST -> DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
-            case EXTENSION -> {
+                return struct;
+            case LIST:
+                return DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
+            case EXTENSION:
                 /*
                  * Spark does not have a direct equivalent for many of the temporal types we support in Vortex or Arrow.
                  * Notably, there is no DATE type, and timestamps can have at most µs-level precision.
@@ -79,13 +92,14 @@ public final class SparkTypes {
                 }
 
                 if (dType.isDate() || dType.isTimestamp()) {
-                    yield TimestampType$.MODULE$;
+                    return TimestampType$.MODULE$;
                 }
 
                 // TODO(aduffy): temporal types
                 throw new IllegalArgumentException("Unsupported non-temporal extension type");
-            }
-        };
+            default:
+                throw new IllegalArgumentException("unreachable");
+        }
     }
 
     /**

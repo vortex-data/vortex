@@ -62,7 +62,8 @@ allprojects {
 
         tasks.withType<JavaCompile> {
             options.errorprone.disable("UnusedVariable")
-            options.compilerArgs.add("--enable-preview")
+            // options.compilerArgs.add("--enable-preview")
+            options.release = 11
 
             // Needed to make sure that the barista-annotations emits to the correct directory
             options.generatedSourceOutputDirectory = projectDir.resolve("generated_src")
