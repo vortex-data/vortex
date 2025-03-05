@@ -13,6 +13,7 @@ pub(crate) mod dtype;
 mod expr;
 mod file;
 mod io;
+mod iter;
 mod object_store_urls;
 mod python_repr;
 mod record_batch_reader;

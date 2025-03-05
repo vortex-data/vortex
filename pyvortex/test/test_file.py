@@ -1,6 +1,7 @@
 import math
 import os
 
+import polars as pl
 import pyarrow as pa
 import pytest
 
@@ -28,34 +29,29 @@ def vxf(tmpdir_factory) -> vortex.VortexFile:
     return vortex.open(str(fname))
 
 
-def test_schema(vxf):
+def test_dtype(vxf):
     assert vxf.dtype.to_arrow_schema() == pa.schema(
         [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
     )
 
 
-def test_head(vxf):
-    rr: pa.RecordBatchReader = vxf.to_arrow()
-    assert isinstance(rr, pa.RecordBatchReader)
-    tbl = rr.read_all()
-    print(tbl)
+def test_to_arrow_batch_size(vxf):
+    assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
+    assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
 
 
-def test_take(vxf):
-    assert vxf.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
-        {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
-        {"index": 50, "string": "50", "bool": True, "float": math.sqrt(50.0)},
-        {"index": 1000, "string": "1000", "bool": True, "float": math.sqrt(1000.0)},
-        {"index": 999999, "string": "999999", "bool": False, "float": math.sqrt(999999.0)},
-    ]
+def test_to_arrow_columns(vxf):
+    rbr = vxf.to_arrow(columns=["string", "bool"])
+    assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
 
 
-def test_to_batches(ds):
-    assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
+def test_to_polars_columns(vxf):
+    df = vxf.to_polars().select(["string", "bool"]).collect()
 
-    schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
+    assert df.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
 
-    chunk0 = next(ds.to_batches(columns=["string", "bool"]))
-    assert chunk0.to_struct_array() == pa.array(
-        [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
-    )
+
+def test_to_polars_expr(vxf):
+    df = vxf.to_polars()
+    df = df.select(["string"]).filter(pl.col("string") != "").collect()
+    assert len(df) == 0

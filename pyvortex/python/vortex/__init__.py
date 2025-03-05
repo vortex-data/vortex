@@ -45,7 +45,7 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
-from ._lib.file import VortexFile, open
+from ._lib.file import open
 from ._lib.registry import Registry
 from ._lib.scalar import (
     BinaryScalar,
@@ -61,6 +61,7 @@ from ._lib.scalar import (
 )
 from ._lib.serde import ArrayContext, ArrayParts
 from .arrays import Array, PyArray, array
+from .file import VortexFile
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 

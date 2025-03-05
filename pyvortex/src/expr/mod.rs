@@ -1,3 +1,7 @@
+mod polars;
+
+use std::ops::Deref;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -17,6 +21,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ident, &m)?)?;
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_class::<PyExpr>()?;
+
+    m.add_function(wrap_pyfunction!(polars::expr_from_polars, &m)?)?;
 
     Ok(())
 }
@@ -134,9 +140,27 @@ pub struct PyExpr {
     inner: ExprRef,
 }
 
-impl PyExpr {
-    pub fn unwrap(&self) -> &ExprRef {
+impl From<ExprRef> for PyExpr {
+    fn from(value: ExprRef) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl Deref for PyExpr {
+    type Target = ExprRef;
+
+    fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl PyExpr {
+    pub fn inner(&self) -> &ExprRef {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> ExprRef {
+        self.inner
     }
 }
 

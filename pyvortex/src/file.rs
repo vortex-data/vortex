@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use arrow::array::RecordBatchReader;
 use arrow::pyarrow::IntoPyArrow;
 use pyo3::prelude::*;
-use vortex::arrow::infer_schema;
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
+use vortex::expr::{ident, select};
+use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 
 use crate::dtype::PyDType;
+use crate::expr::PyExpr;
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
@@ -33,6 +36,10 @@ pub struct PyVortexFile {
 
 #[pymethods]
 impl PyVortexFile {
+    fn __len__(slf: PyRef<Self>) -> PyResult<usize> {
+        Ok(usize::try_from(slf.vxf.row_count())?)
+    }
+
     /// The dtype of the file.
     #[getter]
     fn dtype(slf: Bound<Self>) -> PyResult<Bound<PyDType>> {
@@ -40,31 +47,41 @@ impl PyVortexFile {
     }
 
     /// Scan the vortex file as a :class:`pyarrow.RecordBatchReader`.
-    fn to_arrow(slf: Bound<Self>) -> PyResult<PyObject> {
-        let stream = slf
+    // TODO(ngates): columns should instead be a projection expression
+    #[pyo3(signature = (columns = None, *, expr = None, batch_size = None))]
+    fn to_arrow(
+        slf: Bound<Self>,
+        columns: Option<Vec<String>>,
+        expr: Option<PyExpr>,
+        batch_size: Option<usize>,
+    ) -> PyResult<PyObject> {
+        let mut builder = slf
             .get()
             .vxf
             .scan()
             .with_canonicalize(true)
-            .build()?
-            .into_array_stream()?;
+            .with_some_filter(expr.map(|e| e.into_inner()))
+            .with_projection(
+                columns
+                    .map(|cols| {
+                        select(
+                            cols.into_iter()
+                                .map(|s| s.into())
+                                .collect::<Vec<Arc<str>>>(),
+                            ident(),
+                        )
+                    })
+                    .unwrap_or_else(|| ident()),
+            );
+
+        if let Some(batch_size) = batch_size {
+            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+        }
+
+        let stream = builder.build()?.into_array_stream()?;
 
         let rbr: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
         rbr.into_pyarrow(slf.py())
-    }
-
-    /// Returns a :class:`polars.LazyFrame` that reads the file.
-    fn to_polars(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
-        let _scan = slf.get().vxf.scan();
-        let _schema = infer_schema(slf.get().vxf.dtype())?;
-        todo!()
-        //
-        // // An IO source is a callable that returns an Iterator of pl.DataFrame.
-        // let io_source = Bound::new(slf.py(), PyVortexPolarsSource { scan_builder })?;
-        // let schema = pyo3_polars::PySchema(Arc::new(schema));
-        //
-        // let plugins = slf.py().import("polars.io.plugins")?;
-        // plugins.call_method("register_io_source", (io_source, schema), None)
     }
 }

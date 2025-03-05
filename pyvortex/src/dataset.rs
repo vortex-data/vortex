@@ -88,7 +88,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
 }
 
 fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
-    row_filter.map(|x| x.borrow().unwrap().clone())
+    row_filter.map(|x| x.borrow().inner().clone())
 }
 
 #[pyclass(name = "TokioFileDataset", module = "io")]

@@ -17,6 +17,12 @@ pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayRef>> {
     fn dtype(&self) -> &DType;
 }
 
+impl ArrayIterator for Box<dyn ArrayIterator + Send> {
+    fn dtype(&self) -> &DType {
+        self.as_ref().dtype()
+    }
+}
+
 pub struct ArrayIteratorAdapter<I> {
     dtype: DType,
     inner: I,
@@ -59,7 +65,7 @@ pub trait ArrayIteratorExt: ArrayIterator {
     /// Collect the iterator into a single `Array`.
     ///
     /// If the iterator yields multiple chunks, they will be returned as a [`ChunkedArray`].
-    fn into_array(self) -> VortexResult<ArrayRef>
+    fn read_all(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
