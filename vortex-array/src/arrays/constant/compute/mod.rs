@@ -147,7 +147,7 @@ fn sum_float(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexR
     let v = primitive_scalar.as_::<f64>()?;
     let array_len = array_len
         .to_f64()
-        .ok_or_else(|| vortex_err!("valid_count must fit the sum type"))?;
+        .ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
 
     Ok(v.map(|v| v * array_len))
 }
