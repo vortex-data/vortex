@@ -112,26 +112,22 @@ impl SumFn<&ConstantArray> for ConstantEncoding {
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
         let sum_ptype = PType::try_from(&sum_dtype).vortex_expect("sum dtype must be primitive");
-        let valid_count = array.valid_count()?;
 
         let scalar = array.scalar();
 
         match_each_native_ptype!(sum_ptype, |$P| {
-            sum_constant::<$P>(scalar.as_primitive(), valid_count)
+            sum_constant::<$P>(scalar.as_primitive(), array.len())
         })
     }
 }
 
-fn sum_constant<T>(
-    primitive_scalar: PrimitiveScalar<'_>,
-    valid_count: usize,
-) -> VortexResult<Scalar>
+fn sum_constant<T>(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexResult<Scalar>
 where
     T: FromPrimitiveOrF16 + NativePType,
     Scalar: From<T>,
 {
     let v = primitive_scalar.as_::<T>()?;
-    let valid_count = T::from(valid_count).vortex_expect("valid_count must fit the sum type");
+    let valid_count = T::from(array_len).vortex_expect("valid_count must fit the sum type");
     let sum = v.map(|v| v * valid_count).unwrap_or_default();
 
     Ok(Scalar::from(sum))
