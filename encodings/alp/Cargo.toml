@@ -27,6 +27,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
