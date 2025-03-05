@@ -215,7 +215,7 @@ fn repartition_by_size(
 ) -> Vec<Vec<PartitionedFile>> {
     let total_file_count = all_files.len();
     let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
-    let target_partition_size = total_size / (desired_partitions + 1);
+    let target_partition_size = total_size / desired_partitions;
 
     let mut partitions = Vec::with_capacity(desired_partitions);
 
@@ -228,7 +228,7 @@ fn repartition_by_size(
             .sorted_unstable_by_key(|f| f.object_meta.size),
     );
 
-    while !all_files.is_empty() {
+    while !all_files.is_empty() && partitions.len() < desired_partitions {
         // If the current partition is empty, we want to bootstrap it with the biggest file we have leftover.
         let file = if curr_partition.is_empty() {
             all_files.pop_back()
@@ -247,22 +247,24 @@ fn repartition_by_size(
                 .object_meta
                 .size;
 
-            // If the biggest file doesn't fit in the partition, we take a file from the front.
-            if curr_partition_size + biggest_file_size > target_partition_size {
+            // We try and find a file on either end that fits in the partition
+            if curr_partition_size + biggest_file_size >= target_partition_size {
                 all_files.pop_front()
-            } else if curr_partition_size + smallest_file_size > target_partition_size {
+            } else if curr_partition_size + smallest_file_size >= target_partition_size {
                 all_files.pop_back()
             } else {
                 None
             }
         };
 
+        // Add a file to the partition
         if let Some(file) = file {
             curr_partition_size += file.object_meta.size;
             curr_partition.push(file.clone());
         }
 
-        if curr_partition_size >= target_partition_size {
+        // If the partition is full, move on to the next one
+        if curr_partition_size >= target_partition_size || file.is_none() {
             curr_partition_size = 0;
             partitions.push(std::mem::take(&mut curr_partition));
         }
@@ -271,12 +273,16 @@ fn repartition_by_size(
     // If we we're still missing the last partition
     if !curr_partition.is_empty() && partitions.len() != desired_partitions {
         partitions.push(std::mem::take(&mut curr_partition));
-    // If we already have enough partitions
     } else if !curr_partition.is_empty() {
         for (idx, file) in curr_partition.into_iter().enumerate() {
             let new_part_idx = idx % partitions.len();
             partitions[new_part_idx].push(file.clone());
         }
+    }
+
+    for (idx, file) in all_files.into_iter().enumerate() {
+        let new_part_idx = idx % partitions.len();
+        partitions[new_part_idx].push(file.clone());
     }
 
     // Assert that we have the correct number of partitions and that the total number of files is right
