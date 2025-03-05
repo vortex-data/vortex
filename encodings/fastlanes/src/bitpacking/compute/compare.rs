@@ -41,6 +41,13 @@ impl CompareFn<&BitPackedArray> for BitPackedEncoding {
             Mask::AllFalse(lhs.len())
         })?;
 
+        // If the bit width is of the compressed array is equal to the bit_width of the ptype,
+        // when there was no bitpacking compression, the compressor should never do this, so
+        // we are allowed to run a slow compute function.
+        if lhs.ptype().bit_width() <= lhs.bit_width() as usize {
+            return Ok(None);
+        }
+
         // We exact that `rhs` scalar value fits into the bit_width domain, otherwise we can skip the comparison
         // and that the bit_width domain is less than the type::BITS, e.g. W <= 8 for u8, so we can cast
         // from uX to iX.
@@ -164,9 +171,15 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
     T::Bitpacked: NativePType + BitPackingCompare,
 {
     match comparison {
-        Operator::Eq | Operator::NotEq =>
+        Operator::Eq  => {
+            bitpack_compare_eq(width, input, output, value);
+        }
+        Operator::NotEq => {
             bitpack_compare_eq(width, input, output, value)
-        ,
+            for i in output.iter_mut() {
+                *i = !*i;
+            }
+        },
         // replace with negate end
         // Operator::NotEq => unsafe {
         //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
@@ -221,6 +234,18 @@ pub fn collect_byte_to_bit_4(bools: &[bool; 1024], result: &mut [u64; 16]) {
                 | (bools[i * 64 + j + 1] as u64) << (j + 1)
                 | (bools[i * 64 + j + 2] as u64) << (j + 2)
                 | (bools[i * 64 + j + 3] as u64) << (j + 3)
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn collect_byte_to_bit_4_neg(bools: &[bool; 1024], result: &mut [u64; 16]) {
+    for i in 0..16 {
+        for j in (0..64).step_by(4) {
+            result[i] = !(bools[i * 64 + j + 0] as u64) << (j + 0)
+                | !(bools[i * 64 + j + 1] as u64) << (j + 1)
+                | !(bools[i * 64 + j + 2] as u64) << (j + 2)
+                | !(bools[i * 64 + j + 3] as u64) << (j + 3)
         }
     }
 }
