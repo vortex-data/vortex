@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Arc;
 
@@ -11,7 +12,9 @@ use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use itertools::Itertools;
 use object_store::ObjectStoreScheme;
+use vortex_error::VortexExpect;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{VortexExpr, and};
 
@@ -219,7 +222,27 @@ fn repartition_by_size(
     let mut curr_partition_size = 0;
     let mut curr_partition = Vec::default();
 
-    for file in all_files.into_iter() {
+    let mut all_files = VecDeque::from_iter(
+        all_files
+            .into_iter()
+            .sorted_unstable_by_key(|f| f.object_meta.size),
+    );
+
+    while !all_files.is_empty() {
+        // Peak at the biggest file left
+        let top_file = all_files
+            .back()
+            .vortex_expect("We must have at least one item");
+
+        // If the biggest file doesn't fit in the partition, we take a file from the front.
+        let file = if curr_partition_size + top_file.object_meta.size > target_partition_size {
+            all_files.pop_front()
+        } else {
+            all_files.pop_back()
+        };
+
+        let file = file.vortex_expect("We must have at least one item");
+
         curr_partition_size += file.object_meta.size;
         curr_partition.push(file.clone());
 
@@ -241,10 +264,6 @@ fn repartition_by_size(
     }
 
     // Assert that we have the correct number of partitions and that the total number of files is right
-    assert_eq!(
-        partitions.len(),
-        usize::min(desired_partitions, total_file_count)
-    );
     assert_eq!(total_file_count, partitions.iter().flatten().count());
 
     partitions

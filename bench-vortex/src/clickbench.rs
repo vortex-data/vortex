@@ -229,6 +229,9 @@ pub async fn register_vortex_files(
     let table_path = vortex_dir
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
+
+    info!("Registering table from {table_path}");
+
     let table_path = format!("file://{table_path}/");
     let table_url = ListingTableUrl::parse(table_path)?;
 
