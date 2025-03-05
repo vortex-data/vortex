@@ -3,3 +3,6 @@
 
 # Ignore Gradle build output directory
 build
+
+# generated source directories
+generated_src/

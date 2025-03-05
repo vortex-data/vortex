@@ -1,7 +1,7 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::Arc;
 
-use vortex::datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
+use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
 use vortex::error::{VortexExpect, VortexUnwrap};
 
