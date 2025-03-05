@@ -43,11 +43,7 @@ impl FromIterator<bool> for BoolArray {
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-        for idx in 0..buffer.len() {
-            unsafe {
-                println!("{}", buffer.value_unchecked(idx));
-            }
-        }
+
         Self::new(
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
