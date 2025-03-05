@@ -29,8 +29,6 @@ jobs:
       - family=c7i.8xlarge
       - image=ubuntu24-full-x64
       - disk=large
-      - extras=s3-cache
-
     strategy:
       matrix:
         benchmark:
