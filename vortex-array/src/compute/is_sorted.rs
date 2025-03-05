@@ -10,50 +10,48 @@ pub trait IsSortedFn<A> {
     /// - The array is not encoded as `NullArray` or `ConstantArray`.
     /// - If doing a `strict` check, if the array is nullable, it'll have at most 1 null element
     ///   as the first item in the array.
-    fn is_sorted(&self, array: A, strict: bool) -> VortexResult<bool>;
+    fn is_sorted(&self, array: A) -> VortexResult<bool>;
+
+    fn is_strict_sorted(&self, array: A) -> VortexResult<bool>;
 }
 
 impl<E: Encoding> IsSortedFn<&dyn Array> for E
 where
     E: for<'a> IsSortedFn<&'a E::Array>,
 {
-    fn is_sorted(&self, array: &dyn Array, strict: bool) -> VortexResult<bool> {
+    fn is_sorted(&self, array: &dyn Array) -> VortexResult<bool> {
         let array_ref = array
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        IsSortedFn::is_sorted(self, array_ref, strict)
+        IsSortedFn::is_sorted(self, array_ref)
+    }
+
+    fn is_strict_sorted(&self, array: &dyn Array) -> VortexResult<bool> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        IsSortedFn::is_strict_sorted(self, array_ref)
     }
 }
 
 #[allow(clippy::wrong_self_convention)]
 /// Helper methods to check sortedness with strictness
-pub trait IteratorExt: Iterator
+pub trait IsSortedIteratorExt: Iterator
 where
     <Self as Iterator>::Item: PartialOrd,
 {
-    fn is_sorted_with_strictness(self, strict: bool) -> bool
-    where
-        Self: Sized,
-        Self::Item: PartialOrd,
-    {
-        if strict {
-            Iterator::is_sorted_by(self, |a, b| a < b)
-        } else {
-            Iterator::is_sorted(self)
-        }
-    }
-
     fn is_strict_sorted(self) -> bool
     where
         Self: Sized,
         Self::Item: PartialOrd,
     {
-        self.is_sorted_with_strictness(true)
+        self.is_sorted_by(|a, b| a < b)
     }
 }
 
-impl<T> IteratorExt for T
+impl<T> IsSortedIteratorExt for T
 where
     T: Iterator + ?Sized,
     T::Item: PartialOrd,
@@ -67,7 +65,7 @@ pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, true)
 }
 
-pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
+fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
     let target_stat = if strict {
         Stat::IsStrictSorted
     } else {
@@ -128,13 +126,22 @@ fn is_sorted_impl(array: &dyn Array, strict: bool) -> VortexResult<bool> {
     }
 
     let is_sorted = if let Some(vtable_fn) = array.vtable().is_sorted_fn() {
-        vtable_fn.is_sorted(array, strict)?
+        if strict {
+            vtable_fn.is_strict_sorted(array)?
+        } else {
+            vtable_fn.is_sorted(array)?
+        }
     } else {
         log::debug!("No is_sorted implementation found for {}", array.encoding());
         let array = array.to_canonical()?;
 
         if let Some(vtable_fn) = array.as_ref().vtable().is_sorted_fn() {
-            vtable_fn.is_sorted(array.as_ref(), strict)?
+            let array = array.as_ref();
+            if strict {
+                vtable_fn.is_strict_sorted(array)?
+            } else {
+                vtable_fn.is_sorted(array)?
+            }
         } else {
             vortex_bail!(
                 "No is_sorted function for canonical array: {}",

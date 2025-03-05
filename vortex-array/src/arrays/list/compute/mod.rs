@@ -110,7 +110,11 @@ impl UncompressedSizeFn<&ListArray> for ListEncoding {
 }
 
 impl IsSortedFn<&ListArray> for ListEncoding {
-    fn is_sorted(&self, _array: &ListArray, _strict: bool) -> VortexResult<bool> {
+    fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    fn is_strict_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
         Ok(false)
     }
 }

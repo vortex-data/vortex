@@ -10,7 +10,7 @@ use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     CastFn, CompareFn, FilterFn, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
     ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts,
-    is_sorted_opts, min_max, scalar_at, slice, sum, take, uncompressed_size,
+    is_sorted, is_strict_sorted, min_max, scalar_at, slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -140,7 +140,11 @@ impl UncompressedSizeFn<&ExtensionArray> for ExtensionEncoding {
 }
 
 impl IsSortedFn<&ExtensionArray> for ExtensionEncoding {
-    fn is_sorted(&self, array: &ExtensionArray, strict: bool) -> VortexResult<bool> {
-        is_sorted_opts(array.storage(), strict)
+    fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        is_sorted(array.storage())
+    }
+
+    fn is_strict_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        is_strict_sorted(array.storage())
     }
 }

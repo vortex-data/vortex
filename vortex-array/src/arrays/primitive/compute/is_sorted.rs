@@ -4,34 +4,79 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{IsSortedFn, IteratorExt};
+use crate::compute::{IsSortedFn, IsSortedIteratorExt};
 use crate::variants::PrimitiveArrayTrait;
 
 impl IsSortedFn<&PrimitiveArray> for PrimitiveEncoding {
-    fn is_sorted(&self, array: &PrimitiveArray, strict: bool) -> VortexResult<bool> {
+    fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
         match_each_native_ptype!(array.ptype(), |$P| {
-            compute_is_sorted::<$P>(array, strict)
+            compute_is_sorted::<$P>(array, true)
+        })
+    }
+
+    fn is_strict_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
+        match_each_native_ptype!(array.ptype(), |$P| {
+            compute_is_sorted::<$P>(array, false)
         })
     }
 }
 
-fn compute_is_sorted<T: NativePType + PartialOrd>(
-    array: &PrimitiveArray,
-    strict: bool,
-) -> VortexResult<bool> {
+#[derive(Copy, Clone)]
+struct ComparablePrimitive<T: NativePType>(T);
+
+impl<T> From<&T> for ComparablePrimitive<T>
+where
+    T: NativePType,
+{
+    fn from(value: &T) -> Self {
+        Self(*value)
+    }
+}
+
+impl<T> PartialOrd for ComparablePrimitive<T>
+where
+    T: NativePType,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.0.total_compare(other.0))
+    }
+}
+
+impl<T> PartialEq for ComparablePrimitive<T>
+where
+    T: NativePType,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_eq(other.0)
+    }
+}
+
+fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> VortexResult<bool> {
     match array.validity_mask()? {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let slice = array.as_slice::<T>();
-            Ok(slice.iter().is_sorted_with_strictness(strict))
+            let iter = slice.iter().map(ComparablePrimitive::from);
+
+            Ok(if strict {
+                iter.is_strict_sorted()
+            } else {
+                iter.is_sorted()
+            })
         }
         Mask::Values(mask_values) => {
             let slice = array.as_slice::<T>();
-            let set_indices = mask_values.boolean_buffer().set_indices();
 
-            Ok(set_indices
-                .map(|idx| slice[idx])
-                .is_sorted_with_strictness(strict))
+            let iter = mask_values
+                .boolean_buffer()
+                .set_indices()
+                .map(|idx| ComparablePrimitive(slice[idx]));
+
+            Ok(if strict {
+                iter.is_strict_sorted()
+            } else {
+                iter.is_sorted()
+            })
         }
     }
 }
