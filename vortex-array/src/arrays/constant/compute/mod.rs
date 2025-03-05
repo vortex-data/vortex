@@ -122,8 +122,8 @@ impl SumFn<&ConstantArray> for ConstantEncoding {
     }
 }
 
-fn sum_constant<'a, T>(
-    primitive_scalar: PrimitiveScalar<'a>,
+fn sum_constant<T>(
+    primitive_scalar: PrimitiveScalar<'_>,
     valid_count: usize,
 ) -> VortexResult<Scalar>
 where
