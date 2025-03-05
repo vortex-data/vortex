@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{IsSortedFn, is_sorted, is_strict_sorted, min_max};
+use crate::compute::{IsSortedFn, is_sorted, is_strict_sorted, scalar_at};
 
 impl IsSortedFn<&ChunkedArray> for ChunkedEncoding {
     fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<bool> {
@@ -19,24 +19,32 @@ fn is_sorted_impl(
     strict: bool,
     reentry_fn: impl Fn(&dyn Array) -> VortexResult<bool>,
 ) -> VortexResult<bool> {
-    let mut chunks_min_max = Vec::default();
+    let mut first_last = Vec::default();
+
+    for chunk in array.chunks() {
+        if chunk.is_empty() {
+            continue;
+        }
+
+        let first = scalar_at(chunk, 0)?;
+        let last = scalar_at(chunk, chunk.len() - 1)?;
+
+        first_last.push((first, last));
+    }
+
+    let chunk_sorted = first_last
+        .iter()
+        .is_sorted_by(|a, b| if strict { a.1 < b.0 } else { a.1 <= b.0 });
+
+    if !chunk_sorted {
+        return Ok(false);
+    }
 
     for chunk in array.chunks() {
         if !reentry_fn(chunk)? {
             return Ok(false);
         }
-
-        let min_max_vals = min_max(chunk)?;
-        chunks_min_max.push(min_max_vals);
     }
 
-    let min_max_sorted = chunks_min_max.iter().flatten().is_sorted_by(|a, b| {
-        if strict {
-            a.max < b.min
-        } else {
-            a.max <= b.min
-        }
-    });
-
-    Ok(min_max_sorted)
+    Ok(true)
 }

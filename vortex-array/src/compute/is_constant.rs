@@ -42,7 +42,7 @@ impl Default for IsConstantOpts {
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the relevant VTable, it'll try and canonicalize in order to make a determination.
 /// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has one elements.
+/// 1. It has at least one element (**Note** - an empty array isn't constant).
 /// 1. Its encoded as a [`ConstantArray`] or [`NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
