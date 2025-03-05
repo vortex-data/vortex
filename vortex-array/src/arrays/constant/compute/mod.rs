@@ -127,7 +127,7 @@ impl SumFn<&ConstantArray> for ConstantEncoding {
     }
 }
 
-fn sum_constant<T>(
+fn sum_integral<T>(
     primitive_scalar: PrimitiveScalar<'_>,
     array_len: usize,
 ) -> VortexResult<Option<T>>
