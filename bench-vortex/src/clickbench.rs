@@ -1,25 +1,31 @@
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use clap::ValueEnum;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use futures::{StreamExt, TryStreamExt, stream};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use reqwest::IntoUrl;
+use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::info;
+use tracing::{info, warn};
 use vortex::TryIntoArray;
-use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, vortex_err};
 use vortex::file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::idempotent_async;
+use crate::{idempotent, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -147,20 +153,36 @@ pub async fn register_vortex_files(
     schema: &Schema,
 ) -> anyhow::Result<()> {
     let vortex_dir = input_path.join("vortex");
+    let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
 
-    stream::iter(0..100)
-        .map(|idx| {
-            let parquet_file_path = input_path
-                .join("parquet")
-                .join(format!("hits_{idx}.parquet"));
-            let output_path = vortex_dir.join(format!("hits_{idx}.{VORTEX_FILE_EXTENSION}"));
+    let parquet_inputs =
+        std::fs::read_dir(parquet_path.clone())?.collect::<std::io::Result<Vec<_>>>()?;
+    info!(
+        "Found {} parquet files in {}",
+        parquet_inputs.len(),
+        parquet_path.to_str().unwrap()
+    );
+
+    let iter = parquet_inputs
+        .iter()
+        .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"));
+
+    stream::iter(iter)
+        .map(|dir_entry| {
+            let filename = {
+                let mut temp = dir_entry.path();
+                temp.set_extension("");
+                temp.file_name().unwrap().to_str().unwrap().to_string()
+            };
+            let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
+            let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
             let session = session.clone();
 
             tokio::spawn(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
-                    info!("Processing file {idx}");
+                    info!("Processing file '{filename}'");
                     let record_batches = session
                         .read_parquet(
                             parquet_file_path.to_str().unwrap(),
@@ -258,4 +280,89 @@ pub fn clickbench_queries() -> Vec<(usize, String)> {
         .map(|s| s.to_string())
         .enumerate()
         .collect()
+}
+
+#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum Flavor {
+    #[default]
+    Partitioned,
+    Single,
+}
+
+impl std::fmt::Display for Flavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_possible_value().unwrap().get_name())
+    }
+}
+
+impl Flavor {
+    pub fn download(
+        &self,
+        client: &reqwest::blocking::Client,
+        basepath: impl AsRef<Path>,
+    ) -> anyhow::Result<()> {
+        let basepath = basepath.as_ref();
+        match self {
+            Flavor::Single => {
+                let output_path = basepath.join("parquet").join("hits.parquet");
+                idempotent(&output_path, |output_path| {
+                    info!("Downloading single clickbench file");
+                    let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
+                    let mut response = retry_get(client, url)?;
+                    let mut file = File::create(output_path)?;
+                    response.copy_to(&mut file)?;
+
+                    anyhow::Ok(())
+                })?;
+
+                Ok(())
+            }
+            Flavor::Partitioned => {
+                // The clickbench-provided file is missing some higher-level type info, so we reprocess it
+                // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
+                (0_u32..100).into_par_iter().for_each(|idx| {
+                    let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
+                    idempotent(&output_path, |output_path| {
+                        info!("Downloading file {idx}");
+                        let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
+                        let mut response = retry_get(client, url)?;
+                        let mut file = File::create(output_path)?;
+                        response.copy_to(&mut file)?;
+
+                        anyhow::Ok(PathBuf::from(output_path))
+                    })
+                    .unwrap();
+            });
+
+                Ok(())
+            }
+        }
+    }
+}
+
+fn retry_get(client: &reqwest::blocking::Client, url: impl IntoUrl) -> anyhow::Result<Response> {
+    let url = url.as_str();
+    let make_req = || client.get(url).send();
+
+    let mut output = None;
+
+    for attempt in 1..4 {
+        match make_req().and_then(|r| r.error_for_status()) {
+            Ok(r) => {
+                output = Some(r);
+                break;
+            }
+            Err(e) => {
+                warn!("Request errored with {e}, retying for the {attempt} time");
+            }
+        }
+
+        // Very basic backoff mechanism
+        std::thread::sleep(Duration::from_secs(attempt));
+    }
+
+    match output {
+        Some(v) => Ok(v),
+        None => anyhow::bail!("Exahusted retry attempts for {url}"),
+    }
 }

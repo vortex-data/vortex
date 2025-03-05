@@ -229,15 +229,18 @@ impl Patches {
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
         search_sorted(self.values(), target.into(), side).and_then(|sr| {
-            let sidx = sr.to_offsets_index(self.indices().len());
-            let index = usize::try_from(&scalar_at(self.indices(), sidx)?)? - self.offset;
+            let index_idx = sr.to_offsets_index(self.indices().len(), side);
+            let index = usize::try_from(&scalar_at(self.indices(), index_idx)?)? - self.offset;
             Ok(match sr {
                 // If we reached the end of patched values when searching then the result is one after the last patch index
-                SearchResult::Found(i) => SearchResult::Found(if i == self.indices().len() {
-                    index + 1
-                } else {
+                SearchResult::Found(i) => SearchResult::Found(
                     index
-                }),
+                        + if i == self.indices().len() || side == SearchSortedSide::Right {
+                            1
+                        } else {
+                            0
+                        },
+                ),
                 // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
                 SearchResult::NotFound(i) => {
                     SearchResult::NotFound(if i == 0 { index } else { index + 1 })
@@ -636,19 +639,45 @@ mod test {
     #[test]
     fn search_right() {
         let patches = Patches::new(
-            2,
+            6,
             0,
-            buffer![0u64].into_array(),
-            PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
+            buffer![0u8, 1, 4, 5].into_array(),
+            buffer![-128i8, -98, 8, 50].into_array(),
         );
 
         assert_eq!(
-            patches.search_sorted(0, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(1)
+            patches.search_sorted(-98, SearchSortedSide::Right).unwrap(),
+            SearchResult::Found(2)
         );
         assert_eq!(
-            patches.search_sorted(1, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(1)
+            patches.search_sorted(50, SearchSortedSide::Right).unwrap(),
+            SearchResult::Found(6),
+        );
+        assert_eq!(
+            patches.search_sorted(7, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(2),
+        );
+        assert_eq!(
+            patches.search_sorted(51, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(6)
+        );
+    }
+
+    #[test]
+    fn search_left() {
+        let patches = Patches::new(
+            20,
+            0,
+            buffer![0u64, 1, 17, 18, 19].into_array(),
+            buffer![11i32, 22, 33, 44, 55].into_array(),
+        );
+        assert_eq!(
+            patches.search_sorted(30, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(2)
+        );
+        assert_eq!(
+            patches.search_sorted(54, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(19)
         );
     }
 

@@ -18,8 +18,8 @@ use pyo3::{
     Bound, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
-use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;

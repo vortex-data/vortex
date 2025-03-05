@@ -3,8 +3,8 @@ use vortex_array::compute::try_cast;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayCanonicalImpl, Canonical, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_scalar::PrimitiveScalar;
@@ -103,7 +103,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_datetime_dtype::TimeUnit;
+    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
     use crate::canonical::decode_to_temporal;

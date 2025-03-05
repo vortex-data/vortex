@@ -1,13 +1,12 @@
-#![cfg(feature = "arrow")]
-
+//! Arrow conversion logic for Vortex datetime types.
 use std::sync::Arc;
 
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_dtype::{ExtDType, PType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
 
-use crate::temporal::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
-use crate::unit::TimeUnit;
+use crate::datetime::temporal::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
+use crate::datetime::unit::TimeUnit;
+use crate::{ExtDType, PType};
 
 /// Construct an extension type from the provided temporal Arrow type.
 ///

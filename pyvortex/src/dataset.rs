@@ -8,7 +8,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
@@ -101,7 +100,7 @@ impl TokioFileDataset {
     pub async fn try_new(path: String) -> VortexResult<Self> {
         let file = TokioFile::open(path)?;
         let vxf = VortexOpenOptions::file(file).open().await?;
-        let schema = Arc::new(infer_schema(vxf.dtype())?);
+        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
 
         Ok(Self { vxf, schema })
     }
@@ -189,7 +188,7 @@ impl ObjectStoreUrlDataset {
         let reader = vortex_read_at_from_url(&url).await?;
 
         let vxf = VortexOpenOptions::file(reader).open().await?;
-        let schema = Arc::new(infer_schema(vxf.dtype())?);
+        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
 
         Ok(Self { vxf, schema })
     }

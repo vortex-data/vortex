@@ -17,7 +17,7 @@ use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_datetime_dtype::TimeUnit;
+use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 

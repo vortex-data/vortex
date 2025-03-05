@@ -584,10 +584,10 @@ fn value_indices<T: PrimInt + Hash + Into<Scalar>>(
     values: &[T],
     validity: &Mask,
 ) -> Mask {
-    // Find all non-null positions that are not identical to the top value.
+    // Find all null and non-null positions that are not identical to the top value.
     let mut buffer = BooleanBufferBuilder::new(values.len());
     for (idx, &value) in values.iter().enumerate() {
-        buffer.append(validity.value(idx) && top_value != value);
+        buffer.append(!validity.value(idx) || top_value != value);
     }
 
     Mask::from_buffer(buffer.finish())
@@ -754,11 +754,13 @@ mod tests {
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{Buffer, BufferMut, buffer_mut};
+    use vortex_array::vtable::EncodingVTable;
+    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_sparse::SparseEncoding;
 
-    use crate::Compressor;
-    use crate::integer::IntCompressor;
+    use crate::integer::{IntCompressor, IntegerStats, SparseScheme};
+    use crate::{Compressor, CompressorStats, Scheme};
 
     #[test]
     fn test_empty() {
@@ -823,5 +825,21 @@ mod tests {
         let array = values.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
         log::info!("WindowName compressed: {}", compressed.tree_display());
+    }
+
+    #[test]
+    fn sparse_with_nulls() {
+        let array = PrimitiveArray::new(
+            buffer![189u8, 189, 189, 0, 46],
+            Validity::from_iter(vec![true, true, true, true, false]),
+        );
+        let compressed = SparseScheme
+            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .unwrap();
+        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        let decoded = compressed.to_primitive().unwrap();
+        let expected = [189u8, 189, 189, 0, 0];
+        assert_eq!(decoded.as_slice::<u8>(), &expected);
+        assert_eq!(decoded.validity(), array.validity());
     }
 }

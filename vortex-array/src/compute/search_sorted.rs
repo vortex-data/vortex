@@ -58,14 +58,14 @@ impl SearchResult {
     ///
     /// For example for a ChunkedArray with chunk offsets array [0, 3, 8, 10] you can use this method to
     /// obtain index suitable for indexing into it after performing a search
-    pub fn to_offsets_index(self, len: usize) -> usize {
+    pub fn to_offsets_index(self, len: usize, side: SearchSortedSide) -> usize {
         match self {
             SearchResult::Found(i) => {
-                if i == len {
-                    i - 1
+                i.saturating_sub(if side == SearchSortedSide::Right || i == len {
+                    1
                 } else {
-                    i
-                }
+                    0
+                })
             }
             SearchResult::NotFound(i) => i.saturating_sub(1),
         }

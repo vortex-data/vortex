@@ -24,7 +24,11 @@ jobs:
 
   bench:
     needs: label_trigger
-    runs-on: [ self-hosted, gcp ]
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
+      - disk=large
     strategy:
       matrix:
         benchmark:
@@ -34,20 +38,15 @@ jobs:
             name: Compression
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
+      # rustup is pre-installed on the ubuntu24-full-x64 image.
+
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.11
-        if: runner.environment != 'self-hosted'
         with:
           version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
@@ -61,8 +60,10 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+
       - name: Compare results
         shell: bash
         run: |
@@ -81,11 +82,13 @@ jobs:
           uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
+
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
   sql:
     needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml

@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
-use vortex_datetime_dtype::{TemporalMetadata, is_temporal_ext_type};
 use vortex_dtype::DType;
+use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::binary::BinaryScalar;
@@ -115,8 +115,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_datetime_dtype::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};

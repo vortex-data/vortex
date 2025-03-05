@@ -3,14 +3,19 @@ use std::sync::{Arc, LazyLock};
 
 use jiff::civil::{Date, Time};
 use jiff::{Timestamp, Zoned};
-use vortex_dtype::ExtID;
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
-use crate::unit::TimeUnit;
+use crate::datetime::unit::TimeUnit;
+use crate::{ExtDType, ExtID, ExtMetadata};
 
+/// ID for the Vortex time type.
 pub static TIME_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.time"));
+/// ID for the Vortex date type.
 pub static DATE_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.date"));
+/// ID for the Vortex timestamp type.
 pub static TIMESTAMP_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.timestamp"));
 
+/// Check if an `ExtID` is one of the temporal types.
 pub fn is_temporal_ext_type(id: &ExtID) -> bool {
     [&DATE_ID as &ExtID, &TIME_ID, &TIMESTAMP_ID].contains(&id)
 }
@@ -20,15 +25,23 @@ pub fn is_temporal_ext_type(id: &ExtID) -> bool {
 /// There is one enum for each of the temporal array types we can load from Arrow.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemporalMetadata {
+    /// Metadata for a time array.
     Time(TimeUnit),
+    /// Metadata for a date array.
     Date(TimeUnit),
+    /// Metadata for a timestamp array.
     Timestamp(TimeUnit, Option<String>),
 }
 
+/// A Jiff representation of a temporal value.
 pub enum TemporalJiff {
+    /// A time value.
     Time(Time),
+    /// A date value.
     Date(Date),
+    /// A timestamp value.
     Timestamp(Timestamp),
+    /// A zoned timestamp value.
     Zoned(Zoned),
 }
 
@@ -64,6 +77,7 @@ impl TemporalMetadata {
         }
     }
 
+    /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
             TemporalMetadata::Time(TimeUnit::D) => {
@@ -94,9 +108,6 @@ impl TemporalMetadata {
         }
     }
 }
-
-use vortex_dtype::{ExtDType, ExtMetadata};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 macro_rules! impl_temporal_metadata_try_from {
     ($typ:ty) => {
@@ -197,11 +208,9 @@ impl From<TemporalMetadata> for ExtMetadata {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{ExtDType, ExtMetadata, PType};
+    use super::*;
+    use crate::{ExtDType, ExtMetadata, PType};
 
-    use crate::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
-    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_roundtrip_metadata() {
         let meta: ExtMetadata =

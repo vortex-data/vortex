@@ -54,7 +54,7 @@ where
     }
 }
 
-/// Compute between (a <= x <= b), this can be implemented using compare and boolean andn but this
+/// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
 /// will likely have a lower runtime.
 ///
 /// This semantics is equivalent to:
