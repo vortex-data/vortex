@@ -12,12 +12,14 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use futures::{StreamExt, TryStreamExt, stream};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use reqwest::IntoUrl;
+use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{info, warn};
 use vortex::TryIntoArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect, vortex_err};
+use vortex::error::{VortexError, vortex_err};
 use vortex::file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::ArrayStreamAdapter;
@@ -306,8 +308,7 @@ impl Flavor {
                 idempotent(&output_path, |output_path| {
                     info!("Downloading single clickbench file");
                     let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
-
-                    let mut response = client.get(url).send()?.error_for_status()?;
+                    let mut response = retry_get(client, url)?;
                     let mut file = File::create(output_path)?;
                     response.copy_to(&mut file)?;
 
@@ -324,27 +325,7 @@ impl Flavor {
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");
                         let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-
-                        let make_req = || client.get(&url).send();
-                        let mut output = None;
-
-                        for attempt in 1..4 {
-                            match make_req() {
-                                Ok(r) => {
-                                    output = Some(r.error_for_status());
-                                    break;
-                                },
-                                Err(e) => {
-                                    warn!("Request for file {idx} timed out, retying for the {attempt} time");
-                                    output = Some(Err(e));
-                                }
-                            }
-
-                            // Very basic backoff mechanism
-                            std::thread::sleep(Duration::from_secs(attempt));
-                        }
-
-                        let mut response = output.vortex_expect("Must have value here")?;
+                        let mut response = retry_get(client, url)?;
                         let mut file = File::create(output_path)?;
                         response.copy_to(&mut file)?;
 
@@ -356,5 +337,32 @@ impl Flavor {
                 Ok(())
             }
         }
+    }
+}
+
+fn retry_get(client: &reqwest::blocking::Client, url: impl IntoUrl) -> anyhow::Result<Response> {
+    let url = url.as_str();
+    let make_req = || client.get(url).send();
+
+    let mut output = None;
+
+    for attempt in 1..4 {
+        match make_req().and_then(|r| r.error_for_status()) {
+            Ok(r) => {
+                output = Some(r);
+                break;
+            }
+            Err(e) => {
+                warn!("Request errored with {e}, retying for the {attempt} time");
+            }
+        }
+
+        // Very basic backoff mechanism
+        std::thread::sleep(Duration::from_secs(attempt));
+    }
+
+    match output {
+        Some(v) => Ok(v),
+        None => anyhow::bail!("Exahusted retry attempts for {url}"),
     }
 }
