@@ -13,9 +13,9 @@ use vortex_error::VortexResult;
 use crate::data::Layout;
 use crate::layouts::stats::reader::StatsReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::AsyncSegmentReader;
+use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentRegistry};
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, STATS_LAYOUT_ID};
+use crate::{LayoutId, RowMask, STATS_LAYOUT_ID};
 
 #[derive(Default, Debug)]
 pub struct StatsLayout;
@@ -45,5 +45,28 @@ impl LayoutVTable for StatsLayout {
         layout
             .child(0, layout.dtype().clone(), "data")?
             .register_splits(field_mask, row_offset, splits)
+    }
+
+    fn required_segments(
+        &self,
+        layout: &Layout,
+        row_mask: RowMask,
+        filter_field_mask: &[FieldMask],
+        projection_field_mask: &[FieldMask],
+        segments: &mut SegmentRegistry,
+    ) -> VortexResult<()> {
+        if !filter_field_mask.is_empty() {
+            layout
+                .child(1, layout.dtype().clone(), "stats_table")?
+                .required_segments(
+                    row_mask.clone(),
+                    filter_field_mask,
+                    projection_field_mask,
+                    &mut segments.with_kind(RequiredSegmentKind::PRUNING),
+                )?;
+        }
+        layout
+            .child(0, layout.dtype().clone(), "data")?
+            .required_segments(row_mask, filter_field_mask, projection_field_mask, segments)
     }
 }

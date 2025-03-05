@@ -1,9 +1,11 @@
 use std::fmt::Display;
 use std::ops::Deref;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -46,6 +48,35 @@ pub trait SegmentWriter {
     //  serialize it into a single segment that is 512 byte aligned? Or else, we should guarantee
     //  to align the the first segment to 512, and then assume that coalescing captures the rest.
     fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum RequiredSegmentKind {
+    FILTER,
+    PROJECTION,
+    PRUNING,
+}
+
+pub struct SegmentRegistry {
+    store: Arc<RwLock<HashMap<RequiredSegmentKind, Vec<SegmentId>>>>,
+    pub kind: RequiredSegmentKind,
+}
+
+impl SegmentRegistry {
+    pub fn with_kind(&self, kind: RequiredSegmentKind) -> Self {
+        SegmentRegistry {
+            store: self.store.clone(),
+            kind,
+        }
+    }
+
+    pub fn push(&mut self, segment: SegmentId) {
+        let mut store_write = self.store.write().vortex_expect("poisoned lock");
+        store_write
+            .entry(self.kind)
+            .or_insert_with(|| Vec::new())
+            .push(segment);
+    }
 }
 
 #[cfg(test)]

@@ -47,4 +47,26 @@ impl LayoutVTable for FlatLayout {
         }
         Ok(())
     }
+
+    fn required_segments(
+        &self,
+        layout: &Layout,
+        _row_mask: crate::RowMask,
+        _filter_field_mask: &[FieldMask],
+        _projection_field_mask: &[FieldMask],
+        segments: &mut crate::segments::SegmentRegistry,
+    ) -> VortexResult<()> {
+        // if !filter_field_mask
+        //     .iter()
+        //     .chain(projection_field_mask)
+        //     .any(|p| p.matches_root())
+        // {
+        //     return Ok(());
+        // }
+
+        for segment in layout.segments() {
+            segments.push(segment);
+        }
+        Ok(())
+    }
 }

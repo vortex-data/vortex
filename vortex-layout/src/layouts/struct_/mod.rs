@@ -12,9 +12,9 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::AsyncSegmentReader;
+use crate::segments::{AsyncSegmentReader, RequiredSegmentKind};
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, STRUCT_LAYOUT_ID};
+use crate::{LayoutId, RowMask, STRUCT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct StructLayout;
@@ -40,34 +40,75 @@ impl LayoutVTable for StructLayout {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        let DType::Struct(dtype, _) = layout.dtype() else {
-            vortex_bail!("Mismatched dtype {} for struct layout", layout.dtype());
-        };
-
-        // If the field mask contains an `All` fields, then register splits for all fields.
-        if field_mask.iter().any(|mask| mask.matches_all()) {
-            for (idx, field_dtype) in dtype.fields().enumerate() {
-                let child = layout.child(idx, field_dtype, dtype.field_name(idx)?)?;
-                child.register_splits(&[FieldMask::All], row_offset, splits)?;
-            }
-            return Ok(());
-        }
-
-        // Register the splits for each field in the mask
-        for path in field_mask {
-            let Some(field) = path.starting_field()? else {
-                // skip fields not in mask
-                continue;
-            };
-            let Field::Name(field_name) = field else {
-                vortex_bail!("Expected field name, got {:?}", field);
-            };
-
-            let idx = dtype.find(field_name)?;
-            let child = layout.child(idx, dtype.field_by_index(idx)?, field_name)?;
-            child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;
-        }
-
+        for_all_matching_children(layout, field_mask, |mask, child| {
+            child.register_splits(&[mask], row_offset, splits)
+        })?;
         Ok(())
     }
+
+    fn required_segments(
+        &self,
+        layout: &Layout,
+        row_mask: RowMask,
+        filter_field_mask: &[FieldMask],
+        projection_field_mask: &[FieldMask],
+        segments: &mut crate::segments::SegmentRegistry,
+    ) -> VortexResult<()> {
+        for_all_matching_children(layout, filter_field_mask, |field_mask, child| {
+            child.required_segments(
+                row_mask.clone(),
+                &[field_mask],
+                &[],
+                &mut segments.with_kind(RequiredSegmentKind::FILTER),
+            )
+        })?;
+        for_all_matching_children(layout, projection_field_mask, |field_mask, child| {
+            child.required_segments(
+                row_mask.clone(),
+                &[],
+                &[field_mask],
+                &mut segments.with_kind(RequiredSegmentKind::PROJECTION),
+            )
+        })?;
+        Ok(())
+    }
+}
+
+fn for_all_matching_children<F>(
+    layout: &Layout,
+    field_mask: &[FieldMask],
+    mut per_child: F,
+) -> VortexResult<()>
+where
+    F: FnMut(FieldMask, Layout) -> VortexResult<()>,
+{
+    let DType::Struct(dtype, _) = layout.dtype() else {
+        vortex_bail!("Mismatched dtype {} for struct layout", layout.dtype());
+    };
+
+    // If the field mask contains an `All` fields, then enumerate all fields.
+    if field_mask.iter().any(|mask| mask.matches_all()) {
+        for (idx, field_dtype) in dtype.fields().enumerate() {
+            let child = layout.child(idx, field_dtype, dtype.field_name(idx)?)?;
+            per_child(FieldMask::All, child)?;
+        }
+        return Ok(());
+    }
+
+    // Enumerate each field in the mask
+    for path in field_mask {
+        let Some(field) = path.starting_field()? else {
+            // skip fields not in mask
+            continue;
+        };
+        let Field::Name(field_name) = field else {
+            vortex_bail!("Expected field name, got {:?}", field);
+        };
+
+        let idx = dtype.find(field_name)?;
+        let child = layout.child(idx, dtype.field_by_index(idx)?, field_name)?;
+        per_child(path.clone().step_into()?, child)?;
+    }
+
+    Ok(())
 }
