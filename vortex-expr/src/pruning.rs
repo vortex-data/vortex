@@ -10,7 +10,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{FieldName, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{
@@ -183,11 +183,10 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             let (rewritten_left, mut refs_lhs) = convert_to_pruning_expression(bexp.lhs());
             let (rewritten_right, refs_rhs) = convert_to_pruning_expression(bexp.rhs());
             refs_lhs.extend(refs_rhs);
-            let flipped_op = match bexp.op() {
-                Operator::And => Operator::Or,
-                Operator::Or => Operator::And,
-                _ => vortex_panic!("Can not be any other operator than and / or"),
-            };
+            let flipped_op = bexp
+                .op()
+                .logical_inverse()
+                .vortex_expect("Can not be any other operator than and / or");
             return (
                 BinaryExpr::new_expr(rewritten_left, flipped_op, rewritten_right),
                 refs_lhs,

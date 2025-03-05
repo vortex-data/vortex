@@ -47,6 +47,14 @@ impl Operator {
         }
     }
 
+    pub fn logical_inverse(self) -> Option<Self> {
+        match self {
+            Operator::And => Some(Operator::Or),
+            Operator::Or => Some(Operator::And),
+            _ => None,
+        }
+    }
+
     /// Change the sides of the operator, where changing lhs and rhs won't change the result of the operation
     pub fn swap(self) -> Self {
         match self {
