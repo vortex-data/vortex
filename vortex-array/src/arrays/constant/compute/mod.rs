@@ -137,7 +137,7 @@ where
 {
     let v = primitive_scalar.as_::<T>()?;
     let array_len =
-        T::from(array_len).ok_or_else(|| vortex_err!("valid_count must fit the sum type"))?;
+        T::from(array_len).ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
     let sum = v.and_then(|v| v.checked_mul(&array_len));
 
     Ok(sum)
