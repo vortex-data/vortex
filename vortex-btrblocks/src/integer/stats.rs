@@ -196,7 +196,12 @@ where
     let value_count = validity.true_count();
 
     // Initialize loop state
-    let head = array.as_slice::<T>()[0];
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
+    let buffer = array.buffer::<T>();
+    let head = buffer[head_idx];
+
     let mut loop_state = LoopState {
         min: head,
         max: head,
@@ -205,13 +210,14 @@ where
         } else {
             HashMap::with_hasher(FxBuildHasher)
         },
-        distinct_values_count: if count_distinct_values { 0 } else { u32::MAX },
         prev: head,
         runs: 1,
     };
 
-    let values = array.buffer::<T>();
-    let mask = validity.to_boolean_buffer();
+    let values = buffer.slice(head_idx..array.len());
+    let mask = validity
+        .to_boolean_buffer()
+        .slice(head_idx, array.len() - head_idx);
 
     let mut offset = 0;
     for chunk in values.as_slice().chunks(64) {
@@ -257,7 +263,11 @@ where
     };
 
     let runs = loop_state.runs;
-    let distinct_values_count = loop_state.distinct_values_count;
+    let distinct_values_count = if count_distinct_values {
+        loop_state.distinct_values.len().try_into().vortex_unwrap()
+    } else {
+        u32::MAX
+    };
 
     let typed = TypedStats {
         min: loop_state.min,
@@ -289,7 +299,6 @@ struct LoopState<T> {
     max: T,
     prev: T,
     runs: u32,
-    distinct_values_count: u32,
     distinct_values: HashMap<T, u32, FxBuildHasher>,
 }
 
@@ -305,7 +314,6 @@ fn inner_loop_nonnull<T: PrimInt + Hash>(
 
         if count_distinct_values {
             *state.distinct_values.entry(value).or_insert(0) += 1;
-            state.distinct_values_count = state.distinct_values.len().try_into().vortex_unwrap();
         }
 
         if value != state.prev {
@@ -329,8 +337,6 @@ fn inner_loop_nullable<T: PrimInt + Hash>(
 
             if count_distinct_values {
                 *state.distinct_values.entry(value).or_insert(0) += 1;
-                state.distinct_values_count =
-                    state.distinct_values.len().try_into().vortex_unwrap();
             }
 
             if value != state.prev {
@@ -355,8 +361,6 @@ fn inner_loop_naive<T: PrimInt + Hash>(
 
             if count_distinct_values {
                 *state.distinct_values.entry(value).or_insert(0) += 1;
-                state.distinct_values_count =
-                    state.distinct_values.len().try_into().vortex_unwrap();
             }
 
             if value != state.prev {
@@ -376,6 +380,8 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
 
+    use crate::CompressorStats;
+    use crate::integer::IntegerStats;
     use crate::integer::stats::typed_int_stats;
 
     #[test]
@@ -412,5 +418,17 @@ mod tests {
         );
         let stats = typed_int_stats::<u8>(&array, true);
         assert_eq!(stats.distinct_values_count, 64);
+    }
+
+    #[test]
+    fn test_integer_stats_leading_nulls() {
+        let ints = PrimitiveArray::new(buffer![0, 1, 2], Validity::from_iter([false, true, true]));
+
+        let stats = IntegerStats::generate(&ints);
+
+        assert_eq!(stats.value_count, 2);
+        assert_eq!(stats.null_count, 1);
+        assert_eq!(stats.average_run_length, 1);
+        assert_eq!(stats.distinct_values_count, 2);
     }
 }
