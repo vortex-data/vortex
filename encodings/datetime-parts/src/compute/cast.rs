@@ -32,7 +32,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
-    use vortex_datetime_dtype::TimeUnit;
+    use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::{DType, Nullability};
 
     use crate::DateTimePartsArray;

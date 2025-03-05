@@ -395,7 +395,6 @@ mod test {
     use datafusion_physical_expr::create_physical_expr;
     use itertools::Itertools;
     use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
-    use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
@@ -423,7 +422,7 @@ mod test {
         let chunked_array =
             ChunkedArray::try_new(vec![chunk.clone(), chunk.clone()], dtype).unwrap();
 
-        let schema = infer_schema(chunk.dtype()).unwrap();
+        let schema = chunk.dtype().to_arrow_schema().unwrap();
         let logical_expr = and((col("a")).eq(lit(2u64)), col("b").eq(lit(true)));
         let df_expr = create_physical_expr(
             &logical_expr,

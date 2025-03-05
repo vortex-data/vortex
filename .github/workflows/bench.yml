@@ -30,7 +30,11 @@ jobs:
           bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
 
   bench:
-    runs-on: [ self-hosted, gcp ]
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
+      - disk=large
     strategy:
       matrix:
         benchmark:
@@ -39,20 +43,15 @@ jobs:
           - id: compress
             name: Compression
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
+      # rustup is pre-installed on the ubuntu24-full-x64 image.
+
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.11
-        if: runner.environment != 'self-hosted'
         with:
           version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash

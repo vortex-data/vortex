@@ -8,7 +8,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
@@ -17,7 +16,7 @@ use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
 use vortex::{Array, ArrayRef, ToCanonical};
 
-use crate::arrays::PyArray;
+use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
 use crate::record_batch_reader::VortexRecordBatchReader;
@@ -101,7 +100,7 @@ impl TokioFileDataset {
     pub async fn try_new(path: String) -> VortexResult<Self> {
         let file = TokioFile::open(path)?;
         let vxf = VortexOpenOptions::file(file).open().await?;
-        let schema = Arc::new(infer_schema(vxf.dtype())?);
+        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
 
         Ok(Self { vxf, schema })
     }
@@ -110,13 +109,13 @@ impl TokioFileDataset {
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.cloned().map(PyArray::into_inner),
+            indices.map(|i| i.into_inner()),
         )
         .await?)
     }
@@ -125,7 +124,7 @@ impl TokioFileDataset {
         self_: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
         let mut scan = self_
             .vxf
@@ -133,7 +132,7 @@ impl TokioFileDataset {
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(row_filter));
 
-        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
+        if let Some(indices) = indices.map(|i| i.inner().clone()) {
             let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
@@ -156,15 +155,13 @@ impl TokioFileDataset {
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
     pub fn to_array<'py>(
         &self,
-        py: Python<'py>,
         columns: Option<Vec<Bound<'py, PyAny>>>,
         row_filter: Option<&Bound<'py, PyExpr>>,
-        indices: Option<&PyArray>,
-    ) -> PyResult<Bound<'py, PyArray>> {
-        PyArray::init(
-            py,
-            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
-        )
+        indices: Option<PyArrayRef>,
+    ) -> PyResult<PyArrayRef> {
+        Ok(PyArrayRef::from(TOKIO_RUNTIME.block_on(
+            self.async_to_array(columns, row_filter, indices),
+        )?))
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
@@ -172,7 +169,7 @@ impl TokioFileDataset {
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
         TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
             self_, columns, row_filter, indices,
@@ -191,7 +188,7 @@ impl ObjectStoreUrlDataset {
         let reader = vortex_read_at_from_url(&url).await?;
 
         let vxf = VortexOpenOptions::file(reader).open().await?;
-        let schema = Arc::new(infer_schema(vxf.dtype())?);
+        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
 
         Ok(Self { vxf, schema })
     }
@@ -200,13 +197,13 @@ impl ObjectStoreUrlDataset {
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.cloned().map(PyArray::into_inner),
+            indices.map(|i| i.into_inner()),
         )
         .await?)
     }
@@ -215,7 +212,7 @@ impl ObjectStoreUrlDataset {
         self_: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
         let mut scan = self_
             .vxf
@@ -223,7 +220,7 @@ impl ObjectStoreUrlDataset {
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(filter));
 
-        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
+        if let Some(indices) = indices.map(|i| i.inner().clone()) {
             let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
@@ -245,15 +242,13 @@ impl ObjectStoreUrlDataset {
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
     pub fn to_array<'py>(
         &self,
-        py: Python<'py>,
         columns: Option<Vec<Bound<'py, PyAny>>>,
         row_filter: Option<&Bound<'py, PyExpr>>,
-        indices: Option<&PyArray>,
-    ) -> PyResult<Bound<'py, PyArray>> {
-        PyArray::init(
-            py,
-            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
-        )
+        indices: Option<PyArrayRef>,
+    ) -> PyResult<PyArrayRef> {
+        Ok(PyArrayRef::from(TOKIO_RUNTIME.block_on(
+            self.async_to_array(columns, row_filter, indices),
+        )?))
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
@@ -261,7 +256,7 @@ impl ObjectStoreUrlDataset {
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<&PyArray>,
+        indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
         TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
             self_, columns, row_filter, indices,

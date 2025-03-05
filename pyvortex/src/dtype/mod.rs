@@ -18,8 +18,8 @@ use pyo3::{
     Bound, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
-use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
@@ -67,6 +67,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
+
+impl From<DType> for PyDType {
+    fn from(dtype: DType) -> Self {
+        Self(dtype)
+    }
+}
 
 impl Deref for PyDType {
     type Target = DType;

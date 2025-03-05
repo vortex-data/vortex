@@ -2,33 +2,29 @@ use std::fmt::{Display, Formatter};
 
 use jiff::Span;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use serde::{Deserialize, Serialize};
 use vortex_error::VortexResult;
 
+/// Time units for temporal data.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
-    IntoPrimitive,
-    TryFromPrimitive,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive, TryFromPrimitive,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u8)]
 pub enum TimeUnit {
+    /// Nanoseconds
     Ns,
+    /// Microseconds
     Us,
+    /// Milliseconds
     Ms,
+    /// Seconds
     S,
+    /// Days
     D,
 }
 
 impl TimeUnit {
+    /// Convert to a Jiff span.
     pub fn to_jiff_span(&self, v: i64) -> VortexResult<Span> {
         Ok(match self {
             TimeUnit::Ns => Span::new().try_nanoseconds(v)?,

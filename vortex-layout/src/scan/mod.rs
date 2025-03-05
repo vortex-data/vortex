@@ -53,6 +53,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
     concurrency: usize,
+    prefetch_conjuncts: bool,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -67,7 +68,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 32,
+            prefetch_conjuncts: false,
+            concurrency: 1024,
         }
     }
 
@@ -111,6 +113,12 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
+        self
+    }
+
+    /// The number of row splits to make progress on concurrently, must be greater than 0.
+    pub fn with_prefetch_conjuncts(mut self, prefetch: bool) -> Self {
+        self.prefetch_conjuncts = prefetch;
         self
     }
 
@@ -189,6 +197,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_masks,
             canonicalize: self.canonicalize,
             concurrency: self.concurrency,
+            prefetch_conjuncts: self.prefetch_conjuncts,
         })
     }
 
@@ -215,6 +224,7 @@ pub struct Scan<D> {
     canonicalize: bool,
     //TODO(adam): bake this into the executors?
     concurrency: usize,
+    prefetch_conjuncts: bool,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -243,6 +253,7 @@ impl<D: ScanDriver> Scan<D> {
                         })?
                         .clone(),
                     filter.clone(),
+                    self.prefetch_conjuncts,
                 )?);
 
                 VortexResult::Ok(pruning)

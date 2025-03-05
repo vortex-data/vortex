@@ -466,7 +466,6 @@ dependencies = [
  "bytes",
  "bzip2",
  "cfg-if",
- "chrono",
  "clap",
  "datafusion",
  "datafusion-common",
@@ -5250,7 +5249,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
@@ -5326,7 +5324,6 @@ dependencies = [
  "static_assertions",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -5350,7 +5347,6 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
@@ -5384,7 +5380,6 @@ version = "0.25.2"
 dependencies = [
  "arrow-buffer",
  "num-traits",
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -5433,28 +5428,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-datetime-dtype"
-version = "0.25.2"
-dependencies = [
- "arrow-schema",
- "jiff",
- "num_enum 0.7.3",
- "serde",
- "vortex-dtype",
- "vortex-error",
-]
-
-[[package]]
 name = "vortex-datetime-parts"
 version = "0.25.2"
 dependencies = [
  "getrandom 0.2.15",
  "rkyv",
  "rstest",
- "serde",
  "vortex-array",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
@@ -5471,7 +5452,6 @@ dependencies = [
  "rand 0.9.0",
  "rkyv",
  "rustc-hash",
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -5486,11 +5466,13 @@ name = "vortex-dtype"
 version = "0.25.2"
 dependencies = [
  "arbitrary",
+ "arrow-schema",
  "flatbuffers 25.2.10",
  "half",
  "itertools 0.14.0",
+ "jiff",
  "num-traits",
- "prost",
+ "num_enum 0.7.3",
  "rkyv",
  "serde",
  "serde_json",
@@ -5528,7 +5510,6 @@ dependencies = [
  "datafusion-physical-expr",
  "dyn-hash",
  "itertools 0.14.0",
- "prost",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5584,7 +5565,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-datetime-dtype",
  "vortex-datetime-parts",
  "vortex-dict",
  "vortex-dtype",
@@ -5713,7 +5693,6 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
- "vortex-scalar",
 ]
 
 [[package]]
@@ -5773,12 +5752,9 @@ dependencies = [
  "itertools 0.14.0",
  "num-traits",
  "paste",
- "prost",
- "prost-types",
  "rstest",
  "serde",
  "vortex-buffer",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",

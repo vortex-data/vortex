@@ -7,7 +7,6 @@ use arrow::datatypes::SchemaRef;
 use arrow::error::ArrowError;
 use futures::StreamExt;
 use vortex::ArrayRef;
-use vortex::arrow::infer_schema;
 use vortex::error::{VortexError, VortexResult};
 use vortex::stream::ArrayStream;
 
@@ -43,7 +42,7 @@ where
     AR: AsyncRuntime,
 {
     pub fn try_new(stream: S, runtime: &'a AR) -> VortexResult<Self> {
-        let arrow_schema = Arc::new(infer_schema(stream.dtype())?);
+        let arrow_schema = Arc::new(stream.dtype().to_arrow_schema()?);
         let stream = Box::pin(stream);
         Ok(VortexRecordBatchReader {
             stream,

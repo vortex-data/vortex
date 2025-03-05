@@ -5,7 +5,7 @@ use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayRef, Canonical};
-use vortex_datetime_dtype::TemporalMetadata;
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 

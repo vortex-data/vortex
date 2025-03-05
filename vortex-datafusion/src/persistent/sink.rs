@@ -16,9 +16,9 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex_array::TryIntoArray;
-use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_dtype::DType;
+use vortex_dtype::arrow::FromArrowType;
 use vortex_file::VortexWriteOptions;
 use vortex_io::{ObjectStoreWriter, VortexWrite};
 

@@ -1,5 +1,4 @@
 from . import _lib
-from ._lib import register
 from ._lib.arrays import (
     AlpArray,
     AlpRdArray,
@@ -32,7 +31,6 @@ from ._lib.arrays import (
     NullTypeArray,
     PrimitiveArray,
     PrimitiveTypeArray,
-    PyEncoding,
     RunEndArray,
     SparseArray,
     StructArray,
@@ -68,6 +66,7 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
+from ._lib.registry import Registry
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
@@ -80,16 +79,17 @@ from ._lib.scalar import (
     Utf8Scalar,
     scalar,
 )
-from .arrays import Array, array
+from ._lib.serde import ArrayContext, ArrayParts
+from .arrays import Array, PyArray, array
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
 __all__ = [
     "array",
     "compress",
-    "register",
     # Arrays
     "Array",
+    "PyArray",
     "NullTypeArray",
     "BoolTypeArray",
     "PrimitiveTypeArray",
@@ -143,7 +143,6 @@ __all__ = [
     "StructArray",
     "ListArray",
     "ExtensionArray",
-    "PyEncoding",
     "AlpArray",
     "AlpRdArray",
     "DateTimePartsArray",
@@ -166,4 +165,11 @@ __all__ = [
     "StructScalar",
     "ListScalar",
     "ExtensionScalar",
+    # Registry + Serde
+    "Registry",
+    "ArrayContext",
+    "ArrayParts",
 ]
+
+#: The default registry for Vortex
+registry = Registry()

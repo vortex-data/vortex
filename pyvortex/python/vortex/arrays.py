@@ -1,7 +1,9 @@
+import abc
 from typing import TYPE_CHECKING, Any
 
 import pyarrow
 
+import vortex as vx
 from vortex._lib import arrays as _arrays
 
 try:
@@ -380,3 +382,23 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
     except ImportError:
         pass
     return Array.from_arrow(obj)
+
+
+class PyArray(Array, metaclass=abc.ABCMeta):
+    """Abstract base class for Python-based Vortex arrays."""
+
+    id: str
+
+    @abc.abstractmethod
+    def __len__(self) -> int:
+        """Return the logical length of the array."""
+
+    @classmethod
+    @abc.abstractmethod
+    def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> Array:
+        """Decode an array from its component parts.
+
+        :class:`ArrayParts` contains the metadata, buffers and child :class:`ArrayParts` that represent the
+        current array. Implementations of this function should validate this information, and then construct
+        a new array.
+        """
