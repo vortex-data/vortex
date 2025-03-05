@@ -8,8 +8,8 @@ use vortex_array::compute::{
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
-use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;

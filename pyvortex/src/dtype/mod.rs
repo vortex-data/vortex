@@ -20,8 +20,8 @@ use pyo3::{
     Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
-use vortex::arrow::{FromArrowType, infer_data_type, infer_schema};
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
@@ -131,11 +131,11 @@ impl PyDType {
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
-        infer_data_type(&self.0)?.into_pyarrow(py)
+        self.0.to_arrow_dtype()?.into_pyarrow(py)
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
-        infer_schema(&self.0)?.into_pyarrow(py)
+        self.0.to_arrow_schema()?.into_pyarrow(py)
     }
 
     fn __str__(&self) -> String {

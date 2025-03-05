@@ -80,7 +80,7 @@ jobs:
           working-directory: pyvortex
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
           args: --release --interpreter python3.10
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
+      - uses: astral-sh/setup-uv@v5
       - name: test wheel
         run: |
           set -ex
@@ -90,7 +90,7 @@ jobs:
           echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
           rm -f target/wheels/*linux_x86_64.whl
 
-          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
+          uv run pip install --force-reinstall vortex-array --no-index --find-links target/wheels
 
           cd pyvortex/test
           uv run pytest
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
+      - uses: astral-sh/setup-uv@v5
       - name: rust-toolchain
         shell: bash
         run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT

@@ -1,8 +1,8 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareFn, Operator, and, compare, or, try_cast};
 use vortex_array::{Array, ArrayRef};
-use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::DType;
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
@@ -157,8 +157,8 @@ mod test {
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::NativePType;
+    use vortex_dtype::datetime::TimeUnit;
 
     use super::*;
 

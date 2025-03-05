@@ -47,6 +47,14 @@ impl Operator {
         }
     }
 
+    pub fn logical_inverse(self) -> Option<Self> {
+        match self {
+            Operator::And => Some(Operator::Or),
+            Operator::Or => Some(Operator::And),
+            _ => None,
+        }
+    }
+
     /// Change the sides of the operator, where changing lhs and rhs won't change the result of the operation
     pub fn swap(self) -> Self {
         match self {
@@ -70,6 +78,19 @@ impl Operator {
             Operator::Gt => Some(compute::Operator::Gt),
             Operator::Gte => Some(compute::Operator::Gte),
             _ => None,
+        }
+    }
+}
+
+impl From<compute::Operator> for Operator {
+    fn from(cmp_operator: compute::Operator) -> Self {
+        match cmp_operator {
+            compute::Operator::Eq => Operator::Eq,
+            compute::Operator::NotEq => Operator::NotEq,
+            compute::Operator::Gt => Operator::Gt,
+            compute::Operator::Gte => Operator::Gte,
+            compute::Operator::Lt => Operator::Lt,
+            compute::Operator::Lte => Operator::Lte,
         }
     }
 }

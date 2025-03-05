@@ -21,7 +21,7 @@ use object_store::path::Path as ObjectStorePath;
 use tokio::fs::OpenOptions;
 use url::Url;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::{FromArrowArray, FromArrowType};
+use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexWriteOptions};
@@ -38,6 +38,7 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
 use vortex::stream::ArrayStreamAdapter;
 

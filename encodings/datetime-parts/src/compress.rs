@@ -68,7 +68,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_datetime_dtype::TimeUnit;
+    use vortex_dtype::datetime::TimeUnit;
 
     use crate::{TemporalParts, split_temporal};
 

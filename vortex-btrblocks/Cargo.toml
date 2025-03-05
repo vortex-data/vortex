@@ -24,7 +24,6 @@ rustc-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-datetime-dtype = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }

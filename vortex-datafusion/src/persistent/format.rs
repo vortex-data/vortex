@@ -21,10 +21,10 @@ use datafusion_physical_plan::insert::DataSinkExec;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::arrow::{FromArrowType, infer_schema};
 use vortex_array::stats::{Stat, StatsProviderExt, StatsSet};
 use vortex_array::{ArrayRegistry, stats};
 use vortex_dtype::DType;
+use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
@@ -171,7 +171,7 @@ impl FileFormat for VortexFormat {
                 let cache = self.footer_cache.clone();
                 async move {
                     let footer = cache.try_get(&o, store).await?;
-                    let inferred_schema = infer_schema(footer.dtype())?;
+                    let inferred_schema = footer.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })

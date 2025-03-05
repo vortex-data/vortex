@@ -17,6 +17,9 @@ pub use struct_::*;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
+#[cfg(feature = "arrow")]
+pub mod arrow;
+pub mod datetime;
 mod dtype;
 mod extension;
 mod field;

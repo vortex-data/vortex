@@ -45,10 +45,16 @@ pub struct FilterExpr {
     selectivity_threshold: f64,
     /// The quantile to use from the selectivity histogram of each conjunct.
     selectivity_quantile: f64,
+    /// Do not block on conjunct evaluation for data fetching.
+    prefetch_conjuncts: bool,
 }
 
 impl FilterExpr {
-    pub fn try_new(scope_dtype: StructDType, expr: ExprRef) -> VortexResult<Self> {
+    pub fn try_new(
+        scope_dtype: StructDType,
+        expr: ExprRef,
+        prefetch_conjuncts: bool,
+    ) -> VortexResult<Self> {
         // Find all the fields involved in the expression.
         let fields: Arc<[FieldName]> = immediate_scope_access(&expr, &scope_dtype)?
             .into_iter()
@@ -85,6 +91,7 @@ impl FilterExpr {
             })
             .take(nconjuncts)
             .collect(),
+            prefetch_conjuncts,
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..nconjuncts).collect()),
@@ -199,6 +206,31 @@ pub struct FilterEvaluation {
 }
 
 impl FilterEvaluation {
+    async fn fetch_fields<E: ExprEvaluator>(
+        &mut self,
+        fields_to_read: Vec<usize>,
+        evaluator: &E,
+    ) -> VortexResult<()> {
+        // Construct futures to read the *full* field. We don't push down our mask as a
+        // selection mask here, perhaps we should?
+        let field_readers = fields_to_read
+            .iter()
+            .map(|&field_idx| self.filter_expr.fields[field_idx].clone())
+            .map(|field_name| {
+                evaluator.evaluate_expr(
+                    RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
+                    get_item(field_name, ident()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let field_arrays = try_join_all(field_readers).await?;
+        for (field_idx, field_array) in fields_to_read.iter().zip_eq(field_arrays) {
+            self.field_arrays[*field_idx] = Some(field_array);
+        }
+        Ok(())
+    }
+
     pub async fn evaluate<E: ExprEvaluator>(&mut self, evaluator: E) -> VortexResult<RowMask> {
         // First, we run all conjuncts through the evaluators pruning function. This helps trim
         // down the mask based on cheap statistics.
@@ -224,9 +256,14 @@ impl FilterEvaluation {
             return Ok(RowMask::new(self.mask.clone(), self.row_offset));
         }
 
+        if self.filter_expr.prefetch_conjuncts {
+            self.fetch_fields((0..self.filter_expr.fields.len()).collect(), &evaluator)
+                .await?;
+        }
+
         // Then we loop over the conjuncts and evaluate them.
         loop {
-            let Some(next_conjunct) = self
+            let Some(mut next_conjunct) = self
                 .filter_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
             else {
@@ -234,42 +271,27 @@ impl FilterEvaluation {
                 return Ok(RowMask::new(self.mask.clone(), self.row_offset));
             };
 
-            // Figure out which fields are needed for the next conjunct.
-            // TODO(ngates): convert this into a conjunct group, where a group should only be
-            //  created if it has been observed to prune away to zero (therefore short-circuiting
-            //  the subsequent conjunct groups).
-            let fields_to_read = self.filter_expr.conjunct_fields[next_conjunct]
-                .iter()
-                .filter(|&field_idx| self.field_arrays[*field_idx].is_none())
-                .copied()
-                .collect::<Vec<usize>>();
+            if !self.filter_expr.prefetch_conjuncts {
+                // Figure out which fields are needed for the next conjunct.
+                // TODO(ngates): convert this into a conjunct group, where a group should only be
+                //  created if it has been observed to prune away to zero (therefore short-circuiting
+                //  the subsequent conjunct groups).
+                let fields_to_read = self.filter_expr.conjunct_fields[next_conjunct]
+                    .iter()
+                    .filter(|&field_idx| self.field_arrays[*field_idx].is_none())
+                    .copied()
+                    .collect::<Vec<usize>>();
 
-            // Construct futures to read the *full* field. We don't push down our mask as a
-            // selection mask here, perhaps we should?
-            let field_readers = fields_to_read
-                .iter()
-                .map(|&field_idx| self.filter_expr.fields[field_idx].clone())
-                .map(|field_name| {
-                    evaluator.evaluate_expr(
-                        RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
-                        get_item(field_name, ident()),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            let field_arrays = try_join_all(field_readers).await?;
-            for (field_idx, field_array) in fields_to_read.iter().zip_eq(field_arrays) {
-                self.field_arrays[*field_idx] = Some(field_array);
+                self.fetch_fields(fields_to_read, &evaluator).await?;
+                // Now we've fetched some fields, we find the _now_ preferred conjunct to evaluate based
+                // on the fields we actually have. This may have changed from before, for example if
+                // we have `5 < X <= 10`, then we may have fetched X to evaluate `5 < X`, but now we
+                // know that `X <= 10` is more selective and worth running first.
+                next_conjunct = self
+                    .filter_expr
+                    .next_conjunct(&self.remaining, &self.field_arrays)
+                    .vortex_expect("we know there is another conjunct");
             }
-
-            // Now we've fetched some fields, we find the _now_ preferred conjunct to evaluate based
-            // on the fields we actually have. This may have changed from before, for example if
-            // we have `5 < X <= 10`, then we may have fetched X to evaluate `5 < X`, but now we
-            // know that `X <= 10` is more selective and worth running first.
-            let next_conjunct = self
-                .filter_expr
-                .next_conjunct(&self.remaining, &self.field_arrays)
-                .vortex_expect("we know there is another conjunct");
 
             log::debug!(
                 "Evaluating conjunct {}",

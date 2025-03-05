@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
 use arrow::datatypes::{DataType, SchemaRef};
 use arrow::error::ArrowError;
-use vortex::arrow::infer_schema;
 use vortex::compute::to_arrow;
 use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;
@@ -17,7 +16,7 @@ pub struct VortexRecordBatchReader<I> {
 
 impl<I: ArrayIterator> VortexRecordBatchReader<I> {
     pub fn try_new(iter: I) -> VortexResult<Self> {
-        let arrow_schema = Arc::new(infer_schema(iter.dtype())?);
+        let arrow_schema = Arc::new(iter.dtype().to_arrow_schema()?);
         let arrow_dtype = DataType::Struct(arrow_schema.fields().clone());
         Ok(VortexRecordBatchReader {
             iter,
