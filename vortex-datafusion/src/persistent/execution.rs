@@ -229,13 +229,27 @@ fn repartition_by_size(
     );
 
     while !all_files.is_empty() {
+        // If the current partition is empty, we want to bootstrap it with the biggest file we have leftover.
+        if curr_partition.is_empty() {
+            let biggest_file = all_files
+                .pop_back()
+                .vortex_expect("Must have at least one file")
+                .clone();
+
+            curr_partition_size += biggest_file.object_meta.size;
+            curr_partition.push(biggest_file);
+            continue;
+        }
+
         // Peak at the biggest file left
-        let top_file = all_files
+        let biggest_file_size = all_files
             .back()
-            .vortex_expect("We must have at least one item");
+            .vortex_expect("We must have at least one item")
+            .object_meta
+            .size;
 
         // If the biggest file doesn't fit in the partition, we take a file from the front.
-        let file = if curr_partition_size + top_file.object_meta.size > target_partition_size {
+        let file = if curr_partition_size + biggest_file_size > target_partition_size {
             all_files.pop_front()
         } else {
             all_files.pop_back()
