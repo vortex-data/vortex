@@ -52,6 +52,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     expr::init(py, m)?;
     file::init(py, m)?;
     io::init(py, m)?;
+    iter::init(py, m)?;
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;

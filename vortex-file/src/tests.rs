@@ -145,7 +145,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .with_projection(select(["strings".into()], ident()))
-        .into_array()
+        .read_all()
         .await
         .unwrap();
 
@@ -177,7 +177,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .with_projection(select(["numbers".into()], ident()))
-        .into_array()
+        .read_all()
         .await
         .unwrap();
 
@@ -523,7 +523,7 @@ async fn test_with_indices_simple() {
     let actual_kept_array = file
         .scan()
         .with_row_indices(Buffer::<u64>::empty())
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -537,7 +537,7 @@ async fn test_with_indices_simple() {
     let actual_kept_array = file
         .scan()
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -560,7 +560,7 @@ async fn test_with_indices_simple() {
     let actual_array = file
         .scan()
         .with_row_indices((0u64..500).collect::<Buffer<_>>())
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -604,7 +604,7 @@ async fn test_with_indices_on_two_columns() {
     let array = file
         .scan()
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -673,7 +673,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .scan()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices(Buffer::empty())
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -688,7 +688,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .scan()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -714,7 +714,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .scan()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -776,7 +776,7 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .with_filter(eq(get_item("name", ident()), lit("Joseph")))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -868,7 +868,7 @@ async fn test_pruning_with_or() {
             lt_eq(get_item("letter", ident()), lit("J")),
             lt(get_item("number", ident()), lit(25)),
         ))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -951,7 +951,7 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .with_projection(select(["strings".into(), "strings".into()], ident()))
-        .into_array()
+        .read_all()
         .await
         .unwrap()
         .to_struct()
@@ -985,7 +985,7 @@ async fn chunked_file() -> VortexResult<VortexFile<InMemoryVortexFile>> {
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file().await?;
-    let result = vxf.scan().into_array().await?.to_primitive()?;
+    let result = vxf.scan().read_all().await?.to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -1028,7 +1028,7 @@ async fn file_take() -> VortexResult<()> {
     let result = vxf
         .scan()
         .with_row_indices(buffer![0, 1, 8])
-        .into_array()
+        .read_all()
         .await?
         .to_primitive()?;
 

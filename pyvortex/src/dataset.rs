@@ -14,11 +14,12 @@ use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
-use vortex::stream::ArrayStream;
+use vortex::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
+use crate::iter::ArrayStreamToIterator;
 use crate::object_store_urls::vortex_read_at_from_url;
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
@@ -138,10 +139,10 @@ impl TokioFileDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_array_stream()?;
-
+        let iter =
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
 
         record_batch_reader.into_pyarrow(self_.py())
     }
@@ -226,10 +227,11 @@ impl ObjectStoreUrlDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_array_stream()?;
+        let iter =
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
         record_batch_reader.into_pyarrow(self_.py())
     }
 }

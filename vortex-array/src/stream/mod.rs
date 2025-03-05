@@ -24,6 +24,12 @@ pub trait ArrayStream: Stream<Item = VortexResult<ArrayRef>> {
 /// Trait for a [`Stream`] of [`ArrayRef`]s that can be passed between threads.
 pub type SendableArrayStream = Pin<Box<dyn ArrayStream + Send>>;
 
+impl ArrayStream for SendableArrayStream {
+    fn dtype(&self) -> &DType {
+        (**self).dtype()
+    }
+}
+
 pub trait ArrayStreamArrayExt: Array {
     /// Create an [`ArrayStream`] over the array.
     fn to_array_stream(&self) -> impl ArrayStream + 'static {

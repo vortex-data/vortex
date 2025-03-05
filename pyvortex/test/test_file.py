@@ -35,6 +35,14 @@ def test_dtype(vxf):
     )
 
 
+def test_row_count(vxf):
+    assert len(vxf) == 1_000_000
+
+
+def test_scan(vxf):
+    vxf.scan()
+
+
 def test_to_arrow_batch_size(vxf):
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"

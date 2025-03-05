@@ -6,9 +6,11 @@ use pyo3::prelude::*;
 use vortex::expr::{ident, select};
 use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
+use vortex::stream::ArrayStreamExt;
 
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
+use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
@@ -46,7 +48,36 @@ impl PyVortexFile {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    /// Scan the vortex file as a :class:`pyarrow.RecordBatchReader`.
+    /// Scan the Vortex file returning a :class:`vortex.ArrayIterator`.
+    #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
+    fn scan(
+        slf: Bound<Self>,
+        projection: Option<PyExpr>,
+        expr: Option<PyExpr>,
+        batch_size: Option<usize>,
+    ) -> PyResult<PyArrayIterator> {
+        let mut builder = slf
+            .get()
+            .vxf
+            .scan()
+            .with_some_filter(expr.map(|e| e.into_inner()))
+            .with_projection(
+                projection
+                    .map(|e| e.into_inner())
+                    .unwrap_or_else(|| ident()),
+            );
+
+        if let Some(batch_size) = batch_size {
+            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+        }
+
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
+            builder.build()?.into_array_stream()?,
+        ));
+        Ok(PyArrayIterator::new(Box::new(iter)))
+    }
+
+    /// Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
     // TODO(ngates): columns should instead be a projection expression
     #[pyo3(signature = (columns = None, *, expr = None, batch_size = None))]
     fn to_arrow(
@@ -78,10 +109,11 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let stream = builder.build()?.into_array_stream()?;
-
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
+            builder.build()?.into_array_stream()?,
+        ));
         let rbr: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
         rbr.into_pyarrow(slf.py())
     }
 }

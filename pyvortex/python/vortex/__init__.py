@@ -46,6 +46,7 @@ from ._lib.dtype import (
     utf8,
 )
 from ._lib.file import open
+from ._lib.iter import ArrayIterator
 from ._lib.registry import Registry
 from ._lib.scalar import (
     BinaryScalar,
@@ -132,6 +133,8 @@ __all__ = [
     # File
     "VortexFile",
     "open",
+    # Iterator
+    "ArrayIterator",
 ]
 
 #: The default registry for Vortex

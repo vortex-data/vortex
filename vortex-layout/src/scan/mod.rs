@@ -197,8 +197,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self.build()?.into_array_stream()
     }
 
-    pub async fn into_array(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.into_array().await
+    pub async fn read_all(self) -> VortexResult<ArrayRef> {
+        self.into_array_stream()?.read_all().await
     }
 }
 
@@ -302,8 +302,8 @@ impl<D: ScanDriver> Scan<D> {
         Ok(ArrayStreamAdapter::new(result_dtype, unified))
     }
 
-    pub async fn into_array(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.into_array().await
+    pub async fn read_all(self) -> VortexResult<ArrayRef> {
+        self.into_array_stream()?.read_all().await
     }
 }
 

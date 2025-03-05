@@ -14,7 +14,7 @@ pub fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
             .open()
             .await?
             .scan()
-            .into_array()
+            .read_all()
             .await
     })?;
 
