@@ -59,43 +59,35 @@ where
 }
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
-    is_sorted_opts(array, false)
-}
-pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
-    is_sorted_opts(array, true)
-}
-
-fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
-    let target_stat = if strict {
-        Stat::IsStrictSorted
-    } else {
-        Stat::IsSorted
-    };
-
-    // We try and rely on some easy to get stats
-    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(target_stat) {
+    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsSorted) {
         return Ok(value);
     }
 
-    let is_sorted = is_sorted_impl(array, strict)?;
-
+    let is_sorted = is_sorted_impl(array, false)?;
     let array_stats = array.statistics();
 
-    match (strict, is_sorted) {
-        (true, true) => {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-        }
-        (true, false) => {
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-        }
-        (false, true) => {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-        }
-        (false, false) => {
-            array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-        }
+    if is_sorted {
+        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+    } else {
+        array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
+        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+    }
+
+    Ok(is_sorted)
+}
+pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
+    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsStrictSorted) {
+        return Ok(value);
+    }
+
+    let is_sorted = is_sorted_impl(array, true)?;
+    let array_stats = array.statistics();
+
+    if is_sorted {
+        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+        array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+    } else {
+        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
     }
 
     Ok(is_sorted)

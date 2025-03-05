@@ -250,6 +250,7 @@ pub trait ArrayExt: Array {
         self.as_any().downcast_ref::<A>()
     }
 
+    /// Is self an array with encoding `A`.
     fn is<A: Array + 'static>(&self) -> bool {
         self.as_opt::<A>().is_some()
     }
