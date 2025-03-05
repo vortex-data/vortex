@@ -5,6 +5,7 @@ mod compare;
 mod invert;
 mod search_sorted;
 
+use num_traits::{CheckedMul, ToPrimitive};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
@@ -115,22 +116,40 @@ impl SumFn<&ConstantArray> for ConstantEncoding {
 
         let scalar = array.scalar();
 
-        match_each_native_ptype!(sum_ptype, |$P| {
-            sum_constant::<$P>(scalar.as_primitive(), array.len())
-        })
+        let scalar_value = match_each_native_ptype!(
+            sum_ptype,
+            unsigned: |$T| { sum_constant::<u64>(scalar.as_primitive(), array.len())?.into() }
+            signed: |$T| { sum_constant::<i64>(scalar.as_primitive(), array.len())?.into() }
+            floating: |$T| { sum_float(scalar.as_primitive(), array.len())?.into() }
+        );
+
+        Ok(Scalar::new(sum_dtype, scalar_value))
     }
 }
 
-fn sum_constant<T>(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexResult<Scalar>
+fn sum_constant<T>(
+    primitive_scalar: PrimitiveScalar<'_>,
+    array_len: usize,
+) -> VortexResult<Option<T>>
 where
-    T: FromPrimitiveOrF16 + NativePType,
-    Scalar: From<T>,
+    T: FromPrimitiveOrF16 + NativePType + CheckedMul,
+    Scalar: From<Option<T>>,
 {
     let v = primitive_scalar.as_::<T>()?;
-    let valid_count = T::from(array_len).vortex_expect("valid_count must fit the sum type");
-    let sum = v.map(|v| v * valid_count).unwrap_or_default();
+    let array_len =
+        T::from(array_len).ok_or_else(|| vortex_err!("valid_count must fit the sum type"))?;
+    let sum = v.and_then(|v| v.checked_mul(&array_len));
 
-    Ok(Scalar::from(sum))
+    Ok(sum)
+}
+
+fn sum_float(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexResult<Option<f64>> {
+    let v = primitive_scalar.as_::<f64>()?;
+    let array_len = array_len
+        .to_f64()
+        .ok_or_else(|| vortex_err!("valid_count must fit the sum type"))?;
+
+    Ok(v.map(|v| v * array_len))
 }
 
 #[cfg(test)]
