@@ -18,5 +18,6 @@ tasks.withType<Test>().all {
     jvmArgs(
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
+        "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
     )
 }

@@ -75,8 +75,10 @@ final class VortexScanTest {
                             l_linestatus
                         """);
 
+        long start = System.nanoTime();
         var results = plan.collectAsList();
+        long duration = System.nanoTime() - start;
         plan.queryExecution().debug().codegen();
-        System.out.println("Q1 results: " + results);
+        System.out.println("Q1 (" + duration + " nanos) results: " + results);
     }
 }
