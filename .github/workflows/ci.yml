@@ -225,10 +225,15 @@ jobs:
 
   bench-codspeed:
     name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
+      - disk=large
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
+      # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Install Codspeed
         shell: bash
@@ -236,7 +241,7 @@ jobs:
 
       - name: Build benchmarks
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-feature=+avx2"
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
@@ -252,6 +257,7 @@ jobs:
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
+          runner-version: 3.4.1-beta.1
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   license-check-and-audit-check:
