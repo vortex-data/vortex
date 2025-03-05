@@ -242,13 +242,11 @@ fn repartition_by_size(
                 .size;
 
             // If the biggest file doesn't fit in the partition, we take a file from the front.
-            let file = if curr_partition_size + biggest_file_size > target_partition_size {
+            if curr_partition_size + biggest_file_size > target_partition_size {
                 all_files.pop_front()
             } else {
                 all_files.pop_back()
-            };
-
-            file
+            }
         };
 
         let file = file.vortex_expect("We must have at least one file to be in the loop");
