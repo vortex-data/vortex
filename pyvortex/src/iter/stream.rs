@@ -12,7 +12,7 @@ pub(crate) trait AsyncRuntime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output;
 }
 
-impl crate::iter::AsyncRuntime for Handle {
+impl AsyncRuntime for Handle {
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
         self.block_on(fut)
     }
@@ -24,7 +24,7 @@ pub(crate) struct ArrayStreamToIterator<S, AR> {
     runtime: AR,
 }
 
-impl<S: ArrayStream + Unpin> crate::iter::ArrayStreamToIterator<S, Handle> {
+impl<S: ArrayStream + Unpin> ArrayStreamToIterator<S, Handle> {
     pub(crate) fn new(stream: S) -> Self {
         Self {
             stream,
@@ -33,20 +33,20 @@ impl<S: ArrayStream + Unpin> crate::iter::ArrayStreamToIterator<S, Handle> {
     }
 }
 
-impl<S, AR> ArrayIterator for crate::iter::ArrayStreamToIterator<S, AR>
+impl<S, AR> ArrayIterator for ArrayStreamToIterator<S, AR>
 where
     S: ArrayStream + Unpin,
-    AR: crate::iter::AsyncRuntime,
+    AR: AsyncRuntime,
 {
     fn dtype(&self) -> &DType {
         self.stream.dtype()
     }
 }
 
-impl<S, AR> Iterator for crate::iter::ArrayStreamToIterator<S, AR>
+impl<S, AR> Iterator for ArrayStreamToIterator<S, AR>
 where
     S: ArrayStream + Unpin,
-    AR: crate::iter::AsyncRuntime,
+    AR: AsyncRuntime,
 {
     type Item = VortexResult<ArrayRef>;
 

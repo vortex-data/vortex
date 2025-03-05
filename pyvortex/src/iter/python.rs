@@ -31,7 +31,7 @@ impl Iterator for PythonArrayIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         Python::with_gil(|py| {
-            let mut iter = self.iter.bind_borrowed(py);
+            let mut iter = self.iter.clone_ref(py).into_bound(py);
             iter.next().map(|array| {
                 array
                     .and_then(|array| array.extract::<PyArrayRef>())

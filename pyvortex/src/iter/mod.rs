@@ -3,7 +3,6 @@ pub(crate) mod stream;
 
 use std::sync::Mutex;
 
-use futures::StreamExt;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
@@ -11,7 +10,6 @@ pub(crate) use stream::*;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex::stream::ArrayStream;
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::PyArrayRef;
@@ -89,6 +87,8 @@ impl PyArrayIterator {
     /// Create a :class:`vortex.ArrayIterator` from an iterator of :class:`vortex.Array`.
     #[staticmethod]
     fn from_iter(dtype: PyDType, iter: Py<PyIterator>) -> PyResult<PyArrayIterator> {
-        Ok(PythonArrayIterator::try_new(dtype.into_inner(), iter.into())?.into())
+        Ok(PyArrayIterator::new(Box::new(
+            PythonArrayIterator::try_new(dtype.into_inner(), iter.into())?,
+        )))
     }
 }
