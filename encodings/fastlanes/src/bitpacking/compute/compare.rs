@@ -1,4 +1,5 @@
 use fastlanes::{BitPacking, BitPackingCompare, FastLanesComparable};
+use num_traits::Bounded;
 use vortex_array::compute::{CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef};
@@ -89,7 +90,7 @@ fn compare_impl<T>(
     operator: Operator,
 ) -> VortexResult<Option<ByteBuffer>>
 where
-    T: NativePType + FastLanesComparable + TryFrom<Scalar, Error = VortexError>,
+    T: NativePType + FastLanesComparable + TryFrom<Scalar, Error = VortexError> + Bounded,
     T::Bitpacked: NativePType + BitPackingCompare + BitPacking,
 {
     const CHUNK_SIZE: usize = 1024;
@@ -159,7 +160,7 @@ where
     Ok(Some(output.freeze()))
 }
 
-/// TODO(joe); fix me with inversions
+/// TODO(joe); fix me add rewrite tests.
 pub unsafe fn unchecked_unpack_cmp_impl<T>(
     width: usize,
     input: &[T::Bitpacked],
@@ -167,47 +168,53 @@ pub unsafe fn unchecked_unpack_cmp_impl<T>(
     comparison: Operator,
     value: T,
 ) where
-    T: NativePType + FastLanesComparable,
+    T: NativePType + FastLanesComparable + Bounded,
     T::Bitpacked: NativePType + BitPackingCompare,
 {
     match comparison {
-        Operator::Eq  => {
+        Operator::Eq => {
             bitpack_compare_eq(width, input, output, value);
         }
         Operator::NotEq => {
-            bitpack_compare_eq(width, input, output, value)
-            for i in output.iter_mut() {
-                *i = !*i;
+            bitpack_compare_eq(width, input, output, value);
+            negate_output(output);
+        }
+        Operator::Gte => {
+            bitpack_compare_gte(width, input, output, value);
+        }
+        Operator::Gt => {
+            // either value == max_value and unsat or array > value <==> array >= value - 1
+            if value == T::max_value() {
+                for i in output.iter_mut() {
+                    *i = false;
+                }
+            } else {
+                bitpack_compare_gte(width, input, output, value - T::one());
             }
-        },
-        // replace with negate end
-        // Operator::NotEq => unsafe {
-        //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a != b, value)
-        // },
-        Operator::Gte | Operator::Gt | Operator::Lte | Operator::Lt => {
-            bitpack_compare_gte(width, input, output, value)
-        } // Operator::Gt => unsafe {
-          //     BitPackingCompare::unchecked_unpack_cmp(
-          //         width,
-          //         input,
-          //         output,
-          //         |a, b| a >= b,
-          //         value + T::one(),
-          //     )
-          // },
-          // Operator::Lte => unsafe {
-          //     BitPackingCompare::unchecked_unpack_cmp(width, input, output, |a, b| a >= b, value)
-          // },
-          // Operator::Lt => unsafe {
-          //     BitPackingCompare::unchecked_unpack_cmp(
-          //         width,
-          //         input,
-          //         output,
-          //         |a, b| a >= b,
-          //         value - T::one(),
-          //     )
-          // },
+        }
+        Operator::Lt => {
+            // array < value <==> not (array >= value)
+            bitpack_compare_gte(width, input, output, value);
+            negate_output(output);
+        }
+        Operator::Lte => {
+            // value != max_value /\ array <= value <==> not (array > value) <==> not (array >= value + 1)
+            if value == T::max_value() {
+                for i in output.iter_mut() {
+                    *i = true;
+                }
+            } else {
+                bitpack_compare_gte(width, input, output, value + T::one());
+                negate_output(output);
+            }
+        }
     };
+}
+
+fn negate_output(output: &mut [bool; 1024]) {
+    for i in output.iter_mut() {
+        *i = !*i;
+    }
 }
 
 fn bitpack_compare_eq<T>(width: usize, input: &[T::Bitpacked], output: &mut [bool; 1024], value: T)
