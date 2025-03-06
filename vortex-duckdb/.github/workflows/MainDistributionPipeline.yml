@@ -1,0 +1,29 @@
+#
+# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
+#
+name: Main Extension Distribution Pipeline
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  duckdb-next-build:
+    name: Build extension binaries
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    with:
+      duckdb_version: main
+      ci_tools_version: main
+      extension_name: quack
+
+  duckdb-stable-build:
+    name: Build extension binaries
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.2.0
+    with:
+      duckdb_version: v1.2.0
+      ci_tools_version: v1.2.0
+      extension_name: quack
