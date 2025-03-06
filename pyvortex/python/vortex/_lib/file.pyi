@@ -1,3 +1,5 @@
+from typing import final
+
 import polars as pl
 import pyarrow as pa
 import pyarrow.dataset as pds
@@ -5,13 +7,22 @@ import pyarrow.dataset as pds
 import vortex as vx
 import vortex.expr as ve
 
+@final
 class VortexFile:
     def __len__(self) -> int: ...
     @property
     def dtype(self) -> vx.DType: ...
+    def scan(
+        self,
+        projection: vx.file.IntoProjection = None,
+        *,
+        expr: ve.Expr | None = None,
+        indices: vx.Array | None = None,
+        batch_size: int | None = None,
+    ) -> pa.RecordBatchReader: ...
     def to_arrow(
         self,
-        columns: list[str] | None = None,
+        projection: vx.file.IntoProjection = None,
         *,
         expr: ve.Expr | None = None,
         batch_size: int | None = None,

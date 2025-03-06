@@ -29,7 +29,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.dataset", &m)?;
 
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
-    m.add_function(wrap_pyfunction!(dataset_from_path, &m)?)?;
 
     Ok(())
 }
@@ -91,18 +90,15 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[pyclass(name = "TokioFileDataset", module = "io")]
-pub struct TokioFileDataset {
-    vxf: VortexFile<GenericVortexFile<TokioFile>>,
+#[pyclass(name = "VortexDataset", module = "io")]
+pub struct PyVortexDataset {
+    vxf: Arc<VortexFile<GenericVortexFile<TokioFile>>>,
     schema: SchemaRef,
 }
 
-impl TokioFileDataset {
-    pub async fn try_new(path: String) -> VortexResult<Self> {
-        let file = TokioFile::open(path)?;
-        let vxf = VortexOpenOptions::file(file).open().await?;
+impl PyVortexDataset {
+    pub fn try_new(vxf: Arc<VortexFile<GenericVortexFile<TokioFile>>>) -> VortexResult<Self> {
         let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
-
         Ok(Self { vxf, schema })
     }
 
@@ -148,7 +144,7 @@ impl TokioFileDataset {
 }
 
 #[pymethods]
-impl TokioFileDataset {
+impl PyVortexDataset {
     fn schema(self_: PyRef<Self>) -> PyResult<PyObject> {
         self_.schema.clone().to_pyarrow(self_.py())
     }
@@ -269,9 +265,4 @@ impl ObjectStoreUrlDataset {
 #[pyfunction]
 pub fn dataset_from_url(url: Bound<PyString>) -> PyResult<ObjectStoreUrlDataset> {
     Ok(TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?)
-}
-
-#[pyfunction]
-pub fn dataset_from_path(path: Bound<PyString>) -> PyResult<TokioFileDataset> {
-    Ok(TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?)
 }

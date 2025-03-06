@@ -1,11 +1,16 @@
 from collections.abc import Iterator
+from typing import TypeAlias
 
 import pyarrow as pa
 
+import vortex as vx
+import vortex.expr as ve
 from vortex._lib import expr as _expr
 from vortex._lib import file as _file
 
 VortexFile = _file.VortexFile
+IntoProjection: TypeAlias = ve.Expr | list[str] | None
+IntoArrayIterator: TypeAlias = vx.Array | vx.ArrayIterator
 
 
 def _to_polars(self: VortexFile):
@@ -22,7 +27,7 @@ def _to_polars(self: VortexFile):
         batch_size: int | None,
     ) -> Iterator[pl.DataFrame]:
         if predicate is not None:
-            predicate = _expr._expr_from_polars(predicate)
+            predicate = _expr._expr_from_polars(predicate.meta.write_json())
 
         for batch in self.to_arrow(
             columns=with_columns,

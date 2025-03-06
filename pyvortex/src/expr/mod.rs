@@ -1,5 +1,3 @@
-mod polars;
-
 use std::ops::Deref;
 
 use pyo3::exceptions::PyValueError;
@@ -21,8 +19,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ident, &m)?)?;
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_class::<PyExpr>()?;
-
-    m.add_function(wrap_pyfunction!(polars::expr_from_polars, &m)?)?;
 
     Ok(())
 }
@@ -134,7 +130,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///         "Joseph",
 ///         "Angela"
 ///       ]
-#[pyclass(name = "Expr", module = "vortex")]
+#[pyclass(name = "Expr", module = "vortex", frozen)]
 #[derive(Clone)]
 pub struct PyExpr {
     inner: ExprRef,
