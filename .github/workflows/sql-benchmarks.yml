@@ -24,7 +24,7 @@ jobs:
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
-            remote_storage: s3://vortex-bench-dev/tpch-sf1/
+            remote_storage: s3://vortex-bench-dev-eu/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
