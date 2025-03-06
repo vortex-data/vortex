@@ -4,8 +4,10 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult};
+
+use crate::range_intersection;
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -60,8 +62,9 @@ pub enum RequiredSegmentKind {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub struct SegmentPriority {
-    row_offset: u64,
+    row_end: u64, // sort by row_end first
     kind: RequiredSegmentKind,
+    row_start: u64,
 }
 
 #[derive(Default, Debug)]
@@ -79,13 +82,33 @@ impl SegmentRegistry {
         }
     }
 
-    pub fn push(&mut self, row_offset: u64, segment: SegmentId) {
+    pub fn push(&mut self, row_start: u64, row_end: u64, segment: SegmentId) {
+        let (start, end) = match self.kind {
+            // row offset inside the pruning table is not our concern
+            RequiredSegmentKind::PRUNING => (0, 0),
+            _ => (row_start, row_end),
+        };
         let priority = SegmentPriority {
-            row_offset,
+            row_start: start,
+            row_end: end,
             kind: self.kind,
         };
         let mut store_write = self.store.write().vortex_expect("poisoned lock");
         store_write.entry(priority).or_default().push(segment);
+    }
+
+    pub fn retain_matching(&self, row_indices: Buffer<u64>) {
+        if row_indices.is_empty() {
+            return;
+        }
+
+        let mut store_write = self.store.write().vortex_expect("poisoned lock");
+        store_write.retain(|key, _segments| {
+            if key.kind == RequiredSegmentKind::PRUNING {
+                return true; // keep segments required for pruning
+            }
+            range_intersection(&(key.row_start..key.row_end), &row_indices).is_some()
+        });
     }
 }
 

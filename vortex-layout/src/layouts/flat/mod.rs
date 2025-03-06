@@ -66,7 +66,7 @@ impl LayoutVTable for FlatLayout {
 
         // this would iterate once
         for segment in layout.segments() {
-            segments.push(row_offset + layout.row_count(), segment);
+            segments.push(row_offset, row_offset + layout.row_count(), segment);
         }
         Ok(())
     }

@@ -1,9 +1,10 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
-use std::ops::RangeBounds;
+use std::ops::{Range, RangeBounds};
 
 use vortex_array::compute::{filter, slice, try_cast};
 use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -220,6 +221,21 @@ impl RowMask {
     pub fn true_count(&self) -> usize {
         self.mask.true_count()
     }
+}
+
+pub fn range_intersection(range: &Range<u64>, row_indices: &Buffer<u64>) -> Option<Range<usize>> {
+    if row_indices.first().is_some_and(|&first| first >= range.end)
+        || row_indices.last().is_some_and(|&last| range.start >= last)
+    {
+        return None;
+    }
+
+    // For the given row range, find the indices that are within the row_indices.
+    let start_idx = row_indices
+        .binary_search(&range.start)
+        .unwrap_or_else(|x| x);
+    let end_idx = row_indices.binary_search(&range.end).unwrap_or_else(|x| x);
+    (start_idx != end_idx).then_some(start_idx..end_idx)
 }
 
 #[cfg(test)]

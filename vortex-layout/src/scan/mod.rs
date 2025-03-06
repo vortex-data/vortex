@@ -146,34 +146,15 @@ impl<D: ScanDriver> ScanBuilder<D> {
                 };
 
                 // Otherwise, find the indices that are within the row range.
-                if row_indices
-                    .first()
-                    .is_some_and(|&first| first >= row_range.end)
-                    || row_indices
-                        .last()
-                        .is_some_and(|&last| row_range.start >= last)
-                {
+                let Some(intersection) = range_intersection(&row_range, &row_indices) else {
                     return None;
-                }
-
-                // For the given row range, find the indices that are within the row_indices.
-                let start_idx = row_indices
-                    .binary_search(&row_range.start)
-                    .unwrap_or_else(|x| x);
-                let end_idx = row_indices
-                    .binary_search(&row_range.end)
-                    .unwrap_or_else(|x| x);
-
-                if start_idx == end_idx {
-                    // No rows in range
-                    return None;
-                }
+                };
 
                 // Construct a row mask for the range.
                 let filter_mask = Mask::from_indices(
                     usize::try_from(row_range.end - row_range.start)
                         .vortex_expect("Split ranges are within usize"),
-                    row_indices[start_idx..end_idx]
+                    row_indices[intersection]
                         .iter()
                         .map(|&idx| {
                             usize::try_from(idx - row_range.start)
