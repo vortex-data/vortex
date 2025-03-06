@@ -140,14 +140,14 @@ where
     let value_count = validity.true_count();
     let mut min = T::max_value();
     let mut max = T::min_value();
+    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
+    // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
         HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
         HashMap::with_hasher(FxBuildHasher)
     };
 
-    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
-    // so much more efficient to hash and search for.
     let mut runs = 1;
     let head_idx = validity
         .first()

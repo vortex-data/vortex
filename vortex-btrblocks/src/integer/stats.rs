@@ -9,6 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_mask::AllOr;
 use vortex_scalar::PValue;
 
 use crate::sample::sample;
@@ -214,40 +215,51 @@ where
         runs: 1,
     };
 
-    let values = buffer.slice(head_idx..array.len());
-    let mask = validity
-        .to_boolean_buffer()
-        .slice(head_idx, array.len() - head_idx);
-
-    let mut offset = 0;
-    for chunk in values.as_slice().chunks(64) {
-        let validity = mask.slice(offset, chunk.len());
-        offset += chunk.len();
-
-        if chunk.len() < 64 {
-            // Final iteration, run naive loop
-            inner_loop_naive(chunk, count_distinct_values, &validity, &mut loop_state);
-            break;
+    let sliced = buffer.slice(head_idx..array.len());
+    let mut chunks = sliced.as_slice().array_chunks::<64>();
+    match validity.boolean_buffer() {
+        AllOr::All => {
+            for chunk in &mut chunks {
+                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
+            }
+            let remainder = chunks.remainder();
+            inner_loop_naive(
+                remainder,
+                count_distinct_values,
+                &BooleanBuffer::new_set(remainder.len()),
+                &mut loop_state,
+            );
         }
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(v) => {
+            let mask = v.slice(head_idx, array.len() - head_idx);
+            let mut offset = 0;
+            for chunk in &mut chunks {
+                let validity = mask.slice(offset, 64);
+                offset += 64;
 
-        let set_bits = validity.count_set_bits();
-
-        match set_bits {
-            // All nulls -> no stats to update
-            0 => continue,
-            // Inner loop for when validity check can be elided
-            64 => inner_loop_nonnull(
-                chunk.try_into().vortex_unwrap(),
+                match validity.count_set_bits() {
+                    // All nulls -> no stats to update
+                    0 => continue,
+                    // Inner loop for when validity check can be elided
+                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+                    // Inner loop for when we need to check validity
+                    _ => inner_loop_nullable(
+                        chunk,
+                        count_distinct_values,
+                        &validity,
+                        &mut loop_state,
+                    ),
+                }
+            }
+            // Final iteration, run naive loop
+            let remainder = chunks.remainder();
+            inner_loop_naive(
+                remainder,
                 count_distinct_values,
+                &mask.slice(offset, remainder.len()),
                 &mut loop_state,
-            ),
-            // Inner loop for when we need to check validity
-            _ => inner_loop_nullable(
-                chunk.try_into().vortex_unwrap(),
-                count_distinct_values,
-                &validity,
-                &mut loop_state,
-            ),
+            );
         }
     }
 
