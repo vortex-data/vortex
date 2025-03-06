@@ -26,9 +26,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 /// Read a vortex struct array from a URL.
 ///
-/// .. seealso::
-///     :func:`.read_path`
-///
 /// Parameters
 /// ----------
 /// url : :class:`str`

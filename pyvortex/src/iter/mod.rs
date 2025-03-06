@@ -1,21 +1,25 @@
 mod python;
 pub(crate) mod stream;
 
+use std::iter;
 use std::sync::Mutex;
 
+use arrow::array::RecordBatchReader;
+use arrow::pyarrow::IntoPyArrow;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
 pub(crate) use stream::*;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
-use vortex::iter::{ArrayIterator, ArrayIteratorExt};
+use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
+use crate::record_batch_reader::VortexRecordBatchReader;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;
@@ -93,11 +97,24 @@ impl PyArrayIterator {
         Ok(PyArrayRef::from(array))
     }
 
+    /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
+    fn to_arrow(slf: Bound<Self>) -> PyResult<PyObject> {
+        let iter = slf.get().take().unwrap_or_else(|| {
+            Box::new(ArrayIteratorAdapter::new(
+                slf.get().dtype().clone(),
+                iter::empty(),
+            ))
+        });
+        let record_batch_reader: Box<dyn RecordBatchReader + Send> =
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
+        record_batch_reader.into_pyarrow(slf.py())
+    }
+
     /// Create a :class:`vortex.ArrayIterator` from an iterator of :class:`vortex.Array`.
     #[staticmethod]
     fn from_iter(dtype: PyDType, iter: Py<PyIterator>) -> PyResult<PyArrayIterator> {
         Ok(PyArrayIterator::new(Box::new(
-            PythonArrayIterator::try_new(dtype.into_inner(), iter.into())?,
+            PythonArrayIterator::try_new(dtype.into_inner(), iter)?,
         )))
     }
 }

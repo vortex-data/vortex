@@ -19,7 +19,7 @@ class VortexFile:
         expr: ve.Expr | None = None,
         indices: vx.Array | None = None,
         batch_size: int | None = None,
-    ) -> pa.RecordBatchReader: ...
+    ) -> vx.ArrayIterator: ...
     def to_arrow(
         self,
         projection: vx.file.IntoProjection = None,

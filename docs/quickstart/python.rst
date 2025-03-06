@@ -66,8 +66,8 @@ similar to or smaller than Parquet.
 Read
 ----
 
-Use :func:`~vortex.io.read_path` to read the Vortex array from disk:
+Use :func:`~vortex.open` to open and read the Vortex array from disk:
 
 .. doctest::
 
-   >>> cvtx = vortex.io.read_path("example.vortex")
+   >>> cvtx = vortex.open("example.vortex").scan().read_all()

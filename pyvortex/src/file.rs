@@ -75,6 +75,7 @@ impl PyVortexFile {
     /// Scan a file with a structured column and nulls at multiple levels and in multiple columns.
     ///
     ///     >>> import vortex as vx
+    ///     >>> import vortex.expr as ve
     ///     >>> a = vx.array([
     ///     ...     {'name': 'Joseph', 'age': 25},
     ///     ...     {'name': None, 'age': 31},
@@ -106,8 +107,7 @@ impl PyVortexFile {
     ///
     /// Read just the age column:
     ///
-    ///     >>> vxf.scan().read_all().to_arrow_array()
-    ///     >>> c.to_arrow_array()
+    ///     >>> vxf.scan(['age']).read_all().to_arrow_array()
     ///     <pyarrow.lib.StructArray object at ...>
     ///     -- is_valid: all not null
     ///     -- child 0 type: int64
@@ -122,8 +122,7 @@ impl PyVortexFile {
     ///
     /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
     ///
-    ///     >>> e = vx.io.read_path("a.vortex", row_filter = vx.expr.column("age") > 35)
-    ///     >>> e.to_arrow_array()
+    ///     >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
     ///     <pyarrow.lib.StructArray object at ...>
     ///     -- is_valid: all not null
     ///     -- child 0 type: int64
@@ -135,21 +134,6 @@ impl PyVortexFile {
     ///         "Mikhail"
     ///       ]
     ///
-    /// Read the age column by name, twice, and the name column by index, once:
-    ///
-    ///     >>> # e = vx.io.read_path("a.vortex", projection = ["age", 1, "age"])
-    ///     >>> # e.to_arrow_array()
-    ///     >>> a = vx.array([
-    ///     ...     {'name': 'Joseph', 'age': 25},
-    ///     ...     {'name': None, 'age': 31},
-    ///     ...     {'name': 'Angela', 'age': None},
-    ///     ...     None,
-    ///     ...     {'name': 'Mikhail', 'age': 57},
-    ///     ...     {'name': None, 'age': None},
-    ///     ... ])
-    ///     >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
-    ///     >>> # b = vx.io.read_path("a.vortex")
-    ///     >>> # b.to_arrow_array()
     #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
@@ -229,7 +213,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
                 .collect::<PyResult<Vec<String>>>()?;
             return Ok(PyIntoProjection(select(
                 cols.into_iter()
-                    .map(|s| Arc::<str>::from(s))
+                    .map(Arc::<str>::from)
                     .collect::<Vec<_>>(),
                 ident(),
             )));

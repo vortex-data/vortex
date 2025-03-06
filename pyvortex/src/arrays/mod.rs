@@ -227,11 +227,8 @@ impl PyArray {
                 .iter()
                 .map(|chunk| PyResult::Ok(chunk.clone().into_arrow(&arrow_dtype)?))
                 .collect::<PyResult<Vec<ArrowArrayRef>>>()?;
-            if chunks.is_empty() {
-                return Err(PyValueError::new_err("No chunks in array"));
-            }
 
-            let pa_data_type = chunks[0].data_type().clone().to_pyarrow(py)?;
+            let pa_data_type = arrow_dtype.clone().to_pyarrow(py)?;
             let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
