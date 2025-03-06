@@ -1,11 +1,13 @@
-use vortex_dtype::{DType, StructDType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_buffer::BufferMut;
+use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use super::ChunkedArray;
-use crate::arrays::StructArray;
+use crate::arrays::{ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical};
+use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -18,6 +20,11 @@ impl ArrayCanonicalImpl for ChunkedArray {
                 )?;
                 Ok(Canonical::Struct(struct_array))
             }
+            DType::List(elem, _) => Ok(Canonical::List(pack_lists(
+                self.chunks(),
+                Validity::copy_from_array(self)?,
+                elem,
+            )?)),
             _ => {
                 let mut builder = builder_with_capacity(self.dtype(), self.len());
                 self.append_to_builder(builder.as_mut())?;
@@ -59,6 +66,51 @@ fn swizzle_struct_chunks(
     }
 
     StructArray::try_new(struct_dtype.names().clone(), field_arrays, len, validity)
+}
+
+fn pack_lists(
+    chunks: &[ArrayRef],
+    validity: Validity,
+    elem_dtype: &DType,
+) -> VortexResult<ListArray> {
+    let len: usize = chunks.iter().map(|c| c.len()).sum();
+    let mut offsets = BufferMut::<i64>::with_capacity(len + 1);
+    offsets.push(0);
+    let mut elements = Vec::new();
+
+    for chunk in chunks {
+        let chunk = chunk.to_list()?;
+        // TODO: handle i32 offsets if they fit.
+        let offsets_arr = try_cast(
+            chunk.offsets(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .to_primitive()?;
+
+        let first_offset_value: usize = usize::try_from(&scalar_at(&offsets_arr, 0)?)?;
+        let last_offset_value: usize =
+            usize::try_from(&scalar_at(&offsets_arr, offsets_arr.len() - 1)?)?;
+        elements.push(slice(
+            chunk.elements(),
+            first_offset_value,
+            last_offset_value,
+        )?);
+
+        let adjustment_from_previous = *offsets
+            .last()
+            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
+        offsets.extend(
+            offsets_arr
+                .as_slice::<i64>()
+                .iter()
+                .skip(1)
+                .map(|off| off + adjustment_from_previous - first_offset_value as i64),
+        );
+    }
+    let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+
+    ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
 
 #[cfg(test)]
