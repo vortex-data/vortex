@@ -5,11 +5,44 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::compute::implementation::ComputeFnImpl;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
+
+pub struct FilterFn_;
+
+impl FilterFn_ {
+    pub fn call(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+        Self::invoke(FilterInputs { array, mask })
+    }
+}
+
+#[allow(dead_code)]
+pub struct FilterInputs<'a> {
+    pub array: &'a dyn Array,
+    pub mask: &'a Mask,
+}
+
+impl ComputeFnImpl for FilterFn_ {
+    type Inputs<'a> = FilterInputs<'a>;
+    type Output = ArrayRef;
+
+    fn id() -> ArcRef<str> {
+        ArcRef::new_ref("filter")
+    }
+
+    fn invoke(_args: FilterInputs) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn return_type(_args: FilterInputs) -> VortexResult<DType> {
+        todo!()
+    }
+}
 
 pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.

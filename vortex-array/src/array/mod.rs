@@ -21,11 +21,13 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 
+use crate::arcref::ArcRef;
 use crate::arrays::{
     BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
+use crate::compute::{ComputeFn, InvocationArgs, Kernel};
 use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
@@ -66,6 +68,13 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Returns the encoding VTable.
     fn vtable(&self) -> VTableRef;
+
+    /// Attempts to find a kernel for the given compute invocation.
+    fn find_kernel(
+        &self,
+        compute_fn: &dyn ComputeFn,
+        invocation: &InvocationArgs,
+    ) -> Option<ArcRef<dyn Kernel>>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {

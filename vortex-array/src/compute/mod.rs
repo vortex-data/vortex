@@ -7,7 +7,6 @@
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
 use std::any::Any;
-use std::sync::Arc;
 
 use arrow_array::Array;
 pub use between::{BetweenFn, BetweenOptions, StrictComparison, between};
@@ -54,6 +53,7 @@ mod compare;
 mod fill_forward;
 mod fill_null;
 mod filter;
+mod implementation;
 mod invert;
 mod is_constant;
 mod is_sorted;
@@ -70,11 +70,27 @@ mod to_arrow;
 mod uncompressed_size;
 
 pub trait ComputeFn {
+    /// The globally unique identifier for the compute function.
     fn id(&self) -> ArcRef<str>;
 
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output>;
+    /// Invokes the compute function entry-point with the given input arguments and options.
+    ///
+    /// The entry-point logic can short-circuit compute using statistics, update result array
+    /// statistics, search for relevant compute kernels, and canonicalize the inputs in order
+    /// to successfully compute a result.
+    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output>;
 
-    fn return_type(&self, args: &InvocationArgs) -> DType;
+    /// Computes the return type of the function given the input arguments.
+    ///
+    /// All kernel implementations will be validated to return the [`DType`] as computed here.
+    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType>;
+
+    /// Returns whether the function operates elementwise, i.e. the output is the same shape as the
+    /// input and no information is shared between elements.
+    ///
+    /// Examples include `add`, `subtract`, `and`, `cast`, `fill_null` etc.
+    /// Examples that are not elementwise include `sum`, `count`, `min`, `fill_forward` etc.
+    fn is_elementwise(&self) -> bool;
 }
 
 pub type ComputeFnRef = ArcRef<dyn ComputeFn>;
@@ -100,6 +116,12 @@ pub enum Output {
 
 pub trait Options {
     fn as_any(&self) -> &dyn Any;
+}
+
+/// Compute functions can ask arrays for compute kernels for a given invocation.
+/// The kernel is invoked with the input arguments and options.
+pub trait Kernel {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output>;
 }
 
 #[cfg(feature = "test-harness")]
