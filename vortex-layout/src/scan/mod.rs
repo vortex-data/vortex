@@ -158,9 +158,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
                 };
 
                 // Otherwise, find the indices that are within the row range.
-                let Some(intersection) = range_intersection(&row_range, &row_indices) else {
-                    return None;
-                };
+                let intersection = range_intersection(&row_range, row_indices)?;
 
                 // Construct a row mask for the range.
                 let filter_mask = Mask::from_indices(

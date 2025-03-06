@@ -86,7 +86,7 @@ impl SegmentRegistry {
 
     pub fn push(&mut self, row_start: u64, row_end: u64, segment: SegmentId) {
         let (start, end) = match self.kind {
-            // row offset inside the pruning table is not our concern
+            // row offset inside the stats table is not our concern
             RequiredSegmentKind::PRUNING => (0, 0),
             _ => (row_start, row_end),
         };

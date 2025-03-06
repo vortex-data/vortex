@@ -158,9 +158,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
             stream::iter(all_possible_segments.into_values()).flat_map(move |segment_ids| {
                 let segment_map = segment_map.clone();
                 stream::iter(segment_ids.into_iter().filter_map(move |id| {
-                    let Some(location) = segment_map.get(*id as usize) else {
-                        return None;
-                    };
+                    let location = segment_map.get(*id as usize)?;
                     Some(FileSegmentRequest {
                         id,
                         location: location.clone(),
@@ -223,14 +221,11 @@ struct FileSegmentRequest {
 
 impl FileSegmentRequest {
     fn resolve(self, buffer: VortexResult<ByteBuffer>) {
-        match self.callback {
-            Some(cb) => {
-                cb.send(buffer)
-                    .map_err(|_| vortex_err!("send failed"))
-                    .vortex_expect("send failed");
-            }
-            None => (),
-        };
+        if let Some(cb) = self.callback {
+            cb.send(buffer)
+                .map_err(|_| vortex_err!("send failed"))
+                .vortex_expect("send failed");
+        }
     }
 
     fn range(&self) -> Range<u64> {
