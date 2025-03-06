@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[fixture]
-    fn sparse_edge_patch() -> ArrayRef {
+    fn sparse_edge_patch_high() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 1, 2, 19].into_array(),
             buffer![11i32, 22, 23, 55].into_array(),
@@ -216,6 +216,18 @@ mod tests {
         )
         .unwrap()
         .into_array()
+    }
+
+    #[fixture]
+    fn sparse_edge_patch_low() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 17, 18, 19].into_array(),
+            buffer![11i32, 33, 44, 55].into_array(),
+            20,
+            Scalar::primitive(22, Nullability::NonNullable),
+        )
+            .unwrap()
+            .into_array()
     }
 
     #[rstest]
@@ -393,7 +405,7 @@ mod tests {
     }
 
     #[rstest]
-    fn search_between_fill_and_patch_left(#[from(sparse_edge_patch)] array: ArrayRef) {
+    fn search_between_fill_and_patch_high_left(#[from(sparse_edge_patch_high)] array: ArrayRef) {
         assert_eq!(
             search_sorted(&array, 25, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(3)
@@ -405,7 +417,7 @@ mod tests {
     }
 
     #[rstest]
-    fn search_between_fill_and_patch_right(#[from(sparse_edge_patch)] array: ArrayRef) {
+    fn search_between_fill_and_patch_high_right(#[from(sparse_edge_patch_high)] array: ArrayRef) {
         assert_eq!(
             search_sorted(&array, 25, SearchSortedSide::Right).unwrap(),
             SearchResult::NotFound(3)
@@ -413,6 +425,30 @@ mod tests {
         assert_eq!(
             search_sorted(&array, 44, SearchSortedSide::Right).unwrap(),
             SearchResult::NotFound(19)
+        );
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_low_left(#[from(sparse_edge_patch_low)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 20, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&array, 28, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(17)
+        );
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_low_right(#[from(sparse_edge_patch_low)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 20, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&array, 28, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(17)
         );
     }
 }
