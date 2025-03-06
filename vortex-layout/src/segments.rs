@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use async_trait::async_trait;
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -67,9 +67,11 @@ pub struct SegmentPriority {
     row_start: u64,
 }
 
+type SegmentStore = BTreeMap<SegmentPriority, Vec<SegmentId>>;
+
 #[derive(Default, Debug)]
 pub struct SegmentRegistry {
-    store: Arc<RwLock<BTreeMap<SegmentPriority, Vec<SegmentId>>>>,
+    store: Arc<RwLock<SegmentStore>>,
     pub kind: RequiredSegmentKind,
 }
 
@@ -93,22 +95,30 @@ impl SegmentRegistry {
             row_end: end,
             kind: self.kind,
         };
-        let mut store_write = self.store.write().vortex_expect("poisoned lock");
-        store_write.entry(priority).or_default().push(segment);
+        self.write().entry(priority).or_default().push(segment);
     }
 
     pub fn retain_matching(&self, row_indices: Buffer<u64>) {
         if row_indices.is_empty() {
             return;
         }
-
-        let mut store_write = self.store.write().vortex_expect("poisoned lock");
-        store_write.retain(|key, _segments| {
+        self.write().retain(|key, _segments| {
             if key.kind == RequiredSegmentKind::PRUNING {
                 return true; // keep segments required for pruning
             }
             range_intersection(&(key.row_start..key.row_end), &row_indices).is_some()
         });
+    }
+
+    pub fn into_inner(self) -> BTreeMap<SegmentPriority, Vec<SegmentId>> {
+        match Arc::try_unwrap(self.store) {
+            Ok(store) => store.into_inner().vortex_expect("poisoned lock"),
+            Err(arc_store) => arc_store.read().vortex_expect("poisoned lock").clone(),
+        }
+    }
+
+    fn write(&self) -> RwLockWriteGuard<SegmentStore> {
+        self.store.write().vortex_expect("poisoned lock")
     }
 }
 

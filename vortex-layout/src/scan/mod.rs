@@ -8,7 +8,7 @@ use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldPath};
+use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
@@ -17,7 +17,7 @@ use vortex_mask::Mask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::AsyncSegmentReader;
+use crate::segments::{AsyncSegmentReader, SegmentRegistry};
 use crate::{
     ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
 };
@@ -39,7 +39,7 @@ pub trait ScanDriver: 'static + Sized {
     /// how frequently this future will be polled, so it should not be used to drive I/O.
     ///
     /// TODO(ngates): make this a future
-    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static;
+    fn io_stream(self, segments: SegmentRegistry) -> impl Stream<Item = VortexResult<()>>;
 }
 
 /// A struct for building a scan operation.
@@ -130,15 +130,25 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 
     pub fn build(self) -> VortexResult<Scan<D>> {
-        let projection = simplify_typed(self.projection, self.layout.dtype())?;
+        // TODO(os): unified field mask handling for splits and segments
+        let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
         let filter = self
             .filter
+            .clone()
             .map(|f| simplify_typed(f, self.layout.dtype()))
             .transpose()?;
         let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
 
         let row_indices = self.row_indices.clone();
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
+        let mut segments = SegmentRegistry::default();
+        let (filter_mask, projection_mask) = self.filter_and_projection_masks()?;
+        self.layout
+            .required_segments(0, &filter_mask, &projection_mask, &mut segments)?;
+        if let Some(indices) = &row_indices {
+            segments.retain_matching(indices.clone());
+        }
+
         let row_masks = splits
             .into_iter()
             .filter_map(move |row_range| {
@@ -181,6 +191,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             canonicalize: self.canonicalize,
             concurrency: self.concurrency,
             prefetch_conjuncts: self.prefetch_conjuncts,
+            segments,
         })
     }
 
@@ -192,6 +203,44 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
         self.into_array_stream()?.read_all().await
     }
+
+    fn filter_and_projection_masks(&self) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
+        let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
+        let filter = self
+            .filter
+            .clone()
+            .map(|f| simplify_typed(f, self.layout.dtype()))
+            .transpose()?;
+        let Some(struct_dtype) = self.layout.dtype().as_struct() else {
+            return Ok(match filter {
+                Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
+                None => (Vec::new(), vec![FieldMask::All]),
+            });
+        };
+        let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
+        Ok(match filter {
+            None => (
+                Vec::new(),
+                projection_mask.into_iter().map(to_field_mask).collect_vec(),
+            ),
+            Some(f) => {
+                let filter_mask = immediate_scope_access(&f, struct_dtype)?;
+                let only_projection_mask = projection_mask
+                    .difference(&filter_mask)
+                    .cloned()
+                    .map(to_field_mask)
+                    .collect_vec();
+                (
+                    filter_mask.into_iter().map(to_field_mask).collect_vec(),
+                    only_projection_mask,
+                )
+            }
+        })
+    }
+}
+
+fn to_field_mask(field: FieldName) -> FieldMask {
+    FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
 pub struct Scan<D> {
@@ -208,6 +257,7 @@ pub struct Scan<D> {
     //TODO(adam): bake this into the executors?
     concurrency: usize,
     prefetch_conjuncts: bool,
+    segments: SegmentRegistry,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -285,7 +335,7 @@ impl<D: ScanDriver> Scan<D> {
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let exec_stream = instrument!("exec_stream", exec_stream);
-        let io_stream = self.driver.io_stream();
+        let io_stream = self.driver.io_stream(self.segments);
 
         let unified = UnifiedDriverStream {
             exec_stream,

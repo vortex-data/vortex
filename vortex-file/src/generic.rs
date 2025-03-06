@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::stream::FuturesUnordered;
+use futures::stream::{FuturesUnordered, select};
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::instrument;
 use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentRegistry};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, Segment};
@@ -89,18 +89,19 @@ pub struct GenericScanDriver<R> {
     metrics: CoalescingMetrics,
 }
 
+impl<R: VortexReadAt> GenericScanDriver<R> {}
+
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         self.segment_channel.reader()
     }
 
-    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {
-        // Now we set up the I/O stream to poll the other end of the segment channel.
-        let io_stream = self.segment_channel.into_stream();
+    fn io_stream(self, segments: SegmentRegistry) -> impl Stream<Item = VortexResult<()>> {
+        let all_possible_segments = segments.into_inner();
+        let segment_requests = self.segment_channel.into_stream();
 
-        // We map the segment requests to their respective locations within the file.
         let segment_map = self.footer.segment_map().clone();
-        let io_stream = io_stream.filter_map(move |request| {
+        let segment_requests = segment_requests.filter_map(move |request| {
             let segment_map = segment_map.clone();
             async move {
                 let Some(location) = segment_map.get(*request.id as usize) else {
@@ -114,14 +115,14 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                 Some(FileSegmentRequest {
                     id: request.id,
                     location: location.clone(),
-                    callback: request.callback,
+                    callback: Some(request.callback),
                 })
             }
         });
 
         // We support zero-length segments (so layouts don't have to store this information)
         // If we encounter a zero-length segment, we can just resolve it now.
-        let io_stream = io_stream.filter_map(|request| async move {
+        let segment_requests = segment_requests.filter_map(|request| async move {
             if request.location.length == 0 {
                 let alignment = request.location.alignment;
                 request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
@@ -133,7 +134,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
 
         // Check if the segment exists in the cache
         let segment_cache = self.segment_cache.clone();
-        let io_stream = io_stream.filter_map(move |request| {
+        let segment_requests = segment_requests.filter_map(move |request| {
             let segment_cache = segment_cache.clone();
             async move {
                 match segment_cache
@@ -152,7 +153,23 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                 }
             }
         });
+        let segment_map = self.footer.segment_map().clone();
+        let prefetch_stream =
+            stream::iter(all_possible_segments.into_values()).flat_map(move |segment_ids| {
+                let segment_map = segment_map.clone();
+                stream::iter(segment_ids.into_iter().filter_map(move |id| {
+                    let Some(location) = segment_map.get(*id as usize) else {
+                        return None;
+                    };
+                    Some(FileSegmentRequest {
+                        id,
+                        location: location.clone(),
+                        callback: None,
+                    })
+                }))
+            });
 
+        let io_stream = select(prefetch_stream, segment_requests);
         // Grab all available segment requests from the I/O queue so we get maximal visibility into
         // the requests for coalescing.
         // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
@@ -200,16 +217,20 @@ struct FileSegmentRequest {
     pub(crate) id: SegmentId,
     /// The segment location.
     pub(crate) location: Segment,
-    /// The callback channel
-    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    /// The callback channel, if this is an explicit request from the exec stream
+    callback: Option<oneshot::Sender<VortexResult<ByteBuffer>>>,
 }
 
 impl FileSegmentRequest {
     fn resolve(self, buffer: VortexResult<ByteBuffer>) {
-        self.callback
-            .send(buffer)
-            .map_err(|_| vortex_err!("send failed"))
-            .vortex_expect("send failed");
+        match self.callback {
+            Some(cb) => {
+                cb.send(buffer)
+                    .map_err(|_| vortex_err!("send failed"))
+                    .vortex_expect("send failed");
+            }
+            None => (),
+        };
     }
 
     fn range(&self) -> Range<u64> {
