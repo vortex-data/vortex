@@ -70,11 +70,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     fn vtable(&self) -> VTableRef;
 
     /// Attempts to find a kernel for the given compute invocation.
-    fn find_kernel(
-        &self,
-        compute_fn: &dyn ComputeFn,
-        invocation: &InvocationArgs,
-    ) -> Option<ArcRef<dyn Kernel>>;
+    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {

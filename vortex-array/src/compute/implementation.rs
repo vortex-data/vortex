@@ -13,6 +13,7 @@ pub trait ComputeFnImpl {
     fn id() -> ArcRef<str>;
     fn invoke(args: Self::Inputs<'_>) -> VortexResult<Self::Output>;
     fn return_type(args: Self::Inputs<'_>) -> VortexResult<DType>;
+    fn is_elementwise() -> bool;
 }
 
 impl<F> ComputeFn for F
@@ -31,6 +32,10 @@ where
 
     fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
         <F as ComputeFnImpl>::return_type(args.try_into()?)
+    }
+
+    fn is_elementwise(&self) -> bool {
+        <F as ComputeFnImpl>::is_elementwise()
     }
 }
 

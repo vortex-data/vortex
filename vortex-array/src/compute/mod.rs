@@ -95,6 +95,7 @@ pub trait ComputeFn {
 
 pub type ComputeFnRef = ArcRef<dyn ComputeFn>;
 
+/// Arguments to a compute function invocation.
 pub struct InvocationArgs<'a> {
     pub inputs: &'a [Input<'a>],
     pub options: &'a dyn Options,
@@ -114,14 +115,20 @@ pub enum Output {
     Array(ArrayRef),
 }
 
+/// Options for a compute function invocation.
 pub trait Options {
     fn as_any(&self) -> &dyn Any;
 }
 
 /// Compute functions can ask arrays for compute kernels for a given invocation.
-/// The kernel is invoked with the input arguments and options.
+///
+/// The kernel is invoked with the input arguments and options, and can return `None` if it is
+/// unable to compute the result for the given inputs due to missing implementation logic.
+/// For example, if kernel doesn't support the `LTE` operator.
+///
+/// If the kernel fails to compute a result, it should return a `Some` with the error.
 pub trait Kernel {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output>;
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>>;
 }
 
 #[cfg(feature = "test-harness")]
