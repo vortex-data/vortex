@@ -18,7 +18,7 @@ jobs:
     with:
       duckdb_version: main
       ci_tools_version: main
-      extension_name: quack
+      extension_name: vortex_duckdb
 
   duckdb-stable-build:
     name: Build extension binaries
@@ -26,4 +26,4 @@ jobs:
     with:
       duckdb_version: v1.2.0
       ci_tools_version: v1.2.0
-      extension_name: quack
+      extension_name: vortex_duckdb

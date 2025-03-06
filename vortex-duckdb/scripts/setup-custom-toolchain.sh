@@ -7,5 +7,5 @@
 # `.github/workflows/_extension_distribution.yml` from `https://github.com/duckdb/extension-ci-tools`
 
 # note that the $DUCKDB_PLATFORM environment variable can be used to discern between the platforms
-echo "This is the sample custom toolchain script running for architecture '$DUCKDB_PLATFORM' for the quack extension."
+echo "This is the sample custom toolchain script running for architecture '$DUCKDB_PLATFORM' for the vortex_duckdb extension."
 
