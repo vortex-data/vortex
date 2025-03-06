@@ -35,11 +35,11 @@ inline void VortexDuckdbOpenSSLVersionScalarFun(DataChunk &args, ExpressionState
 
 static void LoadInternal(DatabaseInstance &instance) {
     // Register a scalar function
-    auto vortex_duckdb_scalar_function = ScalarFunction("vortex_duckdb", {LogicalType::VARCHAR}, LogicalType::VARCHAR, VortexDuckdbScalarFun);
+    auto vortex_duckdb_scalar_function = ScalarFunction("vortex", {LogicalType::VARCHAR}, LogicalType::VARCHAR, VortexDuckdbScalarFun);
     ExtensionUtil::RegisterFunction(instance, vortex_duckdb_scalar_function);
 
     // Register another scalar function
-    auto vortex_duckdb_openssl_version_scalar_function = ScalarFunction("vortex_duckdb_openssl_version", {LogicalType::VARCHAR},
+    auto vortex_duckdb_openssl_version_scalar_function = ScalarFunction("vortex_openssl_version", {LogicalType::VARCHAR},
                                                 LogicalType::VARCHAR, VortexDuckdbOpenSSLVersionScalarFun);
     ExtensionUtil::RegisterFunction(instance, vortex_duckdb_openssl_version_scalar_function);
 }
