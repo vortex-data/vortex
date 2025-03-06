@@ -212,9 +212,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
                 .map(|item| item.extract::<String>())
                 .collect::<PyResult<Vec<String>>>()?;
             return Ok(PyIntoProjection(select(
-                cols.into_iter()
-                    .map(Arc::<str>::from)
-                    .collect::<Vec<_>>(),
+                cols.into_iter().map(Arc::<str>::from).collect::<Vec<_>>(),
                 ident(),
             )));
         }
