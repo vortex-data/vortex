@@ -1,14 +1,29 @@
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, StructDType};
+use vortex_error::{VortexExpect, VortexResult};
 
 use super::ChunkedArray;
+use crate::arrays::StructArray;
 use crate::builders::{ArrayBuilder, builder_with_capacity};
-use crate::{Array as _, ArrayCanonicalImpl, Canonical};
+use crate::validity::Validity;
+use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let mut builder = builder_with_capacity(self.dtype(), self.len());
-        self.append_to_builder(builder.as_mut())?;
-        builder.finish().to_canonical()
+        match self.dtype() {
+            DType::Struct(struct_dtype, _) => {
+                let struct_array = swizzle_struct_chunks(
+                    self.chunks(),
+                    Validity::copy_from_array(self)?,
+                    struct_dtype,
+                )?;
+                Ok(Canonical::Struct(struct_array))
+            }
+            _ => {
+                let mut builder = builder_with_capacity(self.dtype(), self.len());
+                self.append_to_builder(builder.as_mut())?;
+                builder.finish().to_canonical()
+            }
+        }
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
@@ -17,6 +32,33 @@ impl ArrayCanonicalImpl for ChunkedArray {
         }
         Ok(())
     }
+}
+
+/// Swizzle the pointers within a ChunkedArray of StructArrays to instead be a single
+/// StructArray, where the Array for each Field is a ChunkedArray.
+fn swizzle_struct_chunks(
+    chunks: &[ArrayRef],
+    validity: Validity,
+    struct_dtype: &StructDType,
+) -> VortexResult<StructArray> {
+    let len = chunks.iter().map(|chunk| chunk.len()).sum();
+    let mut field_arrays = Vec::new();
+
+    for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
+        let field_chunks = chunks
+            .iter()
+            .map(|c| {
+                c.as_struct_typed()
+                    .vortex_expect("Chunk was not a StructArray")
+                    .maybe_null_field_by_idx(field_idx)
+                    .vortex_expect("Invalid chunked array")
+            })
+            .collect::<Vec<_>>();
+        let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
+        field_arrays.push(field_array.into_array());
+    }
+
+    StructArray::try_new(struct_dtype.names().clone(), field_arrays, len, validity)
 }
 
 #[cfg(test)]
