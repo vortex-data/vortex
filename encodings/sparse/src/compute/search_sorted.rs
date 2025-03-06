@@ -52,8 +52,9 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
     }
 }
 
+// Find the fill position relative to patches, in case of fill being in between patches we want to find the right most
+// index of the fill relative to patches.
 fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<usize> {
-    // In not found case we need to find the relative position of fill value to the patches
     let fill_result = if array.fill_scalar().is_null() {
         // For null fill the patches can only ever be after the fill
         SearchResult::NotFound(array.patches().min_index()?)
