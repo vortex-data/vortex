@@ -6,6 +6,10 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
+use std::any::Any;
+use std::sync::Arc;
+
+use arrow_array::Array;
 pub use between::{BetweenFn, BetweenOptions, StrictComparison, between};
 pub use binary_numeric::{
     BinaryNumericFn, add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub,
@@ -33,6 +37,14 @@ pub use take::{TakeFn, take, take_into};
 pub use take_from::TakeFromFn;
 pub use to_arrow::*;
 pub use uncompressed_size::*;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_scalar::Scalar;
+
+use crate::ArrayRef;
+use crate::arcref::ArcRef;
+use crate::builders::ArrayBuilder;
 
 mod between;
 mod binary_numeric;
@@ -56,6 +68,39 @@ mod take;
 mod take_from;
 mod to_arrow;
 mod uncompressed_size;
+
+pub trait ComputeFn {
+    fn id(&self) -> ArcRef<str>;
+
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output>;
+
+    fn return_type(&self, args: &InvocationArgs) -> DType;
+}
+
+pub type ComputeFnRef = ArcRef<dyn ComputeFn>;
+
+pub struct InvocationArgs<'a> {
+    pub inputs: &'a [Input<'a>],
+    pub options: &'a dyn Options,
+}
+
+/// Input to a compute function.
+pub enum Input<'a> {
+    Scalar(&'a Scalar),
+    Array(&'a dyn Array),
+    Mask(&'a Mask),
+    Builder(&'a mut dyn ArrayBuilder),
+}
+
+/// Output from a compute function.
+pub enum Output {
+    Scalar(Scalar),
+    Array(ArrayRef),
+}
+
+pub trait Options {
+    fn as_any(&self) -> &dyn Any;
+}
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
