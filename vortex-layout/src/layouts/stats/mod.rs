@@ -15,7 +15,7 @@ use crate::layouts::stats::reader::StatsReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentRegistry};
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, RowMask, STATS_LAYOUT_ID};
+use crate::{LayoutId, STATS_LAYOUT_ID};
 
 #[derive(Default, Debug)]
 pub struct StatsLayout;
@@ -50,7 +50,7 @@ impl LayoutVTable for StatsLayout {
     fn required_segments(
         &self,
         layout: &Layout,
-        row_mask: RowMask,
+        row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
         segments: &mut SegmentRegistry,
@@ -59,14 +59,19 @@ impl LayoutVTable for StatsLayout {
             layout
                 .child(1, layout.dtype().clone(), "stats_table")?
                 .required_segments(
-                    row_mask.clone(),
+                    row_offset,
                     filter_field_mask,
                     projection_field_mask,
-                    &mut segments.with_kind(RequiredSegmentKind::PRUNING),
+                    &mut segments.with_priority_hint(RequiredSegmentKind::PRUNING),
                 )?;
         }
         layout
             .child(0, layout.dtype().clone(), "data")?
-            .required_segments(row_mask, filter_field_mask, projection_field_mask, segments)
+            .required_segments(
+                row_offset,
+                filter_field_mask,
+                projection_field_mask,
+                segments,
+            )
     }
 }

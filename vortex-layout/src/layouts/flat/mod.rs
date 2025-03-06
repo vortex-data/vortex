@@ -51,7 +51,7 @@ impl LayoutVTable for FlatLayout {
     fn required_segments(
         &self,
         layout: &Layout,
-        _row_mask: crate::RowMask,
+        row_offset: u64,
         _filter_field_mask: &[FieldMask],
         _projection_field_mask: &[FieldMask],
         segments: &mut crate::segments::SegmentRegistry,
@@ -64,8 +64,9 @@ impl LayoutVTable for FlatLayout {
         //     return Ok(());
         // }
 
+        // this would iterate once
         for segment in layout.segments() {
-            segments.push(segment);
+            segments.push(row_offset + layout.row_count(), segment);
         }
         Ok(())
     }

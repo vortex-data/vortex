@@ -8,7 +8,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::segments::{AsyncSegmentReader, SegmentRegistry};
-use crate::{Layout, LayoutId, LayoutReader, RowMask};
+use crate::{Layout, LayoutId, LayoutReader};
 
 /// A reference to a layout VTable, either static or arc'd.
 pub type LayoutVTableRef = ArcRef<dyn LayoutVTable>;
@@ -47,7 +47,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
     fn required_segments(
         &self,
         layout: &Layout,
-        row_mask: RowMask,
+        row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
         segments: &mut SegmentRegistry,

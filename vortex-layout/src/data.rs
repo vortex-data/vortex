@@ -9,11 +9,11 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
+use crate::LayoutId;
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId, SegmentRegistry};
 use crate::vtable::LayoutVTableRef;
-use crate::{LayoutId, RowMask};
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
 /// structure.
@@ -277,14 +277,14 @@ impl Layout {
 
     pub fn required_segments(
         &self,
-        row_mask: RowMask,
+        row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
         segments: &mut SegmentRegistry,
     ) -> VortexResult<()> {
         self.vtable().required_segments(
             self,
-            row_mask,
+            row_offset,
             filter_field_mask,
             projection_field_mask,
             segments,

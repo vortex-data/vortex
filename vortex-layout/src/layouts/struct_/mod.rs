@@ -14,7 +14,7 @@ use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::{AsyncSegmentReader, RequiredSegmentKind};
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, RowMask, STRUCT_LAYOUT_ID};
+use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct StructLayout;
@@ -49,25 +49,25 @@ impl LayoutVTable for StructLayout {
     fn required_segments(
         &self,
         layout: &Layout,
-        row_mask: RowMask,
+        row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
         segments: &mut crate::segments::SegmentRegistry,
     ) -> VortexResult<()> {
         for_all_matching_children(layout, filter_field_mask, |field_mask, child| {
             child.required_segments(
-                row_mask.clone(),
+                row_offset,
                 &[field_mask],
                 &[],
-                &mut segments.with_kind(RequiredSegmentKind::FILTER),
+                &mut segments.with_priority_hint(RequiredSegmentKind::FILTER),
             )
         })?;
         for_all_matching_children(layout, projection_field_mask, |field_mask, child| {
             child.required_segments(
-                row_mask.clone(),
+                row_offset,
                 &[],
                 &[field_mask],
-                &mut segments.with_kind(RequiredSegmentKind::PROJECTION),
+                &mut segments.with_priority_hint(RequiredSegmentKind::PROJECTION),
             )
         })?;
         Ok(())

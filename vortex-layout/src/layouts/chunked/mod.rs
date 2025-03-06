@@ -58,20 +58,17 @@ impl LayoutVTable for ChunkedLayout {
     fn required_segments(
         &self,
         layout: &Layout,
-        row_mask: crate::RowMask,
+        row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
         segments: &mut crate::segments::SegmentRegistry,
     ) -> VortexResult<()> {
         let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
+        let mut offset = row_offset;
         for i in 0..nchunks {
             let child = layout.child(i, layout.dtype().clone(), format!("[{}]", i))?;
-            child.required_segments(
-                row_mask.clone(),
-                filter_field_mask,
-                projection_field_mask,
-                segments,
-            )?;
+            child.required_segments(offset, filter_field_mask, projection_field_mask, segments)?;
+            offset += child.row_count();
         }
         Ok(())
     }

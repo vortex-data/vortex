@@ -1,9 +1,9 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -50,32 +50,42 @@ pub trait SegmentWriter {
     fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub enum RequiredSegmentKind {
-    FILTER,
-    PROJECTION,
-    PRUNING,
+    PRUNING = 1,
+    FILTER = 2,
+    #[default]
+    PROJECTION = 3,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
+pub struct SegmentPriority {
+    row_offset: u64,
+    kind: RequiredSegmentKind,
+}
+
+#[derive(Default, Debug)]
 pub struct SegmentRegistry {
-    store: Arc<RwLock<HashMap<RequiredSegmentKind, Vec<SegmentId>>>>,
+    store: Arc<RwLock<BTreeMap<SegmentPriority, Vec<SegmentId>>>>,
     pub kind: RequiredSegmentKind,
 }
 
 impl SegmentRegistry {
-    pub fn with_kind(&self, kind: RequiredSegmentKind) -> Self {
+    pub fn with_priority_hint(&self, kind: RequiredSegmentKind) -> Self {
         SegmentRegistry {
             store: self.store.clone(),
-            kind,
+            // highest priority wins
+            kind: kind.min(self.kind),
         }
     }
 
-    pub fn push(&mut self, segment: SegmentId) {
+    pub fn push(&mut self, row_offset: u64, segment: SegmentId) {
+        let priority = SegmentPriority {
+            row_offset,
+            kind: self.kind,
+        };
         let mut store_write = self.store.write().vortex_expect("poisoned lock");
-        store_write
-            .entry(self.kind)
-            .or_insert_with(|| Vec::new())
-            .push(segment);
+        store_write.entry(priority).or_default().push(segment);
     }
 }
 
