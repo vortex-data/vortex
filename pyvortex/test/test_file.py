@@ -25,7 +25,7 @@ def vxf(tmpdir_factory) -> vortex.VortexFile:
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vx.compress(vx.array(a))
-        vortex.io.write_path(arr, str(fname))
+        vortex.io.write(arr, str(fname))
     return vortex.open(str(fname))
 
 
@@ -61,5 +61,5 @@ def test_to_polars_columns(vxf):
 
 def test_to_polars_expr(vxf):
     df = vxf.to_polars()
-    df = df.select(["string"]).filter(pl.col("string") != "").collect()
-    assert len(df) == 0
+    df = df.filter(pl.col("bool")).select(["string"]).collect()
+    assert len(df) == len(vxf) / 2

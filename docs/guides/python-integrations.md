@@ -140,7 +140,7 @@ files. All the query engine examples use the same Vortex file:
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
 >>> arr = vx.array(pq.read_table("_static/example.parquet"))
->>> vx.io.write_path(arr, 'example.vortex')
+>>> vx.io.write(arr, 'example.vortex')
 >>> ds = vx.dataset.from_path(
 >>> ...     'example.vortex'
 >>> ... )

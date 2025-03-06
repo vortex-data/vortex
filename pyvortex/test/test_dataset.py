@@ -27,7 +27,7 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vx.compress(vx.array(a))
-        vortex.io.write_path(arr, str(fname))
+        vortex.io.write(arr, str(fname))
     return vortex.dataset.VortexDataset.from_path(str(fname))
 
 

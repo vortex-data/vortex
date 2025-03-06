@@ -55,7 +55,7 @@ where
 }
 
 pub trait ArrayIteratorExt: ArrayIterator {
-    fn into_stream(self) -> impl ArrayStream
+    fn into_array_stream(self) -> impl ArrayStream
     where
         Self: Sized,
     {

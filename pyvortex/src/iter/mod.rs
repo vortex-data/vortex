@@ -27,7 +27,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pyclass(name = "ArrayIterator", module = "vortex")]
+#[pyclass(name = "ArrayIterator", module = "vortex", frozen)]
 pub struct PyArrayIterator {
     iter: Mutex<Option<Box<dyn ArrayIterator + Send>>>,
     dtype: DType,
@@ -41,13 +41,22 @@ impl PyArrayIterator {
             dtype,
         }
     }
+
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    pub fn take(&self) -> Option<Box<dyn ArrayIterator + Send>> {
+        self.iter.lock().vortex_expect("poisoned lock").take()
+    }
 }
 
 #[pymethods]
 impl PyArrayIterator {
     /// Return the :class:`vortex.DType` for all chunks of this iterator.
     #[getter]
-    fn dtype(slf: PyRef<Self>) -> PyResult<Bound<PyDType>> {
+    #[pyo3(name = "dtype")]
+    fn dtype_(slf: PyRef<Self>) -> PyResult<Bound<PyDType>> {
         PyDType::init(slf.py(), slf.dtype.clone())
     }
 
@@ -57,7 +66,7 @@ impl PyArrayIterator {
     }
 
     /// Returns the next chunk from the iterator.
-    fn __next__(&mut self, py: Python) -> PyResult<Option<PyArrayRef>> {
+    fn __next__(&self, py: Python) -> PyResult<Option<PyArrayRef>> {
         py.allow_threads(|| {
             Ok(self
                 .iter
@@ -72,7 +81,7 @@ impl PyArrayIterator {
 
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
-    fn read_all(&mut self, py: Python) -> PyResult<PyArrayRef> {
+    fn read_all(&self, py: Python) -> PyResult<PyArrayRef> {
         let array = py.allow_threads(|| {
             if let Some(iter) = self.iter.lock().vortex_expect("poisoned lock").take() {
                 iter.read_all()

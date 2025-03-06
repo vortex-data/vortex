@@ -1,6 +1,8 @@
 import vortex as vx
 import vortex.expr
 
+IntoArrayIterator = vx.Array | vx.ArrayIterator
+
 def read_url(
     url: str,
     *,
@@ -15,4 +17,4 @@ def read_path(
     row_filter: vortex.expr.Expr | None = None,
     indices: vx.Array | None = None,
 ) -> vx.Array: ...
-def write_path(array: vx.Array, path: str): ...
+def write(iter: IntoArrayIterator, path: str): ...

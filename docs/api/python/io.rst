@@ -9,7 +9,7 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 
    ~vortex.io.read_path
    ~vortex.io.read_url
-   ~vortex.io.write_path
+   ~vortex.io.write
 
 .. raw:: html
 

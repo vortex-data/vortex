@@ -45,7 +45,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     ...     {'name': 'Mikhail', 'age': 57},
 ///     ...     {'name': None, 'age': None},
 ///     ... ])
-///     >>> vx.io.write_path(a, "a.vortex")
+///     >>> vx.io.write(a, "a.vortex")
 ///
 /// Read only those rows whose age column is greater than 35:
 ///
