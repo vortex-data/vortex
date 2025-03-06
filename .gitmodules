@@ -6,9 +6,3 @@
 	path = vortex-duckdb/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools
 	branch = main
-[submodule "duckdb"]
-	path = vortex-duckdb/duckdb
-	url = https://github.com/duckdb/duckdb
-[submodule "extension-ci-tools"]
-	path = vortex-duckdb/extension-ci-tools
-	url = https://github.com/duckdb/extension-ci-tools
