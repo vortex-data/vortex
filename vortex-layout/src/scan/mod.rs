@@ -18,7 +18,9 @@ use vortex_mask::Mask;
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument};
+use crate::{
+    ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
+};
 
 pub mod executor;
 pub(crate) mod filter;
