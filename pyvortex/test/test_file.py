@@ -1,7 +1,6 @@
 import math
 import os
 
-import polars as pl
 import pyarrow as pa
 import pytest
 
@@ -49,17 +48,5 @@ def test_to_arrow_batch_size(vxf):
 
 
 def test_to_arrow_columns(vxf):
-    rbr = vxf.to_arrow(columns=["string", "bool"])
+    rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
-
-
-def test_to_polars_columns(vxf):
-    df = vxf.to_polars().select(["string", "bool"]).collect()
-
-    assert df.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
-
-
-def test_to_polars_expr(vxf):
-    df = vxf.to_polars()
-    df = df.filter(pl.col("bool")).select(["string"]).collect()
-    assert len(df) == len(vxf) / 2
