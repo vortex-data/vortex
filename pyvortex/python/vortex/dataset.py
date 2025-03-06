@@ -28,7 +28,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_path(path: str):
-        return VortexDataset(vx.open(path).to_dataset())
+        return vx.open(path).to_dataset()
 
     @property
     def schema(self) -> pa.Schema:

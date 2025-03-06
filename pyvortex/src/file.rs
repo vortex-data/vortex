@@ -196,8 +196,13 @@ impl PyVortexFile {
     }
 
     /// Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
-    fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
-        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+    fn to_dataset(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
+        let dataset_cls = slf
+            .py()
+            .import("vortex.dataset")?
+            .getattr("VortexDataset")?;
+        let dataset = PyVortexDataset::try_new(slf.get().vxf.clone())?;
+        dataset_cls.call1((dataset,))
     }
 }
 
