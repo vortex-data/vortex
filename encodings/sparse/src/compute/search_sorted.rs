@@ -226,8 +226,8 @@ mod tests {
             20,
             Scalar::primitive(22, Nullability::NonNullable),
         )
-            .unwrap()
-            .into_array()
+        .unwrap()
+        .into_array()
     }
 
     #[rstest]
