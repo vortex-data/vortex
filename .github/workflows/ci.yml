@@ -263,11 +263,10 @@ jobs:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   wasm-integration:
