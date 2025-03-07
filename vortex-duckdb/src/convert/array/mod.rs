@@ -58,6 +58,7 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
 }
 
 impl FromDuckDB<SizedFlatVector> for ArrayRef {
+    // TODO(joe): this is slow, make it faster.
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
         let len = sized_vector.len;
         let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len)

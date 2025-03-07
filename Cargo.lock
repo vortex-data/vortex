@@ -1847,6 +1847,7 @@ dependencies = [
  "arrow",
  "calamine",
  "cast",
+ "duckdb-loadable-macros",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
@@ -1857,6 +1858,27 @@ dependencies = [
  "rust_decimal",
  "smallvec",
  "strum 0.25.0",
+]
+
+[[package]]
+name = "duckdb-loadable-macros"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0514910d370bd12b9a5a7bf6631e4709f4217e39a6b7ef0e7bff9bf4521239b"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
+name = "duckdb_vortex_rs"
+version = "0.1.0"
+dependencies = [
+ "duckdb",
+ "duckdb-loadable-macros",
+ "libduckdb-sys",
 ]
 
 [[package]]
@@ -2919,8 +2941,11 @@ dependencies = [
  "autocfg",
  "flate2",
  "pkg-config",
+ "prettyplease",
+ "quote",
  "serde",
  "serde_json",
+ "syn 2.0.98",
  "tar",
  "vcpkg",
 ]
