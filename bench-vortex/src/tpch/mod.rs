@@ -12,7 +12,6 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use futures::StreamExt;
-use log::info;
 use named_locks::with_lock;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
@@ -242,7 +241,6 @@ async fn register_parquet(
         .await
         .is_err()
     {
-        info!("File {} does not exist", pq_file.path());
         with_lock(pq_file.path().to_owned(), async || {
             let df = session
                 .read_csv(
@@ -311,7 +309,6 @@ async fn register_vortex_file(
         .await
         .is_err()
     {
-        info!("File {} does not exist", vtx_file.path());
         with_lock(vtx_file.path().to_owned(), async || {
             let record_batches = session
                 .read_csv(
