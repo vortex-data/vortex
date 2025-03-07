@@ -55,14 +55,12 @@ fn from_duckdb_list(list: LogicalTypeHandle) -> DType {
 }
 
 fn from_duckdb_struct(struct_: LogicalTypeHandle) -> StructDType {
-    struct_
-        .num_children()
-        .into_iter()
+    (0..struct_.num_children())
         .map(|i| {
             // TODO: is there struct field nullability
             let child_nullability = Nullable;
             let child_name = struct_.child_name(i);
-            let child_type = FromDuckDBType::from_duckdb(struct_.child(i), child_nullability);
+            let child_type = DType::from_duckdb(struct_.child(i), child_nullability);
             (child_name, child_type)
         })
         .collect()

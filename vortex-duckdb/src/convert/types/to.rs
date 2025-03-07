@@ -1,6 +1,6 @@
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 
 pub trait ToDuckDBType {
     fn to_duckdb_type(&self) -> VortexResult<LogicalTypeHandle>;
