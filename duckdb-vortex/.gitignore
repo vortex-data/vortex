@@ -10,3 +10,7 @@ test/python/__pycache__/
 # Keep CMAKE
 
 !CMakeLists.txt
+
+# Ignore genn files
+
+gen/**/*.h

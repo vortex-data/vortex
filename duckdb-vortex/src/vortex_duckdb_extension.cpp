@@ -7,6 +7,7 @@
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
+#include "vortex_duckdb.h"
 
 // OpenSSL linked through vcpkg
 #include <openssl/opensslv.h>
@@ -18,11 +19,11 @@ inline void VortexDuckdbScalarFun(DataChunk &args, ExpressionState &state, Vecto
     UnaryExecutor::Execute<string_t, string_t>(
 	    name_vector, result, args.size(),
 	    [&](string_t name) {
-			return StringVector::AddString(result, "VortexDuckdb "+name.GetString()+" 🐥");
+	    	auto c_str = duckdb_hello();
+	    	auto str = std::string(c_str) + name.GetString() + " 🐥";
+			return StringVector::AddString(result, str);
         });
 }
-
-// inline void VortexDummyTable()
 
 static int64_t times = 0;
 

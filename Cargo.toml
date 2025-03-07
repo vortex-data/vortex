@@ -9,6 +9,7 @@ members = [
     "vortex-btrblocks",
     "vortex-buffer",
     "vortex-datafusion",
+    "vortex-duckdb",
     "vortex-dtype",
     "vortex-error",
     "vortex-expr",

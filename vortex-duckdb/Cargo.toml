@@ -1,0 +1,29 @@
+[package]
+name = "vortex-duckdb"
+version = { workspace = true }
+description = "Vortex's duckdb adapter"
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+
+[lib]
+name = "vortex_duckdb"
+path = "src/lib.rs"
+bench = false
+crate-type = ["cdylib"]
+
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true
+

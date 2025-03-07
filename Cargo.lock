@@ -5429,6 +5429,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-duckdb"
+version = "0.25.2"
+
+[[package]]
 name = "vortex-error"
 version = "0.25.2"
 dependencies = [
