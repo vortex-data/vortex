@@ -15,9 +15,7 @@
  */
 package dev.vortex.api;
 
-import java.io.Closeable;
-
-public interface ArrayStream extends Closeable {
+public interface ArrayStream extends AutoCloseable {
     Array getCurrent();
 
     /**

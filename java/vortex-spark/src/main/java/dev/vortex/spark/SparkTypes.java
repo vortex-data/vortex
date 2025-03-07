@@ -95,7 +95,7 @@ public final class SparkTypes {
                     return TimestampType$.MODULE$;
                 }
 
-                // TODO(aduffy): temporal types
+                // TODO(aduffy): other extension types
                 throw new IllegalArgumentException("Unsupported non-temporal extension type");
             default:
                 throw new IllegalArgumentException("unreachable");

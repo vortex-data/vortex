@@ -17,11 +17,9 @@ package dev.vortex.jni;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.google.common.io.Closer;
 import dev.vortex.api.DType;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.impl.NativeFile;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.jupiter.api.Test;
@@ -57,18 +55,15 @@ public final class FFITest {
                 .toString();
 
         long rowCount = 0;
-        try (Closer closer = Closer.create()) {
-            var file = closer.register(NativeFile.open(path));
-            var scan = closer.register(file.newScan(ScanOptions.of()));
+        try (var file = NativeFile.open(path);
+                var scan = file.newScan(ScanOptions.of())) {
 
             while (scan.next()) {
-                System.out.println("start batch");
                 try (var array = scan.getCurrent()) {
                     rowCount += array.getLen();
                 }
-                System.out.println("end batch");
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException("Failed closing resources", e);
         }
 

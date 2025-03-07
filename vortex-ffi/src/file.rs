@@ -47,12 +47,8 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
 
 /// Build a new Scan that will stream batches of `FFIArray` from the file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_scan(
-    file: *const FFIFile,
-    // options: Option<*const FFIFileScanOptions>,
-) -> *mut FFIArrayStream {
-    // We can say there are a specific set of of row indices to provide instead.
-
+pub unsafe extern "C" fn File_scan(file: *const FFIFile) -> *mut FFIArrayStream {
+    // TODO(aduffy): pass ScanOptions to projection, filter predicate, etc.
     let file = unsafe { &*file };
     let stream = file
         .inner

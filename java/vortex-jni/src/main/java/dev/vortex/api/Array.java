@@ -15,9 +15,7 @@
  */
 package dev.vortex.api;
 
-import java.io.Closeable;
-
-public interface Array extends Closeable {
+public interface Array extends AutoCloseable {
     long getLen();
 
     DType getDataType();

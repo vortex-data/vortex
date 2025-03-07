@@ -15,14 +15,13 @@
  */
 package dev.vortex.api;
 
-import com.google.common.collect.ImmutableList;
-import java.io.Closeable;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * Vortex logical type.
  */
-public interface DType extends Closeable {
+public interface DType extends AutoCloseable {
 
     Variant getVariant();
 
@@ -31,12 +30,12 @@ public interface DType extends Closeable {
     /**
      * Get the field names for a STRUCT type.
      */
-    ImmutableList<String> getFieldNames();
+    List<String> getFieldNames();
 
     /**
      * Get the field types for a STRUCT type.
      */
-    ImmutableList<DType> getFieldTypes();
+    List<DType> getFieldTypes();
 
     /**
      * Get the element type for a LIST type.

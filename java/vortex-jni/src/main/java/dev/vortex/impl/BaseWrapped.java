@@ -15,14 +15,12 @@
  */
 package dev.vortex.impl;
 
-import java.io.Closeable;
-
 /**
  * Base class for all objects that are wrappers around some native {@code T} exposed by FFI.
  * <p>
  * Each wrapped type has a close implementation that will free the native resource.
  */
-public abstract class BaseWrapped<T> implements Closeable {
+public abstract class BaseWrapped<T> implements AutoCloseable {
     protected T inner;
 
     protected BaseWrapped(T inner) {

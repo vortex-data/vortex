@@ -15,9 +15,7 @@
  */
 package dev.vortex.api;
 
-import java.io.Closeable;
-
-public interface File extends Closeable {
+public interface File extends AutoCloseable {
     DType getDType();
 
     ArrayStream newScan(ScanOptions options);

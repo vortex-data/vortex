@@ -50,30 +50,28 @@ final class VortexScanTest {
         }
 
         // Execute the TPC-H queries
-        var plan = spark.sql(
-                """
-                        select
-                            l_returnflag,
-                            l_linestatus,
-                            sum(l_quantity) as sum_qty,
-                            sum(l_extendedprice) as sum_base_price,
-                            sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
-                            sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
-                            avg(l_quantity) as avg_qty,
-                            avg(l_extendedprice) as avg_price,
-                            avg(l_discount) as avg_disc,
-                            count(*) as count_order
-                        from
-                            lineitem
-                        where
-                                l_shipdate <= date '1998-09-02'
-                        group by
-                            l_returnflag,
-                            l_linestatus
-                        order by
-                            l_returnflag,
-                            l_linestatus
-                        """);
+        var q1 = "select\n" + "    l_returnflag,\n"
+                + "    l_linestatus,\n"
+                + "    sum(l_quantity) as sum_qty,\n"
+                + "    sum(l_extendedprice) as sum_base_price,\n"
+                + "    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,\n"
+                + "    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,\n"
+                + "    avg(l_quantity) as avg_qty,\n"
+                + "    avg(l_extendedprice) as avg_price,\n"
+                + "    avg(l_discount) as avg_disc,\n"
+                + "    count(*) as count_order\n"
+                + "from\n"
+                + "    lineitem\n"
+                + "where\n"
+                + "        l_shipdate <= date '1998-09-02'\n"
+                + "group by\n"
+                + "    l_returnflag,\n"
+                + "    l_linestatus\n"
+                + "order by\n"
+                + "    l_returnflag,\n"
+                + "    l_linestatus\n";
+
+        var plan = spark.sql(q1);
 
         long start = System.nanoTime();
         var results = plan.collectAsList();
