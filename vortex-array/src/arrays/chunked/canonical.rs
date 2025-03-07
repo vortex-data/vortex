@@ -129,15 +129,11 @@ mod tests {
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
 
-    fn stringview_array() -> VarBinViewArray {
-        VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])
-    }
-
     #[test]
     pub fn pack_nested_structs() {
         let struct_array = StructArray::try_new(
             vec!["a".into()].into(),
-            vec![stringview_array().into_array()],
+            vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
             4,
             Validity::NonNullable,
         )
