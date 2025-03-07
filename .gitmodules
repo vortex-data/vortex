@@ -7,3 +7,6 @@
 [submodule "extension-ci-tools"]
     path = duckdb-vortex-rs/extension-ci-tools
     url = https://github.com/duckdb/extension-ci-tools
+[submodule "duckdb-vortex-rs/extension-ci-tools"]
+	path = duckdb-vortex-rs/extension-ci-tools
+	url = git@github.com:duckdb/extension-ci-tools.git
