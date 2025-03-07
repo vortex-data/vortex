@@ -5,5 +5,5 @@
 	path = duckdb/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools
 [submodule "extension-ci-tools"]
-        path = duckdb-vortex-rs/extension-ci-tools
-        url = https://github.com/duckdb/extension-ci-tools
+    path = duckdb-vortex-rs/extension-ci-tools
+    url = https://github.com/duckdb/extension-ci-tools
