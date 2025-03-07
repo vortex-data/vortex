@@ -118,8 +118,8 @@ impl SumFn<&ConstantArray> for ConstantEncoding {
 
         let scalar_value = match_each_native_ptype!(
             sum_ptype,
-            unsigned: |$T| { sum_constant::<u64>(scalar.as_primitive(), array.len())?.into() }
-            signed: |$T| { sum_constant::<i64>(scalar.as_primitive(), array.len())?.into() }
+            unsigned: |$T| { sum_integral::<u64>(scalar.as_primitive(), array.len())?.into() }
+            signed: |$T| { sum_integral::<i64>(scalar.as_primitive(), array.len())?.into() }
             floating: |$T| { sum_float(scalar.as_primitive(), array.len())?.into() }
         );
 
