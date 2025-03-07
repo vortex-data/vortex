@@ -73,12 +73,11 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
         array.len()
     } else {
         // [patch, fill, ..., fill, patch]
-        // When searching from right we need to find the right most occurrence of our fill value. If fill value
-        // is present in patches this would be the index of the next value after the fill value
+        // If fill value is present in patches this would be the index of the next value after the fill value
         let fill_index = array.patches().search_index(fill_result_index)?.to_index();
         if fill_index < array.patches().num_patches() {
             let next_index = usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?;
-            // fill value is dense with a next patch value we want to return the original fill_index,
+            // fill value search result is dense with a next patch value we want to return the original fill_index,
             // i.e. the fill value cannot exist between fill_index and next_index
             if fill_index + 1 == next_index {
                 fill_index
