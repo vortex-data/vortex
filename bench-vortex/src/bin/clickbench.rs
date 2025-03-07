@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::metrics::export_plan_spans;
+use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::{
     Format, IdempotentPath as _, default_env_filter, execute_physical_plan,
     feature_flagged_allocator, get_session_with_cache, physical_plan,
@@ -18,6 +18,7 @@ use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
 use vortex::error::vortex_panic;
+use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
@@ -177,8 +178,18 @@ fn main() -> anyhow::Result<()> {
             }
             progress_bar.inc(1);
 
+            let plan = last_plan.expect("must have at least one iteration");
+            for metric_set in VortexMetricsFinder::find_all(plan.as_ref()).into_iter() {
+                for m in metric_set
+                    .timestamps_removed()
+                    .aggregate()
+                    .sorted_for_display()
+                    .iter()
+                {
+                    println!("{}", m);
+                }
+            }
             if args.emit_plan {
-                let plan = last_plan.expect("must have at least one iteration");
                 fs::write(
                     format!("clickbench_{format}_q{query_idx:02}.plan",),
                     format!("{:#?}", plan),
