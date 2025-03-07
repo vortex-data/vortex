@@ -242,6 +242,7 @@ async fn register_parquet(
         .await
         .is_err()
     {
+        info!("File {} does not exist", pq_file.path());
         with_lock(pq_file.path().to_owned(), async || {
             let df = session
                 .read_csv(
