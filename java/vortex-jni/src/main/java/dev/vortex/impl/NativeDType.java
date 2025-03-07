@@ -24,6 +24,7 @@ import com.sun.jna.ptr.IntByReference;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 
 public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
@@ -78,7 +79,7 @@ public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DTyp
     }
 
     @Override
-    public ImmutableList<String> getFieldNames() {
+    public List<String> getFieldNames() {
         checkNotNull(inner);
         checkArgument(Variant.STRUCT == variant, "getStructFieldNames() for non-struct DType");
 
@@ -100,7 +101,7 @@ public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DTyp
     }
 
     @Override
-    public ImmutableList<DType> getFieldTypes() {
+    public List<DType> getFieldTypes() {
         checkNotNull(inner);
         checkArgument(Variant.STRUCT == variant, "getStructFieldNames() for non-struct DType");
         ImmutableList.Builder<DType> builder = ImmutableList.builder();
