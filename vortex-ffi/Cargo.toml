@@ -5,16 +5,16 @@ readme = "README.md"
 # This crate is not meant to be consumed by other Rust code but rather produces a static binary
 # that can be linked to by other languages.
 publish = false
-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
-authors.workspace = true
-license.workspace = true
-keywords.workspace = true
-include.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-categories.workspace = true
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]
