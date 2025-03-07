@@ -4,9 +4,6 @@
 [submodule "extension-ci-tools"]
 	path = duckdb/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools
-[submodule "extension-ci-tools"]
-    path = duckdb-vortex-rs/extension-ci-tools
-    url = https://github.com/duckdb/extension-ci-tools
 [submodule "duckdb-vortex-rs/extension-ci-tools"]
 	path = duckdb-vortex-rs/extension-ci-tools
 	url = git@github.com:spiraldb/extension-ci-tools.git
