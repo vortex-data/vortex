@@ -262,13 +262,18 @@ jobs:
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    # Prevent sudden announcement of a new advisory from failing ci:
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-      - name: Cargo deny check
-        run: cargo install --locked cargo-deny && cargo deny check
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
 
   wasm-integration:
     name: "wasm-integration"
