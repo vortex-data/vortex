@@ -21,6 +21,12 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  lint-toml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.6.0
+
   validate-workflow-yaml:
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +45,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
-
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff

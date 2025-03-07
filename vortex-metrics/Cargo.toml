@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-getrandom_v02 = { workspace = true }
 getrandom_v03 = { workspace = true }
 vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
