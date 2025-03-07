@@ -267,7 +267,8 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Cargo deny check
+        run: cargo install --locked cargo-deny && cargo deny check
 
   wasm-integration:
     name: "wasm-integration"
