@@ -305,11 +305,12 @@ async fn register_vortex_file(
 
     let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
 
-    if let Err(e) = object_store
+    if object_store
         .head(&ObjectStorePath::parse(vtx_file.path())?)
         .await
+        .is_err()
     {
-        info!("File {} doesn't exist, recreating {e}", vtx_file.path());
+        info!("File {} does not exist", vtx_file.path());
         with_lock(vtx_file.path().to_owned(), async || {
             let record_batches = session
                 .read_csv(
