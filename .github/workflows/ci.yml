@@ -268,11 +268,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - uses: actions/checkout@v4
-      - name: License Check
-        run: cargo install --locked cargo-deny && cargo deny check
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: EmbarkStudios/cargo-deny-action@v2
 
   wasm-integration:
     name: "wasm-integration"
