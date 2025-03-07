@@ -15,12 +15,12 @@ jobs:
         # Regarding "include:":
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
         include:
-#          - id: tpch-nvme
-#            binary_name: tpch
-#            name: TPC-H on NVME
-#          - id: clickbench-nvme
-#            binary_name: clickbench
-#            name: Clickbench on NVME
+          - id: tpch-nvme
+            binary_name: tpch
+            name: TPC-H on NVME
+          - id: clickbench-nvme
+            binary_name: clickbench
+            name: Clickbench on NVME
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
