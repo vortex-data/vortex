@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::instrument;
 use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentRegistry};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentEvent, SegmentId, SegmentStream};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, Segment};
@@ -96,8 +96,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         self.segment_channel.reader()
     }
 
-    fn io_stream(self, segments: SegmentRegistry) -> impl Stream<Item = VortexResult<()>> {
-        let all_possible_segments = segments.into_inner();
+    fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
         let segment_requests = self.segment_channel.into_stream();
 
         let segment_map = self.footer.segment_map().clone();
@@ -154,18 +153,22 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
             }
         });
         let segment_map = self.footer.segment_map().clone();
-        let prefetch_stream =
-            stream::iter(all_possible_segments.into_values()).flat_map(move |segment_ids| {
-                let segment_map = segment_map.clone();
-                stream::iter(segment_ids.into_iter().filter_map(move |id| {
-                    let location = segment_map.get(*id as usize)?;
-                    Some(FileSegmentRequest {
-                        id,
-                        location: location.clone(),
-                        callback: None,
-                    })
-                }))
-            });
+        let prefetch_stream = segments.filter_map(move |event| {
+            let value = segment_map.clone();
+            async move {
+                match event {
+                    SegmentEvent::Cancel(_id) => None,
+                    SegmentEvent::Request(id) => {
+                        let location = value.get(*id as usize)?;
+                        Some(FileSegmentRequest {
+                            id,
+                            location: location.clone(),
+                            callback: None,
+                        })
+                    }
+                }
+            }
+        });
 
         // Grab all available segment requests from the I/O queue so we get maximal visibility into
         // the requests for coalescing.

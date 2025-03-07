@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 use crate::LayoutId;
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
-use crate::segments::{AsyncSegmentReader, SegmentId, SegmentRegistry};
+use crate::segments::{AsyncSegmentReader, SegmentCollector, SegmentId};
 use crate::vtable::LayoutVTableRef;
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
@@ -280,7 +280,7 @@ impl Layout {
         row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
-        segments: &mut SegmentRegistry,
+        segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
         self.vtable().required_segments(
             self,

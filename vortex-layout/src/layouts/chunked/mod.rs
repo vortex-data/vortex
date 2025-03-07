@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use crate::data::Layout;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::AsyncSegmentReader;
+use crate::segments::{AsyncSegmentReader, SegmentCollector};
 use crate::vtable::LayoutVTable;
 use crate::{CHUNKED_LAYOUT_ID, LayoutId};
 
@@ -61,7 +61,7 @@ impl LayoutVTable for ChunkedLayout {
         row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
-        segments: &mut crate::segments::SegmentRegistry,
+        segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
         let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
         let mut offset = row_offset;

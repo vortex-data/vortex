@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 use crate::data::Layout;
 use crate::layouts::stats::reader::StatsReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentRegistry};
+use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentCollector};
 use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STATS_LAYOUT_ID};
 
@@ -53,7 +53,7 @@ impl LayoutVTable for StatsLayout {
         row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
-        segments: &mut SegmentRegistry,
+        segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
         if !filter_field_mask.is_empty() {
             layout

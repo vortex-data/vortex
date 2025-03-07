@@ -17,7 +17,7 @@ use vortex_mask::Mask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::{AsyncSegmentReader, SegmentRegistry};
+use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
 use crate::{
     ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
 };
@@ -39,7 +39,7 @@ pub trait ScanDriver: 'static + Sized {
     /// how frequently this future will be polled, so it should not be used to drive I/O.
     ///
     /// TODO(ngates): make this a future
-    fn io_stream(self, segments: SegmentRegistry) -> impl Stream<Item = VortexResult<()>>;
+    fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>>;
 }
 
 /// A struct for building a scan operation.
@@ -141,12 +141,13 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
         let row_indices = self.row_indices.clone();
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
-        let mut segments = SegmentRegistry::default();
+        let mut collector = SegmentCollector::default();
         let (filter_mask, projection_mask) = self.filter_and_projection_masks()?;
         self.layout
-            .required_segments(0, &filter_mask, &projection_mask, &mut segments)?;
+            .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
+        let (mut row_range_pruner, segments) = collector.finish()?;
         if let Some(indices) = &row_indices {
-            segments.retain_matching(indices.clone());
+            row_range_pruner.retain_matching(indices.clone());
         }
 
         let row_masks = splits
@@ -189,6 +190,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             canonicalize: self.canonicalize,
             concurrency: self.concurrency,
             prefetch_conjuncts: self.prefetch_conjuncts,
+            row_range_pruner,
             segments,
         })
     }
@@ -255,7 +257,8 @@ pub struct Scan<D> {
     //TODO(adam): bake this into the executors?
     concurrency: usize,
     prefetch_conjuncts: bool,
-    segments: SegmentRegistry,
+    row_range_pruner: RowRangePruner,
+    segments: SegmentStream,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -267,9 +270,7 @@ impl<D: ScanDriver> Scan<D> {
         // Create a single LayoutReader that is reused for the entire scan.
         let segment_reader = self.driver.segment_reader();
         let task_executor = self.task_executor.clone();
-        let reader: Arc<dyn LayoutReader> = self
-            .layout
-            .reader(segment_reader.clone(), self.ctx.clone())?;
+        let reader: Arc<dyn LayoutReader> = self.layout.reader(segment_reader, self.ctx.clone())?;
 
         let pruning = self
             .filter
@@ -294,6 +295,7 @@ impl<D: ScanDriver> Scan<D> {
         // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
         let projection = self.projection.clone();
+        let row_range_pruner = self.row_range_pruner.clone();
 
         let exec_stream = row_masks
             .map(move |row_mask| {
@@ -301,6 +303,7 @@ impl<D: ScanDriver> Scan<D> {
                 let projection = projection.clone();
                 let pruning = pruning.clone();
                 let reader = reader.clone();
+                let mut row_range_pruner = row_range_pruner.clone();
 
                 // This future is the processing task
                 instrument!("process", async move {
@@ -316,6 +319,9 @@ impl<D: ScanDriver> Scan<D> {
 
                     // Filter out all-false masks
                     if row_mask.filter_mask().all_false() {
+                        row_range_pruner
+                            .remove(row_mask.begin()..row_mask.end())
+                            .await?;
                         Ok(None)
                     } else {
                         let mut array = reader.evaluate_expr(row_mask, projection).await?;

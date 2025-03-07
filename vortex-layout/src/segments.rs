@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::ops::Deref;
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::ops::{Deref, Range};
+use std::sync::{Arc, RwLock};
+use std::task::Poll;
 
 use async_trait::async_trait;
+use futures::channel::mpsc;
+use futures::{SinkExt, Stream, StreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::range_intersection;
 
@@ -69,15 +72,15 @@ pub struct SegmentPriority {
 
 type SegmentStore = BTreeMap<SegmentPriority, Vec<SegmentId>>;
 
-#[derive(Default, Debug)]
-pub struct SegmentRegistry {
+#[derive(Default)]
+pub struct SegmentCollector {
     store: Arc<RwLock<SegmentStore>>,
     pub kind: RequiredSegmentKind,
 }
 
-impl SegmentRegistry {
+impl SegmentCollector {
     pub fn with_priority_hint(&self, kind: RequiredSegmentKind) -> Self {
-        SegmentRegistry {
+        SegmentCollector {
             store: self.store.clone(),
             // highest priority wins
             kind: kind.min(self.kind),
@@ -95,30 +98,142 @@ impl SegmentRegistry {
             row_end: end,
             kind: self.kind,
         };
-        self.write().entry(priority).or_default().push(segment);
+        self.store
+            .write()
+            .vortex_expect("poisoned lock")
+            .entry(priority)
+            .or_default()
+            .push(segment);
     }
 
-    pub fn retain_matching(&self, row_indices: Buffer<u64>) {
+    pub fn finish(self) -> VortexResult<(RowRangePruner, SegmentStream)> {
+        let first_key = self
+            .store
+            .read()
+            .vortex_expect("poisoned lock")
+            .first_key_value()
+            .map(|(k, _)| *k)
+            .ok_or_else(|| vortex_err!("no segments collected"))?;
+        let (cancellations_tx, cancellations_rx) = mpsc::unbounded();
+        Ok((
+            RowRangePruner {
+                store: self.store.clone(),
+                cancellations_tx,
+            },
+            SegmentStream {
+                store: self.store,
+                cancellations_rx,
+                current_key: first_key,
+                current_idx: 0,
+            },
+        ))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RowRangePruner {
+    store: Arc<RwLock<SegmentStore>>,
+    cancellations_tx: mpsc::UnboundedSender<SegmentId>,
+}
+
+impl RowRangePruner {
+    // Remove all segments fully encompassed by the given row range. Removals
+    // of each matching segment is notified to the cancellation channel.
+    pub async fn remove(&mut self, to_exclude: Range<u64>) -> VortexResult<()> {
+        let cancelled_segments: Vec<_> = {
+            let mut store = self.store.write().vortex_expect("poisoned lock");
+            let to_remove: Vec<_> = store
+                .keys()
+                .skip_while(|key| key.row_start < to_exclude.start)
+                .take_while(|key| key.row_end <= to_exclude.end)
+                .copied()
+                .collect();
+            to_remove
+                .iter()
+                .flat_map(|key| store.remove(key).unwrap_or_default())
+                .collect()
+        };
+        for id in cancelled_segments {
+            self.cancellations_tx
+                .send(id)
+                .await
+                .map_err(|_| vortex_err!("channel closed"))?;
+        }
+        Ok(())
+    }
+
+    /// Bulk remove row_indices. It is intended to be used for
+    /// pruning row indices known to be excluded before the scan.
+    /// It does not notify the cancellation channel.
+    pub fn retain_matching(&mut self, row_indices: Buffer<u64>) {
         if row_indices.is_empty() {
             return;
         }
-        self.write().retain(|key, _segments| {
-            if key.kind == RequiredSegmentKind::PRUNING {
-                return true; // keep segments required for pruning
+        self.store
+            .write()
+            .vortex_expect("poisoned lock")
+            .retain(|key, _| {
+                if key.kind == RequiredSegmentKind::PRUNING {
+                    return true; // keep segments required for pruning
+                }
+                range_intersection(&(key.row_start..key.row_end), &row_indices).is_some()
+            });
+    }
+}
+
+pub struct SegmentStream {
+    store: Arc<RwLock<SegmentStore>>,
+    cancellations_rx: mpsc::UnboundedReceiver<SegmentId>,
+    current_key: SegmentPriority,
+    current_idx: usize,
+}
+
+pub enum SegmentEvent {
+    Cancel(SegmentId),
+    Request(SegmentId),
+}
+
+impl Stream for SegmentStream {
+    type Item = SegmentEvent;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        // cancellations take priority over the next segment in store
+        let channel_closed = match self.cancellations_rx.poll_next_unpin(cx) {
+            Poll::Ready(Some(segment)) => return Poll::Ready(Some(SegmentEvent::Cancel(segment))),
+            Poll::Ready(None) => true,
+            Poll::Pending => false,
+        };
+
+        {
+            let store_clone = self.store.clone();
+            let store_guard = store_clone.read().vortex_expect("poisoned lock");
+            let mut store_iter = store_guard.range(self.current_key..);
+            while let Some((&key, segments)) = store_iter.next() {
+                match key == self.current_key {
+                    true if self.current_idx >= segments.len() => continue,
+                    false => {
+                        self.current_idx = 0;
+                        self.current_key = key;
+                    }
+                    _ => {}
+                };
+                let segment_to_yield = segments[self.current_idx];
+                self.current_idx += 1;
+                return Poll::Ready(Some(SegmentEvent::Request(segment_to_yield)));
             }
-            range_intersection(&(key.row_start..key.row_end), &row_indices).is_some()
-        });
-    }
-
-    pub fn into_inner(self) -> BTreeMap<SegmentPriority, Vec<SegmentId>> {
-        match Arc::try_unwrap(self.store) {
-            Ok(store) => store.into_inner().vortex_expect("poisoned lock"),
-            Err(arc_store) => arc_store.read().vortex_expect("poisoned lock").clone(),
         }
-    }
-
-    fn write(&self) -> RwLockWriteGuard<SegmentStore> {
-        self.store.write().vortex_expect("poisoned lock")
+        // store is exhausted if we are here
+        if channel_closed {
+            return Poll::Ready(None);
+        }
+        return match self.cancellations_rx.poll_next_unpin(cx) {
+            Poll::Ready(Some(segment)) => Poll::Ready(Some(SegmentEvent::Cancel(segment))),
+            Poll::Ready(None) => Poll::Ready(None), // channel closed, end stream
+            Poll::Pending => Poll::Pending,
+        };
     }
 }
 

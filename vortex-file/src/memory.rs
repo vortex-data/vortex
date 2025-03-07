@@ -5,7 +5,7 @@ use futures::{Stream, stream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentRegistry};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
 use vortex_metrics::VortexMetrics;
 
 use crate::segments::SegmentCache;
@@ -52,7 +52,7 @@ impl ScanDriver for InMemoryVortexFile {
         Arc::new(self.clone())
     }
 
-    fn io_stream(self, _segments: SegmentRegistry) -> impl Stream<Item = VortexResult<()>> {
+    fn io_stream(self, _segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
         stream::repeat_with(|| Ok(()))
     }
 }

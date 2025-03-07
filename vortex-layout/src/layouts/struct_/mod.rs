@@ -12,7 +12,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{AsyncSegmentReader, RequiredSegmentKind};
+use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentCollector};
 use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
@@ -52,7 +52,7 @@ impl LayoutVTable for StructLayout {
         row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
-        segments: &mut crate::segments::SegmentRegistry,
+        segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
         for_all_matching_children(layout, filter_field_mask, |field_mask, child| {
             child.required_segments(
