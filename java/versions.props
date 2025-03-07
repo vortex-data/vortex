@@ -8,4 +8,4 @@ org.apache.spark:* = 3.5.4
 org.immutables:value = 2.10.1
 
 # Test dependencies
-org.junit.jupiter:* = 5.11.4
+org.junit.jupiter:* = 5.12.0
