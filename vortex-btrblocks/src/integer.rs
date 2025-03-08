@@ -845,7 +845,9 @@ mod tests {
     fn sparse_mostly_nulls() {
         let array = PrimitiveArray::new(
             buffer![189u8, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46],
-            Validity::from_iter(vec![false, false, false, false, false, false, false, false, false, false, true]),
+            Validity::from_iter(vec![
+                false, false, false, false, false, false, false, false, false, false, true,
+            ]),
         );
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
