@@ -73,12 +73,12 @@ chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
-datafusion = { version = "46", default-features = false, git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
-datafusion-common = { version = "46", git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
-datafusion-execution = { version = "46", git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
-datafusion-expr = { version = "46", git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
-datafusion-physical-expr = { version = "46", git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
-datafusion-physical-plan = { version = "46", git = "https://github.com/apache/datafusion.git", branch = "branch-46" }
+datafusion = { version = "46", default-features = false }
+datafusion-common = { version = "46" }
+datafusion-execution = { version = "46" }
+datafusion-expr = { version = "46" }
+datafusion-physical-expr = { version = "46" }
+datafusion-physical-plan = { version = "46" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
