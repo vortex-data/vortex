@@ -68,8 +68,7 @@ where
             Buffer::from_arrow_scalar_buffer(self.into_inner()),
             Validity::NonNullable,
         );
-        // primitive.update_statistic(Stat::IsSorted, Precision::exact(true));
-        // primitive.update_statistic(Stat::IsStrictSorted, Precision::exact(true));
+
         primitive.into_array()
     }
 }

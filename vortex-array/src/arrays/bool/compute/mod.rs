@@ -1,8 +1,9 @@
 use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn, MaskFn,
-    MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn,
+    IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -13,6 +14,7 @@ pub mod filter;
 mod flatten;
 mod invert;
 mod is_constant;
+mod is_sorted;
 mod mask;
 mod min_max;
 mod scalar_at;
@@ -52,6 +54,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 

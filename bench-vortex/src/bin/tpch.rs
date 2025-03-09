@@ -135,14 +135,14 @@ fn main() -> ExitCode {
             .unwrap()
         }
         Some(tpch_benchmark_remote_data_dir) => {
-            // e.g. "s3://vortex-bench-dev/parquet/"
+            // e.g. "s3://vortex-bench-dev-eu/parquet/"
             //
             // The trailing slash is significant!
             //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
                 warn!(
-                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/"
+                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
                 );
             }
             info!(

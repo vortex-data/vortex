@@ -279,8 +279,9 @@ impl ToJson for CustomUnitMeasurement {
         JsonValue {
             name: self.name.clone(),
             storage: None,
-            unit: None,
+            unit: Some(self.unit.clone()),
             value: MeasurementValue::Float(self.value),
+            // time & bytes are only used for throughputs
             time: None,
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),

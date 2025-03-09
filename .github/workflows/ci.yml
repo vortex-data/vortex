@@ -21,6 +21,12 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  lint-toml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.6.0
+
   validate-workflow-yaml:
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +45,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
-
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
@@ -225,10 +230,14 @@ jobs:
 
   bench-codspeed:
     name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
+      # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Install Codspeed
         shell: bash
@@ -236,7 +245,7 @@ jobs:
 
       - name: Build benchmarks
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-feature=+avx2"
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
@@ -252,22 +261,24 @@ jobs:
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
+          runner-version: 3.4.1-beta.1
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    # Prevent sudden announcement of a new advisory from failing ci:
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - uses: actions/checkout@v4
-      - name: License Check
-        run: cargo install --locked cargo-deny && cargo deny check
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          command: check ${{ matrix.checks }}
 
   wasm-integration:
     name: "wasm-integration"
@@ -303,7 +314,7 @@ jobs:
         # For now, we only run Miri against known "fiddly" crates.
         if: false
       - name: Run Miri
-        run: cargo miri nextest run --no-fail-fast -p vortex-buffer
+        run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"

@@ -14,6 +14,7 @@ use std::ops::{Shl, Shr};
 
 use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
+use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{Array, IntoArray, ToCanonical};
@@ -350,7 +351,7 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
     sorted_bit_counts.sort_by_key(|(_, count)| count.wrapping_neg());
 
     // Assign the most-frequently occurring left-bits as dictionary codes, up to `dict_size`...
-    let mut dictionary = HashMap::with_capacity(max_dict_size as _);
+    let mut dictionary = HashMap::with_capacity_and_hasher(max_dict_size as _, FxBuildHasher);
     let mut code = 0u16;
     while code < (max_dict_size as _) && (code as usize) < sorted_bit_counts.len() {
         let (bits, _) = sorted_bit_counts[code as usize];
@@ -397,7 +398,7 @@ fn estimate_compression_size(
 #[derive(Debug, Default)]
 struct ALPRDDictionary {
     /// Items in the dictionary are bit patterns, along with their 16-bit encoding.
-    dictionary: HashMap<u16, u16>,
+    dictionary: HashMap<u16, u16, FxBuildHasher>,
     /// The (compressed) left bit width. This is after bit-packing the dictionary codes.
     left_bit_width: u8,
     /// The right bit width. This is the bit-packed width of each of the "real double" values.

@@ -193,6 +193,7 @@ mod tests {
         );
         assert!(!arr.statistics().compute_as::<bool>(Stat::IsSorted).unwrap());
 
+        // Slicing down to [null, false, false]
         let sliced = slice(&arr, 4, 7).unwrap();
 
         assert!(!sliced.statistics().compute_as::<bool>(Stat::Min).unwrap());
@@ -204,9 +205,9 @@ mod tests {
                 .unwrap(),
             1
         );
-        // Not sorted because null must come last
+
         assert!(
-            !sliced
+            sliced
                 .statistics()
                 .compute_as::<bool>(Stat::IsSorted)
                 .unwrap()

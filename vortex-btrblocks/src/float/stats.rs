@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
@@ -9,6 +10,7 @@ use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_mask::AllOr;
 
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
@@ -138,33 +140,57 @@ where
     let value_count = validity.true_count();
     let mut min = T::max_value();
     let mut max = T::min_value();
-    let mut distinct_values_count: u32 = if count_distinct_values { 0 } else { u32::MAX };
+    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
+    // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
         HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
         HashMap::with_hasher(FxBuildHasher)
     };
 
-    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
-    // so much more efficient to hash and search for.
     let mut runs = 1;
-    let mut prev = array.as_slice::<T>()[0];
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
+    let buff = array.buffer::<T>();
+    let mut prev = buff[head_idx];
 
-    for (idx, &value) in array.buffer::<T>().iter().enumerate() {
-        if validity.value(idx) {
-            min = min.min(value);
-            max = max.max(value);
+    let first_valid_buff = buff.slice(head_idx..array.len());
+    match validity.boolean_buffer() {
+        AllOr::All => {
+            for value in first_valid_buff {
+                min = min.min(value);
+                max = max.max(value);
 
-            if count_distinct_values {
-                *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
-                distinct_values_count = distinct_values.len().try_into().vortex_unwrap();
-            } else {
-                distinct_values_count = u32::MAX;
+                if count_distinct_values {
+                    *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                }
+
+                if value != prev {
+                    prev = value;
+                    runs += 1;
+                }
             }
+        }
+        AllOr::None => unreachable!("All invalid arrays have been handled earlier"),
+        AllOr::Some(v) => {
+            for (&value, valid) in first_valid_buff
+                .iter()
+                .zip_eq(v.slice(head_idx, array.len() - head_idx).iter())
+            {
+                if valid {
+                    min = min.min(value);
+                    max = max.max(value);
 
-            if value != prev {
-                prev = value;
-                runs += 1;
+                    if count_distinct_values {
+                        *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                    }
+
+                    if value != prev {
+                        prev = value;
+                        runs += 1;
+                    }
+                }
             }
         }
     }
@@ -175,6 +201,11 @@ where
     let value_count = value_count
         .try_into()
         .vortex_expect("null_count must fit in u32");
+    let distinct_values_count = if count_distinct_values {
+        distinct_values.len().try_into().vortex_unwrap()
+    } else {
+        u32::MAX
+    };
 
     FloatStats {
         null_count,
@@ -191,6 +222,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
@@ -208,5 +241,20 @@ mod tests {
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_values_count, 3);
+    }
+
+    #[test]
+    fn test_float_stats_leading_nulls() {
+        let floats = PrimitiveArray::new(
+            buffer![0.0f32, 1.0f32, 2.0f32],
+            Validity::from_iter([false, true, true]),
+        );
+
+        let stats = FloatStats::generate(&floats);
+
+        assert_eq!(stats.value_count, 2);
+        assert_eq!(stats.null_count, 1);
+        assert_eq!(stats.average_run_length, 1);
+        assert_eq!(stats.distinct_values_count, 2);
     }
 }

@@ -1,11 +1,12 @@
 mod binary_numeric;
 mod compare;
 mod is_constant;
+mod is_sorted;
 mod like;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, LikeFn, ScalarAtFn, SliceFn, TakeFn,
-    filter, scalar_at, slice, take,
+    BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, IsSortedFn, LikeFn, ScalarAtFn, SliceFn,
+    TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -25,6 +26,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 

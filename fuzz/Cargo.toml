@@ -1,18 +1,18 @@
 [package]
 name = "vortex-fuzz"
-publish = false
-description = "Fuzzer for vortex arrays"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Fuzzer for vortex arrays"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
 readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [package.metadata]
 cargo-fuzz = true
@@ -25,28 +25,24 @@ futures-util = { workspace = true }
 libfuzzer-sys = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
-vortex-buffer = { workspace = true }
 vortex-btrblocks = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-file = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 
-[lib]
-name = "vortex_fuzz"
-path = "src/lib.rs"
-
 [[bin]]
+bench = false
+doc = false
 name = "array_ops"
 path = "fuzz_targets/array_ops.rs"
 test = false
-doc = false
-bench = false
 
 [[bin]]
+bench = false
+doc = false
 name = "file_io"
 path = "fuzz_targets/file_io.rs"
 test = false
-doc = false
-bench = false
