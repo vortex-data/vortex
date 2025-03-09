@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::stream::{FuturesUnordered, select};
+use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -167,17 +167,17 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                 }))
             });
 
-        let io_stream = select(prefetch_stream, segment_requests);
         // Grab all available segment requests from the I/O queue so we get maximal visibility into
         // the requests for coalescing.
         // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
         // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
         // file and therefore be reasonably bounded.
-        let io_stream = io_stream.ready_chunks(1024);
+        let segment_requests = segment_requests.ready_chunks(1024);
+        let prefetch_stream = prefetch_stream.ready_chunks(self.options.io_concurrency);
 
         // Coalesce the segment requests to minimize the number of I/O operations.
         let perf_hint = self.read.performance_hint();
-        let io_stream = io_stream
+        let io_stream = stream::select(segment_requests, prefetch_stream)
             .map(move |r| coalesce(r, perf_hint.coalescing_window(), perf_hint.max_read()))
             .flat_map(stream::iter)
             .inspect(move |coalesced| self.metrics.record(coalesced));
