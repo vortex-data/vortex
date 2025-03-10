@@ -1,6 +1,6 @@
 mod data_chunk_adaptor;
 
-use duckdb::core::{DataChunkHandle, FlatVector};
+use duckdb::core::DataChunkHandle;
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
@@ -9,10 +9,11 @@ use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::FieldNames;
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
+use crate::convert::array::data_chunk_adaptor::{
+    DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
+};
 
 pub trait ToDuckDB {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()>;
@@ -68,7 +69,7 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
                     names
                         .as_ref()
                         .map(|names| names[i].clone())
-                        .unwrap_or(i.to_string().into()),
+                        .unwrap_or_else(|| i.to_string().into()),
                     array,
                 ))
             })
@@ -87,10 +88,7 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
         let len = sized_vector.len;
         let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len).map_err(|e| {
-            println!(
-                "Failed to convert duckdb duckdb array vortex: {}",
-                e.to_string()
-            );
+            println!("Failed to convert duckdb duckdb array vortex: {}", e);
 
             vortex_err!("Failed to convert duckdb array to vortex: {}", e)
         })?;
@@ -108,7 +106,8 @@ mod tests {
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, FieldNames, Nullability};
 
-    use crate::convert::array::{NamedDataChunk, to_duckdb_chunk};
+    use crate::convert::array::data_chunk_adaptor::NamedDataChunk;
+    use crate::convert::array::to_duckdb_chunk;
     use crate::{FromDuckDB, ToDuckDBType};
 
     fn data() -> ArrayRef {
