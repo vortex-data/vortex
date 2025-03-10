@@ -2,7 +2,7 @@ use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinEncoding;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
     Encoding, EncodingId, SerdeMetadata, ToCanonical,
@@ -211,5 +211,3 @@ impl ArrayVariantsImpl for FSSTArray {
 impl Utf8ArrayTrait for FSSTArray {}
 
 impl BinaryArrayTrait for FSSTArray {}
-
-impl StatisticsVTable<&FSSTArray> for FSSTEncoding {}

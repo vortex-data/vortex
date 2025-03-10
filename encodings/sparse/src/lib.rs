@@ -3,9 +3,9 @@ use std::fmt::Debug;
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
-use vortex_array::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, EncodingId,
     RkyvMetadata, ToCanonical, try_from_array_ref,
@@ -199,29 +199,6 @@ impl ArrayValidityImpl for SparseArray {
         });
 
         Ok(Mask::from_buffer(buffer.finish()))
-    }
-}
-
-impl StatisticsVTable<&SparseArray> for SparseEncoding {
-    fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
-        let values = array.patches().clone().into_values();
-        let stats = values.statistics().compute_all(&[stat])?;
-        if array.len() == values.len() {
-            return Ok(stats);
-        }
-
-        let fill_len = array.len() - values.len();
-        let fill_stats = if array.fill_scalar().is_null() {
-            StatsSet::nulls(fill_len)
-        } else {
-            StatsSet::constant(array.fill_scalar().clone(), fill_len)
-        };
-
-        if values.is_empty() {
-            return Ok(fill_stats);
-        }
-
-        Ok(stats.merge_unordered(&fill_stats, array.dtype()))
     }
 }
 

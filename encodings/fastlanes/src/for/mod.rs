@@ -3,7 +3,7 @@ use std::fmt::Debug;
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId,
@@ -117,7 +117,5 @@ impl ArrayVariantsImpl for FoRArray {
         Some(self)
     }
 }
-
-impl StatisticsVTable<&FoRArray> for FoREncoding {}
 
 impl PrimitiveArrayTrait for FoRArray {}
