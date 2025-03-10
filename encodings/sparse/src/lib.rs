@@ -176,7 +176,7 @@ impl ArrayValidityImpl for SparseArray {
 
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 indices.as_slice::<$I>().into_iter().for_each(|&index| {
-                    buffer.set_bit(index.try_into().vortex_expect("Failed to cast to usize"), true);
+                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - self.patches().offset(), true);
                 });
             });
 
@@ -194,7 +194,7 @@ impl ArrayValidityImpl for SparseArray {
                 .into_iter()
                 .enumerate()
                 .for_each(|(patch_idx, &index)| {
-                    buffer.set_bit(index.try_into().vortex_expect("failed to cast to usize"), values_validity.value(patch_idx));
+                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - self.patches().offset(), values_validity.value(patch_idx));
                 })
         });
 
