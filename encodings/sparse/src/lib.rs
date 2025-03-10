@@ -311,6 +311,13 @@ mod test {
     }
 
     #[test]
+    pub fn validity_mask_sliced() {
+        let sliced = slice(&sparse_array(nullable_fill()), 2, 7).unwrap();
+        println!("indices {:?}",sliced.validity_mask().unwrap().indices());
+        assert_eq!(sliced.validity_mask().unwrap().indices(), Mask::from_iter(vec![false, false, false, false, true]));
+    }
+
+    #[test]
     pub fn scalar_at_sliced_twice() {
         let sliced_once = slice(&sparse_array(nullable_fill()), 1, 8).unwrap();
         assert_eq!(
