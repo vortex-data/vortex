@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
+use datafusion::catalog::Session;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
 use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
-use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
-use datafusion::execution::SessionState;
+use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig, FileSource};
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
@@ -26,13 +26,16 @@ use vortex_array::{ArrayRegistry, stats};
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_expr::datafusion::convert_expr_to_vortex;
+use vortex_expr::{VortexExpr, and};
 use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
 use super::cache::FooterCache;
-use super::execution::VortexExec;
+use super::metrics::VortexSourceMetrics;
 use super::sink::VortexSink;
+use super::source::VortexSource;
 use crate::{PrecisionExt as _, can_be_pushed_down};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
@@ -88,7 +91,7 @@ impl FileFormatFactory for VortexFormatFactory {
     #[allow(clippy::disallowed_types)]
     fn create(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
         if !format_options.is_empty() {
@@ -159,9 +162,16 @@ impl FileFormat for VortexFormat {
         }
     }
 
+    fn file_source(&self) -> Arc<dyn FileSource> {
+        Arc::new(VortexSource::new(
+            self.footer_cache.clone(),
+            VortexSourceMetrics::default(),
+        ))
+    }
+
     async fn infer_schema(
         &self,
-        state: &SessionState,
+        state: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
@@ -194,7 +204,7 @@ impl FileFormat for VortexFormat {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     async fn infer_stats(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         table_schema: SchemaRef,
         object: &ObjectMeta,
@@ -294,7 +304,7 @@ impl FileFormat for VortexFormat {
 
     async fn create_physical_plan(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
@@ -319,21 +329,20 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let exec = VortexExec::try_new(
-            file_scan_config,
-            Default::default(),
-            filters.cloned(),
-            self.footer_cache.clone(),
-        )?
-        .into_arc();
+        let mut source =
+            VortexSource::new(self.footer_cache.clone(), VortexSourceMetrics::default());
 
-        Ok(exec)
+        if let Some(predicate) = make_vortex_predicate(filters) {
+            source = source.with_predicate(predicate);
+        }
+
+        Ok(file_scan_config.with_source(Arc::new(source)).build())
     }
 
     async fn create_writer_physical_plan(
         &self,
         input: Arc<dyn ExecutionPlan>,
-        _state: &SessionState,
+        _state: &dyn Session,
         conf: FileSinkConfig,
         order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
@@ -367,6 +376,22 @@ impl FileFormat for VortexFormat {
             Ok(FilePushdownSupport::NotSupportedForFilter)
         }
     }
+}
+
+pub(crate) fn make_vortex_predicate(
+    predicate: Option<&Arc<dyn PhysicalExpr>>,
+) -> Option<Arc<dyn VortexExpr>> {
+    predicate
+        // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+        // will rerun the filter expression anyway.
+        .and_then(|expr| {
+            // This splits expressions into conjunctions and converts them to vortex expressions.
+            // Any inconvertible expressions are dropped since true /\ a == a.
+            datafusion_physical_expr::split_conjunction(expr)
+                .into_iter()
+                .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                .reduce(and)
+        })
 }
 
 #[cfg(test)]

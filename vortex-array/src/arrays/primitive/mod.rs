@@ -23,7 +23,6 @@ use crate::{
 mod compute;
 mod patch;
 mod serde;
-mod stats;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {

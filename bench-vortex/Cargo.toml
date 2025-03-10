@@ -1,21 +1,21 @@
 [package]
 name = "bench-vortex"
-version = { workspace = true }
-publish = false
-description = "End to end vortex benchmarks"
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
+description = "End to end vortex benchmarks"
 edition = { workspace = true }
-rust-version = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
 readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lints.rust]
-warnings = "deny"
 unsafe_op_in_unsafe_fn = "deny"
+warnings = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
@@ -77,6 +77,6 @@ vortex-metrics = { workspace = true }
 xshell = { workspace = true }
 
 [features]
-mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
+mimalloc = []
 tracing = ["vortex-datafusion/tracing"]

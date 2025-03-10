@@ -8,7 +8,7 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, try_from_array_ref,
@@ -294,8 +294,6 @@ impl ArrayVariantsImpl for BitPackedArray {
         Some(self)
     }
 }
-
-impl StatisticsVTable<&BitPackedArray> for BitPackedEncoding {}
 
 impl PrimitiveArrayTrait for BitPackedArray {}
 
