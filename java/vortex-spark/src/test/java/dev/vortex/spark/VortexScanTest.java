@@ -19,8 +19,10 @@ import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.spark.sql.SparkSession;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+@Disabled
 final class VortexScanTest {
     private static final Path TPCH_ROOT = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed");
 

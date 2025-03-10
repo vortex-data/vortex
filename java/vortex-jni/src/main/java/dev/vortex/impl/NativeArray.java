@@ -84,8 +84,8 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
 
     @Override
     public boolean getNull(int index) {
-        // check validity of the array
-        return false;
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_is_null(inner, index);
     }
 
     @Override

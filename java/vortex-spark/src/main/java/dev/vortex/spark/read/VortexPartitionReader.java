@@ -15,19 +15,18 @@
  */
 package dev.vortex.spark.read;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import dev.vortex.api.Array;
 import dev.vortex.api.ArrayStream;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.impl.NativeFile;
 import dev.vortex.spark.VortexFilePartition;
+import java.util.Objects;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
-
-import java.util.Objects;
-
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 
 /**
  * A {@link PartitionReader} that reads columnar batches out of a Vortex file into
