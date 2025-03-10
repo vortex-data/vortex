@@ -35,6 +35,7 @@ jobs:
       - family=c7i.8xlarge
       - image=ubuntu24-full-x64
       - disk=large
+      - spot=false
       - tag=${{ matrix.id }}
     strategy:
       matrix:

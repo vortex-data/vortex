@@ -234,6 +234,8 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
       - image=ubuntu24-full-x64
+      - spot=false
+
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
