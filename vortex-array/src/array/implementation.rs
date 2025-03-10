@@ -6,12 +6,11 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arcref::ArcRef;
 use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Filter, Kernel};
+use crate::compute::{ComputeFn, Filter, KernelRef};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
@@ -76,7 +75,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         ArrayImpl::_vtable(self)
     }
 
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>> {
+    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
         let any = compute_fn.as_any();
 
         // Check each of the known compute functions.

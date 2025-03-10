@@ -1,4 +1,3 @@
-use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{
     BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterKernelAdapter, InvertFn,
@@ -26,7 +25,7 @@ mod to_arrow;
 mod uncompressed_size;
 
 impl ArrayComputeImpl for BoolArray {
-    const FILTER: Option<KernelRef> = Some(ArcRef::new_ref(&FilterKernelAdapter(BoolEncoding)));
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(BoolEncoding).some();
 }
 
 impl ComputeVTable for BoolEncoding {

@@ -23,13 +23,12 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 
-use crate::arcref::ArcRef;
 use crate::arrays::{
     BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Kernel};
+use crate::compute::{ComputeFn, KernelRef};
 use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
@@ -72,7 +71,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     fn vtable(&self) -> VTableRef;
 
     /// Attempts to find a kernel for the given compute invocation.
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>>;
+    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -172,7 +171,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().vtable()
     }
 
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>> {
+    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
         self.as_ref().find_kernel(compute_fn)
     }
 

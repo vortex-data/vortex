@@ -3,14 +3,14 @@
 use std::fmt::Debug;
 
 use crate::arcref::ArcRef;
-use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, DeserializeMetadata, SerializeMetadata};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static + Send + Sync + EncodingVTable + ComputeVTable {
+pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     type Array: Array;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 

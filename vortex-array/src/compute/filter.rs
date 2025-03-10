@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{ComputeFn, Input, InvocationArgs, Kernel, Output, scalar_at};
+use crate::compute::{ComputeFn, Input, InvocationArgs, Kernel, KernelRef, Output, scalar_at};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
@@ -140,14 +140,6 @@ impl<'a> TryFrom<&'a InvocationArgs<'a>> for FilterInputs<'a> {
     }
 }
 
-pub trait FilterFn<A> {
-    /// Filter an array by the provided predicate.
-    ///
-    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
-    /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: A, mask: &Mask) -> VortexResult<ArrayRef>;
-}
-
 pub trait FilterKernel: Encoding {
     /// Filter an array by the provided predicate.
     ///
@@ -156,21 +148,14 @@ pub trait FilterKernel: Encoding {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FilterFn<&dyn Array> for E
-where
-    E: for<'a> FilterFn<&'a E::Array>,
-{
-    fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        FilterFn::filter(self, array_ref, mask)
-    }
-}
-
 /// Adapter to convert a [`FilterKernel`] into a [`Kernel`].
 pub struct FilterKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {
+    pub const fn some(&'static self) -> Option<KernelRef> {
+        Some(ArcRef::new_ref(self))
+    }
+}
 
 impl<E: Encoding + FilterKernel> Kernel for FilterKernelAdapter<E> {
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
@@ -199,12 +184,12 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         options: None,
     };
 
-    // Check if the array has a kernel for FilterFn.
+    // Check if the array has a kernel for FilterKernel.
     if let Some(filter_fn) = array.find_kernel(&Filter) {
         if let Some(output) = filter_fn.invoke(&args)? {
             return Ok(output
                 .into_array()
-                .ok_or_else(|| vortex_err!("Expected FilterFn to return an array"))?);
+                .ok_or_else(|| vortex_err!("Expected FilterKernel to return an array"))?);
         }
     }
 

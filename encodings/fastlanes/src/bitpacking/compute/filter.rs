@@ -1,7 +1,7 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterFn, filter};
+use vortex_array::compute::{FilterKernel, filter};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
@@ -13,7 +13,7 @@ use super::chunked_indices;
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
-impl FilterFn<&BitPackedArray> for BitPackedEncoding {
+impl FilterKernel for BitPackedEncoding {
     fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
