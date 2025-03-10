@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::ops::{Deref, Range};
+use std::ops::{Deref, Range, RangeBounds};
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
 
 use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::{SinkExt, Stream, StreamExt};
+use range_union_find::RangeUnionFind;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
@@ -119,6 +120,7 @@ impl SegmentCollector {
             RowRangePruner {
                 store: self.store.clone(),
                 cancellations_tx,
+                excluded_ranges: Default::default(),
             },
             SegmentStream {
                 store: self.store,
@@ -134,18 +136,29 @@ impl SegmentCollector {
 pub struct RowRangePruner {
     store: Arc<RwLock<SegmentStore>>,
     cancellations_tx: mpsc::UnboundedSender<SegmentId>,
+    excluded_ranges: Arc<RwLock<RangeUnionFind<u64>>>,
 }
 
 impl RowRangePruner {
     // Remove all segments fully encompassed by the given row range. Removals
     // of each matching segment is notified to the cancellation channel.
     pub async fn remove(&mut self, to_exclude: Range<u64>) -> VortexResult<()> {
+        let to_exclude = {
+            let mut excluded_ranges = self.excluded_ranges.write().vortex_expect("poisoned lock");
+            excluded_ranges
+                .insert_range(&to_exclude)
+                .map_err(|e| vortex_err!("invalid range: {e}"))?;
+            excluded_ranges
+                .find_range_with_element(&to_exclude.start)
+                .map_err(|_| vortex_err!("can not find range just inserted"))?
+        };
+
         let cancelled_segments: Vec<_> = {
             let mut store = self.store.write().vortex_expect("poisoned lock");
             let to_remove: Vec<_> = store
                 .keys()
-                .skip_while(|key| key.row_start < to_exclude.start)
-                .take_while(|key| key.row_end <= to_exclude.end)
+                .skip_while(|key| !to_exclude.contains(&key.row_start))
+                .take_while(|key| to_exclude.contains(&key.row_end))
                 .copied()
                 .collect();
             to_remove

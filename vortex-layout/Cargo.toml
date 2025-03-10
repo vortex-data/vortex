@@ -27,6 +27,7 @@ getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
+range_union_find = { workspace = true }
 tokio = { workspace = true, features = ["sync"], optional = true }
 tracing = { workspace = true, optional = true }
 tracing-futures = { workspace = true, features = [

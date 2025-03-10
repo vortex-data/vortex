@@ -4167,6 +4167,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "range_union_find"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "650ca3577642cea7367b6be622edcd9496e8bc97867d7d644c4290289614c63b"
+dependencies = [
+ "num-traits",
+ "sorted-vec",
+]
+
+[[package]]
 name = "ratatui"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4886,6 +4896,12 @@ dependencies = [
  "libc",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "sorted-vec"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d372029cb5195f9ab4e4b9aef550787dce78b124fcaee8d82519925defcd6f0d"
 
 [[package]]
 name = "spin"
@@ -6062,6 +6078,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "pin-project-lite",
+ "range_union_find",
  "rstest",
  "tokio",
  "tracing",
