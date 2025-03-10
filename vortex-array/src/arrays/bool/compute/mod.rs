@@ -1,12 +1,12 @@
 use crate::arcref::ArcRef;
-use crate::arrays::BoolEncoding;
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{
-    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn,
-    IsSortedFn, Kernel, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
-    UncompressedSizeFn,
+    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterKernelAdapter, InvertFn,
+    IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn,
+    ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ComputeKernels};
+use crate::{Array, ArrayComputeImpl};
 
 mod cast;
 mod fill_forward;
@@ -25,10 +25,8 @@ mod take;
 mod to_arrow;
 mod uncompressed_size;
 
-impl ComputeKernels for BoolEncoding {
-    const FILTER: Option<ArcRef<dyn Kernel>> = Some(ArcRef::new_ref(
-        &(&BoolEncoding as &dyn for<'a> FilterFn<&'a dyn Array>) as &dyn Kernel,
-    ));
+impl ArrayComputeImpl for BoolArray {
+    const FILTER: Option<KernelRef> = Some(ArcRef::new_ref(&FilterKernelAdapter(BoolEncoding)));
 }
 
 impl ComputeVTable for BoolEncoding {
@@ -49,10 +47,6 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 

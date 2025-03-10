@@ -1,8 +1,7 @@
 use crate::Array;
-use crate::arcref::ArcRef;
 use crate::compute::{
     BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
-    FilterFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn,
+    FilterFnOld, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn,
     SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn,
     UncompressedSizeFn,
 };
@@ -60,15 +59,8 @@ pub trait ComputeVTable {
 
     /// Filter an array with a given mask.
     ///
-    /// See: [`FilterFn`].
-    fn filter_fn(&self) -> Option<&'static dyn FilterFn<&dyn Array>> {
-        None
-    }
-
-    /// Filter an array with a given mask.
-    ///
-    /// See: [`FilterFn`].
-    fn filter_kernel(&self) -> Option<ArcRef<dyn FilterFn<&dyn Array>>> {
+    /// See: [`FilterFnOld`].
+    fn filter_fn(&self) -> Option<&'static dyn FilterFnOld<&dyn Array>> {
         None
     }
 

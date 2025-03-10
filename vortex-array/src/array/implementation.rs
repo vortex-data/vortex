@@ -11,11 +11,11 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, FilterFn_, Kernel};
+use crate::compute::{ComputeFn, FilterFn, Kernel};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, ComputeKernels, Encoding,
+    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding,
     EncodingId,
 };
 
@@ -27,20 +27,17 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
+    + ArrayComputeImpl
     + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
     + ArrayVisitorImpl<<Self::Encoding as Encoding>::Metadata>
 {
-    type Encoding: Encoding + ComputeKernels;
+    type Encoding: Encoding;
 
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
-    /// Fallback implementation to lookup compute kernels at runtime.
-    fn _find_kernel(&self, _compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>> {
-        None
-    }
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -84,8 +81,8 @@ impl<A: ArrayImpl + 'static> Array for A {
 
         // Check each of the known compute functions.
 
-        if any.is::<FilterFn_>() {
-            return <<Self as ArrayImpl>::Encoding as ComputeKernels>::FILTER;
+        if any.is::<FilterFn>() {
+            return <Self as ArrayComputeImpl>::FILTER;
         }
 
         // Otherwise, fallback to a manual lookup

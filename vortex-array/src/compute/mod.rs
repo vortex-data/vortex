@@ -73,11 +73,6 @@ pub trait ComputeFn {
     /// The globally unique identifier for the compute function.
     fn id(&self) -> ArcRef<str>;
 
-    /// Documentation for the compute function.
-    fn doc(&self) -> ArcRef<str> {
-        ArcRef::new_ref("")
-    }
-
     /// Returns the function as the [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -210,6 +205,8 @@ pub trait Options {
 pub trait Kernel {
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>>;
 }
+
+pub type KernelRef = ArcRef<dyn Kernel>;
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {

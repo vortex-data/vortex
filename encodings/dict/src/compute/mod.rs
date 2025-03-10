@@ -5,7 +5,7 @@ mod is_sorted;
 mod like;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, IsSortedFn, LikeFn, ScalarAtFn, SliceFn,
+    BinaryNumericFn, CompareFn, FilterFnOld, IsConstantFn, IsSortedFn, LikeFn, ScalarAtFn, SliceFn,
     TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
@@ -34,7 +34,7 @@ impl ComputeVTable for DictEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 
@@ -69,7 +69,7 @@ impl TakeFn<&DictArray> for DictEncoding {
     }
 }
 
-impl FilterFn<&DictArray> for DictEncoding {
+impl FilterFnOld<&DictArray> for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())

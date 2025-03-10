@@ -4,8 +4,8 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, CompareFn, FilterFn, ScalarAtFn, SliceFn, StrictComparison, TakeFn,
-    between, filter, scalar_at, slice, take,
+    BetweenFn, BetweenOptions, CompareFn, FilterFnOld, ScalarAtFn, SliceFn, StrictComparison,
+    TakeFn, between, filter, scalar_at, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -27,7 +27,7 @@ impl ComputeVTable for ALPEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 
@@ -103,7 +103,7 @@ impl SliceFn<&ALPArray> for ALPEncoding {
     }
 }
 
-impl FilterFn<&ALPArray> for ALPEncoding {
+impl FilterFnOld<&ALPArray> for ALPEncoding {
     fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()

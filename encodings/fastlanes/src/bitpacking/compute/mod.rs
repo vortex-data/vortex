@@ -1,5 +1,5 @@
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, between,
+    BetweenFn, BetweenOptions, FilterFnOld, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, between,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -15,7 +15,7 @@ mod take;
 
 impl ComputeKernels for BitPackedEncoding {}
 impl ComputeVTable for BitPackedEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 

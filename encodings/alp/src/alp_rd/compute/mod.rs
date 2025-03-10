@@ -1,5 +1,5 @@
 use vortex_array::Array;
-use vortex_array::compute::{FilterFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{FilterFnOld, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
 
 use crate::ALPRDEncoding;
@@ -12,7 +12,7 @@ mod take;
 
 impl ComputeKernels for ALPRDEncoding {}
 impl ComputeVTable for ALPRDEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 

@@ -13,9 +13,9 @@ use crate::compute::{
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, ComputeKernels, ToCanonical};
+use crate::{Array, ArrayComputeImpl, ArrayRef, ToCanonical};
 
-impl ComputeKernels for NullEncoding {}
+impl ArrayComputeImpl for NullArray {}
 
 impl ComputeVTable for NullEncoding {
     fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {

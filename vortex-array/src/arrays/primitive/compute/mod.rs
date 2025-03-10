@@ -1,11 +1,11 @@
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, IsConstantFn, IsSortedFn, MaskFn,
+    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFnOld, IsConstantFn, IsSortedFn, MaskFn,
     MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
     UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ComputeKernels};
+use crate::{Array, ArrayComputeImpl};
 
 mod between;
 mod cast;
@@ -24,7 +24,7 @@ mod take;
 mod to_arrow;
 mod uncompressed_size;
 
-impl ComputeKernels for PrimitiveEncoding {}
+impl ArrayComputeImpl for PrimitiveArray {}
 
 impl ComputeVTable for PrimitiveEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
@@ -43,7 +43,7 @@ impl ComputeVTable for PrimitiveEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 

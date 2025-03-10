@@ -4,7 +4,7 @@ mod filter;
 mod take;
 
 use vortex_array::compute::{
-    CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice,
+    CastFn, CompareFn, FilterFnOld, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -23,7 +23,7 @@ impl ComputeVTable for DateTimePartsEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
         Some(self)
     }
 

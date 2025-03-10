@@ -22,7 +22,9 @@ pub struct BoolArray {
     pub(crate) stats_set: ArrayStats,
 }
 
+#[derive(Default)]
 pub struct BoolEncoding;
+
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = RkyvMetadata<BoolMetadata>;
