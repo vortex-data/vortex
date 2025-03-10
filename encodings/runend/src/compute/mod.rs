@@ -11,7 +11,7 @@ mod take_from;
 
 use vortex_array::Array;
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FillNullFn, FilterFnOld, InvertFn, IsSortedFn, ScalarAtFn, SliceFn,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, IsSortedFn, ScalarAtFn, SliceFn,
     TakeFn, TakeFromFn,
 };
 use vortex_array::vtable::ComputeVTable;
@@ -32,7 +32,7 @@ impl ComputeVTable for RunEndEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 

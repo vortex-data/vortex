@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    CastFn, FilterFnOld, IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
+    CastFn, FilterFn, IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
     SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts, scalar_at, slice,
     take, try_cast, uncompressed_size,
 };
@@ -24,7 +24,7 @@ impl ComputeVTable for StructEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -142,7 +142,7 @@ impl SliceFn<&StructArray> for StructEncoding {
     }
 }
 
-impl FilterFnOld<&StructArray> for StructEncoding {
+impl FilterFn<&StructArray> for StructEncoding {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

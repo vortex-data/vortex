@@ -8,10 +8,9 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    CastFn, CompareFn, FilterFnOld, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
-    MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
-    is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at, slice, sum, take,
-    uncompressed_size,
+    CastFn, CompareFn, FilterFn, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
+    ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts,
+    is_sorted, is_strict_sorted, min_max, scalar_at, slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -31,7 +30,7 @@ impl ComputeVTable for ExtensionEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -72,7 +71,7 @@ impl ComputeVTable for ExtensionEncoding {
     }
 }
 
-impl FilterFnOld<&ExtensionArray> for ExtensionEncoding {
+impl FilterFn<&ExtensionArray> for ExtensionEncoding {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), filter(array.storage(), mask)?)

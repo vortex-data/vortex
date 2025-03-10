@@ -46,7 +46,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical}
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    Ok(FilterFn
+    Ok(Filter
         .invoke(&InvocationArgs {
             inputs: &[Input::Array(array), Input::Mask(mask)],
             options: None,
@@ -55,9 +55,10 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         .vortex_expect("Expected filter to return an array"))
 }
 
-pub struct FilterFn;
+/// Keep only the elements for which the corresponding mask value is true.
+pub struct Filter;
 
-impl ComputeFn for FilterFn {
+impl ComputeFn for Filter {
     fn id(&self) -> ArcRef<str> {
         ArcRef::new_ref("filter")
     }
@@ -139,7 +140,7 @@ impl<'a> TryFrom<&'a InvocationArgs<'a>> for FilterInputs<'a> {
     }
 }
 
-pub trait FilterFnOld<A> {
+pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
@@ -155,16 +156,16 @@ pub trait FilterKernel: Encoding {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FilterFnOld<&dyn Array> for E
+impl<E: Encoding> FilterFn<&dyn Array> for E
 where
-    E: for<'a> FilterFnOld<&'a E::Array>,
+    E: for<'a> FilterFn<&'a E::Array>,
 {
     fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         let array_ref = array
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        FilterFnOld::filter(self, array_ref, mask)
+        FilterFn::filter(self, array_ref, mask)
     }
 }
 
@@ -199,7 +200,7 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     };
 
     // Check if the array has a kernel for FilterFn.
-    if let Some(filter_fn) = array.find_kernel(&FilterFn) {
+    if let Some(filter_fn) = array.find_kernel(&Filter) {
         if let Some(output) = filter_fn.invoke(&args)? {
             return Ok(output
                 .into_array()

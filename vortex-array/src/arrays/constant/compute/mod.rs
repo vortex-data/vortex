@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterFnOld, InvertFn, ScalarAtFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterFn, InvertFn, ScalarAtFn,
     SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
@@ -37,7 +37,7 @@ impl ComputeVTable for ConstantEncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -84,7 +84,7 @@ impl SliceFn<&ConstantArray> for ConstantEncoding {
     }
 }
 
-impl FilterFnOld<&ConstantArray> for ConstantEncoding {
+impl FilterFn<&ConstantArray> for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array())
     }

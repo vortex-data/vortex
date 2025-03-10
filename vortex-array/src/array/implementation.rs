@@ -11,7 +11,7 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, FilterFn, Kernel};
+use crate::compute::{ComputeFn, Filter, Kernel};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
@@ -81,7 +81,7 @@ impl<A: ArrayImpl + 'static> Array for A {
 
         // Check each of the known compute functions.
 
-        if any.is::<FilterFn>() {
+        if any.is::<Filter>() {
             return <Self as ArrayComputeImpl>::FILTER;
         }
 

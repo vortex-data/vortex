@@ -7,12 +7,12 @@ use vortex_mask::{AllOr, Mask, MaskIter};
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::FilterFnOld;
+use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
-impl FilterFnOld<&VarBinArray> for VarBinEncoding {
+impl FilterFn<&VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }

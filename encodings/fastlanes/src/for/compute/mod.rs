@@ -4,7 +4,7 @@ use std::ops::AddAssign;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
-    CompareFn, FilterFnOld, ScalarAtFn, SearchResult, SearchSortedFn, SearchSortedSide, SliceFn,
+    CompareFn, FilterFn, ScalarAtFn, SearchResult, SearchSortedFn, SearchSortedSide, SliceFn,
     TakeFn, filter, scalar_at, search_sorted, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -23,7 +23,7 @@ impl ComputeVTable for FoREncoding {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFnOld<&dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -54,7 +54,7 @@ impl TakeFn<&FoRArray> for FoREncoding {
     }
 }
 
-impl FilterFnOld<&FoRArray> for FoREncoding {
+impl FilterFn<&FoRArray> for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             filter(array.encoded(), mask)?,
