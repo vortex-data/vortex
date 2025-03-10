@@ -71,7 +71,7 @@ bzip2 = "0.5.0"
 cfg-if = "1"
 chrono = "0.4.38"
 clap = "4"
-compio = { version = "0.13", features = ["io-uring"], default-features = false }
+compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
 datafusion = { version = "46", default-features = false }
 datafusion-common = { version = "46" }
