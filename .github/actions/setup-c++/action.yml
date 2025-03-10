@@ -1,0 +1,14 @@
+name: "Setup C++"
+description: "Toolchain setup and Initial compilation"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup C++
+      uses: aminya/setup-cpp@v1
+      with:
+        compiler: llvm
+        sccache: true
+        cmake: true
+        ninja: true
+        vcpkg: true
