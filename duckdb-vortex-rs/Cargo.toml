@@ -27,6 +27,8 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-duckdb = { workspace = true }
 vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 tokio = { workspace = true, features = ["fs"] }

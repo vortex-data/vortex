@@ -1913,12 +1913,14 @@ version = "0.1.0"
 dependencies = [
  "duckdb",
  "duckdb-loadable-macros",
+ "futures",
  "libduckdb-sys",
  "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-duckdb",
+ "vortex-error",
  "vortex-file",
  "vortex-io",
 ]
