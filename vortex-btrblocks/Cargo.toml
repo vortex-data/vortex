@@ -1,28 +1,28 @@
 [package]
 name = "vortex-btrblocks"
-description = "BtrBlocks style compressor"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-readme = { workspace = true }
 categories = { workspace = true }
+description = "BtrBlocks style compressor"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [dependencies]
-getrandom_v02 = { workspace = true }
 arrow-buffer = { workspace = true }
+getrandom_v02 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
-vortex-array = { workspace = true }
 vortex-alp = { workspace = true }
+vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
@@ -31,9 +31,9 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sparse = { workspace = true }
-vortex-runend = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
@@ -57,4 +57,3 @@ test = false
 name = "stats_calc"
 harness = false
 test = false
-

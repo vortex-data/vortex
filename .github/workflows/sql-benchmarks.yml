@@ -24,12 +24,13 @@ jobs:
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
-            remote_storage: s3://vortex-bench-dev/tpch-sf1/
+            remote_storage: s3://vortex-bench-dev-eu/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
       - image=ubuntu24-full-x64
       - disk=large
+      - spot=false
       - tag=${{ matrix.id }}
 
     steps:
@@ -61,6 +62,7 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          AWS_REGION: 'eu-west-1'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'

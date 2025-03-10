@@ -1,17 +1,17 @@
 [package]
 name = "vortex-layout"
-description = "Vortex layouts provide a way to perform lazy push-down scans over abstract storage"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-readme = { workspace = true }
 categories = { workspace = true }
+description = "Vortex layouts provide a way to perform lazy push-down scans over abstract storage"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [dependencies]
 arrow-buffer = { workspace = true }
@@ -29,7 +29,9 @@ log = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["sync"], optional = true }
 tracing = { workspace = true, optional = true }
-tracing-futures = { workspace = true, features = ["futures-03"], optional = true }
+tracing-futures = { workspace = true, features = [
+    "futures-03",
+], optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

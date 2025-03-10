@@ -20,7 +20,7 @@ jobs:
       - self-hosted
       - aws
     env:
-      REMOTE_PATH: s3://vortex-bench-dev/tpch-sf1/
+      REMOTE_PATH: s3://vortex-bench-dev-eu/tpch-sf1/
       TMPDIR: /work
     steps:
       - uses: actions/checkout@v4

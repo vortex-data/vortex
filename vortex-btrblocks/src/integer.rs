@@ -3,7 +3,6 @@ mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Not;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
@@ -467,7 +466,7 @@ impl Scheme for SparseScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
-        let mask = stats.src.validity().to_logical(stats.src.len())?;
+        let mask = stats.src.validity_mask()?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -478,9 +477,8 @@ impl Scheme for SparseScheme {
             .into_array());
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
-            let non_null = mask.not();
-            let non_null_values = filter(stats.source(), &non_null)?;
-            let non_null_indices = match non_null.indices() {
+            let non_null_values = filter(stats.source(), &mask)?;
+            let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
                     unreachable!()
@@ -839,6 +837,24 @@ mod tests {
         assert_eq!(compressed.encoding(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
         let expected = [189u8, 189, 189, 0, 0];
+        assert_eq!(decoded.as_slice::<u8>(), &expected);
+        assert_eq!(decoded.validity(), array.validity());
+    }
+
+    #[test]
+    fn sparse_mostly_nulls() {
+        let array = PrimitiveArray::new(
+            buffer![189u8, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46],
+            Validity::from_iter(vec![
+                false, false, false, false, false, false, false, false, false, false, true,
+            ]),
+        );
+        let compressed = SparseScheme
+            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .unwrap();
+        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        let decoded = compressed.to_primitive().unwrap();
+        let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
     }

@@ -40,7 +40,7 @@ impl Default for GenerateStatsOptions {
 }
 
 /// Stats for the compressor.
-pub trait CompressorStats: Clone {
+pub trait CompressorStats: Debug + Clone {
     type ArrayType: Array;
 
     // Generate with options.

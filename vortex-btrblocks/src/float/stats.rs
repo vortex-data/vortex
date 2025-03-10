@@ -15,12 +15,12 @@ use vortex_mask::AllOr;
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DistinctValues<T> {
     pub values: HashMap<T, u32, FxBuildHasher>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ErasedDistinctValues {
     F16(DistinctValues<u16>),
     F32(DistinctValues<u32>),
@@ -42,7 +42,7 @@ impl_from_typed!(u32, ErasedDistinctValues::F32);
 impl_from_typed!(u64, ErasedDistinctValues::F64);
 
 // We want to allow not rebuilding all of the stats every time.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FloatStats {
     pub(super) src: PrimitiveArray,
     // cache for validity.false_count()
