@@ -232,15 +232,14 @@ mod test {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
     use vortex_scalar::{PrimitiveScalar, Scalar};
 
     use super::*;
 
     fn nullable_fill() -> Scalar {
-        Scalar::null(DType::Primitive(PType::I32, Nullable))
+        Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
     }
 
     fn non_nullable_fill() -> Scalar {
@@ -278,9 +277,9 @@ mod test {
     pub fn test_scalar_at_again() {
         let arr = SparseArray::try_new(
             ConstantArray::new(10u32, 1).into_array(),
-            ConstantArray::new(Scalar::primitive(1234u32, Nullable), 1).into_array(),
+            ConstantArray::new(Scalar::primitive(1234u32, Nullability::Nullable), 1).into_array(),
             100,
-            Scalar::null(DType::Primitive(PType::U32, Nullable)),
+            Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable)),
         )
         .unwrap();
 
@@ -311,10 +310,38 @@ mod test {
     }
 
     #[test]
-    pub fn validity_mask_sliced() {
+    pub fn validity_mask_sliced_null_fill() {
         let sliced = slice(&sparse_array(nullable_fill()), 2, 7).unwrap();
-        println!("indices {:?}",sliced.validity_mask().unwrap().indices());
-        assert_eq!(sliced.validity_mask().unwrap().indices(), Mask::from_iter(vec![false, false, false, false, true]));
+        assert_eq!(
+            sliced.validity_mask().unwrap(),
+            Mask::from_iter(vec![true, false, false, true, false])
+        );
+    }
+
+    #[test]
+    pub fn validity_mask_sliced_nonnull_fill() {
+        let sliced = slice(
+            &SparseArray::try_new(
+                buffer![2u64, 5, 8].into_array(),
+                ConstantArray::new(
+                    Scalar::null(DType::Primitive(PType::F32, Nullability::Nullable)),
+                    3,
+                )
+                .into_array(),
+                10,
+                Scalar::primitive(1.0f32, Nullability::Nullable),
+            )
+            .unwrap()
+            .into_array(),
+            2,
+            7,
+        )
+        .unwrap();
+
+        assert_eq!(
+            sliced.validity_mask().unwrap(),
+            Mask::from_iter(vec![false, true, true, false, true])
+        );
     }
 
     #[test]
