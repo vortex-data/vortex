@@ -1,9 +1,9 @@
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::builders::{ArrayBuilderExt, builder_with_capacity};
+use crate::builders::builder_with_capacity;
 use crate::compute::TakeFn;
 use crate::{Array, ArrayRef};
 
@@ -19,15 +19,16 @@ impl TakeFn<&ConstantArray> for ConstantEncoding {
             )
             .into_array()),
             AllOr::Some(v) => {
+                let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
+
+                if array.scalar().is_null() {
+                    return Ok(arr);
+                }
+
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                for valid in v.iter() {
-                    if valid {
-                        result_builder.append_scalar_value(array.scalar().value().clone())?;
-                    } else {
-                        result_builder.append_null();
-                    }
-                }
+                result_builder.extend_from_array(&arr)?;
+                result_builder.set_validity(Mask::from_buffer(v.clone()));
                 Ok(result_builder.finish())
             }
         }

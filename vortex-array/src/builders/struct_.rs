@@ -4,18 +4,18 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_mask::Mask;
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
-use crate::validity::Validity;
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use crate::variants::StructArrayTrait;
 use crate::{Array, ArrayRef, Canonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
-    // TODO(ngates): this should be a NullBufferBuilder? Or mask builder?
-    validity: BoolBuilder,
+    validity: LazyNullBufferBuilder,
     struct_dtype: Arc<StructDType>,
     nullability: Nullability,
     dtype: DType,
@@ -34,7 +34,7 @@ impl StructBuilder {
 
         Self {
             builders,
-            validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+            validity: LazyNullBufferBuilder::new(capacity),
             struct_dtype: struct_dtype.clone(),
             nullability,
             dtype: DType::Struct(struct_dtype, nullability),
@@ -54,7 +54,7 @@ impl StructBuilder {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
-            self.validity.append_value(true);
+            self.validity.append_non_null();
         } else {
             self.append_null()
         }
@@ -84,7 +84,7 @@ impl ArrayBuilder for StructBuilder {
         self.builders
             .iter_mut()
             .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_values(true, n);
+        self.validity.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -93,7 +93,7 @@ impl ArrayBuilder for StructBuilder {
             // We push zero values into our children when appending a null in case the children are
             // themselves non-nullable.
             .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_value(false);
+        self.validity.append_null();
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
@@ -120,19 +120,13 @@ impl ArrayBuilder for StructBuilder {
             a.append_to_builder(builder.as_mut())?;
         }
 
-        match array.validity() {
-            Validity::NonNullable | Validity::AllValid => {
-                self.validity.append_values(true, array.len());
-            }
-            Validity::AllInvalid => {
-                self.validity.append_values(false, array.len());
-            }
-            Validity::Array(validity) => {
-                validity.append_to_builder(&mut self.validity)?;
-            }
-        }
-
+        self.validity.append_validity_mask(array.validity_mask()?);
         Ok(())
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.validity = LazyNullBufferBuilder::new(validity.len());
+        self.validity.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -156,10 +150,7 @@ impl ArrayBuilder for StructBuilder {
             }
         }
 
-        let validity = match self.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::Array(self.validity.finish()),
-        };
+        let validity = self.validity.finish_with_nullability(self.nullability);
 
         StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)
             .vortex_expect("Fields must all have same length.")

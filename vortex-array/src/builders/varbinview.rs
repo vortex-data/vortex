@@ -177,6 +177,11 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
+    fn set_validity(&mut self, validity: Mask) {
+        self.null_buffer_builder = LazyNullBufferBuilder::new(validity.len());
+        self.null_buffer_builder.append_validity_mask(validity);
+    }
+
     fn finish(&mut self) -> ArrayRef {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);

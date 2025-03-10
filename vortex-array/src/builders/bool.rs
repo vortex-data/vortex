@@ -3,6 +3,7 @@ use std::any::Any;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
@@ -83,6 +84,11 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_validity_mask(array.validity_mask()?);
 
         Ok(())
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
