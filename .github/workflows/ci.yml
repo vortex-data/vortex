@@ -148,6 +148,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{matrix.config.target || ''}}
+      - uses: ./.github/actions/setup-c++
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
@@ -161,6 +162,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
@@ -173,6 +175,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -207,6 +210,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         run: cargo install grcov
@@ -312,7 +316,7 @@ jobs:
         with:
           tool: nextest
       - name: Run all tests with Miri
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar
+        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb
         # For now, we only run Miri against known "fiddly" crates.
         if: false
       - name: Run Miri
