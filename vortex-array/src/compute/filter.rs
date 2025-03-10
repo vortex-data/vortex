@@ -187,9 +187,9 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // Check if the array has a kernel for FilterKernel.
     if let Some(filter_fn) = array.find_kernel(&Filter) {
         if let Some(output) = filter_fn.invoke(&args)? {
-            return Ok(output
+            return output
                 .into_array()
-                .ok_or_else(|| vortex_err!("Expected FilterKernel to return an array"))?);
+                .ok_or_else(|| vortex_err!("Expected FilterKernel to return an array"));
         }
     }
 
