@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use arrow_array::StructArray as ArrowStructArray;
 use futures_util::Stream;
@@ -23,6 +24,8 @@ pub async fn exec_convert(input_path: impl AsRef<Path>) -> VortexResult<()> {
         input_path.as_ref().display()
     );
 
+    let wall_start = Instant::now();
+
     let output_path = input_path.as_ref().with_extension("vortex");
     let file = File::open(input_path).await?;
     let mut reader = ParquetRecordBatchStreamBuilder::new(file).await?.build()?;
@@ -35,6 +38,12 @@ pub async fn exec_convert(input_path: impl AsRef<Path>) -> VortexResult<()> {
             chunks.push(next_chunk);
         }
     }
+
+    let read_complete = Instant::now();
+    println!(
+        "Read Parquet file in {:?}",
+        read_complete.duration_since(wall_start)
+    );
 
     let dtype = chunks.first().vortex_expect("empty chunks").dtype().clone();
     let chunked_array = ChunkedArray::try_new(chunks, dtype)?;
@@ -54,6 +63,11 @@ pub async fn exec_convert(input_path: impl AsRef<Path>) -> VortexResult<()> {
     );
     let output_file = File::create(output_path).await?;
     writer.write(output_file, stream).await?;
+
+    println!(
+        "Wrote Vortex in {:?}",
+        Instant::now().duration_since(read_complete)
+    );
 
     Ok(())
 }
