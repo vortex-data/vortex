@@ -2917,6 +2917,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc4020eaf07df4927b5205cd200ca2a5ed0798b49652dec22e09384ba8efa163"
 dependencies = [
  "autocfg",
+ "cc",
  "flate2",
  "pkg-config",
  "serde",
@@ -5739,6 +5740,7 @@ name = "vortex-duckdb"
 version = "0.25.2"
 dependencies = [
  "duckdb",
+ "itertools 0.14.0",
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
