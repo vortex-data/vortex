@@ -18,7 +18,6 @@ name = "vortex_duckdb"
 path = "src/lib.rs"
 bench = false
 
-
 [dependencies]
 duckdb = { workspace = true, features = ["vtab-full", "bundled"] }
 itertools = { workspace = true }
@@ -30,4 +29,3 @@ vortex-error = { workspace = true }
 
 [lints]
 workspace = true
-

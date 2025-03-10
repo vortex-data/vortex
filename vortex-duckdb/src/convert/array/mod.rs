@@ -7,7 +7,6 @@ use duckdb::vtab::arrow::{
 use vortex_array::arrays::StructArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::validity::Validity;
-use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexResult, vortex_err};
 
