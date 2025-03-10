@@ -5,7 +5,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
@@ -267,5 +267,3 @@ impl ArrayVariantsImpl for DeltaArray {
 }
 
 impl PrimitiveArrayTrait for DeltaArray {}
-
-impl StatisticsVTable<&DeltaArray> for DeltaEncoding {}

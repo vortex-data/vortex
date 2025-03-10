@@ -1,7 +1,7 @@
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical,
@@ -10,7 +10,6 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
@@ -117,29 +116,6 @@ impl ArrayVariantsImpl for ZigZagArray {
 }
 
 impl PrimitiveArrayTrait for ZigZagArray {}
-
-impl StatisticsVTable<&ZigZagArray> for ZigZagEncoding {
-    fn compute_statistics(&self, array: &ZigZagArray, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = StatsSet::default();
-
-        // these stats are the same for array and array.encoded()
-        if matches!(stat, Stat::IsConstant | Stat::NullCount) {
-            if let Some(val) = array.encoded().statistics().compute_stat(stat)? {
-                stats.set(stat, Precision::exact(val));
-            }
-        } else if matches!(stat, Stat::Min | Stat::Max) {
-            let encoded_max = array.encoded().statistics().compute_as::<u64>(Stat::Max);
-            if let Some(val) = encoded_max {
-                // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
-                let decoded = <i64 as ExternalZigZag>::decode(val);
-                let decoded_stat = if decoded < 0 { Stat::Min } else { Stat::Max };
-                stats.set(decoded_stat, Precision::exact(decoded));
-            }
-        }
-
-        Ok(stats)
-    }
-}
 
 #[cfg(test)]
 mod test {

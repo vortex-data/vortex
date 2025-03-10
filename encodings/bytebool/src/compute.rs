@@ -3,13 +3,15 @@ use vortex_array::compute::{FillForwardFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayComputeImpl, ArrayRef, ToCanonical};
 use vortex_dtype::{Nullability, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
+
+impl ArrayComputeImpl for ByteBoolArray {}
 
 impl ComputeVTable for ByteBoolEncoding {
     fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {

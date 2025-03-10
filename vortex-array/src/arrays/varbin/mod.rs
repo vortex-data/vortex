@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 pub use compute::compute_min_max;
 use num_traits::PrimInt;
-pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{
@@ -28,7 +27,6 @@ pub mod builder;
 mod canonical;
 mod compute;
 mod serde;
-mod stats;
 mod variants;
 
 #[derive(Clone, Debug)]

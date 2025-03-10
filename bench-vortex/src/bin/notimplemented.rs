@@ -10,6 +10,7 @@ use vortex::arrays::{
     VarBinViewArray,
 };
 use vortex::buffer::buffer;
+use vortex::compute::Filter;
 use vortex::dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
@@ -170,7 +171,7 @@ fn compute_funcs(encodings: &[ArrayRef]) {
             encoding.compare_fn().is_some(),
             encoding.fill_forward_fn().is_some(),
             encoding.fill_null_fn().is_some(),
-            encoding.filter_fn().is_some(),
+            arr.find_kernel(&Filter).is_some(),
             encoding.scalar_at_fn().is_some(),
             encoding.binary_numeric_fn().is_some(),
             encoding.search_sorted_fn().is_some(),

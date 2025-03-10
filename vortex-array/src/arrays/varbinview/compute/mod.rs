@@ -14,11 +14,16 @@ use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::compute::{
-    CastFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
-    UncompressedSizeFn,
+    CastFn, IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayComputeImpl, ArrayRef};
+
+impl ArrayComputeImpl for VarBinViewArray {
+    // No filter implementation because we can trivially fall back to Arrow.
+    const FILTER: Option<KernelRef> = None;
+}
 
 impl ComputeVTable for VarBinViewEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

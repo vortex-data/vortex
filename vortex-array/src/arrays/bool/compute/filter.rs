@@ -3,13 +3,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::FilterFn;
+use crate::compute::FilterKernel;
 use crate::{Array, ArrayRef};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterFn<&BoolArray> for BoolEncoding {
+impl FilterKernel for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

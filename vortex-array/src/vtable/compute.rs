@@ -1,9 +1,8 @@
 use crate::Array;
 use crate::compute::{
     BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
-    FilterFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn,
-    UncompressedSizeFn,
+    InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -54,13 +53,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`FillNullFn`]
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
-    /// Filter an array with a given mask.
-    ///
-    /// See: [`FilterFn`].
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         None
     }
 

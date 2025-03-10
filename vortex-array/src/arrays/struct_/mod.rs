@@ -6,10 +6,10 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::stats::{ArrayStats, Precision, Stat, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
     Encoding, EncodingId,
@@ -190,18 +190,6 @@ impl ArrayValidityImpl for StructArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.validity.to_logical(self.len())
-    }
-}
-
-impl StatisticsVTable<&StructArray> for StructEncoding {
-    fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
-        Ok(match stat {
-            Stat::NullCount => StatsSet::of(
-                stat,
-                Precision::exact(array.validity().null_count(array.len())?),
-            ),
-            _ => StatsSet::default(),
-        })
     }
 }
 

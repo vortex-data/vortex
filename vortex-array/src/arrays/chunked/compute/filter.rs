@@ -3,14 +3,14 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
-use crate::compute::{FilterFn, SearchSorted, SearchSortedSide, filter, take};
+use crate::compute::{FilterKernel, SearchSorted, SearchSortedSide, filter, take};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterFn<&ChunkedArray> for ChunkedEncoding {
+impl FilterKernel for ChunkedEncoding {
     fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let mask_values = mask
             .values()

@@ -9,14 +9,18 @@ mod slice;
 pub(crate) mod take;
 mod take_from;
 
-use vortex_array::Array;
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, IsSortedFn, ScalarAtFn, SliceFn,
-    TakeFn, TakeFromFn,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterKernelAdapter, InvertFn, IsSortedFn, KernelRef,
+    ScalarAtFn, SliceFn, TakeFn, TakeFromFn,
 };
 use vortex_array::vtable::ComputeVTable;
+use vortex_array::{Array, ArrayComputeImpl};
 
-use crate::RunEndEncoding;
+use crate::{RunEndArray, RunEndEncoding};
+
+impl ArrayComputeImpl for RunEndArray {
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(RunEndEncoding).some();
+}
 
 impl ComputeVTable for RunEndEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
@@ -28,10 +32,6 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 

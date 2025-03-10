@@ -4,12 +4,12 @@ use vortex_error::VortexResult;
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterKernelAdapter, InvertFn,
+    IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn,
     UncompressedSizeFn, try_cast,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayComputeImpl, ArrayRef};
 
 mod binary_numeric;
 mod boolean;
@@ -26,6 +26,10 @@ mod slice;
 mod sum;
 mod take;
 mod uncompressed_size;
+
+impl ArrayComputeImpl for ChunkedArray {
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(ChunkedEncoding).some();
+}
 
 impl ComputeVTable for ChunkedEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
@@ -45,10 +49,6 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 

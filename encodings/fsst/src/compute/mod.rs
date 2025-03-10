@@ -3,10 +3,11 @@ mod compare;
 use vortex_array::arrays::varbin_scalar;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{
-    CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
+    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn, filter,
+    scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
@@ -14,12 +15,11 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
+impl ArrayComputeImpl for FSSTArray {
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(FSSTEncoding).some();
+}
 impl ComputeVTable for FSSTEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -89,7 +89,7 @@ impl ScalarAtFn<&FSSTArray> for FSSTEncoding {
     }
 }
 
-impl FilterFn<&FSSTArray> for FSSTEncoding {
+impl FilterKernel for FSSTEncoding {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
     fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(

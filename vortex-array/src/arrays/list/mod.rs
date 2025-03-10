@@ -21,7 +21,7 @@ use crate::compute::{scalar_at, slice};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
-use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
@@ -184,8 +184,6 @@ impl ArrayValidityImpl for ListArray {
         self.validity.to_logical(self.len())
     }
 }
-
-impl StatisticsVTable<&ListArray> for ListEncoding {}
 
 #[cfg(feature = "test-harness")]
 impl ListArray {
