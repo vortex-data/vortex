@@ -44,45 +44,6 @@ impl ToDuckDB for ArrayRef {
     }
 }
 
-/// A wrapper around a [`DataChunkHandle`] that extra info to create a vortex array
-pub struct NamedDataChunk<'a> {
-    pub chunk: &'a DataChunkHandle,
-    pub nullable: Option<&'a [bool]>,
-    pub names: Option<FieldNames>,
-}
-
-impl<'a> NamedDataChunk<'a> {
-    pub fn from_chunk(chunk: &'a DataChunkHandle) -> Self {
-        Self {
-            chunk,
-            nullable: None,
-            names: None,
-        }
-    }
-
-    pub fn named_chunk(chunk: &'a DataChunkHandle, names: FieldNames) -> Self {
-        Self {
-            chunk,
-            nullable: None,
-            names: Some(names),
-        }
-    }
-
-    pub fn new(chunk: &'a DataChunkHandle, nullable: &'a [bool], names: FieldNames) -> Self {
-        Self {
-            chunk,
-            nullable: Some(nullable),
-            names: Some(names),
-        }
-    }
-}
-
-pub struct SizedFlatVector {
-    pub vector: FlatVector,
-    pub nullable: bool,
-    pub len: usize,
-}
-
 pub trait FromDuckDB<V> {
     fn from_duckdb(vector: V) -> VortexResult<ArrayRef>;
 }
