@@ -2,7 +2,6 @@ pub use min_max::compute_min_max;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::{VarBinArray, varbin_scalar};
 use crate::compute::{
@@ -10,6 +9,7 @@ use crate::compute::{
     TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
+use crate::{Array, ComputeKernels};
 
 mod cast;
 mod compare;
@@ -22,6 +22,8 @@ mod slice;
 mod take;
 pub(crate) mod to_arrow;
 mod uncompressed_size;
+
+impl ComputeKernels for VarBinEncoding {}
 
 impl ComputeVTable for VarBinEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

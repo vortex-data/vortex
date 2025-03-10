@@ -12,6 +12,7 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 
 use crate::{ZigZagArray, ZigZagEncoding};
 
+impl ComputeKernels for ZigZagEncoding {}
 impl ComputeVTable for ZigZagEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)

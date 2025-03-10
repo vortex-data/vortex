@@ -13,6 +13,7 @@ mod search_sorted;
 mod slice;
 mod take;
 
+impl ComputeKernels for BitPackedEncoding {}
 impl ComputeVTable for BitPackedEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)

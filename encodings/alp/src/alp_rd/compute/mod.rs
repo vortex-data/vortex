@@ -10,6 +10,7 @@ mod scalar_at;
 mod slice;
 mod take;
 
+impl ComputeKernels for ALPRDEncoding {}
 impl ComputeVTable for ALPRDEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)

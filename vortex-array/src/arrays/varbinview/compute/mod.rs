@@ -18,7 +18,9 @@ use crate::compute::{
     UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ComputeKernels};
+
+impl ComputeKernels for VarBinViewEncoding {}
 
 impl ComputeVTable for VarBinViewEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

@@ -16,6 +16,7 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
+impl ComputeKernels for DictEncoding {}
 impl ComputeVTable for DictEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)

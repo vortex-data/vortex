@@ -15,7 +15,9 @@ use crate::compute::{
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, ArrayVisitor};
+use crate::{Array, ArrayRef, ArrayVisitor, ComputeKernels};
+
+impl ComputeKernels for StructEncoding {}
 
 impl ComputeVTable for StructEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

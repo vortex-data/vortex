@@ -1,8 +1,8 @@
+use std::any::Any;
+
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult};
-use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
 use crate::arcref::ArcRef;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 
@@ -18,12 +18,16 @@ pub trait ComputeFnImpl {
 
 impl<F> ComputeFn for F
 where
-    F: ComputeFnImpl,
+    F: ComputeFnImpl + 'static,
     for<'a> F::Inputs<'a>: TryFrom<&'a InvocationArgs<'a>, Error = VortexError>,
     F::Output: Into<Output>,
 {
     fn id(&self) -> ArcRef<str> {
         <F as ComputeFnImpl>::id()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
@@ -36,17 +40,5 @@ where
 
     fn is_elementwise(&self) -> bool {
         <F as ComputeFnImpl>::is_elementwise()
-    }
-}
-
-impl From<ArrayRef> for Output {
-    fn from(value: ArrayRef) -> Self {
-        Output::Array(value)
-    }
-}
-
-impl From<Scalar> for Output {
-    fn from(value: Scalar) -> Self {
-        Output::Scalar(value)
     }
 }

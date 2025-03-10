@@ -1,11 +1,12 @@
-use crate::Array;
+use crate::arcref::ArcRef;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
     BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, IsConstantFn,
-    IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    IsSortedFn, Kernel, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
     UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
+use crate::{Array, ComputeKernels};
 
 mod cast;
 mod fill_forward;
@@ -23,6 +24,12 @@ mod sum;
 mod take;
 mod to_arrow;
 mod uncompressed_size;
+
+impl ComputeKernels for BoolEncoding {
+    const FILTER: Option<ArcRef<dyn Kernel>> = Some(ArcRef::new_ref(
+        &(&BoolEncoding as &dyn for<'a> FilterFn<&'a dyn Array>) as &dyn Kernel,
+    ));
+}
 
 impl ComputeVTable for BoolEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {

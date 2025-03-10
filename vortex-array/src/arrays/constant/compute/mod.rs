@@ -16,7 +16,9 @@ use crate::compute::{
     SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ComputeKernels};
+
+impl ComputeKernels for ConstantEncoding {}
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {

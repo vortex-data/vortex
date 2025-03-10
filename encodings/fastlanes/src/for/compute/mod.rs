@@ -17,6 +17,7 @@ use vortex_scalar::{PValue, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
+impl ComputeKernels for FoREncoding {}
 impl ComputeVTable for FoREncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)

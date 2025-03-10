@@ -8,6 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::{DeltaArray, DeltaEncoding};
 
+impl ComputeKernels for DeltaEncoding {}
 impl ComputeVTable for DeltaEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)

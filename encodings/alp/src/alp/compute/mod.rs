@@ -17,6 +17,7 @@ use vortex_scalar::{Scalar, ScalarType};
 
 use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
+impl ComputeKernels for ALPEncoding {}
 impl ComputeVTable for ALPEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         Some(self)

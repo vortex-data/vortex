@@ -18,6 +18,7 @@ use vortex_array::vtable::ComputeVTable;
 
 use crate::RunEndEncoding;
 
+impl ComputeKernels for RunEndEncoding {}
 impl ComputeVTable for RunEndEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)

@@ -11,6 +11,7 @@ use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
+impl ComputeKernels for ByteBoolEncoding {}
 impl ComputeVTable for ByteBoolEncoding {
     fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {
         None

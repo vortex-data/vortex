@@ -9,7 +9,7 @@ use crate::compute::{
     try_cast,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ComputeKernels};
 
 mod binary_numeric;
 mod boolean;
@@ -26,6 +26,8 @@ mod slice;
 mod sum;
 mod take;
 mod uncompressed_size;
+
+impl ComputeKernels for ChunkedEncoding {}
 
 impl ComputeVTable for ChunkedEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {

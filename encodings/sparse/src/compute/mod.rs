@@ -17,6 +17,7 @@ mod search_sorted;
 mod slice;
 mod take;
 
+impl ComputeKernels for SparseEncoding {}
 impl ComputeVTable for SparseEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)

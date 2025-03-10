@@ -6,14 +6,17 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::arcref::ArcRef;
 use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
+use crate::compute::{ComputeFn, FilterFn_, Kernel};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, ComputeKernels, Encoding,
+    EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -29,11 +32,15 @@ pub trait ArrayImpl:
     + ArrayVariantsImpl
     + ArrayVisitorImpl<<Self::Encoding as Encoding>::Metadata>
 {
-    type Encoding: Encoding;
+    type Encoding: Encoding + ComputeKernels;
 
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
+    /// Fallback implementation to lookup compute kernels at runtime.
+    fn _find_kernel(&self, _compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>> {
+        None
+    }
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -70,6 +77,19 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn vtable(&self) -> VTableRef {
         ArrayImpl::_vtable(self)
+    }
+
+    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<ArcRef<dyn Kernel>> {
+        let any = compute_fn.as_any();
+
+        // Check each of the known compute functions.
+
+        if any.is::<FilterFn_>() {
+            return <<Self as ArrayImpl>::Encoding as ComputeKernels>::FILTER;
+        }
+
+        // Otherwise, fallback to a manual lookup
+        self._find_kernel(compute_fn)
     }
 
     /// Returns whether the item at `index` is valid.

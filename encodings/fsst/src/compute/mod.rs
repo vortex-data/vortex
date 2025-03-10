@@ -14,6 +14,7 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
+impl ComputeKernels for FSSTEncoding {}
 impl ComputeVTable for FSSTEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)

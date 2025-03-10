@@ -17,6 +17,7 @@ use vortex_scalar::Scalar;
 use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
+impl ComputeKernels for DateTimePartsEncoding {}
 impl ComputeVTable for DateTimePartsEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
