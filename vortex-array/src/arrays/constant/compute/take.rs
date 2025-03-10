@@ -58,7 +58,7 @@ mod tests {
         )
         .unwrap();
         let valid_indices: &[usize] = &[1usize];
-        assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[0, 42, 0]);
+        assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[42, 42, 42]);
         assert_eq!(
             taken.validity_mask().unwrap().indices(),
             AllOr::Some(valid_indices)
