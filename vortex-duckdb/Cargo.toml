@@ -17,11 +17,11 @@ readme = { workspace = true }
 name = "vortex_duckdb"
 path = "src/lib.rs"
 bench = false
-crate-type = ["cdylib"]
 
 
 [dependencies]
-duckdb = { workspace = true, features = ["vtab-full"] }
+duckdb = { workspace = true, features = ["vtab-full", "bundled"] }
+itertools = { workspace = true }
 vortex-array = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }

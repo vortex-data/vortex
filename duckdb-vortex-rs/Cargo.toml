@@ -23,3 +23,7 @@ crate-type = ["staticlib"]
 duckdb = { version = "1.2.0", features = ["vtab-loadable"] }
 duckdb-loadable-macros = "0.1.4"
 libduckdb-sys = { version = "1.2.0", features = ["loadable-extension"] }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-duckdb = { workspace = true }
+vortex-dtype = { workspace = true }

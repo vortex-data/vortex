@@ -27,7 +27,19 @@ impl ToDuckDBType for DType {
             })),
             DType::Utf8(_) => Ok(LogicalTypeHandle::from(LogicalTypeId::Varchar)),
             DType::Binary(_) => Ok(LogicalTypeHandle::from(LogicalTypeId::Blob)),
-            DType::Struct(..) | DType::List(..) | DType::Extension(_) => todo!(),
+            DType::Struct(struct_, _) => {
+                let duckdb_type = LogicalTypeHandle::struct_type(
+                    struct_
+                        .names()
+                        .iter()
+                        .zip(struct_.fields())
+                        .map(|(name, field)| Ok((name.as_ref(), field.to_duckdb_type()?)))
+                        .collect::<VortexResult<Vec<_>>>()?
+                        .as_slice(),
+                );
+                Ok(duckdb_type)
+            }
+            DType::List(..) | DType::Extension(_) => todo!(),
         }
     }
 }
