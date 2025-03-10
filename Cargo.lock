@@ -1914,10 +1914,13 @@ dependencies = [
  "duckdb",
  "duckdb-loadable-macros",
  "libduckdb-sys",
+ "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-duckdb",
+ "vortex-file",
+ "vortex-io",
 ]
 
 [[package]]
