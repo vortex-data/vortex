@@ -1,3 +1,5 @@
+#![allow(clippy::use_debug)]
+
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
