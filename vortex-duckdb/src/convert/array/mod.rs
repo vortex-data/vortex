@@ -1,4 +1,6 @@
-use duckdb::core::{ArrayVector, DataChunkHandle, FlatVector, ListVector, StructVector};
+mod data_chunk_adaptor;
+
+use duckdb::core::DataChunkHandle;
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
@@ -7,8 +9,11 @@ use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::FieldNames;
 use vortex_error::{VortexResult, vortex_err};
+
+use crate::convert::array::data_chunk_adaptor::{
+    DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
+};
 
 pub trait ToDuckDB {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()>;
@@ -40,50 +45,6 @@ impl ToDuckDB for ArrayRef {
     }
 }
 
-pub struct DataChunkHandleSlice<'a> {
-    chunk: &'a mut DataChunkHandle,
-    column_index: usize,
-}
-
-impl<'a> DataChunkHandleSlice<'a> {
-    pub fn new(chunk: &'a mut DataChunkHandle, column_index: usize) -> Self {
-        Self {
-            chunk,
-            column_index,
-        }
-    }
-}
-
-impl WritableVector for DataChunkHandleSlice<'_> {
-    fn array_vector(&mut self) -> ArrayVector {
-        self.chunk.array_vector(self.column_index)
-    }
-
-    fn flat_vector(&mut self) -> FlatVector {
-        self.chunk.flat_vector(self.column_index)
-    }
-
-    fn struct_vector(&mut self) -> StructVector {
-        self.chunk.struct_vector(self.column_index)
-    }
-
-    fn list_vector(&mut self) -> ListVector {
-        self.chunk.list_vector(self.column_index)
-    }
-}
-
-struct NamedDataChunk<'a> {
-    pub chunk: &'a DataChunkHandle,
-    pub nullable: &'a [bool],
-    pub names: FieldNames,
-}
-
-struct SizedFlatVector {
-    pub vector: FlatVector,
-    pub nullable: bool,
-    pub len: usize,
-}
-
 pub trait FromDuckDB<V> {
     fn from_duckdb(vector: V) -> VortexResult<ArrayRef>;
 }
@@ -99,12 +60,18 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
                 let vector = chunk.flat_vector(i);
                 let array = ArrayRef::from_duckdb(SizedFlatVector {
                     vector,
-                    nullable: named_chunk.nullable[i],
+                    nullable: named_chunk.nullable.map(|null| null[i]).unwrap_or(true),
                     len,
                 })?;
 
                 // Figure out the column names
-                Ok((names[i].clone(), array))
+                Ok((
+                    names
+                        .as_ref()
+                        .map(|names| names[i].clone())
+                        .unwrap_or_else(|| i.to_string().into()),
+                    array,
+                ))
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -121,10 +88,7 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
         let len = sized_vector.len;
         let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len).map_err(|e| {
-            println!(
-                "Failed to convert duckdb duckdb array vortex: {}",
-                e.to_string()
-            );
+            println!("Failed to convert duckdb duckdb array vortex: {}", e);
 
             vortex_err!("Failed to convert duckdb array to vortex: {}", e)
         })?;
@@ -134,7 +98,6 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
-
     use duckdb::core::DataChunkHandle;
     use itertools::Itertools;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
@@ -143,7 +106,8 @@ mod tests {
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, FieldNames, Nullability};
 
-    use crate::convert::array::{NamedDataChunk, to_duckdb_chunk};
+    use crate::convert::array::data_chunk_adaptor::NamedDataChunk;
+    use crate::convert::array::to_duckdb_chunk;
     use crate::{FromDuckDB, ToDuckDBType};
 
     fn data() -> ArrayRef {
@@ -178,11 +142,11 @@ mod tests {
         let mut output_chunk = DataChunkHandle::new(ddb_type.as_slice());
         let nullable = to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
 
-        let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk {
-            chunk: &output_chunk,
-            nullable: nullable.as_slice(),
-            names: FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
-        })
+        let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
+            &output_chunk,
+            &nullable,
+            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+        ))
         .unwrap();
         assert_eq!(
             struct_arr.names(),
