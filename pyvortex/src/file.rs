@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arrow::array::RecordBatchReader;
 use arrow::pyarrow::IntoPyArrow;
+use futures::{SinkExt, StreamExt};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -9,10 +10,12 @@ use vortex::ToCanonical;
 use vortex::compute::try_cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
+use vortex::error::{VortexExpect, vortex_err};
 use vortex::expr::{ExprRef, ident, select};
+use vortex::file::executor::{TaskExecutor, TokioExecutor};
 use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
-use vortex::stream::ArrayStreamExt;
+use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
@@ -179,6 +182,9 @@ impl PyVortexFile {
             .get()
             .vxf
             .scan()
+            .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
+                TOKIO_RUNTIME.handle().clone(),
+            )))
             .with_canonicalize(true)
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
@@ -187,9 +193,27 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
-            builder.build()?.into_array_stream()?,
-        ));
+        let stream = ArrayStreamExt::boxed(builder.build()?.into_array_stream()?);
+        let dtype = stream.dtype().clone();
+
+        // The I/O of the array stream won't make progress unless it's polled. So we need to spawn it.
+        let (mut send, recv) = futures::channel::mpsc::channel(16);
+
+        TOKIO_RUNTIME
+            .block_on(TOKIO_RUNTIME.spawn(async move {
+                let mut stream = stream;
+                while let Some(batch) = stream.next().await {
+                    send.send(batch)
+                        .await
+                        .map_err(|e| vortex_err!("Send failed {}", e))
+                        .vortex_expect("send failed");
+                }
+            }))
+            .vortex_expect("failed to spawn stream");
+
+        let stream = ArrayStreamAdapter::new(dtype, recv);
+
+        let iter = ArrayStreamToIterator::new(stream);
         let rbr: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
         rbr.into_pyarrow(slf.py())

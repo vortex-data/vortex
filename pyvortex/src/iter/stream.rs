@@ -24,7 +24,7 @@ pub(crate) struct ArrayStreamToIterator<S, AR> {
     runtime: AR,
 }
 
-impl<S: ArrayStream + Unpin> ArrayStreamToIterator<S, Handle> {
+impl<S: ArrayStream + Unpin + Send> ArrayStreamToIterator<S, Handle> {
     pub(crate) fn new(stream: S) -> Self {
         Self {
             stream,
@@ -35,7 +35,7 @@ impl<S: ArrayStream + Unpin> ArrayStreamToIterator<S, Handle> {
 
 impl<S, AR> ArrayIterator for ArrayStreamToIterator<S, AR>
 where
-    S: ArrayStream + Unpin,
+    S: ArrayStream + Unpin + Send,
     AR: AsyncRuntime,
 {
     fn dtype(&self) -> &DType {
@@ -45,7 +45,7 @@ where
 
 impl<S, AR> Iterator for ArrayStreamToIterator<S, AR>
 where
-    S: ArrayStream + Unpin,
+    S: ArrayStream + Unpin + Send,
     AR: AsyncRuntime,
 {
     type Item = VortexResult<ArrayRef>;

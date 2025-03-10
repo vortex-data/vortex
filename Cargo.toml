@@ -268,7 +268,9 @@ lto = false
 
 [profile.samply]
 inherits = "release"
-debug = true
+codegen-units = 1
+debug = "full"
+lto = false
 
 [profile.bench_assert]
 debug-assertions = true

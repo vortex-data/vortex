@@ -5,7 +5,6 @@ import pyarrow as pa
 
 import vortex as vx
 import vortex.expr as ve
-from vortex._lib import expr as _expr
 from vortex._lib import file as _file
 
 VortexFile = _file.VortexFile
@@ -18,6 +17,8 @@ def _to_polars(self: VortexFile):
     import polars as pl
     from polars.io.plugins import register_io_source
 
+    from vortex.polars_ import polars_to_vortex
+
     schema: pa.Schema = self.dtype.to_arrow_schema()
 
     def _io_source(
@@ -27,12 +28,12 @@ def _to_polars(self: VortexFile):
         batch_size: int | None,
     ) -> Iterator[pl.DataFrame]:
         if predicate is not None:
-            predicate = _expr._expr_from_polars(predicate.meta.write_json())
+            predicate = polars_to_vortex(predicate)
 
         for batch in self.to_arrow(
-            columns=with_columns,
+            projection=with_columns,
             expr=predicate,
-            batch_size=batch_size,
+            batch_size=batch_size or 8192,
         ):
             yield pl.DataFrame._from_arrow(batch, rechunk=False)
 
