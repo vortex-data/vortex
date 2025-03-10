@@ -11,4 +11,3 @@ runs:
         sccache: true
         cmake: true
         ninja: true
-        vcpkg: true

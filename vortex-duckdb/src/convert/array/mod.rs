@@ -81,11 +81,8 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
     // TODO(joe): going via is slow, make it faster.
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
         let len = sized_vector.len;
-        let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len).map_err(|e| {
-            println!("Failed to convert duckdb duckdb array vortex: {}", e);
-
-            vortex_err!("Failed to convert duckdb array to vortex: {}", e)
-        })?;
+        let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len)
+            .map_err(|e| vortex_err!("Failed to convert duckdb array to vortex: {}", e))?;
         Ok(ArrayRef::from_arrow(arrow_arr, sized_vector.nullable))
     }
 }
