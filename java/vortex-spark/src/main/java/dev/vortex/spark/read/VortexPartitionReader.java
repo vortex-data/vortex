@@ -15,19 +15,19 @@
  */
 package dev.vortex.spark.read;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-
 import dev.vortex.api.Array;
 import dev.vortex.api.ArrayStream;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.impl.NativeFile;
 import dev.vortex.spark.VortexFilePartition;
-import java.io.IOException;
-import java.util.Objects;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
+
+import java.util.Objects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * A {@link PartitionReader} that reads columnar batches out of a Vortex file into
@@ -72,7 +72,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         checkState(Objects.nonNull(file), "File was closed");
         checkState(Objects.nonNull(arrayStream), "ArrayStream was closed");
 

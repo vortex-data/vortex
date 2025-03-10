@@ -26,4 +26,7 @@ public interface ArrayStream extends AutoCloseable {
      * It is an error to call this method if a previous invocation returned false.
      */
     boolean next();
+
+    @Override
+    void close();
 }

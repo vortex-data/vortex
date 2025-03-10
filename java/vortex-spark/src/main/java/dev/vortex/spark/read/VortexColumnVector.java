@@ -17,7 +17,6 @@ package dev.vortex.spark.read;
 
 import dev.vortex.api.Array;
 import dev.vortex.spark.SparkTypes;
-import java.io.IOException;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarArray;
@@ -36,7 +35,7 @@ public final class VortexColumnVector extends ColumnVector {
     public void close() {
         try {
             array.close();
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException("Failed to close Vortex Array", e);
         }
     }

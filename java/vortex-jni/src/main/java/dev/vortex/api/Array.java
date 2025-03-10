@@ -43,4 +43,7 @@ public interface Array extends AutoCloseable {
     String getUTF8(int index);
 
     byte[] getBinary(int index);
+
+    @Override
+    void close();
 }
