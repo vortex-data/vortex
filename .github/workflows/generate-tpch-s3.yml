@@ -17,8 +17,9 @@ jobs:
   generate_files:
     name: Generate S3 TPCH files
     runs-on:
-      - self-hosted
-      - aws
+      - runs-on=${{ github.run_id }}
+      - family=m7i.2xlarge
+      - image=ubuntu24-full-x64
     env:
       REMOTE_PATH: s3://vortex-bench-dev-eu/tpch-sf1/
       TMPDIR: /work
