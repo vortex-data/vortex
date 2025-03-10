@@ -228,7 +228,7 @@ impl<T> BufferMut<T> {
     /// ```
     #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+        let dst = unsafe { self.bytes.spare_capacity_mut().as_mut_ptr() };
         unsafe {
             std::slice::from_raw_parts_mut(
                 dst as *mut MaybeUninit<T>,
@@ -290,7 +290,7 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
-        let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = unsafe { self.bytes.spare_capacity_mut().as_mut_ptr().cast() };
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
             let end = dst.add(n);

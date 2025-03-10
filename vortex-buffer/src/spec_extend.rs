@@ -13,7 +13,7 @@ impl<T> BufferMut<T> {
 
         let remaining = self.capacity() - self.len();
 
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let begin: *const T = unsafe { self.bytes.spare_capacity_mut().as_mut_ptr().cast() };
         let mut dst: *mut T = begin.cast_mut();
         for _ in 0..remaining {
             if let Some(item) = iter.next() {
@@ -42,7 +42,7 @@ impl<T> BufferMut<T> {
         let (_, high) = iter.size_hint();
         self.reserve(high.vortex_expect("TrustedLen iterator didn't have valid upper bound"));
 
-        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let begin: *const T = unsafe { self.bytes.spare_capacity_mut().as_mut_ptr().cast() };
         let mut dst: *mut T = begin.cast_mut();
         iter.for_each(|item| {
             unsafe {

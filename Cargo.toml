@@ -211,6 +211,9 @@ features = ["js"]
 package = "getrandom"
 version = "0.2.15"
 
+[patch.crates-io]
+bytes = { git = "https://github.com/wyfo/arc-slice.git" }
+
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"
 redundant_lifetimes = "deny"
