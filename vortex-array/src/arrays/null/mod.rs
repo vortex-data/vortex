@@ -2,9 +2,9 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
-use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
@@ -83,12 +83,6 @@ impl ArrayValidityImpl for NullArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         Ok(Mask::AllFalse(self.len))
-    }
-}
-
-impl StatisticsVTable<&NullArray> for NullEncoding {
-    fn compute_statistics(&self, array: &NullArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::nulls(array.len()))
     }
 }
 

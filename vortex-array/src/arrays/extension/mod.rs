@@ -5,9 +5,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::stats::{ArrayStats, Stat, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
-use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
     Encoding, EncodingId,
@@ -114,53 +114,5 @@ impl ArrayVariantsImpl for ExtensionArray {
 impl ExtensionArrayTrait for ExtensionArray {
     fn storage_data(&self) -> ArrayRef {
         self.storage().clone()
-    }
-}
-
-impl StatisticsVTable<&ExtensionArray> for ExtensionEncoding {
-    fn compute_statistics(&self, array: &'_ ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
-        // No need to cast the storage statistics since we return untyped ScalarValue.
-        array.storage().statistics().compute_all(&[stat])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-    use vortex_dtype::PType;
-
-    use super::*;
-    use crate::IntoArray;
-    use crate::stats::{Precision, StatsProviderExt};
-
-    #[test]
-    fn compute_statistics() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("timestamp".into()),
-            DType::from(PType::I64).into(),
-            None,
-        ));
-        let array = ExtensionArray::new(ext_dtype, buffer![1i64, 2, 3, 4, 5].into_array());
-
-        let stats = array
-            .statistics()
-            .compute_all(&[Stat::Min, Stat::Max, Stat::NullCount])
-            .unwrap();
-        let num_stats = stats.clone().into_iter().count();
-        assert!(
-            num_stats >= 3,
-            "Expected at least 3 stats, got {}",
-            num_stats
-        );
-
-        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(Precision::exact(1i64)));
-        assert_eq!(
-            stats.get_as::<i64>(Stat::Max),
-            Some(Precision::exact(5_i64))
-        );
-        assert_eq!(
-            stats.get_as::<usize>(Stat::NullCount),
-            Some(Precision::exact(0usize))
-        );
     }
 }

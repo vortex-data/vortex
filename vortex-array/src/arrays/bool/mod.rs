@@ -7,7 +7,6 @@ mod array;
 pub mod compute;
 mod patch;
 mod serde;
-mod stats;
 
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.

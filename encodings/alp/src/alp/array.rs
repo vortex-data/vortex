@@ -4,7 +4,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
@@ -141,8 +141,6 @@ impl ArrayVariantsImpl for ALPArray {
 }
 
 impl PrimitiveArrayTrait for ALPArray {}
-
-impl StatisticsVTable<&ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
 mod tests {

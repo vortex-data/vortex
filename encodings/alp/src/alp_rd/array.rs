@@ -4,7 +4,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     Canonical, Encoding, EncodingId, SerdeMetadata, ToCanonical,
@@ -217,8 +217,6 @@ impl ArrayValidityImpl for ALPRDArray {
         self.left_parts().validity_mask()
     }
 }
-
-impl StatisticsVTable<&ALPRDArray> for ALPRDEncoding {}
 
 #[cfg(test)]
 mod test {

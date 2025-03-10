@@ -5,11 +5,9 @@ use std::hash::{Hash, Hasher};
 
 mod compute;
 mod serde;
-mod statistics;
 
 pub use compute::*;
 pub use serde::*;
-pub use statistics::*;
 
 use crate::Array;
 use crate::arcref::ArcRef;
@@ -25,12 +23,7 @@ pub type VTableRef = ArcRef<dyn EncodingVTable>;
 /// implementation, as well as to allow for optional implementation of certain features, for example
 /// compute functions.
 pub trait EncodingVTable:
-    'static
-    + Sync
-    + Send
-    + ComputeVTable
-    + for<'a> SerdeVTable<&'a dyn Array>
-    + for<'a> StatisticsVTable<&'a dyn Array>
+    'static + Sync + Send + ComputeVTable + for<'a> SerdeVTable<&'a dyn Array>
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
