@@ -24,12 +24,7 @@ pub fn to_duckdb_chunk(
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<Vec<bool>> {
     let mut nullable = vec![false; struct_array.len()];
-    for (idx, (_name, field)) in struct_array
-        .names()
-        .iter()
-        .zip(struct_array.fields())
-        .enumerate()
-    {
+    for (idx, field) in struct_array.fields().iter().enumerate() {
         field.to_duckdb(&mut DataChunkHandleSlice::new(chunk, idx))?;
         nullable[idx] = field.dtype().is_nullable();
     }

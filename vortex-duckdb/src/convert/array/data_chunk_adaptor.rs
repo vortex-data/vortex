@@ -7,7 +7,7 @@ pub struct DataChunkHandleSlice<'a> {
     column_index: usize,
 }
 
-/// A wrapper around a [`DataChunkHandle`] that extra info to create a vortex array
+/// A wrapper around a [`DataChunkHandle`] with extra info to create a vortex array
 pub struct NamedDataChunk<'a> {
     pub chunk: &'a DataChunkHandle,
     pub nullable: Option<&'a [bool]>,
