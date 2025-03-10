@@ -142,3 +142,10 @@ Registry and Serde
 
 .. autoclass:: vortex.ArrayParts
     :members:
+
+
+Streams and Iterators
+---------------------
+
+.. autoclass:: vortex.ArrayIterator
+    :members:
