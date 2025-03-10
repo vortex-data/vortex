@@ -1,25 +1,23 @@
-use std::fs::{self, File};
-use std::path::PathBuf;
+use std::fs::{self};
 use std::time::{Duration, Instant};
 
-use bench_vortex::clickbench::{self, HITS_SCHEMA, clickbench_queries};
+use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::export_plan_spans;
 use bench_vortex::{
     Format, IdempotentPath as _, default_env_filter, execute_physical_plan,
-    feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
+    feature_flagged_allocator, get_session_with_cache, physical_plan,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::{info, warn};
-use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
+use log::warn;
 use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
-use vortex::error::{VortexExpect, vortex_panic};
+use vortex::error::vortex_panic;
 
 feature_flagged_allocator!();
 
@@ -46,9 +44,11 @@ struct Args {
     emulate_object_store: bool,
     #[arg(long)]
     export_spans: bool,
+    #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
+    flavor: Flavor,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Capture `RUST_LOG` configuration
@@ -95,45 +95,10 @@ fn main() {
         None => Builder::new_multi_thread().enable_all().build(),
     }
     .expect("Failed building the Runtime");
-    let basepath = "clickbench".to_data_path();
+    let basepath = format!("clickbench_{}", args.flavor).to_data_path();
     let client = reqwest::blocking::Client::default();
 
-    // The clickbench-provided file is missing some higher-level type info, so we reprocess it
-    // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-    (0_u32..100).into_par_iter().for_each(|idx| {
-        let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
-        idempotent(&output_path, |output_path| {
-            info!("Downloading file {idx}");
-            let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-
-
-            let make_req = || client.get(&url).send();
-            let mut output = None;
-
-            for attempt in 1..4 {
-                match make_req() {
-                    Ok(r) => {
-                          output = Some(r.error_for_status());
-                          break;
-                    },
-                    Err(e) => {
-                        warn!("Request for file {idx} timed out, retying for the {attempt} time");
-                        output = Some(Err(e));
-                    }
-                }
-
-                // Very basic backoff mechanism
-                std::thread::sleep(Duration::from_secs(attempt));
-            }
-
-            let mut response = output.vortex_expect("Must have value here")?;
-            let mut file = File::create(output_path)?;
-            response.copy_to(&mut file)?;
-
-            anyhow::Ok(PathBuf::from(output_path))
-        })
-        .unwrap();
-    });
+    args.flavor.download(&client, basepath.as_path())?;
 
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
@@ -151,6 +116,7 @@ fn main() {
         let session_context = get_session_with_cache(args.emulate_object_store);
         let context = session_context.clone();
         let mut plans = Vec::new();
+
         match format {
             Format::Parquet => runtime.block_on(async {
                 clickbench::register_parquet_files(
@@ -254,4 +220,6 @@ fn main() {
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
+
+    Ok(())
 }

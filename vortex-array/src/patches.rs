@@ -217,8 +217,8 @@ impl Patches {
         }
     }
 
-    /// Return the insertion point of [index] in the [Self::indices].
-    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+    /// Return the insertion point of `index` in the [Self::indices].
+    pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
         search_sorted_usize(&self.indices, index + self.offset, SearchSortedSide::Left)
     }
 
@@ -234,12 +234,11 @@ impl Patches {
             Ok(match sr {
                 // If we reached the end of patched values when searching then the result is one after the last patch index
                 SearchResult::Found(i) => SearchResult::Found(
-                    index
-                        + if i == self.indices().len() || side == SearchSortedSide::Right {
-                            1
-                        } else {
-                            0
-                        },
+                    if i == self.indices().len() || side == SearchSortedSide::Right {
+                        index + 1
+                    } else {
+                        index
+                    },
                 ),
                 // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
                 SearchResult::NotFound(i) => {

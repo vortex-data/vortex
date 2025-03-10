@@ -89,7 +89,7 @@ where
         ratios.push(CustomUnitMeasurement {
             name: format!("vortex size/{}", bench_name),
             format: Format::OnDiskVortex,
-            unit: Cow::from("value"),
+            unit: Cow::from("bytes"),
             value: compressed_size_f64,
         });
     }

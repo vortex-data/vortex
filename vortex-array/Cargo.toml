@@ -1,22 +1,17 @@
 [package]
 name = "vortex-array"
-description = "Vortex in memory columnar data format"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex in memory columnar data format"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
 readme = { workspace = true }
-
-[lib]
-name = "vortex_array"
-path = "src/lib.rs"
-bench = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lints]
 workspace = true
@@ -67,8 +62,8 @@ arbitrary = [
     "vortex-dtype/arbitrary",
     "vortex-scalar/arbitrary",
 ]
-test-harness = ["dep:goldenfile"]
 canonical_counter = []
+test-harness = ["dep:goldenfile"]
 
 [dev-dependencies]
 divan = { workspace = true }

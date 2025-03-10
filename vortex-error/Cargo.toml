@@ -1,25 +1,21 @@
 [package]
 name = "vortex-error"
-version = { workspace = true }
-description = "Vortex errors"
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex errors"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
 readme = { workspace = true }
-
-[lib]
-name = "vortex_error"
-path = "src/lib.rs"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [features]
-flatbuffers = ["dep:flatbuffers"]
 datafusion = ["datafusion-common"]
+flatbuffers = ["dep:flatbuffers"]
 python = ["dep:pyo3"]
 
 [dependencies]

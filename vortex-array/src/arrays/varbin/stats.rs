@@ -1,12 +1,9 @@
-use std::cmp::Ordering;
-
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::Array;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
-use crate::compute::scalar_at;
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
@@ -39,34 +36,6 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             }
             stats
         }
-        Stat::IsConstant => {
-            let is_constant = array.with_iterator(compute_is_constant)?;
-            if is_constant {
-                // we know that the array is not empty
-                StatsSet::constant(scalar_at(array, 0)?, array.len())
-            } else {
-                StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
-            }
-        }
-        Stat::IsSorted => {
-            let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
-            let mut stats = StatsSet::of(Stat::IsSorted, Precision::exact(is_sorted));
-            if !is_sorted {
-                stats.set(Stat::IsStrictSorted, Precision::exact(false));
-            }
-            stats
-        }
-        Stat::IsStrictSorted => {
-            let is_strict_sorted = array.with_iterator(|iter| {
-                iter.flatten()
-                    .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
-            })?;
-            let mut stats = StatsSet::of(Stat::IsStrictSorted, Precision::exact(is_strict_sorted));
-            if is_strict_sorted {
-                stats.set(Stat::IsSorted, Precision::exact(true));
-            }
-            stats
-        }
         Stat::UncompressedSizeInBytes => StatsSet::of(stat, Precision::exact(array.nbytes())),
         Stat::Min | Stat::Max => {
             // Min and max are automatically dispatched to min_max compute function.
@@ -76,19 +45,8 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             )
         }
         Stat::Sum => unreachable!("Sum is not supported for VarBinArray"),
+        other => unreachable!("Stat {other} is should be handled elsewhere"),
     })
-}
-
-pub(super) fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
-    let Some(first_value) = iter.next() else {
-        return true; // empty array is constant
-    };
-    for v in iter {
-        if v != first_value {
-            return false;
-        }
-    }
-    true
 }
 
 #[cfg(test)]

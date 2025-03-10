@@ -1,26 +1,26 @@
 [package]
 name = "pyvortex"
-publish = false
-version = { workspace = true }
-description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
 categories = { workspace = true }
-rust-version = { workspace = true }
+description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
 readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lints]
 workspace = true
 
 [lib]
-name = "pyvortex"
 crate-type = ["rlib", "cdylib"]
-doctest = false # TODO(ngates): why?
+doctest = false                 # TODO(ngates): why?
+name = "pyvortex"
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }

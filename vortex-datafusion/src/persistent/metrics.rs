@@ -1,6 +1,7 @@
 //! Vortex table provider metrics.
 use std::sync::Arc;
 
+use datafusion::datasource::source::DataSourceExec;
 use datafusion_physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, Gauge, Label as DatafusionLabel,
     MetricValue as DatafusionMetricValue, MetricsSet,
@@ -9,8 +10,6 @@ use datafusion_physical_plan::{
     ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
 use vortex_metrics::{DefaultTags, Metric, MetricId, Tags, VortexMetrics};
-
-use super::execution::VortexExec;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
 
@@ -35,7 +34,7 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
     fn pre_visit(&mut self, plan: &dyn ExecutionPlan) -> Result<bool, Self::Error> {
         if let Some(metrics) = plan
             .as_any()
-            .downcast_ref::<VortexExec>()
+            .downcast_ref::<DataSourceExec>()
             .and_then(|exec| exec.metrics())
         {
             self.0.push(metrics);
@@ -45,25 +44,25 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct VortexExecMetrics {
+pub(crate) struct VortexSourceMetrics {
     pub vortex: VortexMetrics,
     pub execution_plan: ExecutionPlanMetricsSet,
 }
 
-impl VortexExecMetrics {
+impl VortexSourceMetrics {
     pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> VortexMetrics {
         self.vortex.child_with_tags(additional_tags)
     }
 
-    pub fn metrics_set(&self) -> MetricsSet {
-        let mut base = self.execution_plan.clone_inner();
+    pub fn report_to_datafusion(&self) -> &ExecutionPlanMetricsSet {
+        let base = &self.execution_plan;
         for metric in self
             .vortex
             .snapshot()
             .iter()
             .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
         {
-            base.push(Arc::new(metric));
+            base.register(Arc::new(metric));
         }
         base
     }

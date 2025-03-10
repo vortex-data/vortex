@@ -42,7 +42,7 @@ impl Default for IsConstantOpts {
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the relevant VTable, it'll try and canonicalize in order to make a determination.
 /// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has one elements.
+/// 1. It has at least one element (**Note** - an empty array isn't constant).
 /// 1. Its encoded as a [`ConstantArray`] or [`NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
@@ -59,34 +59,46 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
 pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<bool> {
-    match array.len() {
-        // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
-        0 => return Ok(false),
-        // Array of length 1 is always constant.
-        1 => return Ok(true),
-        _ => {}
-    }
-
-    // Constant and null arrays are always constant
-    if array.as_opt::<ConstantArray>().is_some() || array.as_opt::<NullArray>().is_some() {
-        return Ok(true);
-    }
-
     // We try and rely on some easy to get stats
     if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
         return Ok(value);
     }
 
+    let is_constant = is_constant_impl(array, opts)?;
+
+    if let Some(is_constant) = is_constant {
+        array
+            .statistics()
+            .set(Stat::IsConstant, Precision::Exact(is_constant.into()));
+    }
+
+    Ok(is_constant.unwrap_or_default())
+}
+
+fn is_constant_impl(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
+    match array.len() {
+        // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
+        0 => return Ok(Some(false)),
+        // Array of length 1 is always constant.
+        1 => return Ok(Some(true)),
+        _ => {}
+    }
+
+    // Constant and null arrays are always constant
+    if array.as_opt::<ConstantArray>().is_some() || array.as_opt::<NullArray>().is_some() {
+        return Ok(Some(true));
+    }
+
     let all_invalid = array.all_invalid()?;
     if all_invalid {
-        return Ok(true);
+        return Ok(Some(true));
     }
 
     let all_valid = array.all_valid()?;
 
     // If we have some nulls, array can't be constant
     if !all_valid && !all_invalid {
-        return Ok(false);
+        return Ok(Some(false));
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
@@ -101,7 +113,7 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
 
     if let Some((min, max)) = min.zip(max) {
         if min == max {
-            return Ok(true);
+            return Ok(Some(true));
         }
     }
 
@@ -133,11 +145,5 @@ pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResul
         }
     };
 
-    if let Some(is_constant) = is_constant {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(is_constant.into()));
-    }
-
-    Ok(is_constant.unwrap_or_default())
+    Ok(is_constant)
 }

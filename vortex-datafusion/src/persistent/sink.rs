@@ -4,19 +4,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion::datasource::physical_plan::FileSinkConfig;
+use datafusion::common::runtime::SpawnedTask;
+use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
+use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
+use datafusion_common::DataFusionError;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
-use futures::{StreamExt, TryStreamExt};
-use rand::distr::{Alphanumeric, SampleString};
+use futures::StreamExt;
+use object_store::ObjectStore;
+use tokio_stream::wrappers::ReceiverStream;
 use vortex_array::TryIntoArray;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::VortexError;
-use vortex_file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex_file::VortexWriteOptions;
 use vortex_io::{ObjectStoreWriter, VortexWrite};
 
 pub struct VortexSink {
@@ -65,47 +68,52 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion_common::error::Result<u64> {
-        let object_store = context
-            .runtime_env()
-            .object_store(&self.config.object_store_url)?;
+    ) -> datafusion_common::Result<u64> {
+        FileSink::write_all(self, data, context).await
+    }
+}
 
-        let base_output_path = &self.config.table_paths[0];
+#[async_trait]
+impl FileSink for VortexSink {
+    fn config(&self) -> &FileSinkConfig {
+        &self.config
+    }
 
-        let single_file_output =
-            !base_output_path.is_collection() && base_output_path.file_extension().is_some();
-
-        let path = if single_file_output {
-            base_output_path.prefix().to_owned()
-        } else {
-            let filename = Alphanumeric.sample_string(&mut rand::rng(), 16);
-            base_output_path
-                .prefix()
-                .child(format!("{filename}.{}", VORTEX_FILE_EXTENSION))
-        };
-
-        let vortex_writer = ObjectStoreWriter::new(object_store, path).await?;
-
-        // TODO(adam): This is a temporary hack
+    async fn spawn_writer_tasks_and_join(
+        &self,
+        _context: &Arc<TaskContext>,
+        demux_task: SpawnedTask<datafusion_common::Result<()>>,
+        mut file_stream_rx: DemuxedStreamReceiver,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> datafusion_common::Result<u64> {
+        // This is a hack
         let row_counter = Arc::new(AtomicU64::new(0));
 
-        let dtype = DType::from_arrow(data.schema());
-        let stream = data
-            .map_err(VortexError::from)
-            .map(|rb| rb.and_then(|rb| rb.try_into_array()))
-            .map_ok(|rb| {
-                row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
-                rb
+        // TODO(adamg):
+        // 1. We only write only file at a time
+        // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
+        while let Some((path, rx)) = file_stream_rx.recv().await {
+            let writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
+
+            let stream = ReceiverStream::new(rx).map(|rb| {
+                row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
+                rb.try_into_array()
             });
+            let dtype = DType::from_arrow(self.config.output_schema.as_ref());
+            let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-        let stream = ArrayStreamAdapter::new(dtype, stream);
+            let mut writer = VortexWriteOptions::default()
+                .write(writer, stream_adapter)
+                .await?;
 
-        let mut writer = VortexWriteOptions::default()
-            .write(vortex_writer, stream)
-            .await?;
+            writer.flush().await?;
+            writer.shutdown().await?;
+        }
 
-        writer.flush().await?;
-        writer.shutdown().await?;
+        demux_task
+            .join_unwind()
+            .await
+            .map_err(DataFusionError::ExecutionJoin)??;
 
         Ok(row_counter.load(Ordering::SeqCst))
     }
@@ -115,6 +123,7 @@ impl DataSink for VortexSink {
 mod tests {
     use std::sync::Arc;
 
+    use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
     use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
@@ -131,7 +140,7 @@ mod tests {
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
 
-        let df = session
+        session
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
@@ -142,7 +151,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(df.clone().count().await.unwrap(), 0);
         let my_tbl = session.table("my_tbl").await.unwrap();
 
         // It's valuable to have two insert code paths because they actually behave slightly differently
@@ -154,10 +162,12 @@ mod tests {
             ]],
         };
 
+        let tbl_provider = session.table_provider("my_tbl").await.unwrap();
+
         let logical_plan = LogicalPlanBuilder::insert_into(
             LogicalPlan::Values(values.clone()),
             "my_tbl",
-            my_tbl.schema().as_arrow(),
+            Arc::new(DefaultTableSource::new(tbl_provider)),
             datafusion_expr::dml::InsertOp::Append,
         )
         .unwrap()
@@ -173,7 +183,7 @@ mod tests {
             .unwrap();
 
         session
-            .sql("INSERT INTO my_tbl VALUES ('hello', 42::INT);")
+            .sql("INSERT INTO my_tbl VALUES ('world', 24);")
             .await
             .unwrap()
             .collect()

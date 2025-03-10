@@ -9,8 +9,8 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
-    UncompressedSizeFn, scalar_at, slice, uncompressed_size,
+    IsConstantFn, IsConstantOpts, IsSortedFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn,
+    ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -41,6 +41,10 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -102,6 +106,16 @@ impl UncompressedSizeFn<&ListArray> for ListEncoding {
     fn uncompressed_size(&self, array: &ListArray) -> VortexResult<usize> {
         let size = uncompressed_size(array.elements())? + uncompressed_size(array.offsets())?;
         Ok(size + array.validity().uncompressed_size())
+    }
+}
+
+impl IsSortedFn<&ListArray> for ListEncoding {
+    fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    fn is_strict_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
+        Ok(false)
     }
 }
 

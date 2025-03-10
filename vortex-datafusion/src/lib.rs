@@ -1,6 +1,5 @@
 //! Connectors to enable DataFusion to read Vortex data.
 #![deny(missing_docs)]
-#![allow(clippy::nonminimal_bool)]
 #![allow(clippy::cast_possible_truncation)]
 
 use std::fmt::Debug;

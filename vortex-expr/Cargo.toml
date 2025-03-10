@@ -1,22 +1,17 @@
 [package]
 name = "vortex-expr"
-version = { workspace = true }
-description = "Vortex Expressions"
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex Expressions"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
 readme = "README.md"
-
-[lib]
-name = "vortex_expr"
-path = "src/lib.rs"
-bench = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lints]
 workspace = true

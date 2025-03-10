@@ -63,8 +63,6 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
 
         Ok(match stat {
             Stat::NullCount => StatsSet::of(Stat::NullCount, Precision::exact(0u64)),
-            Stat::IsSorted => compute_is_sorted(array.iter().copied()),
-            Stat::IsStrictSorted => compute_is_strict_sorted(array.iter().copied()),
             _ => unreachable!("already handled above"),
         })
     }
@@ -119,6 +117,7 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
     let Some(mut prev) = iter.next() else {
         return StatsSet::default();
     };
+
     for next in iter {
         if matches!(next.total_compare(prev), Ordering::Less) {
             sorted = false;
@@ -201,7 +200,7 @@ mod test {
         assert_eq!(min, 1);
         assert_eq!(max, 2);
         assert_eq!(null_count, 3);
-        assert!(is_strict_sorted);
+        assert!(!is_strict_sorted);
     }
 
     #[test]

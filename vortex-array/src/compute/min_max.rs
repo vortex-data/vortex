@@ -72,19 +72,12 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
             array.encoding()
         );
 
-        array
-            .statistics()
-            .set(Stat::Min, Precision::exact(min.clone().into_value()));
-
         debug_assert_eq!(
             max.dtype(),
             array.dtype(),
             "MinMax max dtype mismatch {}",
             array.encoding()
         );
-        array
-            .statistics()
-            .set(Stat::Max, Precision::exact(max.clone().into_value()));
 
         debug_assert!(
             min <= max,

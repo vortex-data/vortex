@@ -33,6 +33,7 @@ window.initAndRender = (function () {
         let groups = {
             "Random Access": new Map(),
             "Compression": new Map(),
+            "Compression Size": new Map(),
             "TPC-H (NVME)": new Map(),
             "TPC-H (S3)": new Map(),
             "Clickbench": new Map(),
@@ -65,6 +66,17 @@ window.initAndRender = (function () {
                 group = groups["Random Access"];
             } else if (name.includes("compress time/")) {
                 group = groups["Compression"];
+            } else if (name.startsWith("vortex size/")) {
+                if (unit === null || unit === undefined) {
+                    unit = "bytes"  // Unit information was missing before the commit that adds this comment.
+                }
+                group = groups["Compression Size"]
+            } else if (name.startsWith("vortex:raw size/") ||
+                       name.startsWith("vortex:parquet-zstd size/")) {
+                if (unit === null || unit === undefined) {
+                    unit = "ratio"  // The unit becomes the y-axis label.
+                }
+                group = groups["Compression Size"]
             } else if (name.startsWith("tpch_q")) {
                 if (storage === undefined || storage === "nvme") {
                     group = groups["TPC-H (NVME)"];
@@ -91,7 +103,8 @@ window.initAndRender = (function () {
 
             let prettyQ = q.replace("_", " ")
                 .toUpperCase()
-                .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO");
+                .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO")
+                .replace("VORTEX:PARQUET-ZSTD SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO");
             if (prettyQ.includes("PARQUET-UNC")) {
                 return
             }

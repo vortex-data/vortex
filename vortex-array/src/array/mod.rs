@@ -249,6 +249,11 @@ pub trait ArrayExt: Array {
     fn as_opt<A: Array + 'static>(&self) -> Option<&A> {
         self.as_any().downcast_ref::<A>()
     }
+
+    /// Is self an array with encoding `A`.
+    fn is<A: Array + 'static>(&self) -> bool {
+        self.as_opt::<A>().is_some()
+    }
 }
 
 impl<A: Array + ?Sized> ArrayExt for A {}

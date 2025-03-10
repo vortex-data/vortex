@@ -1,3 +1,5 @@
+#![feature(array_chunks)]
+
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -38,7 +40,7 @@ impl Default for GenerateStatsOptions {
 }
 
 /// Stats for the compressor.
-pub trait CompressorStats: Clone {
+pub trait CompressorStats: Debug + Clone {
     type ArrayType: Array;
 
     // Generate with options.
