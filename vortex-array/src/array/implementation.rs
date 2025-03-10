@@ -81,7 +81,9 @@ impl<A: ArrayImpl + 'static> Array for A {
         // Check each of the known compute functions.
 
         if any.is::<Filter>() {
-            return <Self as ArrayComputeImpl>::FILTER;
+            if let Some(f) = <Self as ArrayComputeImpl>::FILTER {
+                return Some(f);
+            }
         }
 
         // Otherwise, fallback to a manual lookup
