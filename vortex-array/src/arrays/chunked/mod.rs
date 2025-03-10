@@ -26,7 +26,6 @@ use crate::{
 mod canonical;
 mod compute;
 mod serde;
-mod stats;
 mod variants;
 
 #[derive(Clone, Debug)]

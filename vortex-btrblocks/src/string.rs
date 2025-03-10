@@ -14,7 +14,7 @@ use crate::{
     estimate_compression_ratio_with_sampling,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StringStats {
     src: VarBinViewArray,
     estimated_distinct_count: u32,

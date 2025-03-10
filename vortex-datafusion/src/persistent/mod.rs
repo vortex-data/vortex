@@ -1,11 +1,11 @@
 //! Persistent implementation of a Vortex table provider.
 mod cache;
 mod config;
-mod execution;
 mod format;
 pub mod metrics;
 mod opener;
 mod sink;
+mod source;
 
 pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
 

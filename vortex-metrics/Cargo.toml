@@ -1,22 +1,22 @@
 [package]
 name = "vortex-metrics"
-description = "Vortex Metrics"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-readme = { workspace = true }
 categories = { workspace = true }
+description = "Vortex Metrics"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [dependencies]
+getrandom_v03 = { workspace = true }
 vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
-getrandom_v03 = { workspace = true }
 
 [lints]
 workspace = true

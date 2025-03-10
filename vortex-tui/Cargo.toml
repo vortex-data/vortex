@@ -1,17 +1,17 @@
 [package]
 name = "vortex-tui"
-description = "a small but might tool for working with Vortex files"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-readme = { workspace = true }
 categories = { workspace = true }
+description = "a small but might tool for working with Vortex files"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [dependencies]
 async-trait = { workspace = true }

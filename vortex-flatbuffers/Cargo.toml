@@ -1,25 +1,25 @@
 [package]
 name = "vortex-flatbuffers"
-description = "Flatbuffers definitions for Vortex types"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Flatbuffers definitions for Vortex types"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
 readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [features]
-dtype = []
-scalar = ["dtype"]
 array = ["dtype", "scalar"]
+dtype = []
+file = ["ipc"]
 ipc = ["array"]
 layout = ["array"]
-file = ["ipc"]
+scalar = ["dtype"]
 
 [dependencies]
 flatbuffers = { workspace = true }

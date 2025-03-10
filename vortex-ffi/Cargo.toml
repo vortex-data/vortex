@@ -1,0 +1,30 @@
+[package]
+name = "vortex-ffi"
+description = "Native C FFI bindings for Vortex"
+readme = "README.md"
+# This crate is not meant to be consumed by other Rust code but rather produces a static binary
+# that can be linked to by other languages.
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+futures = { workspace = true }
+object_store = { workspace = true, features = ["aws"] }
+paste = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+vortex = { workspace = true, features = ["tokio", "object_store"] }
+
+[lints]
+workspace = true

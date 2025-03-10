@@ -28,7 +28,6 @@ use crate::{
 mod accessor;
 mod compute;
 mod serde;
-mod stats;
 mod variants;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

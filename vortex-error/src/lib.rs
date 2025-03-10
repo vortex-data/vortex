@@ -307,6 +307,13 @@ impl<T> VortexExpect for Option<T> {
 /// A convenient macro for creating a VortexError.
 #[macro_export]
 macro_rules! vortex_err {
+    (AssertionFailed: $($tts:tt)*) => {{
+        use std::backtrace::Backtrace;
+        let err_string = format!($($tts)*);
+        $crate::__private::must_use(
+            $crate::VortexError::AssertionFailed(err_string.into(), Backtrace::capture())
+        )
+    }};
     (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {{
         use std::backtrace::Backtrace;
         $crate::__private::must_use(

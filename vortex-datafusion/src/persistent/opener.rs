@@ -7,7 +7,6 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
-use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
@@ -39,8 +38,8 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             scheme,
             object_store,
             projection,
@@ -49,7 +48,7 @@ impl VortexFileOpener {
             projected_arrow_schema,
             batch_size,
             metrics,
-        })
+        }
     }
 }
 
@@ -88,8 +87,8 @@ impl FileOpener for VortexFileOpener {
 
             Ok(vxf
                 .scan()
-                .with_projection(projection.clone())
-                .with_some_filter(filter.clone())
+                .with_projection(projection)
+                .with_some_filter(filter)
                 .with_prefetch_conjuncts(true)
                 .with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,

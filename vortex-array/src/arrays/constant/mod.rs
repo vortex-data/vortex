@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::vtable::{EncodingVTable, StatisticsVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId};
 
 mod canonical;
@@ -94,5 +94,3 @@ impl ArrayStatisticsImpl for ConstantArray {
         self.stats_set.to_ref(self)
     }
 }
-
-impl StatisticsVTable<&ConstantArray> for ConstantEncoding {}
