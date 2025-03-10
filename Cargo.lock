@@ -6162,9 +6162,14 @@ dependencies = [
 name = "vortex-tui"
 version = "0.25.2"
 dependencies = [
+ "arrow-array",
  "async-trait",
  "clap",
  "crossterm",
+ "futures-util",
+ "indicatif",
+ "parquet",
+ "pin-project",
  "ratatui",
  "tokio",
  "vortex",
