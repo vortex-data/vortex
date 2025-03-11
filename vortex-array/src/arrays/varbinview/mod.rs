@@ -119,7 +119,7 @@ impl BinaryView {
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
-    #[inline]
+    #[inline(never)]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
         match value.len() {
             0 => Self {
