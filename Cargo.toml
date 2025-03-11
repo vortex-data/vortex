@@ -74,6 +74,7 @@ chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
+dashmap = "6.1.0"
 datafusion = { version = "46", default-features = false }
 datafusion-common = { version = "46" }
 datafusion-execution = { version = "46" }

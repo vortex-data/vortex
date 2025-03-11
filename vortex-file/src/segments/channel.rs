@@ -63,6 +63,7 @@ impl AsyncSegmentReader for SegmentChannelReader {
         match recv.await {
             Ok(result) => result,
             Err(_canceled) => {
+                println!("failed for {id}");
                 // The sender was dropped before returning a result to us
                 Err(vortex_err!("Segment request handler was dropped {}", id,))
             }

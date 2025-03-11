@@ -16,6 +16,7 @@ version = { workspace = true }
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
+dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration

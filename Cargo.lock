@@ -5945,6 +5945,7 @@ version = "0.25.2"
 dependencies = [
  "async-trait",
  "bytes",
+ "dashmap",
  "flatbuffers 25.2.10",
  "futures",
  "getrandom 0.3.1",
