@@ -120,12 +120,31 @@ assert_eq_align!(BinaryView, u128);
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
 
+    /// Create a view from a value, block and offset
+    ///
+    /// Depending on the length of the provided value either a new inlined
+    /// or a reference view will be constructed.
+    pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
+        if value.len() <= Self::MAX_INLINED_SIZE {
+            Self::new_inlined(value)
+        } else {
+            Self::new_view(
+                u32::try_from(value.len()).vortex_unwrap(),
+                value[0..4].try_into().vortex_unwrap(),
+                offset,
+                block,
+            )
+        }
+    }
+
+    /// Create a new empty view
     pub fn empty_view() -> Self {
         Self {
             inlined: Inlined::new(&[]),
         }
     }
 
+    /// Create a new inlined binary view
     pub fn new_inlined(value: &[u8]) -> Self {
         assert!(
             value.len() <= Self::MAX_INLINED_SIZE,
