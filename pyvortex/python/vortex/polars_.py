@@ -64,7 +64,12 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
 
         literal_type = next(iter(expr.keys()), None)
 
-        # Special-case complex types
+        # Special-case Series
+        if literal_type == "Series":
+            expr = pl.Expr.from_json(json.dumps({"Literal": expr}))
+            raise ValueError
+
+        # Special-case date-times
         if literal_type == "DateTime":
             (value, unit, tz) = expr[literal_type]
             if unit == "Nanoseconds":
@@ -78,6 +83,11 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
             else:
                 raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
 
+            # FIXME(ngates): datetime metadata should be human-readable
+            if tz is not None:
+                raise ValueError(f"Polars DateTime with timezone not supported: {tz}")
+            metadata += b"\x00\x00"
+
             dtype = vx.ext("vortex.timestamp", vx.int_(64, nullable=value is None), metadata=metadata)
             return ve.literal(dtype, value)
 
@@ -85,5 +95,22 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
             raise NotImplementedError(f"Unsupported Polars literal type: {literal_type}")
         value = expr[literal_type]
         return ve.literal(_LITERAL_TYPES[literal_type](value), value)
+
+    if "Function" in expr:
+        expr = expr["Function"]
+        inputs = [_polars_to_vortex(e) for e in expr["input"]]
+
+        fn = expr["function"]
+        if "Boolean" in fn:
+            fn = fn["Boolean"]
+
+            if "IsIn" in fn:
+                fn = fn["IsIn"]
+                if fn["nulls_equal"]:
+                    raise ValueError(f"Unsupported nulls_equal argument in fn {expr}")
+
+                # Vortex doesn't support is-in, so we need to construct a series of ORs?
+
+        raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
     raise NotImplementedError(f"Unsupported Polars expression: {expr}")

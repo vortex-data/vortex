@@ -545,6 +545,20 @@ def main(args):
 
     results = defaultdict(list)
 
+    def run_queries(format: str, lf: pl.LazyFrame):
+        for q in args.queries:
+            timings = []
+            for _ in range(args.iterations):
+                start = timeit.default_timer()
+                try:
+                    _result = queries[q][2](lf)
+                except Exception as e:
+                    print(f"Failed Q{q}", e)
+                timings.append(timeit.default_timer() - start)
+            average = sum(timings) / len(timings)
+            results[format].append(average)
+            print(f"{format} Q{q}", average)
+
     if args.formats is None or "vortex" in args.formats:
         vx_base, _ = os.path.splitext(args.path)
         vx_path = f"{vx_base}.vortex"
@@ -564,31 +578,13 @@ def main(args):
             vx.io.write(it, vx_path)
 
         lf = vx.open(vx_path).to_polars()
-
-        for q in args.queries:
-            timings = []
-            for _ in range(args.iterations):
-                start = timeit.default_timer()
-                _result = queries[q][2](lf)
-                timings.append(timeit.default_timer() - start)
-            average = sum(timings) / len(timings)
-            results["vortex"].append(average)
-            print(f"Vortex Q{q}", average)
+        run_queries("vortex", lf)
 
     if args.formats is None or "parquet" in args.formats:
         lf = pl.scan_parquet(args.path)
+        run_queries("parquet", lf)
 
-        for q in args.queries:
-            timings = []
-            for _ in range(args.iterations):
-                start = timeit.default_timer()
-                _result = queries[q][2](lf)
-                timings.append(timeit.default_timer() - start)
-            average = sum(timings) / len(timings)
-            results["parquet"].append(average)
-            print(f"Parquet Q{q}", average)
-
-        for format in results:
+        for format in list(results):
             if format == "parquet":
                 continue
             results[f"{format}_vs_pq"] = [a / b for a, b in zip(results[format], results["parquet"])]
