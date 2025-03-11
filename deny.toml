@@ -9,7 +9,7 @@ no-default-features = false
 feature-depth = 1
 
 [advisories]
-ignore = ["RUSTSEC-2025-0009", "RUSTSEC-2024-0436"]
+ignore = ["RUSTSEC-2025-0014", "RUSTSEC-2024-0436"]
 
 [licenses]
 # List of explicitly allowed licenses
