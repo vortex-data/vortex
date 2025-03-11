@@ -103,7 +103,14 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
@@ -114,7 +121,7 @@ jobs:
     name: "Rust build (${{matrix.config.name}})"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
@@ -168,7 +175,7 @@ jobs:
     name: "Check build with minimal dependencies"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
@@ -187,7 +194,7 @@ jobs:
     name: "Rust (lint)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
