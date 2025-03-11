@@ -122,6 +122,17 @@ impl InflightSegments {
     }
 
     pub fn cancel(&self, segment_id: SegmentId) {
+        if self
+            .0
+            .get(&segment_id)
+            .filter(|e| e.value().completion_callback.is_some())
+            .is_some()
+        {
+            // TODO(os): figure out how this can happen
+            println!("refusing to cancel explicit request {segment_id}");
+            return;
+        }
+
         if let Some((
             _,
             InflightSegment {
@@ -129,9 +140,6 @@ impl InflightSegments {
             },
         )) = self.0.remove(&segment_id)
         {
-            // TODO(os): panic if completion callback is Some
-            // send failure means this segment was
-            // successfully evaluated
             let _ = cancel_callback.send(());
         }
     }
@@ -359,6 +367,7 @@ async fn evaluate<R: VortexReadAt>(
     let mut requests_iter = request.requests.into_iter().peekable();
 
     let cache_futures = FuturesUnordered::new();
+    let mut results = Vec::new();
     for (i, segment) in segment_map[start..end].iter().enumerate() {
         let segment_id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
@@ -377,7 +386,7 @@ async fn evaluate<R: VortexReadAt>(
                 Ordering::Equal => {
                     // Resolve the request
                     let (id, _) = requests_iter.next().vortex_expect("next request");
-                    inflight_segments.complete(id, Ok(buf.clone()));
+                    results.push((id, Ok(buf.clone())));
                 }
                 Ordering::Greater => {
                     // No request for this segment, so we continue
@@ -391,6 +400,10 @@ async fn evaluate<R: VortexReadAt>(
 
     // Populate the cache
     cache_futures.try_collect::<()>().await?;
+    // resolve requests
+    for (id, buf) in results {
+        inflight_segments.complete(id, buf);
+    }
 
     Ok(())
 }
