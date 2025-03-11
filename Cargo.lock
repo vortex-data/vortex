@@ -5953,6 +5953,7 @@ dependencies = [
  "log",
  "moka",
  "oneshot",
+ "pin-project-lite",
  "rustc-hash",
  "tokio",
  "tracing",

@@ -52,7 +52,7 @@ impl AsyncSegmentReader for SegmentChannelReader {
         // TODO(ngates): attempt to resolve the segments from the cache before joining the
         //  request queue.
 
-        // Send a request to the segment cache.
+        // Send a request to the segment channel.
         self.0
             .clone()
             .send(SegmentRequest { id, callback: send })

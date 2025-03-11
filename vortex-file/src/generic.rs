@@ -2,12 +2,15 @@ use std::cmp::Ordering;
 use std::future;
 use std::marker::PhantomData;
 use std::ops::Range;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use dashmap::{DashMap, Entry};
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, select, stream};
 use moka::future::CacheBuilder;
+use pin_project_lite::pin_project;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
@@ -124,17 +127,6 @@ impl InflightSegments {
     }
 
     pub fn cancel(&self, segment_id: SegmentId) {
-        if self
-            .0
-            .get(&segment_id)
-            .filter(|e| e.value().completion_callback.is_some())
-            .is_some()
-        {
-            // TODO(os): figure out how this can happen
-            println!("refusing to cancel explicit request {segment_id}");
-            return;
-        }
-
         if let Some((
             _,
             InflightSegment {
@@ -227,16 +219,17 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
         // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
         // file and therefore be reasonably bounded.
-        // TODO(os): smarter select
-        let segment_requests = segment_requests.ready_chunks(1024);
-        let prefetch_stream = prefetch_stream.ready_chunks(self.options.io_concurrency);
-
         // Coalesce the segment requests to minimize the number of I/O operations.
         let perf_hint = self.read.performance_hint();
-        let io_stream = stream::select(segment_requests, prefetch_stream)
-            .map(move |r| coalesce(r, perf_hint.coalescing_window(), perf_hint.max_read()))
-            .flat_map(stream::iter)
-            .inspect(move |(coalesced, _)| self.metrics.record(coalesced));
+        let io_stream = SegmentRequestStream {
+            requests: segment_requests,
+            prefetch: prefetch_stream,
+            requests_ready_chunks: 1024,
+            prefetch_ready_chunks: self.options.io_concurrency,
+        }
+        .map(move |r| coalesce(r, perf_hint.coalescing_window(), perf_hint.max_read()))
+        .flat_map(stream::iter)
+        .inspect(move |(coalesced, _)| self.metrics.record(coalesced));
 
         // Submit the coalesced requests to the I/O.
         let read = self.read.clone();
@@ -267,6 +260,73 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
             "io_stream",
             io_stream.buffer_unordered(self.options.io_concurrency)
         )
+    }
+}
+
+pin_project! {
+    struct SegmentRequestStream<Requests, Prefetch> {
+        #[pin]
+        pub requests: Requests,
+        #[pin]
+        pub prefetch: Prefetch,
+        requests_ready_chunks: usize,
+        prefetch_ready_chunks: usize,
+    }
+}
+
+impl<Requests, Prefetch> Stream for SegmentRequestStream<Requests, Prefetch>
+where
+    Requests: Stream<Item = SegmentRequest>,
+    Prefetch: Stream<Item = SegmentRequest>,
+{
+    type Item = Vec<SegmentRequest>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        let mut items = Vec::new();
+        let requests_ended = loop {
+            match this.requests.as_mut().poll_next(cx) {
+                Poll::Ready(Some(item)) => {
+                    if items.is_empty() {
+                        items.reserve(*this.requests_ready_chunks);
+                    }
+                    items.push(item);
+                    if items.len() >= *this.requests_ready_chunks {
+                        return Poll::Ready(Some(items));
+                    }
+                }
+                Poll::Pending => break false,
+                Poll::Ready(None) => break true,
+            }
+        };
+
+        let prefetch_limit =
+            (items.len() + *this.prefetch_ready_chunks).min(*this.requests_ready_chunks);
+
+        let prefetch_ended = loop {
+            match this.prefetch.as_mut().poll_next(cx) {
+                Poll::Ready(Some(item)) => {
+                    if items.is_empty() {
+                        items.reserve(*this.requests_ready_chunks);
+                    }
+                    items.push(item);
+                    if items.len() >= prefetch_limit {
+                        return Poll::Ready(Some(items));
+                    }
+                }
+                Poll::Pending => break false,
+                Poll::Ready(None) => break true,
+            }
+        };
+
+        if requests_ended && prefetch_ended {
+            return Poll::Ready(None);
+        }
+        if items.is_empty() {
+            Poll::Pending
+        } else {
+            Poll::Ready(Some(items))
+        }
     }
 }
 
