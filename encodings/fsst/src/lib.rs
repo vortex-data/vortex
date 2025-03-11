@@ -8,6 +8,8 @@
 //!
 //! [fsst]: https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf
 
+extern crate core;
+
 mod array;
 mod canonical;
 mod compress;

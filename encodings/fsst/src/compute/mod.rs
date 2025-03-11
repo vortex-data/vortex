@@ -82,10 +82,9 @@ impl ScalarAtFn<&FSSTArray> for FSSTEncoding {
             .value()
             .ok_or_else(|| vortex_err!("expected null to already be handled"))?;
 
-        array.with_decompressor(|decompressor| {
-            let decoded_buffer = ByteBuffer::from(decompressor.decompress(binary_datum.as_slice()));
-            Ok(varbin_scalar(decoded_buffer, array.dtype()))
-        })
+        let decoded_buffer =
+            ByteBuffer::from(array.decompressor().decompress(binary_datum.as_slice()));
+        Ok(varbin_scalar(decoded_buffer, array.dtype()))
     }
 }
 

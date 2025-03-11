@@ -1,35 +1,35 @@
+use fsst::Symbol;
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerdeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
+    DeserializeMetadata, SerdeMetadata,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::array::{SYMBOL_LENS_DTYPE, SYMBOLS_DTYPE};
 use crate::{FSSTArray, FSSTEncoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FSSTMetadata {
-    symbols_len: usize,
-    codes_nullability: Nullability,
     uncompressed_lengths_ptype: PType,
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
+        visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
+    }
+
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("symbols", self.symbols());
-        visitor.visit_child("symbol_lengths", self.symbol_lengths());
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
     }
 
     fn _metadata(&self) -> SerdeMetadata<FSSTMetadata> {
         SerdeMetadata(FSSTMetadata {
-            symbols_len: self.symbols().len(),
-            codes_nullability: self.codes().dtype().nullability(),
             uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
                 .vortex_expect("Must be a valid PType"),
         })
@@ -46,17 +46,19 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
     ) -> VortexResult<ArrayRef> {
         let metadata = SerdeMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
 
-        let symbols = parts
-            .child(0)
-            .decode(ctx, SYMBOLS_DTYPE.clone(), metadata.symbols_len)?;
-        let symbol_lengths =
-            parts
-                .child(1)
-                .decode(ctx, SYMBOL_LENS_DTYPE.clone(), metadata.symbols_len)?;
+        if parts.nbuffers() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", parts.nbuffers());
+        }
+        let symbols = Buffer::<Symbol>::from_byte_buffer(parts.buffer(0)?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(parts.buffer(1)?);
+
+        if parts.nchildren() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", parts.nchildren());
+        }
         let codes = parts
-            .child(2)
-            .decode(ctx, DType::Binary(metadata.codes_nullability), len)?;
-        let uncompressed_lengths = parts.child(3).decode(
+            .child(0)
+            .decode(ctx, DType::Binary(dtype.nullability()), len)?;
+        let uncompressed_lengths = parts.child(1).decode(
             ctx,
             DType::Primitive(
                 metadata.uncompressed_lengths_ptype,
@@ -76,7 +78,7 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
 mod test {
     use vortex_array::SerdeMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::PType;
 
     use crate::serde::FSSTMetadata;
 
@@ -86,8 +88,6 @@ mod test {
         check_metadata(
             "fsst.metadata",
             SerdeMetadata(FSSTMetadata {
-                symbols_len: usize::MAX,
-                codes_nullability: Nullability::Nullable,
                 uncompressed_lengths_ptype: PType::U64,
             }),
         );

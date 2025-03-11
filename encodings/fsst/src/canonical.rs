@@ -13,18 +13,15 @@ use crate::FSSTArray;
 
 impl ArrayCanonicalImpl for FSSTArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        self.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, self, 0).map(Canonical::VarBinView)
-        })
+        fsst_into_varbin_view(self.decompressor(), self, 0).map(Canonical::VarBinView)
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             return builder.extend_from_array(&self.to_canonical()?.into_array());
         };
-        let view = self.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, self, builder.completed_block_count())
-        })?;
+        let view =
+            fsst_into_varbin_view(self.decompressor(), self, builder.completed_block_count())?;
 
         builder.push_buffer_and_adjusted_views(
             view.buffers().iter().cloned(),

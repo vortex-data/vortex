@@ -1,4 +1,3 @@
-use fsst::Symbol;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{CompareFn, Operator, compare, compare_lengths_to_empty};
 use vortex_array::validity::Validity;
@@ -69,15 +68,12 @@ fn compare_fsst_constant(
         return Ok(None);
     }
 
-    let symbols = left.symbols().to_primitive()?;
-    let symbols_u64 = symbols.as_slice::<u64>();
-
-    let symbol_lens = left.symbol_lengths().to_primitive()?;
-    let symbol_lens_u8 = symbol_lens.as_slice::<u8>();
+    let symbols = left.symbols();
+    let symbol_lens = left.symbol_lengths();
 
     let mut compressor = fsst::CompressorBuilder::new();
-    for (symbol, symbol_len) in symbols_u64.iter().zip(symbol_lens_u8.iter()) {
-        compressor.insert(Symbol::from_slice(&symbol.to_le_bytes()), *symbol_len as _);
+    for (symbol, symbol_len) in symbols.iter().zip(symbol_lens.iter()) {
+        compressor.insert(*symbol, *symbol_len as usize);
     }
     let compressor = compressor.build();
 
