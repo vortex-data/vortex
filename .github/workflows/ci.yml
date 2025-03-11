@@ -255,8 +255,7 @@ jobs:
     name: Benchmark with Codspeed
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
-      - cpu=8
+      - family=c7i.8xlarge
       - image=ubuntu24-full-x64
 
     steps:
