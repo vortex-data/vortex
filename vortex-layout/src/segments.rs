@@ -270,6 +270,7 @@ impl Stream for SegmentStream {
 
 #[cfg(test)]
 pub mod test {
+    use futures::executor::block_on;
     use vortex_array::aliases::hash_map::HashMap;
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_buffer::ByteBufferMut;
@@ -308,7 +309,6 @@ pub mod test {
         }
     }
 
-    // Helper function to populate the segment store with test data
     fn setup_store() -> Arc<RwLock<SegmentStore>> {
         let mut store = BTreeMap::new();
 
@@ -337,239 +337,258 @@ pub mod test {
         Arc::new(RwLock::new(store))
     }
 
-    #[tokio::test]
-    async fn test_remove_fully_encompassed_segments() {
-        // Setup
-        let store = setup_store();
-        let (tx, mut rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_remove_fully_encompassed_segments() {
+        block_on(async {
+            // Setup
+            let store = setup_store();
+            let (tx, mut rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // Test removing segments in range 0..200
-        let result = pruner.remove(0..200).await;
-        assert!(result.is_ok(), "Removal operation should succeed");
+            // Test removing segments in range 0..200
+            let result = pruner.remove(0..200).await;
+            assert!(result.is_ok(), "Removal operation should succeed");
 
-        // Check that the correct segments were removed from the store
-        let store_lock = store.read().vortex_expect("poisoned lock");
-        assert!(!store_lock.contains_key(&SegmentPriority::new(
-            0,
-            100,
-            RequiredSegmentKind::PROJECTION
-        )));
-        assert!(!store_lock.contains_key(&SegmentPriority::new(
-            50,
-            150,
-            RequiredSegmentKind::PROJECTION
-        )));
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            150,
-            250,
-            RequiredSegmentKind::FILTER
-        ))); // Not fully encompassed
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            200,
-            300,
-            RequiredSegmentKind::PROJECTION
-        )));
-        assert!(store_lock.contains_key(&SegmentPriority::new(0, 0, RequiredSegmentKind::PRUNING)));
+            // Check that the correct segments were removed from the store
+            let store_lock = store.read().vortex_expect("poisoned lock");
+            assert!(!store_lock.contains_key(&SegmentPriority::new(
+                0,
+                100,
+                RequiredSegmentKind::PROJECTION
+            )));
+            assert!(!store_lock.contains_key(&SegmentPriority::new(
+                50,
+                150,
+                RequiredSegmentKind::PROJECTION
+            )));
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                150,
+                250,
+                RequiredSegmentKind::FILTER
+            ))); // Not fully encompassed
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                200,
+                300,
+                RequiredSegmentKind::PROJECTION
+            )));
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                0,
+                0,
+                RequiredSegmentKind::PRUNING
+            )));
 
-        // Check that the correct cancellation messages were sent
-        let mut received_cancellations = HashSet::new();
-        while let Ok(Some(id)) = rx.try_next() {
-            received_cancellations.insert(id);
-        }
+            // Check that the correct cancellation messages were sent
+            let mut received_cancellations = HashSet::new();
+            while let Ok(Some(id)) = rx.try_next() {
+                received_cancellations.insert(id);
+            }
 
-        assert!(received_cancellations.contains(&SegmentId(1)));
-        assert!(received_cancellations.contains(&SegmentId(2)));
-        assert!(!received_cancellations.contains(&SegmentId(3))); // Not fully encompassed
-        assert!(!received_cancellations.contains(&SegmentId(4)));
-        assert!(!received_cancellations.contains(&SegmentId(5)));
+            assert!(received_cancellations.contains(&SegmentId(1)));
+            assert!(received_cancellations.contains(&SegmentId(2)));
+            assert!(!received_cancellations.contains(&SegmentId(3))); // Not fully encompassed
+            assert!(!received_cancellations.contains(&SegmentId(4)));
+            assert!(!received_cancellations.contains(&SegmentId(5)));
+        })
     }
 
-    #[tokio::test]
-    async fn test_no_double_cancellation() {
-        // Setup
-        let store = setup_store();
-        let (tx, mut rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_no_double_cancellation() {
+        block_on(async {
+            // Setup
+            let store = setup_store();
+            let (tx, mut rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // First removal (0..100)
-        let result = pruner.remove(0..100).await;
-        assert!(result.is_ok(), "First removal operation should succeed");
+            // First removal (0..100)
+            let result = pruner.remove(0..100).await;
+            assert!(result.is_ok(), "First removal operation should succeed");
 
-        // Second removal with overlapping range (50..150)
-        let result = pruner.remove(50..150).await;
-        assert!(result.is_ok(), "Second removal operation should succeed");
+            // Second removal with overlapping range (50..150)
+            let result = pruner.remove(50..150).await;
+            assert!(result.is_ok(), "Second removal operation should succeed");
 
-        // Third removal with broader range (0..200)
-        let result = pruner.remove(0..200).await;
-        assert!(result.is_ok(), "Third removal operation should succeed");
+            // Third removal with broader range (0..200)
+            let result = pruner.remove(0..200).await;
+            assert!(result.is_ok(), "Third removal operation should succeed");
 
-        // Check all cancellation messages
-        let mut received_cancellations = Vec::new();
-        while let Ok(Some(id)) = rx.try_next() {
-            received_cancellations.push(id);
-        }
+            // Check all cancellation messages
+            let mut received_cancellations = Vec::new();
+            while let Ok(Some(id)) = rx.try_next() {
+                received_cancellations.push(id);
+            }
 
-        // Count occurrences of each segment ID
-        let mut id_counts = HashMap::new();
-        for id in received_cancellations {
-            *id_counts.entry(id).or_insert(0) += 1;
-        }
+            // Count occurrences of each segment ID
+            let mut id_counts = HashMap::new();
+            for id in received_cancellations {
+                *id_counts.entry(id).or_insert(0) += 1;
+            }
 
-        // Verify no segment was cancelled more than once
-        for (id, count) in id_counts {
-            assert_eq!(count, 1, "Segment {:?} was cancelled {} times", id, count);
-        }
+            // Verify no segment was cancelled more than once
+            for (id, count) in id_counts {
+                assert_eq!(count, 1, "Segment {:?} was cancelled {} times", id, count);
+            }
+        })
     }
 
-    #[tokio::test]
-    async fn test_range_merging() {
-        // Setup
-        let store = setup_store();
-        let (tx, _rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_range_merging() {
+        block_on(async {
+            // Setup
+            let store = setup_store();
+            let (tx, _rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // First removal (0..75)
-        let result = pruner.remove(0..75).await;
-        assert!(result.is_ok());
+            // First removal (0..75)
+            let result = pruner.remove(0..75).await;
+            assert!(result.is_ok());
 
-        // Second removal with adjacent range (75..150)
-        let result = pruner.remove(75..150).await;
-        assert!(result.is_ok());
+            // Second removal with adjacent range (75..150)
+            let result = pruner.remove(75..150).await;
+            assert!(result.is_ok());
 
-        // Third removal with overlapping range (125..200)
-        let result = pruner.remove(125..200).await;
-        assert!(result.is_ok());
+            // Third removal with overlapping range (125..200)
+            let result = pruner.remove(125..200).await;
+            assert!(result.is_ok());
 
-        // Check the store to confirm proper range merging behavior
-        let store_lock = store.read().vortex_expect("poisoned lock");
-        assert!(!store_lock.contains_key(&SegmentPriority::new(
-            0,
-            100,
-            RequiredSegmentKind::PROJECTION
-        )));
-        assert!(!store_lock.contains_key(&SegmentPriority::new(
-            50,
-            150,
-            RequiredSegmentKind::PROJECTION
-        )));
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            150,
-            250,
-            RequiredSegmentKind::FILTER
-        ))); // Not fully encompassed
+            // Check the store to confirm proper range merging behavior
+            let store_lock = store.read().vortex_expect("poisoned lock");
+            assert!(!store_lock.contains_key(&SegmentPriority::new(
+                0,
+                100,
+                RequiredSegmentKind::PROJECTION
+            )));
+            assert!(!store_lock.contains_key(&SegmentPriority::new(
+                50,
+                150,
+                RequiredSegmentKind::PROJECTION
+            )));
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                150,
+                250,
+                RequiredSegmentKind::FILTER
+            ))); // Not fully encompassed
+        })
     }
 
-    #[tokio::test]
-    async fn test_retain_matching_with_pruning_segments() {
-        // Setup
-        let store = setup_store();
-        let (tx, _rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_retain_matching_with_pruning_segments() {
+        block_on(async {
+            // Setup
+            let store = setup_store();
+            let (tx, _rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // Create a buffer with specific row indices
-        let row_indices = Buffer::from_iter(vec![75, 125, 175, 225, 325, 375]);
+            // Create a buffer with specific row indices
+            let row_indices = Buffer::from_iter(vec![75, 125, 175, 225, 325, 375]);
 
-        // Call retain_matching
-        pruner.retain_matching(row_indices);
+            // Call retain_matching
+            pruner.retain_matching(row_indices);
 
-        // Check that the correct segments were retained
-        let store_lock = store.read().vortex_expect("poisoned lock");
+            // Check that the correct segments were retained
+            let store_lock = store.read().vortex_expect("poisoned lock");
 
-        // Segments that intersect with the row indices should be kept
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            0,
-            100,
-            RequiredSegmentKind::PROJECTION
-        ))); // Contains 75
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            50,
-            150,
-            RequiredSegmentKind::PROJECTION
-        ))); // Contains 75, 125
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            150,
-            250,
-            RequiredSegmentKind::FILTER
-        ))); // Contains 175, 225
-        assert!(store_lock.contains_key(&SegmentPriority::new(
-            200,
-            300,
-            RequiredSegmentKind::PROJECTION
-        ))); // Contains 225
+            // Segments that intersect with the row indices should be kept
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                0,
+                100,
+                RequiredSegmentKind::PROJECTION
+            ))); // Contains 75
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                50,
+                150,
+                RequiredSegmentKind::PROJECTION
+            ))); // Contains 75, 125
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                150,
+                250,
+                RequiredSegmentKind::FILTER
+            ))); // Contains 175, 225
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                200,
+                300,
+                RequiredSegmentKind::PROJECTION
+            ))); // Contains 225
 
-        // PRUNING segments should always be kept
-        assert!(store_lock.contains_key(&SegmentPriority::new(0, 0, RequiredSegmentKind::PRUNING)));
+            // PRUNING segments should always be kept
+            assert!(store_lock.contains_key(&SegmentPriority::new(
+                0,
+                0,
+                RequiredSegmentKind::PRUNING
+            )));
+        })
     }
 
-    #[tokio::test]
-    async fn test_cancellation_channel_closed() {
-        // Setup
-        let store = setup_store();
-        let (tx, rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_cancellation_channel_closed() {
+        block_on(async {
+            let store = setup_store();
+            let (tx, rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // Drop the receiver to close the channel
-        drop(rx);
+            // Drop the receiver to close the channel
+            drop(rx);
 
-        // Attempt to remove segments
-        let result = pruner.remove(0..100).await;
+            // Attempt to remove segments
+            let result = pruner.remove(0..100).await;
 
-        // Should fail with channel closed error
-        assert!(
-            result.is_err(),
-            "Removal should fail when channel is closed"
-        );
+            // Should fail with channel closed error
+            assert!(
+                result.is_err(),
+                "Removal should fail when channel is closed"
+            );
+        })
     }
 
-    #[tokio::test]
-    async fn test_segments_of_different_kinds() {
-        // Setup
-        let store = setup_store();
-        let (tx, mut rx) = mpsc::unbounded();
-        let mut pruner = RowRangePruner {
-            store: store.clone(),
-            cancellations_tx: tx,
-            excluded_ranges: Default::default(),
-        };
+    #[test]
+    fn test_segments_of_different_kinds() {
+        block_on(async {
+            // Setup
+            let store = setup_store();
+            let (tx, mut rx) = mpsc::unbounded();
+            let mut pruner = RowRangePruner {
+                store: store.clone(),
+                cancellations_tx: tx,
+                excluded_ranges: Default::default(),
+            };
 
-        // Test removing segments that cover the entire range
-        let result = pruner.remove(0..400).await;
-        assert!(result.is_ok(), "Removal operation should succeed");
+            // Test removing segments that cover the entire range
+            let result = pruner.remove(0..400).await;
+            assert!(result.is_ok(), "Removal operation should succeed");
 
-        // Check that segments of all kinds that are fully encompassed were removed
-        let store_lock = store.read().vortex_expect("poisoned lock");
-        assert_eq!(store_lock.len(), 1);
+            // Check that segments of all kinds that are fully encompassed were removed
+            let store_lock = store.read().vortex_expect("poisoned lock");
+            assert_eq!(store_lock.len(), 1);
 
-        // Verify the cancellations
-        let mut received_cancellations = HashSet::new();
-        while let Ok(Some(id)) = rx.try_next() {
-            received_cancellations.insert(id);
-        }
+            // Verify the cancellations
+            let mut received_cancellations = HashSet::new();
+            while let Ok(Some(id)) = rx.try_next() {
+                received_cancellations.insert(id);
+            }
 
-        assert!(received_cancellations.contains(&SegmentId(1))); // PROJECTION
-        assert!(received_cancellations.contains(&SegmentId(2))); // PROJECTION
-        assert!(received_cancellations.contains(&SegmentId(3))); // FILTER
-        assert!(received_cancellations.contains(&SegmentId(4))); // PROJECTION
+            assert!(received_cancellations.contains(&SegmentId(1))); // PROJECTION
+            assert!(received_cancellations.contains(&SegmentId(2))); // PROJECTION
+            assert!(received_cancellations.contains(&SegmentId(3))); // FILTER
+            assert!(received_cancellations.contains(&SegmentId(4))); // PROJECTION
+        })
     }
 }
