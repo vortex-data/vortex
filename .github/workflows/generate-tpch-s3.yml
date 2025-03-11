@@ -33,4 +33,5 @@ jobs:
         run: |
           # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
           cargo run --release --bin tpch -- --formats parquet,vortex -i1
+          aws s3 rm --recursive s3://vortex-bench-dev-eu/tpch-sf1/
           aws s3 cp --recursive bench-vortex/data/tpch/1 s3://vortex-bench-dev-eu/tpch-sf1/
