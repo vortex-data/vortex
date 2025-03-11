@@ -22,14 +22,12 @@ crate-type = ["staticlib"]
 [dependencies]
 duckdb = { version = "1.2.0", features = ["vtab-loadable"] }
 duckdb-loadable-macros = "0.1.4"
-libduckdb-sys = { version = "1.2.0", features = ["loadable-extension"] }
-vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
-vortex-duckdb = { workspace = true }
-vortex-dtype = { workspace = true }
-vortex-layout = { workspace = true, features = ["tokio"] }
-vortex-error = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
+libduckdb-sys = { version = "1.2.0", features = ["loadable-extension"] }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
+vortex-array = { workspace = true }
+vortex-duckdb = { workspace = true }
+vortex-error = { workspace = true }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
-tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
+vortex-layout = { workspace = true, features = ["tokio"] }

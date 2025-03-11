@@ -89,11 +89,6 @@ impl VTab for HelloVTab {
         let arr = rt.block_on(async {
             let mut stream = bind_data.stream.lock().await;
             stream.next().await
-
-            // let pos = init_data.position.load(Ordering::SeqCst);
-            // let next_pos = min(pos + 2048, arr.len());
-            // let arr = slice(arr, pos, next_pos).unwrap();
-            // init_data.position.store(next_pos, Ordering::SeqCst);
         });
 
         let Some(arr) = arr else {
@@ -101,23 +96,6 @@ impl VTab for HelloVTab {
             return Ok(());
         };
 
-        //             Ok(vxf
-        //                 .scan()
-        //                 .with_projection(projection)
-        //                 .with_some_filter(filter)
-        //                 .with_prefetch_conjuncts(true)
-        //                 .with_canonicalize(true)
-        //                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
-        //                 // but at the moment our scanner has too much overhead to process small
-        //                 // batches efficiently.
-        //                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-        //                 .with_task_executor(executor)
-        //                 .into_array_stream()?
-        //                 .map(move |array| {
-        //                     let st = array?.to_struct()?;
-        //                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
-        //                 })
-        //                 .boxed())
         let arr = arr.unwrap();
         let struct_a = arr.to_struct().unwrap();
         let _null = to_duckdb_chunk(&struct_a, output).unwrap();

@@ -21,14 +21,12 @@ pub trait ToDuckDB {
 pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
-) -> VortexResult<Vec<bool>> {
-    let mut nullable = vec![false; struct_array.len()];
+) -> VortexResult<()> {
     for (idx, field) in struct_array.fields().iter().enumerate() {
         field.to_duckdb(&mut DataChunkHandleSlice::new(chunk, idx))?;
-        nullable[idx] = field.dtype().is_nullable();
     }
     chunk.set_len(struct_array.len());
-    Ok(nullable)
+    Ok(())
 }
 
 impl ToDuckDB for ArrayRef {
@@ -90,7 +88,6 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 #[cfg(test)]
 mod tests {
     use duckdb::core::DataChunkHandle;
-    use itertools::Itertools;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
     use vortex_array::variants::StructArrayTrait;
@@ -122,16 +119,16 @@ mod tests {
     #[test]
     fn test_vortex_to_duckdb() {
         let arr = data();
-        let ddb_type = arr
+        let (nullable, ddb_type): (Vec<_>, Vec<_>) = arr
             .dtype()
             .as_struct()
             .unwrap()
             .fields()
-            .map(|f| f.to_duckdb_type().unwrap())
-            .collect_vec();
+            .map(|f| (f.is_nullable(), f.to_duckdb_type().unwrap()))
+            .unzip();
         let struct_arr = arr.to_struct().unwrap();
         let mut output_chunk = DataChunkHandle::new(ddb_type.as_slice());
-        let nullable = to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
+        to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
 
         let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
             &output_chunk,
