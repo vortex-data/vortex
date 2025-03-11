@@ -161,12 +161,14 @@ impl BinaryView {
             12 => Self {
                 inlined: Inlined::new::<12>(value),
             },
-            _ => Self { _ref: Ref::new(
-                u32::try_from(value.len()).vortex_unwrap(),
-                value[0..4].try_into().vortex_unwrap(),
-                block,
-                offset,
-            )},
+            _ => Self {
+                _ref: Ref::new(
+                    u32::try_from(value.len()).vortex_unwrap(),
+                    value[0..4].try_into().vortex_unwrap(),
+                    block,
+                    offset,
+                ),
+            },
         }
     }
 
