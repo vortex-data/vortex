@@ -150,10 +150,6 @@ jobs:
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui"
     steps:
       - uses: runs-on/action@v1
-      # - uses: runs-on/cache@v4
-      #   with:
-      #     path: .
-      #     key: ${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
         with:
