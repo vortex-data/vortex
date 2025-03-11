@@ -9,21 +9,17 @@ use vortex_error::VortexResult;
     Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive, TryFromPrimitive,
 )]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(u8)]
 pub enum TimeUnit {
     /// Nanoseconds
-    #[serde(rename = "ns")]
     Ns,
     /// Microseconds
-    #[serde(rename = "us")]
     Us,
     /// Milliseconds
-    #[serde(rename = "ms")]
     Ms,
     /// Seconds
-    #[serde(rename = "s")]
     S,
     /// Days
-    #[serde(rename = "d")]
     D,
 }
 
@@ -44,7 +40,7 @@ impl Display for TimeUnit {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ns => write!(f, "ns"),
-            Self::Us => write!(f, "μs"),
+            Self::Us => write!(f, "µs"),
             Self::Ms => write!(f, "ms"),
             Self::S => write!(f, "s"),
             Self::D => write!(f, "days"),
