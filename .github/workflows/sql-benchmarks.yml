@@ -31,7 +31,7 @@ jobs:
       - image=ubuntu24-full-x64
       - disk=large
       - spot=false
-      - tag=${{ matrix.id }}
+      - tag=${{ matrix.include.id }}
 
     steps:
       - uses: runs-on/action@v1
