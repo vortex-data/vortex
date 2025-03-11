@@ -1,7 +1,7 @@
 name: "Generate TPC-H files to S3"
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: { }
   schedule:
     # 5AM UTC
     - cron: "0 5 * * *"
@@ -21,9 +21,6 @@ jobs:
       - family=m7i.2xlarge
       - image=ubuntu24-full-x64
       - spot=false
-    env:
-      REMOTE_PATH: s3://vortex-bench-dev-eu/tpch-sf1/
-      TMPDIR: /work
     steps:
       - uses: actions/checkout@v4
       - name: Setup AWS CLI
@@ -36,4 +33,4 @@ jobs:
         run: |
           # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
           cargo run --release --bin tpch -- --formats parquet,vortex -i1
-          aws s3 cp --recursive bench-vortex/data/tpch/1 $REMOTE_PATH
+          aws s3 cp --recursive bench-vortex/data/tpch/1 s3://vortex-bench-dev-eu/tpch-sf1/
