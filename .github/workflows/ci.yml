@@ -114,11 +114,10 @@ jobs:
     name: "Rust build (${{matrix.config.name}})"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i
-      - cpu: [4, 6, 8]
+      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
-      - spot=false
       - tag=${{ matrix.config.name }}
 
     env:
