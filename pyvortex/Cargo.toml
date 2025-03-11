@@ -27,6 +27,7 @@ arrow = { workspace = true, features = ["pyarrow"] }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 pyo3 = { workspace = true }
 pyo3-log = { workspace = true }

@@ -21,5 +21,5 @@ pub async fn parquet_to_vortex(parquet_path: PathBuf) -> VortexResult<impl Array
         }),
     );
 
-    Ok(array_iter.into_stream())
+    Ok(array_iter.into_array_stream())
 }

@@ -13,11 +13,12 @@ use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
-use vortex::stream::ArrayStream;
+use vortex::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
+use crate::iter::ArrayStreamToIterator;
 use crate::object_store_urls::vortex_read_at_from_url;
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
@@ -28,7 +29,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.dataset", &m)?;
 
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
-    m.add_function(wrap_pyfunction!(dataset_from_path, &m)?)?;
 
     Ok(())
 }
@@ -87,21 +87,18 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
 }
 
 fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
-    row_filter.map(|x| x.borrow().unwrap().clone())
+    row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[pyclass(name = "TokioFileDataset", module = "io")]
-pub struct TokioFileDataset {
-    vxf: VortexFile<GenericVortexFile<TokioFile>>,
+#[pyclass(name = "VortexDataset", module = "io")]
+pub struct PyVortexDataset {
+    vxf: Arc<VortexFile<GenericVortexFile<TokioFile>>>,
     schema: SchemaRef,
 }
 
-impl TokioFileDataset {
-    pub async fn try_new(path: String) -> VortexResult<Self> {
-        let file = TokioFile::open(path)?;
-        let vxf = VortexOpenOptions::file(file).open().await?;
+impl PyVortexDataset {
+    pub fn try_new(vxf: Arc<VortexFile<GenericVortexFile<TokioFile>>>) -> VortexResult<Self> {
         let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
-
         Ok(Self { vxf, schema })
     }
 
@@ -137,17 +134,17 @@ impl TokioFileDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_array_stream()?;
-
+        let iter =
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
 
         record_batch_reader.into_pyarrow(self_.py())
     }
 }
 
 #[pymethods]
-impl TokioFileDataset {
+impl PyVortexDataset {
     fn schema(self_: PyRef<Self>) -> PyResult<PyObject> {
         self_.schema.clone().to_pyarrow(self_.py())
     }
@@ -225,10 +222,11 @@ impl ObjectStoreUrlDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_array_stream()?;
+        let iter =
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
         record_batch_reader.into_pyarrow(self_.py())
     }
 }
@@ -267,9 +265,4 @@ impl ObjectStoreUrlDataset {
 #[pyfunction]
 pub fn dataset_from_url(url: Bound<PyString>) -> PyResult<ObjectStoreUrlDataset> {
     Ok(TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?)
-}
-
-#[pyfunction]
-pub fn dataset_from_path(path: Bound<PyString>) -> PyResult<TokioFileDataset> {
-    Ok(TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?)
 }

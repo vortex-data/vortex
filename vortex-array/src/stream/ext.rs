@@ -20,7 +20,7 @@ pub trait ArrayStreamExt: ArrayStream {
     /// Collect the stream into a single `Array`.
     ///
     /// If the stream yields multiple chunks, they will be returned as a [`ChunkedArray`].
-    fn into_array(self) -> impl Future<Output = VortexResult<ArrayRef>>
+    fn read_all(self) -> impl Future<Output = VortexResult<ArrayRef>>
     where
         Self: Sized,
     {

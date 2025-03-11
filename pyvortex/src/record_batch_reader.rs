@@ -1,75 +1,45 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
-use arrow::array::{RecordBatch, RecordBatchReader};
-use arrow::datatypes::SchemaRef;
+use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
+use arrow::datatypes::{DataType, SchemaRef};
 use arrow::error::ArrowError;
-use futures::StreamExt;
-use vortex::ArrayRef;
-use vortex::error::{VortexError, VortexResult};
-use vortex::stream::ArrayStream;
+use vortex::compute::to_arrow;
+use vortex::error::VortexResult;
+use vortex::iter::ArrayIterator;
 
-fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
-    ArrowError::ExternalError(Box::new(error))
-}
-
-fn vortex_to_arrow(result: VortexResult<ArrayRef>) -> Result<RecordBatch, ArrowError> {
-    result
-        .and_then(|a| RecordBatch::try_from(a.as_ref()))
-        .map_err(vortex_to_arrow_error)
-}
-
-pub trait AsyncRuntime {
-    fn block_on<F: Future>(&self, fut: F) -> F::Output;
-}
-
-impl AsyncRuntime for tokio::runtime::Runtime {
-    fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        self.block_on(fut)
-    }
-}
-
-pub struct VortexRecordBatchReader<'a, S, AR> {
-    stream: Pin<Box<S>>,
+/// Adapter for converting a [`ArrayIterator`] into an Arrow [`RecordBatchReader`].
+pub struct VortexRecordBatchReader<I> {
+    iter: I,
     arrow_schema: SchemaRef,
-    runtime: &'a AR,
+    arrow_dtype: DataType,
 }
 
-impl<'a, S, AR> VortexRecordBatchReader<'a, S, AR>
-where
-    S: ArrayStream,
-    AR: AsyncRuntime,
-{
-    pub fn try_new(stream: S, runtime: &'a AR) -> VortexResult<Self> {
-        let arrow_schema = Arc::new(stream.dtype().to_arrow_schema()?);
-        let stream = Box::pin(stream);
+impl<I: ArrayIterator> VortexRecordBatchReader<I> {
+    pub fn try_new(iter: I) -> VortexResult<Self> {
+        let arrow_schema = Arc::new(iter.dtype().to_arrow_schema()?);
+        let arrow_dtype = DataType::Struct(arrow_schema.fields().clone());
         Ok(VortexRecordBatchReader {
-            stream,
+            iter,
             arrow_schema,
-            runtime,
+            arrow_dtype,
         })
     }
 }
 
-impl<S, AR> Iterator for VortexRecordBatchReader<'_, S, AR>
-where
-    S: ArrayStream,
-    AR: AsyncRuntime,
-{
+impl<I: ArrayIterator> Iterator for VortexRecordBatchReader<I> {
     type Item = Result<RecordBatch, ArrowError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let maybe_result = self.runtime.block_on(self.stream.next());
-        maybe_result.map(vortex_to_arrow)
+        self.iter.next().map(|result| {
+            result
+                .and_then(|array| to_arrow(&array, &self.arrow_dtype))
+                .map_err(|e| ArrowError::ExternalError(Box::new(e)))
+                .map(|array| RecordBatch::from(array.as_struct()))
+        })
     }
 }
 
-impl<S, AR> RecordBatchReader for VortexRecordBatchReader<'_, S, AR>
-where
-    S: ArrayStream,
-    AR: AsyncRuntime,
-{
+impl<I: ArrayIterator> RecordBatchReader for VortexRecordBatchReader<I> {
     fn schema(&self) -> SchemaRef {
         self.arrow_schema.clone()
     }

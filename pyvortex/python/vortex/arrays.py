@@ -391,7 +391,12 @@ class PyArray(Array, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __len__(self) -> int:
-        """Return the logical length of the array."""
+        """The logical length of the array."""
+
+    @property
+    @abc.abstractmethod
+    def dtype(self) -> vx.DType:
+        """The data type of the array."""
 
     @classmethod
     @abc.abstractmethod

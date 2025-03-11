@@ -191,6 +191,7 @@ benchmarks/.out
 # Scratch
 *.txt
 *.vortex
+*.parquet
 
 # TPC-H benchmarking data
 /data/

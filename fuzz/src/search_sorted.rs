@@ -105,6 +105,6 @@ pub fn search_sorted_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
-        _ => unreachable!("Not a canonical array"),
+        d => unreachable!("DType {d} not supported for fuzzing"),
     }
 }

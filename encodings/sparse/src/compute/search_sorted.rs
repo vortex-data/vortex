@@ -52,8 +52,9 @@ impl SearchSortedFn<&SparseArray> for SparseEncoding {
     }
 }
 
+// Find the fill position relative to patches, in case of fill being in between patches we want to find the right most
+// index of the fill relative to patches.
 fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<usize> {
-    // In not found case we need to find the relative position of fill value to the patches
     let fill_result = if array.fill_scalar().is_null() {
         // For null fill the patches can only ever be after the fill
         SearchResult::NotFound(array.patches().min_index()?)
@@ -72,27 +73,19 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
         array.len()
     } else {
         // [patch, fill, ..., fill, patch]
-        match side {
-            SearchSortedSide::Left => fill_result_index,
-            SearchSortedSide::Right => {
-                // When searching from right we need to find the right most occurrence of our fill value. If fill value
-                // is present in patches this would be the index of the next value after the fill value
-                let fill_index = array.patches().search_index(fill_result_index)?.to_index();
-                if fill_index < array.patches().num_patches() {
-                    // Since we are searching from right the fill_index is the index one after the found one
-                    let next_index =
-                        usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?;
-                    // fill value is dense with a next patch value we want to return the original fill_index,
-                    // i.e. the fill value cannot exist between fill_index and next_index
-                    if fill_index + 1 == next_index {
-                        fill_index
-                    } else {
-                        next_index
-                    }
-                } else {
-                    fill_index
-                }
+        // If fill value is present in patches this would be the index of the next value after the fill value
+        let fill_index = array.patches().search_index(fill_result_index)?.to_index();
+        if fill_index < array.patches().num_patches() {
+            let next_index = usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?;
+            // fill value search result is dense with a next patch value we want to return the original fill_index,
+            // i.e. the fill value cannot exist between fill_index and next_index
+            if fill_index + 1 == next_index {
+                fill_index
+            } else {
+                next_index
             }
+        } else {
+            fill_index
         }
     })
 }
@@ -114,7 +107,7 @@ impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
     use vortex_array::validity::Validity;
@@ -208,6 +201,30 @@ mod tests {
             buffer![11i32, 22, 33, 44, 55].into_array(),
             20,
             Scalar::primitive(33, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    #[fixture]
+    fn sparse_edge_patch_high() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 1, 2, 19].into_array(),
+            buffer![11i32, 22, 23, 55].into_array(),
+            20,
+            Scalar::primitive(33, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    #[fixture]
+    fn sparse_edge_patch_low() -> ArrayRef {
+        SparseArray::try_new(
+            buffer![0u64, 17, 18, 19].into_array(),
+            buffer![11i32, 33, 44, 55].into_array(),
+            20,
+            Scalar::primitive(22, Nullability::NonNullable),
         )
         .unwrap()
         .into_array()
@@ -385,5 +402,53 @@ mod tests {
     ) {
         let res = search_sorted(&array, search, SearchSortedSide::Right).unwrap();
         assert_eq!(res, expected);
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_high_left(#[from(sparse_edge_patch_high)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 25, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(3)
+        );
+        assert_eq!(
+            search_sorted(&array, 44, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(19)
+        );
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_high_right(#[from(sparse_edge_patch_high)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 25, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(3)
+        );
+        assert_eq!(
+            search_sorted(&array, 44, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(19)
+        );
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_low_left(#[from(sparse_edge_patch_low)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 20, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&array, 28, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(17)
+        );
+    }
+
+    #[rstest]
+    fn search_between_fill_and_patch_low_right(#[from(sparse_edge_patch_low)] array: ArrayRef) {
+        assert_eq!(
+            search_sorted(&array, 20, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&array, 28, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(17)
+        );
     }
 }

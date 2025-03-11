@@ -39,7 +39,7 @@ pub async fn fetch_taxi_data() -> ArrayRef {
         .await
         .unwrap()
         .scan()
-        .into_array()
+        .read_all()
         .await
         .unwrap()
 }

@@ -4,12 +4,12 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, CompareFn, FilterFn, ScalarAtFn, SliceFn, StrictComparison, TakeFn,
-    between, filter, scalar_at, slice, take,
+    BetweenFn, BetweenOptions, CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn,
+    SliceFn, StrictComparison, TakeFn, between, filter, scalar_at, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -17,16 +17,15 @@ use vortex_scalar::{Scalar, ScalarType};
 
 use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
+impl ArrayComputeImpl for ALPArray {
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(ALPEncoding).some();
+}
 impl ComputeVTable for ALPEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         Some(self)
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -102,7 +101,7 @@ impl SliceFn<&ALPArray> for ALPEncoding {
     }
 }
 
-impl FilterFn<&ALPArray> for ALPEncoding {
+impl FilterKernel for ALPEncoding {
     fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()

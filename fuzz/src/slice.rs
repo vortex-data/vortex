@@ -14,7 +14,6 @@ pub fn slice_canonical_array(
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array.validity_mask()?.to_boolean_buffer();
-
         Validity::from(bool_buff.slice(start, stop - start))
     } else {
         Validity::NonNullable
@@ -64,8 +63,8 @@ pub fn slice_canonical_array(
 
             let elements = slice_canonical_array(
                 list_array.elements(),
-                offsets.get_as_cast::<u64>(0) as usize,
-                offsets.get_as_cast::<u64>(offsets.len() - 1) as usize,
+                usize::try_from(offsets.get_as_cast::<u64>(0))?,
+                usize::try_from(offsets.get_as_cast::<u64>(offsets.len() - 1))?,
             )?;
             let offsets = match_each_native_ptype!(offsets.ptype(), |$P| {
                 shift_offsets::<$P>(offsets)
@@ -73,7 +72,7 @@ pub fn slice_canonical_array(
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
         }
-        _ => unreachable!("Not a canonical array"),
+        d => unreachable!("DType {d} not supported for fuzzing"),
     }
 }
 

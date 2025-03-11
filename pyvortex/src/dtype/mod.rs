@@ -5,17 +5,19 @@ mod factory;
 mod list;
 mod null;
 mod primitive;
+mod ptype;
 mod struct_;
 mod utf8;
 
 use std::ops::Deref;
 
 use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::FromPyArrow;
+use arrow::pyarrow::{FromPyArrow, IntoPyArrow};
+pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
-    Bound, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
+    Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
 use vortex::dtype::DType;
@@ -40,6 +42,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     // Register the DType class.
     m.add_class::<PyDType>()?;
+    m.add_class::<PyPType>()?;
     m.add_class::<PyNullDType>()?;
     m.add_class::<PyBoolDType>()?;
     m.add_class::<PyPrimitiveDType>()?;
@@ -59,13 +62,14 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_binary, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_ext, &m)?)?;
 
     Ok(())
 }
 
 /// Base class for all Vortex data types.
 #[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 
 impl From<DType> for PyDType {
@@ -127,6 +131,14 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
+    fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
+        self.0.to_arrow_dtype()?.into_pyarrow(py)
+    }
+
+    fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
+        self.0.to_arrow_schema()?.into_pyarrow(py)
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }

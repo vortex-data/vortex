@@ -8,7 +8,7 @@ dependencies = ["pyarrow>=17.0.0", "substrait>=0.23.0"]
 requires-python = ">= 3.10"
 
 [project.optional-dependencies]
-polars = ["polars>=1.9.0"]
+polars = ["polars>=1.24.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 
@@ -30,16 +30,16 @@ python-source = "python"
 module-name = "vortex._lib"
 features = ["pyo3/extension-module"]
 include = [
-  { path = "rust-toolchain.toml", format = "sdist" },
-  { path = "README.md", format = "sdist" },
-  { path = "python/vortex/py.typed", format = "sdist" },
+    { path = "rust-toolchain.toml", format = "sdist" },
+    { path = "README.md", format = "sdist" },
+    { path = "python/vortex/py.typed", format = "sdist" },
 ]
 
 [dependency-groups]
 dev = [
-  "mypy>=1.14.1",
-  "numpy>=2.2.2",
-  "pandas-stubs>=2.2.3.241126",
-  "pcodec>=0.3.3",
-  "pyarrow-stubs>=17.16",
+    "mypy>=1.14.1",
+    "numpy>=2.2.2",
+    "pandas-stubs>=2.2.3.241126",
+    "pcodec>=0.3.3",
+    "pyarrow-stubs>=17.16",
 ]

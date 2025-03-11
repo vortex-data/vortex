@@ -4,7 +4,6 @@ pub(crate) mod fastlanes;
 pub(crate) mod from_arrow;
 mod native;
 pub(crate) mod py;
-pub(crate) mod typed;
 
 use std::sync::Arc;
 
@@ -23,13 +22,6 @@ use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyArrayInstance;
-use crate::arrays::typed::{
-    PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
-    PyFloat32TypeArray, PyFloat64TypeArray, PyFloatTypeArray, PyInt8TypeArray, PyInt16TypeArray,
-    PyInt32TypeArray, PyInt64TypeArray, PyIntTypeArray, PyIntegerTypeArray, PyListTypeArray,
-    PyNullTypeArray, PyPrimitiveTypeArray, PyStructTypeArray, PyUInt8TypeArray, PyUInt16TypeArray,
-    PyUInt32TypeArray, PyUInt64TypeArray, PyUIntTypeArray, PyUtf8TypeArray,
-};
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -45,8 +37,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyNativeArray>()?;
 
     // Canonical encodings
-    m.add_class::<builtins::PyConstantArray>()?;
-    m.add_class::<builtins::PyChunkedArray>()?;
     m.add_class::<builtins::PyNullArray>()?;
     m.add_class::<builtins::PyBoolArray>()?;
     m.add_class::<builtins::PyPrimitiveArray>()?;
@@ -55,6 +45,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<builtins::PyStructArray>()?;
     m.add_class::<builtins::PyListArray>()?;
     m.add_class::<builtins::PyExtensionArray>()?;
+
+    // Utility encodings
+    m.add_class::<builtins::PyConstantArray>()?;
+    m.add_class::<builtins::PyChunkedArray>()?;
+    m.add_class::<builtins::PyByteBoolArray>()?;
 
     // Compressed encodings
     m.add_class::<compressed::PyAlpArray>()?;
@@ -70,31 +65,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<fastlanes::PyFastLanesBitPackedArray>()?;
     m.add_class::<fastlanes::PyFastLanesDeltaArray>()?;
     m.add_class::<fastlanes::PyFastLanesFoRArray>()?;
-
-    // Typed arrays
-    m.add_class::<PyNullTypeArray>()?;
-    m.add_class::<PyBoolTypeArray>()?;
-    m.add_class::<PyPrimitiveTypeArray>()?;
-    m.add_class::<PyIntegerTypeArray>()?;
-    m.add_class::<PyUIntTypeArray>()?;
-    m.add_class::<PyIntTypeArray>()?;
-    m.add_class::<PyFloatTypeArray>()?;
-    m.add_class::<PyUInt8TypeArray>()?;
-    m.add_class::<PyUInt16TypeArray>()?;
-    m.add_class::<PyUInt32TypeArray>()?;
-    m.add_class::<PyUInt64TypeArray>()?;
-    m.add_class::<PyInt8TypeArray>()?;
-    m.add_class::<PyInt16TypeArray>()?;
-    m.add_class::<PyInt32TypeArray>()?;
-    m.add_class::<PyInt64TypeArray>()?;
-    m.add_class::<PyFloat16TypeArray>()?;
-    m.add_class::<PyFloat32TypeArray>()?;
-    m.add_class::<PyFloat64TypeArray>()?;
-    m.add_class::<PyUtf8TypeArray>()?;
-    m.add_class::<PyBinaryTypeArray>()?;
-    m.add_class::<PyStructTypeArray>()?;
-    m.add_class::<PyListTypeArray>()?;
-    m.add_class::<PyExtensionTypeArray>()?;
 
     Ok(())
 }
@@ -199,6 +169,13 @@ pub struct PyArray;
 
 #[pymethods]
 impl PyArray {
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    #[allow(unused_variables)]
+    fn new(args: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyAny>>) -> Self {
+        Self
+    }
+
     /// Convert a PyArrow object into a Vortex array.
     ///
     /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
@@ -250,11 +227,8 @@ impl PyArray {
                 .iter()
                 .map(|chunk| PyResult::Ok(chunk.clone().into_arrow(&arrow_dtype)?))
                 .collect::<PyResult<Vec<ArrowArrayRef>>>()?;
-            if chunks.is_empty() {
-                return Err(PyValueError::new_err("No chunks in array"));
-            }
 
-            let pa_data_type = chunks[0].data_type().clone().to_pyarrow(py)?;
+            let pa_data_type = arrow_dtype.clone().to_pyarrow(py)?;
             let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))

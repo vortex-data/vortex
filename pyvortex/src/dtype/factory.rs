@@ -4,7 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyResult, Python, pyfunction};
-use vortex::dtype::{DType, FieldName, PType, StructDType};
+use vortex::dtype::{DType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructDType};
 
 use crate::dtype::PyDType;
 
@@ -315,5 +315,37 @@ pub(super) fn dtype_list<'py>(
     PyDType::init(
         element.py(),
         DType::List(Arc::new(element.get().inner().clone()), nullable.into()),
+    )
+}
+
+/// Construct an extension data type.
+///
+/// Parameters
+/// ----------
+/// id : :class:`str`
+///     The extension identifier.
+/// storage : :class:`DType`
+///     The underlying storage type.
+/// metadata : :class:`bytes`
+///    The extension type metadata.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+#[pyfunction(name = "ext")]
+#[pyo3(signature = (id, storage, *, metadata = None))]
+pub(super) fn dtype_ext<'py>(
+    py: Python<'py>,
+    id: &'py str,
+    storage: PyDType,
+    metadata: Option<&'py [u8]>,
+) -> PyResult<Bound<'py, PyDType>> {
+    PyDType::init(
+        py,
+        DType::Extension(Arc::new(ExtDType::new(
+            ExtID::new(id.into()),
+            Arc::new(storage.into_inner()),
+            metadata.map(|bytes| ExtMetadata::new(bytes.into())),
+        ))),
     )
 }

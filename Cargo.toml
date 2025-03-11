@@ -270,6 +270,12 @@ codegen-units = 16
 debug = "full"
 lto = false
 
+[profile.samply]
+inherits = "release"
+codegen-units = 1
+debug = "full"
+lto = false
+
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"

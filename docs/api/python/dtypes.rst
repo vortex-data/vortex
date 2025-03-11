@@ -61,3 +61,9 @@ DType Classes
 .. autoclass:: vortex.ExtensionDType
      :members:
 
+
+Primitive Types
+---------------
+
+.. autoclass:: vortex.PType
+     :members:

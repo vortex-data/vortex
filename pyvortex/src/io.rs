@@ -1,14 +1,17 @@
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
-use vortex::stream::ArrayStreamArrayExt;
+use vortex::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
+use vortex::{Canonical, IntoArray};
 
-use crate::arrays::PyArrayRef;
-use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
+use crate::arrays::{PyArray, PyArrayRef};
+use crate::dataset::ObjectStoreUrlDataset;
 use crate::expr::PyExpr;
-use crate::{TOKIO_RUNTIME, install_module};
+use crate::iter::PyArrayIterator;
+use crate::{PyVortex, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -16,122 +19,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.io", &m)?;
 
     m.add_function(wrap_pyfunction!(read_url, &m)?)?;
-    m.add_function(wrap_pyfunction!(read_path, &m)?)?;
-    m.add_function(wrap_pyfunction!(write_path, &m)?)?;
+    m.add_function(wrap_pyfunction!(write, &m)?)?;
 
     Ok(())
 }
 
-/// Read a vortex struct array from the local filesystem.
-///
-/// Parameters
-/// ----------
-/// path : :class:`str`
-///     The file path to read from.
-/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
-///     The columns to read identified either by their index or name.
-/// row_filter : :class:`.Expr`
-///     Keep only the rows for which this expression evaluates to true.
-/// indices : :class:`vortex.Array`
-///     The indices of the rows to read.
-///
-/// Examples
-/// --------
-///
-/// Read an array with a structured column and nulls at multiple levels and in multiple columns.
-///
-///     >>> import vortex as vx
-///     >>> a = vx.array([
-///     ...     {'name': 'Joseph', 'age': 25},
-///     ...     {'name': None, 'age': 31},
-///     ...     {'name': 'Angela', 'age': None},
-///     ...     {'name': 'Mikhail', 'age': 57},
-///     ...     {'name': None, 'age': None},
-///     ... ])
-///     >>> vx.io.write_path(a, "a.vortex")
-///     >>> b = vx.io.read_path("a.vortex")
-///     >>> b.to_arrow_array()
-///     <pyarrow.lib.StructArray object at ...>
-///     -- is_valid: all not null
-///     -- child 0 type: int64
-///       [
-///         25,
-///         31,
-///         null,
-///         57,
-///         null
-///       ]
-///     -- child 1 type: string_view
-///       [
-///         "Joseph",
-///         null,
-///         "Angela",
-///         "Mikhail",
-///         null
-///       ]
-///
-/// Read just the age column:
-///
-///     >>> c = vx.io.read_path("a.vortex", projection = ["age"])
-///     >>> c.to_arrow_array()
-///     <pyarrow.lib.StructArray object at ...>
-///     -- is_valid: all not null
-///     -- child 0 type: int64
-///       [
-///         25,
-///         31,
-///         null,
-///         57,
-///         null
-///       ]
-///
-///
-/// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
-///
-///     >>> e = vx.io.read_path("a.vortex", row_filter = vx.expr.column("age") > 35)
-///     >>> e.to_arrow_array()
-///     <pyarrow.lib.StructArray object at ...>
-///     -- is_valid: all not null
-///     -- child 0 type: int64
-///       [
-///         57
-///       ]
-///     -- child 1 type: string_view
-///       [
-///         "Mikhail"
-///       ]
-///
-/// Read the age column by name, twice, and the name column by index, once:
-///
-///     >>> # e = vx.io.read_path("a.vortex", projection = ["age", 1, "age"])
-///     >>> # e.to_arrow_array()
-///     >>> a = vx.array([
-///     ...     {'name': 'Joseph', 'age': 25},
-///     ...     {'name': None, 'age': 31},
-///     ...     {'name': 'Angela', 'age': None},
-///     ...     None,
-///     ...     {'name': 'Mikhail', 'age': 57},
-///     ...     {'name': None, 'age': None},
-///     ... ])
-///     >>> vx.io.write_path(a, "a.vortex") # doctest: +SKIP
-///     >>> # b = vx.io.read_path("a.vortex")
-///     >>> # b.to_arrow_array()
-#[pyfunction]
-#[pyo3(signature = (path, *, projection = None, row_filter = None, indices = None))]
-pub fn read_path<'py>(
-    path: Bound<'py, PyString>,
-    projection: Option<Vec<Bound<'py, PyAny>>>,
-    row_filter: Option<&Bound<'py, PyExpr>>,
-    indices: Option<PyArrayRef>,
-) -> PyResult<PyArrayRef> {
-    let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
-    dataset.to_array(projection, row_filter, indices)
-}
-
 /// Read a vortex struct array from a URL.
-///
-/// .. seealso::
-///     :func:`.read_path`
 ///
 /// Parameters
 /// ----------
@@ -205,16 +98,49 @@ pub fn read_url<'py>(
 ///     ...     {'x': 11},
 ///     ...     {'x': None},
 ///     ... ])
-///     >>> vx.io.write_path(a, "a.vortex")
+///     >>> vx.io.write(a, "a.vortex")
 ///
 #[pyfunction]
-#[pyo3(signature = (array, path))]
-pub fn write_path(array: PyArrayRef, path: &str) -> PyResult<()> {
+#[pyo3(signature = (iter, path))]
+pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
-            .write(File::create(path).await?, array.to_array_stream())
+            .write(
+                File::create(path).await?,
+                iter.into_inner().into_array_stream(),
+            )
             .await
     })?;
 
     Ok(())
+}
+
+/// Conversion type for converting Python objects into a [`vortex::ArrayIterator`].
+pub type PyIntoArrayIterator = PyVortex<Box<dyn ArrayIterator + Send>>;
+
+impl<'py> FromPyObject<'py> for PyIntoArrayIterator {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(py_iter) = ob.downcast::<PyArrayIterator>() {
+            return Ok(PyVortex(py_iter.get().take().unwrap_or_else(|| {
+                Box::new(
+                    Canonical::empty(py_iter.get().dtype())
+                        .into_array()
+                        .to_array_iterator(),
+                )
+            })));
+        }
+
+        if let Ok(py_array) = ob.downcast::<PyArray>() {
+            return Ok(PyVortex(Box::new(
+                py_array
+                    .extract::<PyArrayRef>()?
+                    .into_inner()
+                    .to_array_iterator(),
+            )));
+        }
+
+        Err(PyTypeError::new_err(
+            "Expected an object that can be converted to an ArrayIterator",
+        ))
+    }
 }

@@ -7,13 +7,19 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 .. autosummary::
    :nosignatures:
 
-   ~vortex.io.read_path
+   ~vortex.open
+   ~vortex.VortexFile
    ~vortex.io.read_url
-   ~vortex.io.write_path
+   ~vortex.io.write
 
 .. raw:: html
 
    <hr>
+
+.. autofunction:: vortex.open
+
+.. autoclass:: vortex.VortexFile
+   :members:
 
 .. automodule:: vortex.io
     :members:

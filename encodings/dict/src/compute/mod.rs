@@ -5,16 +5,20 @@ mod is_sorted;
 mod like;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FilterFn, IsConstantFn, IsSortedFn, LikeFn, ScalarAtFn, SliceFn,
-    TakeFn, filter, scalar_at, slice, take,
+    BinaryNumericFn, CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsSortedFn,
+    KernelRef, LikeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
+
+impl ArrayComputeImpl for DictArray {
+    const FILTER: Option<KernelRef> = FilterKernelAdapter(DictEncoding).some();
+}
 
 impl ComputeVTable for DictEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
@@ -30,10 +34,6 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
@@ -68,7 +68,7 @@ impl TakeFn<&DictArray> for DictEncoding {
     }
 }
 
-impl FilterFn<&DictArray> for DictEncoding {
+impl FilterKernel for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())

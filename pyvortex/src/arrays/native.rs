@@ -1,19 +1,36 @@
 use std::ops::Deref;
 
 use pyo3::PyClass;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use vortex::dtype::{DType, PType};
+use vortex::arrays::{
+    BoolArray, ChunkedArray, ConstantArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
+    StructArray, VarBinArray, VarBinViewArray,
+};
+use vortex::encodings::alp::{ALPArray, ALPRDArray};
+use vortex::encodings::bytebool::ByteBoolArray;
+use vortex::encodings::datetime_parts::DateTimePartsArray;
+use vortex::encodings::dict::DictArray;
+use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
+use vortex::encodings::fsst::FSSTArray;
+use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::sparse::SparseArray;
+use vortex::encodings::zigzag::ZigZagArray;
 use vortex::error::VortexExpect;
 use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayRef, Encoding};
 
 use crate::arrays::PyArray;
-use crate::arrays::typed::{
-    PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
-    PyFloat32TypeArray, PyFloat64TypeArray, PyFloatTypeArray, PyInt8TypeArray, PyInt16TypeArray,
-    PyInt32TypeArray, PyInt64TypeArray, PyIntTypeArray, PyIntegerTypeArray, PyListTypeArray,
-    PyNullTypeArray, PyPrimitiveTypeArray, PyStructTypeArray, PyUInt8TypeArray, PyUInt16TypeArray,
-    PyUInt32TypeArray, PyUInt64TypeArray, PyUIntTypeArray, PyUtf8TypeArray,
+use crate::arrays::builtins::{
+    PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray,
+    PyNullArray, PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
+};
+use crate::arrays::compressed::{
+    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
+    PySparseArray, PyZigZagArray,
+};
+use crate::arrays::fastlanes::{
+    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
 };
 use crate::dtype::PyDType;
 
@@ -32,83 +49,100 @@ impl PyNativeArray {
     /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
     pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyNativeArray>> {
-        fn unsigned(array: ArrayRef) -> PyClassInitializer<PyUIntTypeArray> {
-            PyClassInitializer::from(PyArray)
-                .add_subclass(PyNativeArray(array))
-                .add_subclass(PyPrimitiveTypeArray)
-                .add_subclass(PyIntegerTypeArray)
-                .add_subclass(PyUIntTypeArray)
+        let any = array.as_any();
+
+        if any.is::<NullArray>() {
+            return Self::with_subclass(py, array, PyNullArray);
         }
 
-        fn signed(array: ArrayRef) -> PyClassInitializer<PyIntTypeArray> {
-            PyClassInitializer::from(PyArray)
-                .add_subclass(PyNativeArray(array))
-                .add_subclass(PyPrimitiveTypeArray)
-                .add_subclass(PyIntegerTypeArray)
-                .add_subclass(PyIntTypeArray)
+        if any.is::<BoolArray>() {
+            return Self::with_subclass(py, array, PyBoolArray);
         }
 
-        fn float(array: ArrayRef) -> PyClassInitializer<PyFloatTypeArray> {
-            PyClassInitializer::from(PyArray)
-                .add_subclass(PyNativeArray(array))
-                .add_subclass(PyPrimitiveTypeArray)
-                .add_subclass(PyFloatTypeArray)
+        if any.is::<PrimitiveArray>() {
+            return Self::with_subclass(py, array, PyPrimitiveArray);
         }
 
-        match array.dtype() {
-            DType::Null => Self::with_subclass(py, array, PyNullTypeArray),
-            DType::Bool(_) => Self::with_subclass(py, array, PyBoolTypeArray),
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 => Self::with_subclass_initializer(
-                    py,
-                    unsigned(array).add_subclass(PyUInt8TypeArray),
-                ),
-                PType::U16 => Self::with_subclass_initializer(
-                    py,
-                    unsigned(array).add_subclass(PyUInt16TypeArray),
-                ),
-                PType::U32 => Self::with_subclass_initializer(
-                    py,
-                    unsigned(array).add_subclass(PyUInt32TypeArray),
-                ),
-                PType::U64 => Self::with_subclass_initializer(
-                    py,
-                    unsigned(array).add_subclass(PyUInt64TypeArray),
-                ),
-                PType::I8 => {
-                    Self::with_subclass_initializer(py, signed(array).add_subclass(PyInt8TypeArray))
-                }
-                PType::I16 => Self::with_subclass_initializer(
-                    py,
-                    signed(array).add_subclass(PyInt16TypeArray),
-                ),
-                PType::I32 => Self::with_subclass_initializer(
-                    py,
-                    signed(array).add_subclass(PyInt32TypeArray),
-                ),
-                PType::I64 => Self::with_subclass_initializer(
-                    py,
-                    signed(array).add_subclass(PyInt64TypeArray),
-                ),
-                PType::F16 => Self::with_subclass_initializer(
-                    py,
-                    float(array).add_subclass(PyFloat16TypeArray),
-                ),
-                PType::F32 => Self::with_subclass_initializer(
-                    py,
-                    float(array).add_subclass(PyFloat32TypeArray),
-                ),
-                PType::F64 => Self::with_subclass_initializer(
-                    py,
-                    float(array).add_subclass(PyFloat64TypeArray),
-                ),
-            },
-            DType::Utf8(_) => Self::with_subclass(py, array, PyUtf8TypeArray),
-            DType::Binary(_) => Self::with_subclass(py, array, PyBinaryTypeArray),
-            DType::Struct(..) => Self::with_subclass(py, array, PyStructTypeArray),
-            DType::List(..) => Self::with_subclass(py, array, PyListTypeArray),
-            DType::Extension(_) => Self::with_subclass(py, array, PyExtensionTypeArray),
+        if any.is::<VarBinArray>() {
+            return Self::with_subclass(py, array, PyVarBinArray);
         }
+
+        if any.is::<VarBinViewArray>() {
+            return Self::with_subclass(py, array, PyVarBinViewArray);
+        }
+
+        if any.is::<StructArray>() {
+            return Self::with_subclass(py, array, PyStructArray);
+        }
+
+        if any.is::<ListArray>() {
+            return Self::with_subclass(py, array, PyListArray);
+        }
+
+        if any.is::<ExtensionArray>() {
+            return Self::with_subclass(py, array, PyExtensionArray);
+        }
+
+        if any.is::<ChunkedArray>() {
+            return Self::with_subclass(py, array, PyChunkedArray);
+        }
+
+        if any.is::<ConstantArray>() {
+            return Self::with_subclass(py, array, PyConstantArray);
+        }
+
+        if any.is::<ByteBoolArray>() {
+            return Self::with_subclass(py, array, PyByteBoolArray);
+        }
+
+        if any.is::<SparseArray>() {
+            return Self::with_subclass(py, array, PySparseArray);
+        }
+
+        if any.is::<ALPArray>() {
+            return Self::with_subclass(py, array, PyAlpArray);
+        }
+
+        if any.is::<ALPRDArray>() {
+            return Self::with_subclass(py, array, PyAlpRdArray);
+        }
+
+        if any.is::<DateTimePartsArray>() {
+            return Self::with_subclass(py, array, PyDateTimePartsArray);
+        }
+
+        if any.is::<DictArray>() {
+            return Self::with_subclass(py, array, PyDictArray);
+        }
+
+        if any.is::<FSSTArray>() {
+            return Self::with_subclass(py, array, PyFsstArray);
+        }
+
+        if any.is::<RunEndArray>() {
+            return Self::with_subclass(py, array, PyRunEndArray);
+        }
+
+        if any.is::<ZigZagArray>() {
+            return Self::with_subclass(py, array, PyZigZagArray);
+        }
+
+        if any.is::<BitPackedArray>() {
+            return Self::with_subclass(py, array, PyFastLanesBitPackedArray);
+        }
+
+        if any.is::<DeltaArray>() {
+            return Self::with_subclass(py, array, PyFastLanesDeltaArray);
+        }
+
+        if any.is::<FoRArray>() {
+            return Self::with_subclass(py, array, PyFastLanesFoRArray);
+        }
+
+        Err(PyTypeError::new_err(format!(
+            "Unrecognized native array {}",
+            array.encoding()
+        )))
     }
 
     fn with_subclass<S: PyClass<BaseType = PyNativeArray>>(
@@ -124,15 +158,6 @@ impl PyNativeArray {
         )?
         .into_any()
         .downcast_into::<PyNativeArray>()?)
-    }
-
-    fn with_subclass_initializer<S: PyClass>(
-        py: Python,
-        intializer: PyClassInitializer<S>,
-    ) -> PyResult<Bound<PyNativeArray>> {
-        Ok(Bound::new(py, intializer)?
-            .into_any()
-            .downcast_into::<PyNativeArray>()?)
     }
 
     pub fn inner(&self) -> &ArrayRef {

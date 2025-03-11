@@ -9,9 +9,11 @@ use pyo3::prelude::*;
 pub(crate) mod arrays;
 mod compress;
 mod dataset;
-mod dtype;
+pub(crate) mod dtype;
 mod expr;
+mod file;
 mod io;
+mod iter;
 mod object_store_urls;
 mod python_repr;
 mod record_batch_reader;
@@ -23,6 +25,9 @@ use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
@@ -48,7 +53,9 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     dataset::init(py, m)?;
     dtype::init(py, m)?;
     expr::init(py, m)?;
+    file::init(py, m)?;
     io::init(py, m)?;
+    iter::init(py, m)?;
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;

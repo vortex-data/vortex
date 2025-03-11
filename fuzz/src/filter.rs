@@ -4,7 +4,7 @@ use vortex_array::arrays::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
@@ -13,11 +13,11 @@ use crate::take::take_canonical_array;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask()?.into_array().to_bool()?;
+        let validity_buff = array.validity_mask()?.to_boolean_buffer();
         Validity::from_iter(
             filter
                 .iter()
-                .zip(validity_buff.boolean_buffer())
+                .zip(validity_buff.iter())
                 .filter(|(f, _)| **f)
                 .map(|(_, v)| v),
         )
@@ -88,6 +88,6 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             }
             take_canonical_array(array, &indices)
         }
-        _ => unreachable!("Not a canonical array"),
+        d => unreachable!("DType {d} not supported for fuzzing"),
     }
 }

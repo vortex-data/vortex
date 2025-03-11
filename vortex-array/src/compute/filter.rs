@@ -1,36 +1,17 @@
+use std::any::Any;
 use std::ops::BitAnd;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
+use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::scalar_at;
+use crate::compute::{ComputeFn, Input, InvocationArgs, Kernel, KernelRef, Output, scalar_at};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
-
-pub trait FilterFn<A> {
-    /// Filter an array by the provided predicate.
-    ///
-    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
-    /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: A, mask: &Mask) -> VortexResult<ArrayRef>;
-}
-
-impl<E: Encoding> FilterFn<&dyn Array> for E
-where
-    E: for<'a> FilterFn<&'a E::Array>,
-{
-    fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        FilterFn::filter(self, array_ref, mask)
-    }
-}
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///
@@ -65,42 +46,128 @@ where
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    if mask.len() != array.len() {
-        vortex_bail!(
-            "mask.len() is {}, does not equal array.len() of {}",
-            mask.len(),
-            array.len()
+    Ok(Filter
+        .invoke(&InvocationArgs {
+            inputs: &[Input::Array(array), Input::Mask(mask)],
+            options: None,
+        })?
+        .into_array()
+        .vortex_expect("Expected filter to return an array"))
+}
+
+/// Keep only the elements for which the corresponding mask value is true.
+pub struct Filter;
+
+impl ComputeFn for Filter {
+    fn id(&self) -> ArcRef<str> {
+        ArcRef::new_ref("filter")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
+        let FilterInputs { array, mask } = FilterInputs::try_from(args)?;
+
+        if mask.len() != array.len() {
+            vortex_bail!(
+                "mask.len() is {}, does not equal array.len() of {}",
+                mask.len(),
+                array.len()
+            );
+        }
+
+        let true_count = mask.true_count();
+
+        // Fast-path for empty mask.
+        if true_count == 0 {
+            return Ok(Canonical::empty(array.dtype()).into_array().into());
+        }
+
+        // Fast-path for full mask
+        if true_count == mask.len() {
+            return Ok(array.to_array().into());
+        }
+
+        let filtered = filter_impl(array, mask)?;
+
+        debug_assert_eq!(
+            filtered.len(),
+            true_count,
+            "Filter length mismatch {}",
+            array.encoding()
         );
+        debug_assert_eq!(
+            filtered.dtype(),
+            array.dtype(),
+            "Filter dtype mismatch {}",
+            array.encoding()
+        );
+
+        Ok(filtered.into())
     }
 
-    let true_count = mask.true_count();
-
-    // Fast-path for empty mask.
-    if true_count == 0 {
-        return Ok(Canonical::empty(array.dtype()).into());
+    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+        Ok(FilterInputs::try_from(args)?.array.dtype().clone())
     }
 
-    // Fast-path for full mask
-    if true_count == mask.len() {
-        return Ok(array.to_array());
+    fn is_elementwise(&self) -> bool {
+        false
     }
+}
 
-    let filtered = filter_impl(array, mask)?;
+#[allow(dead_code)]
+pub struct FilterInputs<'a> {
+    pub array: &'a dyn Array,
+    pub mask: &'a Mask,
+}
 
-    debug_assert_eq!(
-        filtered.len(),
-        true_count,
-        "Filter length mismatch {}",
-        array.encoding()
-    );
-    debug_assert_eq!(
-        filtered.dtype(),
-        array.dtype(),
-        "Filter dtype mismatch {}",
-        array.encoding()
-    );
+impl<'a> TryFrom<&'a InvocationArgs<'a>> for FilterInputs<'a> {
+    type Error = VortexError;
 
-    Ok(filtered)
+    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 2 {
+            vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
+        }
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected first input to be an array"))?;
+        let mask = value.inputs[1]
+            .mask()
+            .ok_or_else(|| vortex_err!("Expected second input to be a mask"))?;
+        Ok(Self { array, mask })
+    }
+}
+
+pub trait FilterKernel: Encoding {
+    /// Filter an array by the provided predicate.
+    ///
+    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
+    /// leaving only `Mask::Values` to be handled by this function.
+    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
+}
+
+/// Adapter to convert a [`FilterKernel`] into a [`Kernel`].
+pub struct FilterKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {
+    pub const fn some(&'static self) -> Option<KernelRef> {
+        Some(ArcRef::new_ref(self))
+    }
+}
+
+impl<E: Encoding + FilterKernel> Kernel for FilterKernelAdapter<E> {
+    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+        let inputs = FilterInputs::try_from(args)?;
+        let array = inputs
+            .array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let filtered = E::filter(&self.0, array, inputs.mask)?;
+        Ok(Some(filtered.into()))
+    }
 }
 
 fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -112,13 +179,21 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         Mask::Values(values) => values,
     };
 
-    if let Some(filter_fn) = array.vtable().filter_fn() {
-        let result = filter_fn.filter(array, mask)?;
-        debug_assert_eq!(result.len(), mask.true_count());
-        return Ok(result);
+    let args = InvocationArgs {
+        inputs: &[Input::Array(array), Input::Mask(mask)],
+        options: None,
+    };
+
+    // Check if the array has a kernel for FilterKernel.
+    if let Some(filter_fn) = array.find_kernel(&Filter) {
+        if let Some(output) = filter_fn.invoke(&args)? {
+            return output
+                .into_array()
+                .ok_or_else(|| vortex_err!("Expected FilterKernel to return an array"));
+        }
     }
 
-    // We can use scalar_at if the mask has length 1.
+    // Otherwise, we can use scalar_at if the mask has length 1.
     if mask.true_count() == 1 && array.vtable().scalar_at_fn().is_some() {
         let idx = mask.first().vortex_expect("true_count == 1");
         return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());

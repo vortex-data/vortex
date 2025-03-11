@@ -34,7 +34,7 @@ async fn take_vortex<T: VortexReadAt>(reader: T, indices: Buffer<u64>) -> Vortex
         .await?
         .scan()
         .with_row_indices(indices)
-        .into_array()
+        .read_all()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()

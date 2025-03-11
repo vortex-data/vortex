@@ -7,7 +7,9 @@ vortex\._lib\.compress
 vortex\._lib\.dataset
 vortex\._lib\.dtype
 vortex\._lib\.expr
+vortex\._lib\.file
 vortex\._lib\.io
+vortex\._lib\.iter
 vortex\._lib\.registry
 vortex\._lib\.scalar
 vortex\._lib\.serde

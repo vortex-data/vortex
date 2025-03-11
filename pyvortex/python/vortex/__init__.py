@@ -2,45 +2,23 @@ from . import _lib
 from ._lib.arrays import (
     AlpArray,
     AlpRdArray,
-    BinaryTypeArray,
     BoolArray,
-    BoolTypeArray,
+    ByteBoolArray,
     ChunkedArray,
     ConstantArray,
     DateTimePartsArray,
     DictArray,
     ExtensionArray,
-    ExtensionTypeArray,
     FastLanesBitPackedArray,
     FastLanesDeltaArray,
     FastLanesFoRArray,
-    Float16TypeArray,
-    Float32TypeArray,
-    Float64TypeArray,
-    FloatTypeArray,
     FsstArray,
-    Int8TypeArray,
-    Int16TypeArray,
-    Int32TypeArray,
-    Int64TypeArray,
-    IntegerTypeArray,
-    IntTypeArray,
     ListArray,
-    ListTypeArray,
     NullArray,
-    NullTypeArray,
     PrimitiveArray,
-    PrimitiveTypeArray,
     RunEndArray,
     SparseArray,
     StructArray,
-    StructTypeArray,
-    UInt8TypeArray,
-    UInt16TypeArray,
-    UInt32TypeArray,
-    UInt64TypeArray,
-    UIntTypeArray,
-    Utf8TypeArray,
     VarBinArray,
     VarBinViewArray,
     ZigZagArray,
@@ -54,10 +32,12 @@ from ._lib.dtype import (
     ListDType,
     NullDType,
     PrimitiveDType,
+    PType,
     StructDType,
     Utf8DType,
     binary,
     bool_,
+    ext,
     float_,
     int_,
     list_,
@@ -66,6 +46,8 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
+from ._lib.file import open
+from ._lib.iter import ArrayIterator
 from ._lib.registry import Registry
 from ._lib.scalar import (
     BinaryScalar,
@@ -81,6 +63,7 @@ from ._lib.scalar import (
 )
 from ._lib.serde import ArrayContext, ArrayParts
 from .arrays import Array, PyArray, array
+from .file import VortexFile
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
@@ -90,31 +73,9 @@ __all__ = [
     # Arrays
     "Array",
     "PyArray",
-    "NullTypeArray",
-    "BoolTypeArray",
-    "PrimitiveTypeArray",
-    "IntegerTypeArray",
-    "UIntTypeArray",
-    "UInt8TypeArray",
-    "UInt16TypeArray",
-    "UInt32TypeArray",
-    "UInt64TypeArray",
-    "IntTypeArray",
-    "Int8TypeArray",
-    "Int16TypeArray",
-    "Int32TypeArray",
-    "Int64TypeArray",
-    "FloatTypeArray",
-    "Float16TypeArray",
-    "Float32TypeArray",
-    "Float64TypeArray",
-    "Utf8TypeArray",
-    "BinaryTypeArray",
-    "StructTypeArray",
-    "ListTypeArray",
-    "ExtensionTypeArray",
     # DTypes
     "DType",
+    "PType",
     "NullDType",
     "BoolDType",
     "PrimitiveDType",
@@ -132,11 +93,13 @@ __all__ = [
     "binary",
     "struct",
     "list_",
+    "ext",
     # Encodings
     "ConstantArray",
     "ChunkedArray",
     "NullArray",
     "BoolArray",
+    "ByteBoolArray",
     "PrimitiveArray",
     "VarBinArray",
     "VarBinViewArray",
@@ -169,6 +132,11 @@ __all__ = [
     "Registry",
     "ArrayContext",
     "ArrayParts",
+    # File
+    "VortexFile",
+    "open",
+    # Iterator
+    "ArrayIterator",
 ]
 
 #: The default registry for Vortex

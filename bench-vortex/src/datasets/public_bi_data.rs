@@ -558,7 +558,7 @@ impl BenchmarkDataset for PBIDataset {
                     .open()
                     .await?
                     .scan()
-                    .into_array()
+                    .read_all()
                     .await
             })
             .buffered(10)

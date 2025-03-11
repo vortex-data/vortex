@@ -47,7 +47,7 @@ impl ToDuckDBType for DType {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
                 }
             }
-            DType::List(..) => todo!("{self:?}"),
+            DType::List(..) => todo!("type: {self:?}"),
         }
     }
 }

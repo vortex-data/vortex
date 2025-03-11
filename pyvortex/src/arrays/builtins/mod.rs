@@ -1,14 +1,15 @@
 mod chunked;
 mod constant;
+mod primitive;
 mod struct_;
 
 pub(crate) use chunked::*;
 pub(crate) use constant::*;
+pub(crate) use primitive::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
 use vortex::arrays::{
-    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, VarBinEncoding,
-    VarBinViewEncoding,
+    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex::encodings::bytebool::ByteBoolEncoding;
 
@@ -36,14 +37,6 @@ pub(crate) struct PyByteBoolArray;
 
 impl EncodingSubclass for PyByteBoolArray {
     type Encoding = ByteBoolEncoding;
-}
-
-/// Concrete class for arrays with `vortex.primitive` encoding.
-#[pyclass(name = "PrimitiveArray", module = "vortex", extends=PyNativeArray, frozen)]
-pub(crate) struct PyPrimitiveArray;
-
-impl EncodingSubclass for PyPrimitiveArray {
-    type Encoding = PrimitiveEncoding;
 }
 
 /// Concrete class for arrays with `vortex.varbin` encoding.
