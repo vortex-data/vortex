@@ -118,6 +118,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
+      - spot=false
       - tag=${{ matrix.config.name }}
 
     env:
@@ -171,6 +172,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
+      - spot=false
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v1
@@ -189,6 +191,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
+      - spot=false
       - tag=rust-lint
     steps:
       - uses: runs-on/action@v1
@@ -257,6 +260,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
       - image=ubuntu24-full-x64
+      - spot=false
 
     steps:
       - uses: runs-on/action@v1
