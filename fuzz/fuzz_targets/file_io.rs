@@ -63,7 +63,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             output.dtype()
         );
 
-        if has_struct(array_data.dtype()) {
+        if matches!(array_data.dtype(), DType::Struct(_, _) | DType::List(_, _)) {
             compare_struct(array_data, output);
         } else {
             let r = compare(&array_data, &output, Operator::Eq).vortex_unwrap();
@@ -125,8 +125,4 @@ fn struct_has_duplicate_names(struct_dtype: &StructDType) -> bool {
         || struct_dtype
             .fields()
             .any(|dtype| has_duplicate_field_names(&dtype))
-}
-
-fn has_struct(dtype: &DType) -> bool {
-    dtype.is_struct() || dtype.as_list_element().map(has_struct).unwrap_or(false)
 }
