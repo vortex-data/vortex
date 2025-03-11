@@ -18,6 +18,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_duckdb::{ToDuckDBType, to_duckdb_chunk};
 use vortex_error::VortexResult;
+use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::TokioFile;
 
@@ -32,7 +33,7 @@ struct HelloInitData {}
 
 pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| Builder::new_current_thread().enable_all().build().unwrap())
+    RUNTIME.get_or_init(|| Builder::new_multi_thread().enable_all().build().unwrap())
 }
 
 struct HelloVTab;
@@ -45,6 +46,7 @@ impl VTab for HelloVTab {
         let path = bind.get_parameter(0).to_string();
 
         let rt = runtime();
+        let exe = TokioExecutor::new(rt.handle().clone());
 
         let (dtype, stream) = rt.block_on(async {
             let file = TokioFile::open(path).unwrap();
@@ -52,14 +54,14 @@ impl VTab for HelloVTab {
             let stream = vfile
                 .scan()
                 .with_split_by(SplitBy::RowCount(2048))
+                .with_task_executor(TaskExecutor::Tokio(exe))
+                .with_prefetch_conjuncts(true)
+                .with_canonicalize(true)
                 .into_array_stream()?;
 
             let dtype = stream.dtype().clone();
 
             VortexResult::Ok((dtype, StreamExt::boxed(stream)))
-
-            // let stream = FutureExt::boxed(stream);
-            // Ok(stream)
         })?;
 
         let dtype = dtype.as_struct().unwrap();

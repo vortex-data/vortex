@@ -1,5 +1,6 @@
-
 LOAD 'build/debug/extension/duckdb_vortex_rs/duckdb_vortex_rs.duckdb_extension';
+
+.timer on
 
 SET VARIABLE vortex_directory='PATH_TO_VORTEX';
 SET VARIABLE data_directory=getvariable('vortex_directory') || '/bench-vortex/data/tpch/1/vortex_compressed/';
