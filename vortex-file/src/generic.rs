@@ -107,7 +107,9 @@ impl InflightSegments {
     ) -> Option<oneshot::Receiver<()>> {
         match self.0.entry(segment_id) {
             Entry::Occupied(mut entry) => {
-                completion_callback.map(|cb| entry.get_mut().completion_callback.replace(cb));
+                if let Some(cb) = completion_callback {
+                    entry.get_mut().completion_callback.replace(cb);
+                }
                 None
             }
             Entry::Vacant(entry) => {
@@ -240,12 +242,11 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let read = self.read.clone();
         let segment_map = self.footer.segment_map().clone();
         let segment_cache = self.segment_cache.clone();
-        let inflight = inflight_segments.clone();
         let io_stream = io_stream.map(move |(request, cancellation_handle)| {
             let read = read.clone();
             let segment_map = segment_map.clone();
             let segment_cache = segment_cache.clone();
-            let inflight = inflight.clone();
+            let inflight = inflight_segments.clone();
             async move {
                 select! {
                     _ = cancellation_handle.cancelled().fuse() => Ok(()),
@@ -332,7 +333,7 @@ impl CoalescedCancellationHandle {
         self.0.push(handle);
     }
 
-    async fn cancelled(self) -> () {
+    async fn cancelled(self) {
         for rx in self.0 {
             // if this segment is completed before cancellation,
             // tx of this will be dropped, so ignore errors.

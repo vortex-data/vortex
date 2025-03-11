@@ -145,7 +145,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
         let (filter_mask, projection_mask) = self.filter_and_projection_masks()?;
         self.layout
             .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
-        let (mut row_range_pruner, segments) = collector.finish()?;
+        let (mut row_range_pruner, segments) = collector.finish();
         if let Some(indices) = &row_indices {
             row_range_pruner.retain_matching(indices.clone());
         }

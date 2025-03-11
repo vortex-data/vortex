@@ -107,16 +107,9 @@ impl SegmentCollector {
             .push(segment);
     }
 
-    pub fn finish(self) -> VortexResult<(RowRangePruner, SegmentStream)> {
-        let first_key = self
-            .store
-            .read()
-            .vortex_expect("poisoned lock")
-            .first_key_value()
-            .map(|(k, _)| *k)
-            .ok_or_else(|| vortex_err!("no segments collected"))?;
+    pub fn finish(self) -> (RowRangePruner, SegmentStream) {
         let (cancellations_tx, cancellations_rx) = mpsc::unbounded();
-        Ok((
+        (
             RowRangePruner {
                 store: self.store.clone(),
                 cancellations_tx,
@@ -125,10 +118,10 @@ impl SegmentCollector {
             SegmentStream {
                 store: self.store,
                 cancellations_rx,
-                current_key: first_key,
+                current_key: TOP_PRIORITY,
                 current_idx: 0,
             },
-        ))
+        )
     }
 }
 
@@ -223,8 +216,8 @@ impl Stream for SegmentStream {
         {
             let store_clone = self.store.clone();
             let store_guard = store_clone.read().vortex_expect("poisoned lock");
-            let mut store_iter = store_guard.range(self.current_key..);
-            while let Some((&key, segments)) = store_iter.next() {
+            let store_iter = store_guard.range(self.current_key..);
+            for (&key, segments) in store_iter {
                 match key == self.current_key {
                     true if self.current_idx >= segments.len() => continue,
                     false => {
@@ -242,11 +235,11 @@ impl Stream for SegmentStream {
         if channel_closed {
             return Poll::Ready(None);
         }
-        return match self.cancellations_rx.poll_next_unpin(cx) {
+        match self.cancellations_rx.poll_next_unpin(cx) {
             Poll::Ready(Some(segment)) => Poll::Ready(Some(SegmentEvent::Cancel(segment))),
             Poll::Ready(None) => Poll::Ready(None), // channel closed, end stream
             Poll::Pending => Poll::Pending,
-        };
+        }
     }
 }
 
