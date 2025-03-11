@@ -31,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
@@ -44,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Python Lint - Format
         run: uv run ruff format --check .
@@ -55,6 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
@@ -113,6 +119,8 @@ jobs:
       - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Docs
         run: cargo doc --no-deps
@@ -185,6 +193,8 @@ jobs:
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v1
+        with:
+          submodules: "recursive"
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-c++
@@ -205,6 +215,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
@@ -238,6 +250,8 @@ jobs:
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
@@ -274,6 +288,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Install Codspeed
@@ -313,6 +329,8 @@ jobs:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
@@ -342,6 +360,8 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@v2
         with:
@@ -358,6 +378,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
