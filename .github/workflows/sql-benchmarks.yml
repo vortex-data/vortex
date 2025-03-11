@@ -64,6 +64,7 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          RUST_BACKTRACE: 1
           AWS_REGION: 'eu-west-1'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
