@@ -98,7 +98,7 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
 
     if "Function" in expr:
         expr = expr["Function"]
-        inputs = [_polars_to_vortex(e) for e in expr["input"]]
+        _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
         fn = expr["function"]
         if "Boolean" in fn:

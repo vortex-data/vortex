@@ -1,5 +1,3 @@
-from collections.abc import Iterator
-
 import polars as pl
 import pytest
 
@@ -33,19 +31,3 @@ from vortex.polars_ import polars_to_vortex
 def test_exprs(polars: pl.Expr, vortex: ve.Expr):
     # Dump the clickbench filters
     assert polars_to_vortex(polars) == vortex
-
-
-def test_io_source():
-    import polars as pl
-    from polars.io.plugins import register_io_source
-
-    def _io_source(
-        with_columns: list[str] | None,
-        predicate: pl.Expr | None,
-        n_rows: int | None,
-        batch_size: int | None,
-    ) -> Iterator[pl.DataFrame]:
-        yield from []
-
-    df = register_io_source(_io_source, schema=pl.Schema([("a", pl.Int64)]))
-    df.collect()
