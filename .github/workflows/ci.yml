@@ -159,6 +159,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: rui314/setup-mold@v1
         with:
           targets: ${{matrix.config.target || ''}}
