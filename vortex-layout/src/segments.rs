@@ -71,6 +71,12 @@ pub struct SegmentPriority {
     row_start: u64,
 }
 
+const TOP_PRIORITY: SegmentPriority = SegmentPriority {
+    row_end: 0,
+    kind: RequiredSegmentKind::PRUNING,
+    row_start: 0,
+};
+
 type SegmentStore = BTreeMap<SegmentPriority, Vec<SegmentId>>;
 
 #[derive(Default)]
