@@ -151,6 +151,7 @@ jobs:
       - uses: runs-on/action@v1
       - uses: runs-on/cache@v4
         with:
+          path: .
           key: ${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
