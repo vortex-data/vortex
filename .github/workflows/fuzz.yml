@@ -10,7 +10,7 @@ jobs:
     name: 'IO Fuzz'
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.xlarge
+      - family=c7i.4xlarge
       - image=ubuntu24-full-x64
       - disk=large
       - tag=io-fuzz
@@ -52,7 +52,7 @@ jobs:
     name: 'Array Operations Fuzz'
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.xlarge
+      - family=c7i.4xlarge
       - image=ubuntu24-full-x64
       - disk=large
       - tag=ops-fuzz
