@@ -165,12 +165,17 @@ jobs:
 
   check-min-deps:
     name: "Check build with minimal dependencies"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-min-deps
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
@@ -178,12 +183,17 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7i.8xlarge
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-lint
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
         run: cargo fmt --all --check
