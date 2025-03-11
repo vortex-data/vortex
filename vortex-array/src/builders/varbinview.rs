@@ -40,27 +40,24 @@ impl VarBinViewBuilder {
     }
 
     fn append_value_view(&mut self, value: &[u8]) {
-        let v: &[u8] = value;
         let length =
-            u32::try_from(v.len()).vortex_expect("cannot have a single string >2^32 in length");
+            u32::try_from(value.len()).vortex_expect("cannot have a single string >2^32 in length");
         if length <= 12 {
-            self.views_builder.push(BinaryView::new_inlined(v));
+            self.views_builder.push(BinaryView::make_view(value, 0, 0));
             return;
         }
 
-        let required_cap = self.in_progress.len() + v.len();
+        let required_cap = self.in_progress.len() + value.len();
         if self.in_progress.capacity() < required_cap {
             self.flush_in_progress();
-            let to_reserve = max(v.len(), VarBinViewBuilder::BLOCK_SIZE as usize);
+            let to_reserve = max(value.len(), VarBinViewBuilder::BLOCK_SIZE as usize);
             self.in_progress.reserve(to_reserve);
         };
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
-        self.in_progress.extend_from_slice(v);
 
-        let view = BinaryView::new_view(
-            length,
-            // inline the first 4 bytes of the view
-            v[0..4].try_into().vortex_expect("length already checked"),
+        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
+        self.in_progress.extend_from_slice(value);
+        let view = BinaryView::make_view(
+            value,
             // buffer offset
             u32::try_from(self.completed.len()).vortex_expect("too many buffers"),
             offset,

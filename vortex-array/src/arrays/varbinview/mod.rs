@@ -119,17 +119,54 @@ impl BinaryView {
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
-    #[inline(never)]
+    #[inline]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
-        if value.len() <= Self::MAX_INLINED_SIZE {
-            Self::new_inlined(value)
-        } else {
-            Self::new_view(
+        match value.len() {
+            0 => Self {
+                inlined: Inlined::new::<0>(value),
+            },
+            1 => Self {
+                inlined: Inlined::new::<1>(value),
+            },
+            2 => Self {
+                inlined: Inlined::new::<2>(value),
+            },
+            3 => Self {
+                inlined: Inlined::new::<3>(value),
+            },
+            4 => Self {
+                inlined: Inlined::new::<4>(value),
+            },
+            5 => Self {
+                inlined: Inlined::new::<5>(value),
+            },
+            6 => Self {
+                inlined: Inlined::new::<6>(value),
+            },
+            7 => Self {
+                inlined: Inlined::new::<7>(value),
+            },
+            8 => Self {
+                inlined: Inlined::new::<8>(value),
+            },
+            9 => Self {
+                inlined: Inlined::new::<9>(value),
+            },
+            10 => Self {
+                inlined: Inlined::new::<10>(value),
+            },
+            11 => Self {
+                inlined: Inlined::new::<11>(value),
+            },
+            12 => Self {
+                inlined: Inlined::new::<12>(value),
+            },
+            _ => Self { _ref: Ref::new(
                 u32::try_from(value.len()).vortex_unwrap(),
                 value[0..4].try_into().vortex_unwrap(),
                 block,
                 offset,
-            )
+            )},
         }
     }
 
@@ -148,24 +185,7 @@ impl BinaryView {
             value.len()
         );
 
-        let inlined = match value.len() {
-            0 => Inlined::new::<0>(value),
-            1 => Inlined::new::<1>(value),
-            2 => Inlined::new::<2>(value),
-            3 => Inlined::new::<3>(value),
-            4 => Inlined::new::<4>(value),
-            5 => Inlined::new::<5>(value),
-            6 => Inlined::new::<6>(value),
-            7 => Inlined::new::<7>(value),
-            8 => Inlined::new::<8>(value),
-            9 => Inlined::new::<9>(value),
-            10 => Inlined::new::<10>(value),
-            11 => Inlined::new::<11>(value),
-            12 => Inlined::new::<12>(value),
-            _ => unreachable!(),
-        };
-
-        Self { inlined }
+        Self::make_view(value, 0, 0)
     }
 
     /// Create a new view over bytes stored in a block.
