@@ -159,6 +159,9 @@ jobs:
         with:
           targets: ${{matrix.config.target || ''}}
       - uses: ./.github/actions/setup-c++
+      - name: Install wasm32 target
+        if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
+        run: rustup target add wasm32-unknown-unknown
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
