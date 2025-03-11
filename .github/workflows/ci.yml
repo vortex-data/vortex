@@ -118,7 +118,7 @@ jobs:
       - image=ubuntu24-full-x64
       - disk=large
       - spot=false
-      - tag=${{ matrix.id }}
+      - tag=${{ matrix.name }}
 
     env:
       # disable lints for build, they will be caught in Rust lint job.
