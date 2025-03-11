@@ -26,6 +26,8 @@ public interface Array extends AutoCloseable {
 
     boolean getNull(int index);
 
+    int getNullCount();
+
     byte getByte(int index);
 
     short getShort(int index);

@@ -89,6 +89,12 @@ public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     }
 
     @Override
+    public int getNullCount() {
+        checkNotNull(inner, "inner");
+        return FFI.FFIArray_null_count(inner);
+    }
+
+    @Override
     public byte getByte(int index) {
         checkNotNull(inner, "inner");
         return FFI.FFIArray_get_i8(inner, index);
