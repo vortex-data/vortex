@@ -150,6 +150,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: runs-on/cache@v4
+        with:
+          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
         with:
