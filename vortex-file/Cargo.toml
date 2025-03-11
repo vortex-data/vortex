@@ -18,7 +18,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["std"] }
+futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
