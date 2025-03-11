@@ -1,4 +1,3 @@
-use arrow_array::builder::make_view;
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -78,7 +77,7 @@ fn fsst_into_varbin_view(
         let mut offset = 0;
         for len in uncompressed_lens_array.as_slice::<$P>() {
             let len = *len as usize;
-            let view = make_view(
+            let view = BinaryView::make_view(
                 &uncompressed_bytes[offset..][..len],
                 block_offset,
                 offset as u32,

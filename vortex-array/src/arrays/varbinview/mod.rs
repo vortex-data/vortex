@@ -38,17 +38,12 @@ pub struct Inlined {
 }
 
 impl Inlined {
-    pub fn new(value: &[u8]) -> Self {
-        assert!(
-            value.len() <= BinaryView::MAX_INLINED_SIZE,
-            "Inlined strings must be shorter than 13 characters, {} given",
-            value.len()
-        );
+    fn new<const N: usize>(value: &[u8]) -> Self {
         let mut inlined = Self {
-            size: value.len().try_into().vortex_unwrap(),
+            size: N.try_into().vortex_unwrap(),
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
         };
-        inlined.data[..value.len()].copy_from_slice(value);
+        inlined.data[..N].copy_from_slice(&value[..N]);
         inlined
     }
 
@@ -124,6 +119,7 @@ impl BinaryView {
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
+    #[inline(never)]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
         if value.len() <= Self::MAX_INLINED_SIZE {
             Self::new_inlined(value)
@@ -138,13 +134,13 @@ impl BinaryView {
     }
 
     /// Create a new empty view
+    #[inline]
     pub fn empty_view() -> Self {
-        Self {
-            inlined: Inlined::new(&[]),
-        }
+        Self::new_inlined(&[])
     }
 
     /// Create a new inlined binary view
+    #[inline]
     pub fn new_inlined(value: &[u8]) -> Self {
         assert!(
             value.len() <= Self::MAX_INLINED_SIZE,
@@ -152,12 +148,28 @@ impl BinaryView {
             value.len()
         );
 
-        Self {
-            inlined: Inlined::new(value),
-        }
+        let inlined = match value.len() {
+            0 => Inlined::new::<0>(value),
+            1 => Inlined::new::<1>(value),
+            2 => Inlined::new::<2>(value),
+            3 => Inlined::new::<3>(value),
+            4 => Inlined::new::<4>(value),
+            5 => Inlined::new::<5>(value),
+            6 => Inlined::new::<6>(value),
+            7 => Inlined::new::<7>(value),
+            8 => Inlined::new::<8>(value),
+            9 => Inlined::new::<9>(value),
+            10 => Inlined::new::<10>(value),
+            11 => Inlined::new::<11>(value),
+            12 => Inlined::new::<12>(value),
+            _ => unreachable!(),
+        };
+
+        Self { inlined }
     }
 
     /// Create a new view over bytes stored in a block.
+    #[inline]
     pub fn new_view(len: u32, prefix: [u8; 4], block: u32, offset: u32) -> Self {
         Self {
             _ref: Ref::new(len, prefix, block, offset),

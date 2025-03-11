@@ -114,7 +114,7 @@ fn canonical_byte_view(
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
             // If the scalar cannot be inlined, allocate a single buffer large enough to hold it.
-            let view = BinaryView::from(make_view(scalar_bytes, 0, 0));
+            let view = BinaryView::make_view(scalar_bytes, 0, 0);
             let mut buffers = Vec::new();
             if scalar_bytes.len() >= BinaryView::MAX_INLINED_SIZE {
                 buffers.push(Buffer::copy_from(scalar_bytes));
