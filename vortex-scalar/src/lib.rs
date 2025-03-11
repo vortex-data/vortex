@@ -85,7 +85,11 @@ impl Scalar {
     }
 
     pub fn null(dtype: DType) -> Self {
-        assert!(dtype.is_nullable());
+        assert!(
+            dtype.is_nullable(),
+            "Creating null scalar for non-nullable DType {}",
+            dtype
+        );
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::Null),

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-
+import argparse
 import json
 import os.path
 import timeit
+from collections import defaultdict
 from datetime import date
 
 import polars as pl
+
+import vortex as vx
+import vortex.io
 
 # 0: No., 1: SQL, 2: Polars
 queries = [
@@ -458,6 +462,10 @@ queries = [
 def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) -> None:
     queries_times = []
     for q in queries:
+        # if q[0] == "Q19":
+        #    print("Q19 fails for https://github.com/pola-rs/polars/issues/21674")
+        #    queries_times.append([None, None, None])
+        #    continue
         print(q[0])
         times = []
         for _ in range(3):
@@ -502,59 +510,91 @@ def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) ->
             f.write(json.dumps(result_json, indent=4))
 
 
-# Run from Vortex
-import vortex as vx
-import vortex.io
+PARSER = argparse.ArgumentParser()
 
-if not os.path.exists("hits.vortex"):
-    import pyarrow.parquet as pq
+PARSER.add_argument(
+    "--path",
+    type=str,
+    default="hits.parquet",
+    help="Path to the parquet file",
+)
 
-    pf = pq.ParquetFile("hits.parquet")
+PARSER.add_argument(
+    "--formats",
+    nargs="+",
+    choices=("vortex", "parquet"),
+    default=None,
+    help="Formats to run",
+)
 
-    def _iter():
-        for i in range(pf.num_row_groups):
-            arr = pf.read_row_group(i).to_struct_array()
-            arr = vx.Array.from_arrow(arr)
-            yield arr
+PARSER.add_argument(
+    "-q",
+    "--queries",
+    nargs="+",
+    type=int,
+    default=list(range(len(queries))),
+    help="Queries to run",
+)
 
-    it = vx.ArrayIterator.from_iter(vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter())
-    vx.io.write(it, "hits.vortex")
+PARSER.add_argument("-i", "--iterations", type=int, default=3, help="Number of iterations to run")
 
-vxf = vx.open("hits.vortex")
-lf = vxf.to_polars()
-# lf = pl.scan_pyarrow_dataset(vxf.to_dataset())
-print("run vortex queries")
-vx_timings = run_timings(lf, "Polars (Vortex)", "vortex", None)
 
-lf = pl.scan_parquet("hits.parquet")
-# .with_columns(
-#    (pl.col("EventTime") * int(1e6)).cast(pl.Datetime(time_unit="us")),
-#    pl.col("EventDate").cast(pl.Date),
-# ))
-print("run parquet queries")
-pq_timings = run_timings(lf, "Polars (Parquet)", "parquet", None)
+def main(args):
+    if not os.path.exists(args.path):
+        raise ValueError(f"File {args.path} does not exist")
 
-for i, q in enumerate(queries):
-    vxt = min(vx_timings["result"][i]) if any(vx_timings["result"][i]) else None
-    pqt = min(pq_timings["result"][i]) if any(pq_timings["result"][i]) else None
-    ratio = vxt / pqt if vxt and pqt else None
-    print(f"Q{i}\t{vxt}\t{pqt}\t{ratio}")
+    results = defaultdict(list)
 
-#
-#
-# print("run DataFrame (in-memory) queries, this loads all data in memory!")
-# start = timeit.default_timer()
-# df = pl.scan_parquet("hits.parquet").collect()
-# stop = timeit.default_timer()
-# load_time = stop - start
-#
-# # fix some types
-# df = df.with_columns(
-#     (pl.col("EventTime") * int(1e6)).cast(pl.Datetime(time_unit="us")),
-#     pl.col("EventDate").cast(pl.Date),
-# )
-# assert df["EventTime"][0].year == 2013
-# df = df.rechunk()
-#
-# lf = df.lazy()
-# run_timings(lf, "Polars (DataFrame)", "DataFrame", load_time)
+    if args.formats is None or "vortex" in args.formats:
+        vx_base, _ = os.path.splitext(args.path)
+        vx_path = f"{vx_base}.vortex"
+
+        if not os.path.exists(vx_path):
+            import pyarrow.parquet as pq
+
+            pf = pq.ParquetFile(args.path)
+
+            def _iter():
+                for i in range(pf.num_row_groups):
+                    arr = pf.read_row_group(i).to_struct_array()
+                    arr = vx.Array.from_arrow(arr)
+                    yield arr
+
+            it = vx.ArrayIterator.from_iter(vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter())
+            vx.io.write(it, vx_path)
+
+        lf = vx.open(vx_path).to_polars()
+
+        for q in args.queries:
+            timings = []
+            for _ in range(args.iterations):
+                start = timeit.default_timer()
+                _result = queries[q][2](lf)
+                timings.append(timeit.default_timer() - start)
+            average = sum(timings) / len(timings)
+            results["vortex"].append(average)
+            print(f"Vortex Q{q}", average)
+
+    if args.formats is None or "parquet" in args.formats:
+        lf = pl.scan_parquet(args.path)
+
+        for q in args.queries:
+            timings = []
+            for _ in range(args.iterations):
+                start = timeit.default_timer()
+                _result = queries[q][2](lf)
+                timings.append(timeit.default_timer() - start)
+            average = sum(timings) / len(timings)
+            results["parquet"].append(average)
+            print(f"Parquet Q{q}", average)
+
+        for format in results:
+            if format == "parquet":
+                continue
+            results[f"{format}_vs_pq"] = [a / b for a, b in zip(results[format], results["parquet"])]
+
+    print(results)
+
+
+if __name__ == "__main__":
+    main(PARSER.parse_args())

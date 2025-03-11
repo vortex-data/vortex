@@ -197,7 +197,7 @@ impl PyVortexFile {
         let dtype = stream.dtype().clone();
 
         // The I/O of the array stream won't make progress unless it's polled. So we need to spawn it.
-        let (mut send, recv) = futures::channel::mpsc::channel(16);
+        let (mut send, recv) = futures::channel::mpsc::unbounded();
 
         TOKIO_RUNTIME
             .block_on(TOKIO_RUNTIME.spawn(async move {

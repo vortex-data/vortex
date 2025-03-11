@@ -1,7 +1,9 @@
 import json
+import operator
 
 import polars as pl
 
+import vortex as vx
 import vortex.expr as ve
 
 
@@ -10,6 +12,78 @@ def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     return _polars_to_vortex(json.loads(expr.meta.write_json()))
 
 
+_OPS = {
+    "Eq": operator.eq,
+    "NotEq": operator.ne,
+    "Lt": operator.lt,
+    "LtEq": operator.le,
+    "Gt": operator.gt,
+    "GtEq": operator.ge,
+    "And": operator.and_,
+    "Or": operator.or_,
+    "LogicalAnd": operator.and_,
+    "LogicalOr": operator.or_,
+}
+
+_LITERAL_TYPES = {
+    "Int": lambda v: vx.int_(64, nullable=v is None),
+    "Int8": lambda v: vx.int_(8, nullable=v is None),
+    "Int16": lambda v: vx.int_(16, nullable=v is None),
+    "Int32": lambda v: vx.int_(32, nullable=v is None),
+    "Int64": lambda v: vx.int_(64, nullable=v is None),
+    "UInt8": lambda v: vx.uint(8, nullable=v is None),
+    "UInt16": lambda v: vx.uint(16, nullable=v is None),
+    "UInt32": lambda v: vx.uint(32, nullable=v is None),
+    "UInt64": lambda v: vx.uint(64, nullable=v is None),
+    "Float32": lambda v: vx.float_(32, nullable=v is None),
+    "Float64": lambda v: vx.float_(64, nullable=v is None),
+    "Boolean": lambda v: vx.bool_(nullable=v is None),
+    "Null": lambda v: vx.null(),
+    "String": lambda v: vx.utf8(nullable=v is None),
+    "Binary": lambda v: vx.binary(nullable=v is None),
+}
+
+
 def _polars_to_vortex(expr: dict) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
-    raise NotImplementedError
+    if "BinaryExpr" in expr:
+        expr = expr["BinaryExpr"]
+        lhs = _polars_to_vortex(expr["left"])
+        rhs = _polars_to_vortex(expr["right"])
+        op = expr["op"]
+
+        if op not in _OPS:
+            raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
+        return _OPS[op](lhs, rhs)
+
+    if "Column" in expr:
+        return ve.column(expr["Column"])
+
+    if "Literal" in expr:
+        expr = expr["Literal"]
+
+        literal_type = next(iter(expr.keys()), None)
+
+        # Special-case complex types
+        if literal_type == "DateTime":
+            (value, unit, tz) = expr[literal_type]
+            if unit == "Nanoseconds":
+                metadata = b"\x00"
+            elif unit == "Microseconds":
+                metadata = b"\x01"
+            elif unit == "Milliseconds":
+                metadata = b"\x02"
+            elif unit == "Seconds":
+                metadata = b"\x03"
+            else:
+                raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
+
+            dtype = vx.ext("vortex.timestamp", vx.int_(64, nullable=value is None), metadata=metadata)
+            return ve.literal(dtype, value)
+
+        if literal_type not in _LITERAL_TYPES:
+            raise NotImplementedError(f"Unsupported Polars literal type: {literal_type}")
+        value = expr[literal_type]
+        return ve.literal(_LITERAL_TYPES[literal_type](value), value)
+
+    raise NotImplementedError(f"Unsupported Polars expression: {expr}")

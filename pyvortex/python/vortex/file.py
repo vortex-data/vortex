@@ -30,12 +30,24 @@ def _to_polars(self: VortexFile):
         if predicate is not None:
             predicate = polars_to_vortex(predicate)
 
-        for batch in self.to_arrow(
+        reader = self.to_arrow(
             projection=with_columns,
             expr=predicate,
             batch_size=batch_size or 8192,
-        ):
-            yield pl.DataFrame._from_arrow(batch, rechunk=False)
+        )
+
+        for batch in reader:
+            batch = pl.DataFrame._from_arrow(batch, rechunk=False)
+            # TODO(ngates): set sortedness on DataFrame based on stats?
+            yield batch
+
+        # Make sure we always yield at least one empty DataFrame
+        yield pl.DataFrame._from_arrow(
+            data=pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in reader.schema],
+                schema=reader.schema,
+            )
+        )
 
     return register_io_source(_io_source, schema=schema)
 

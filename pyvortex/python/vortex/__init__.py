@@ -37,6 +37,7 @@ from ._lib.dtype import (
     Utf8DType,
     binary,
     bool_,
+    ext,
     float_,
     int_,
     list_,
@@ -92,6 +93,7 @@ __all__ = [
     "binary",
     "struct",
     "list_",
+    "ext",
     # Encodings
     "ConstantArray",
     "ChunkedArray",
