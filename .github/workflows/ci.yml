@@ -167,7 +167,8 @@ jobs:
     name: "Check build with minimal dependencies"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
       - spot=false
@@ -185,7 +186,8 @@ jobs:
     name: "Rust (lint)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c7i+c7i-flex+c7a+m7i+m7i-flex+m7a
+      - cpu=8
       - image=ubuntu24-full-x64
       - disk=large
       - spot=false
