@@ -190,14 +190,6 @@ impl BinaryView {
         Self::make_view(value, 0, 0)
     }
 
-    /// Create a new view over bytes stored in a block.
-    #[inline]
-    pub fn new_view(len: u32, prefix: [u8; 4], block: u32, offset: u32) -> Self {
-        Self {
-            _ref: Ref::new(len, prefix, block, offset),
-        }
-    }
-
     #[inline]
     pub fn len(&self) -> u32 {
         unsafe { self.inlined.size }
@@ -236,12 +228,14 @@ impl BinaryView {
         } else {
             // Referencing views must have their buffer_index adjusted with new offsets
             let view_ref = self.as_view();
-            BinaryView::new_view(
-                self.len(),
-                *view_ref.prefix(),
-                offset + view_ref.buffer_index(),
-                view_ref.offset(),
-            )
+            Self {
+                _ref: Ref::new(
+                    self.len(),
+                    *view_ref.prefix(),
+                    offset + view_ref.buffer_index(),
+                    view_ref.offset(),
+                ),
+            }
         }
     }
 }
