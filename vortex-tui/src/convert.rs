@@ -19,12 +19,19 @@ use vortex::file::VortexWriteOptions;
 use vortex::stream::{ArrayStream, ArrayStreamArrayExt};
 use vortex::{Array, ArrayRef};
 
+#[derive(Default)]
+pub struct Flags {
+    pub quiet: bool,
+}
+
 /// Convert Parquet files to Vortex.
-pub async fn exec_convert(input_path: impl AsRef<Path>) -> VortexResult<()> {
-    println!(
-        "Converting input Parquet file: {}",
-        input_path.as_ref().display()
-    );
+pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexResult<()> {
+    if !flags.quiet {
+        println!(
+            "Converting input Parquet file: {}",
+            input_path.as_ref().display()
+        );
+    }
 
     let wall_start = Instant::now();
 
@@ -42,34 +49,46 @@ pub async fn exec_convert(input_path: impl AsRef<Path>) -> VortexResult<()> {
     }
 
     let read_complete = Instant::now();
-    println!(
-        "Read Parquet file in {:?}",
-        read_complete.duration_since(wall_start)
-    );
+
+    if !flags.quiet {
+        println!(
+            "Read Parquet file in {:?}",
+            read_complete.duration_since(wall_start)
+        );
+
+        println!(
+            "Writing {} chunks to new Vortex file {}",
+            chunks.len(),
+            output_path.display()
+        );
+    }
 
     let dtype = chunks.first().vortex_expect("empty chunks").dtype().clone();
     let chunked_array = ChunkedArray::try_new(chunks, dtype)?;
 
     let writer = VortexWriteOptions::default();
 
-    let pb = ProgressBar::new(chunked_array.nchunks() as u64);
-    let stream = ProgressArrayStream {
-        inner: chunked_array.to_array_stream(),
-        progress: pb,
-    };
-
-    println!(
-        "Writing {} chunks to new Vortex file {}",
-        chunked_array.nchunks(),
-        output_path.display()
-    );
     let output_file = File::create(output_path).await?;
-    writer.write(output_file, stream).await?;
 
-    println!(
-        "Wrote Vortex in {:?}",
-        Instant::now().duration_since(read_complete)
-    );
+    if !flags.quiet {
+        let pb = ProgressBar::new(chunked_array.nchunks() as u64);
+        let stream = ProgressArrayStream {
+            inner: chunked_array.to_array_stream(),
+            progress: pb,
+        };
+        writer.write(output_file, stream).await?;
+    } else {
+        writer
+            .write(output_file, chunked_array.to_array_stream())
+            .await?;
+    }
+
+    if !flags.quiet {
+        println!(
+            "Wrote Vortex in {:?}",
+            Instant::now().duration_since(read_complete)
+        );
+    }
 
     Ok(())
 }

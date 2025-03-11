@@ -11,7 +11,7 @@ use clap::Parser;
 use tokio::runtime::Runtime;
 use tree::exec_tree;
 
-use crate::convert::exec_convert;
+use crate::convert::{Flags, exec_convert};
 
 static TOKIO_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new().expect("Tokio Runtime::new()"));
@@ -24,8 +24,18 @@ struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Commands {
+    /// Print the encoding tree of a Vortex file.
     Tree { file: PathBuf },
-    Convert { file: PathBuf },
+    /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
+    Convert {
+        /// Path to the Parquet file on disk to convert to Vortex
+        file: PathBuf,
+
+        /// Execute quietly. No output will be printed.
+        #[arg(short, long)]
+        quiet: bool,
+    },
+    /// Interactively browse the Vortex file.
     Browse { file: PathBuf },
 }
 
@@ -33,8 +43,8 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file)).expect("exec_tre"),
-        Commands::Convert { file } => TOKIO_RUNTIME
-            .block_on(exec_convert(file))
+        Commands::Convert { file, quiet } => TOKIO_RUNTIME
+            .block_on(exec_convert(file, Flags { quiet }))
             .expect("exec_convert"),
         Commands::Browse { file } => exec_tui(file).expect("exec_tui"),
     }
