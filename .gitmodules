@@ -1,6 +1,6 @@
 [submodule "duckdb"]
 	path = duckdb-vortex/duckdb
-	url = https://github.com/duckdb/duckdb
+	url = https://github.com/spiraldb/duckdb
 [submodule "extension-ci-tools"]
 	path = duckdb-vortex/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools

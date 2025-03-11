@@ -1876,8 +1876,7 @@ dependencies = [
 [[package]]
 name = "duckdb"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e2093a18d0c07e411104a9d27ef0097872172552ad5774feba304c2b47f382c"
+source = "git+https://github.com/spiraldb/duckdb-rs?branch=main#1096461ea9d6a9632e5cb079860ea47b2de0257b"
 dependencies = [
  "arrow",
  "calamine",
@@ -2960,8 +2959,7 @@ checksum = "875b3680cb2f8f71bdcf9a30f38d48282f5d3c95cbf9b3fa57269bb5d5c06828"
 [[package]]
 name = "libduckdb-sys"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4020eaf07df4927b5205cd200ca2a5ed0798b49652dec22e09384ba8efa163"
+source = "git+https://github.com/spiraldb/duckdb-rs?branch=main#1096461ea9d6a9632e5cb079860ea47b2de0257b"
 dependencies = [
  "autocfg",
  "cc",
