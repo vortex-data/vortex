@@ -1,4 +1,3 @@
-use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};

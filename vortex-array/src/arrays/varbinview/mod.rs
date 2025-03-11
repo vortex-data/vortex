@@ -127,8 +127,8 @@ impl BinaryView {
             Self::new_view(
                 u32::try_from(value.len()).vortex_unwrap(),
                 value[0..4].try_into().vortex_unwrap(),
-                offset,
                 block,
+                offset,
             )
         }
     }
