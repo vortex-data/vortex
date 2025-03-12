@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use arrow_buffer::BooleanBuffer;
@@ -6,7 +7,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{Operator, scalar_at, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -44,7 +45,7 @@ pub fn compare_canonical_array(
             let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 let pval = primitive.typed_value::<$P>().vortex_expect("nulls handled before");
-                Ok(compare_to(
+                Ok(compare_native_ptype(
                     primitive_array
                         .as_slice::<$P>()
                         .iter()
@@ -95,7 +96,7 @@ pub fn compare_canonical_array(
     }
 }
 
-fn compare_to<T: PartialOrd + PartialEq>(
+fn compare_to<T: PartialOrd + PartialEq + Debug>(
     values: impl Iterator<Item = Option<T>>,
     cmp_value: T,
     operator: Operator,
@@ -108,6 +109,24 @@ fn compare_to<T: PartialOrd + PartialEq>(
             Operator::Gte => v >= cmp_value,
             Operator::Lt => v < cmp_value,
             Operator::Lte => v <= cmp_value,
+        })
+    }))
+    .into_array()
+}
+
+fn compare_native_ptype<T: NativePType>(
+    values: impl Iterator<Item = Option<T>>,
+    cmp_value: T,
+    operator: Operator,
+) -> ArrayRef {
+    BoolArray::from_iter(values.map(|val| {
+        val.map(|v| match operator {
+            Operator::Eq => v.is_eq(cmp_value),
+            Operator::NotEq => !v.is_eq(cmp_value),
+            Operator::Gt => v.is_gt(cmp_value),
+            Operator::Gte => v.is_ge(cmp_value),
+            Operator::Lt => v.is_lt(cmp_value),
+            Operator::Lte => v.is_le(cmp_value),
         })
     }))
     .into_array()

@@ -22,6 +22,7 @@ arrow-buffer = { workspace = true }
 arrow-ord = { workspace = true }
 futures-util = { workspace = true }
 libfuzzer-sys = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-btrblocks = { workspace = true }

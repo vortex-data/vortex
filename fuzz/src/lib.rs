@@ -1,4 +1,7 @@
+#![feature(error_generic_member_access)]
+
 mod compare;
+pub mod error;
 mod filter;
 mod search_sorted;
 mod slice;

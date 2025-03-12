@@ -5995,6 +5995,7 @@ dependencies = [
  "arrow-ord",
  "futures-util",
  "libfuzzer-sys",
+ "thiserror 2.0.12",
  "tokio",
  "vortex-array",
  "vortex-btrblocks",
