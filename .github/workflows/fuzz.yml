@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Restore corpus
@@ -61,6 +63,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Restore corpus
