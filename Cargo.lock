@@ -1880,6 +1880,7 @@ dependencies = [
  "arrow",
  "calamine",
  "cast",
+ "duckdb-loadable-macros 0.1.4",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
@@ -1893,23 +1894,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "duckdb"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e2093a18d0c07e411104a9d27ef0097872172552ad5774feba304c2b47f382c"
+name = "duckdb-loadable-macros"
+version = "0.1.4"
 dependencies = [
- "arrow",
- "cast",
- "duckdb-loadable-macros",
- "fallible-iterator",
- "fallible-streaming-iterator",
- "hashlink",
- "libduckdb-sys 1.2.1",
- "memchr",
- "num-integer",
- "rust_decimal",
- "smallvec",
- "strum 0.25.0",
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -1928,8 +1919,8 @@ dependencies = [
 name = "duckdb_vortex_rs"
 version = "0.1.0"
 dependencies = [
- "duckdb 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "duckdb-loadable-macros",
+ "duckdb",
+ "duckdb-loadable-macros 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "libduckdb-sys 1.2.1",
  "tokio",
@@ -5913,7 +5904,7 @@ dependencies = [
 name = "vortex-duckdb"
 version = "0.25.2"
 dependencies = [
- "duckdb 1.2.0",
+ "duckdb",
  "itertools 0.14.0",
  "vortex-array",
  "vortex-dtype",
