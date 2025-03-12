@@ -10,15 +10,6 @@ crate-type = ["cdylib"]
 lto = true
 strip = true
 
-[[example]]
-# crate-type can't be (at the moment) be overriden for specific targets
-# src/wasm_lib.rs forwards to src/lib.rs so that we can change from cdylib
-# (that is needed while compiling natively) to staticlib (needed since the
-# actual linking will be done via emcc
-name = "rusty_quack"
-path = "src/wasm_lib.rs"
-crate-type = ["staticlib"]
-
 [dependencies]
 duckdb = { workspace = true, features = ["vtab-loadable"] }
 duckdb-loadable-macros = "0.1.4"
