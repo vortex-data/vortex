@@ -101,12 +101,8 @@ pub enum VortexError {
     #[error("{0}: {1}")]
     Context(ErrString, #[source] Box<VortexError>),
     /// A wrapper for errors from the Arrow library.
-    #[error(transparent)]
-    ArrowError(
-        #[from]
-        #[backtrace]
-        arrow_schema::ArrowError,
-    ),
+    #[error("{0}\nBacktrace:\n{1}")]
+    ArrowError(arrow_schema::ArrowError, Backtrace),
     /// A wrapper for errors from the FlatBuffers library.
     #[cfg(feature = "flatbuffers")]
     #[error(transparent)]
@@ -402,6 +398,12 @@ macro_rules! vortex_panic {
     }};
 }
 
+impl From<arrow_schema::ArrowError> for VortexError {
+    fn from(value: arrow_schema::ArrowError) -> Self {
+        VortexError::ArrowError(value, Backtrace::capture())
+    }
+}
+
 #[cfg(feature = "datafusion")]
 impl From<VortexError> for datafusion_common::DataFusionError {
     fn from(value: VortexError) -> Self {
@@ -413,7 +415,7 @@ impl From<VortexError> for datafusion_common::DataFusionError {
 impl From<VortexError> for datafusion_common::arrow::error::ArrowError {
     fn from(value: VortexError) -> Self {
         match value {
-            VortexError::ArrowError(e) => e,
+            VortexError::ArrowError(e, _) => e,
             _ => Self::from_external_error(Box::new(value)),
         }
     }
