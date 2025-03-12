@@ -48,7 +48,7 @@ pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
         let dtype = DType::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
-            .map(|b| b.map_err(VortexError::ArrowError))
+            .map(|b| b.map_err(VortexError::from))
             .map(|b| b.and_then(|b| b.try_into_array()))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(
