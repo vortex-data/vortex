@@ -136,7 +136,7 @@ public final class FFI {
 
     @Structure.FieldOrder({"projection"})
     public static final class FileScanOptions extends Structure {
-        public StringArray projection;
+        public Pointer projection;
 
         public FileScanOptions(StringArray projection) {
             this.projection = projection;

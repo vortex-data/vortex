@@ -19,7 +19,6 @@ pub struct FFIArrayStream {
 #[repr(C)]
 pub struct FFIArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
-    // pub(crate) stream: BoxStream<'static, VortexResult<ArrayRef>>,
 }
 
 #[unsafe(no_mangle)]
