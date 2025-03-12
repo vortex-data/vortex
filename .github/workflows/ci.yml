@@ -163,7 +163,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui  --exclude duckdb-vortex-rs"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui --exclude duckdb-vortex-rs"
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
