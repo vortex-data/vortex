@@ -36,10 +36,14 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
+        with:
+          submodules: "recursive"
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
@@ -59,6 +63,8 @@ jobs:
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null
+        with:
+          submodules: "recursive"
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
