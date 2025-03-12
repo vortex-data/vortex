@@ -119,6 +119,9 @@ impl BinaryView {
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
+    ///
+    /// Adapted from arrow-rs https://github.com/apache/arrow-rs/blob/f4fde769ab6e1a9b75f890b7f8b47bc22800830b/arrow-array/src/builder/generic_bytes_view_builder.rs#L524
+    /// Explicitly enumerating inlined view produces code that avoids calling generic `ptr::copy_non_interleave` that's slower than explicit stores
     #[inline(never)]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
         match value.len() {
