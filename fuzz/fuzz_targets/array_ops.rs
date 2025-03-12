@@ -1,4 +1,5 @@
 #![no_main]
+#![allow(clippy::unwrap_used)]
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::aliases::hash_set::HashSet;
@@ -12,7 +13,7 @@ use vortex_array::compute::{
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_error::{vortex_panic, VortexUnwrap};
+use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_scalar::Scalar;
