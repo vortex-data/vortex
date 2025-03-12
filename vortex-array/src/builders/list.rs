@@ -4,6 +4,7 @@ use std::sync::Arc;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_mask::Mask;
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
@@ -148,6 +149,11 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         }
 
         Ok(())
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

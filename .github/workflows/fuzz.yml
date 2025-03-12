@@ -14,9 +14,12 @@ jobs:
       - image=ubuntu24-full-x64
       - disk=large
       - tag=io-fuzz
+      - spot=false
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Restore corpus
@@ -56,9 +59,12 @@ jobs:
       - image=ubuntu24-full-x64
       - disk=large
       - tag=ops-fuzz
+      - spot=false
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Restore corpus

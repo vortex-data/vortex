@@ -13,7 +13,7 @@ use vortex_array::compute::{Operator, compare};
 use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, StructDType};
 use vortex_error::VortexUnwrap;
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
@@ -63,7 +63,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             output.dtype()
         );
 
-        if array_data.dtype().is_struct() {
+        if matches!(array_data.dtype(), DType::Struct(_, _) | DType::List(_, _)) {
             compare_struct(array_data, output);
         } else {
             let r = compare(&array_data, &output, Operator::Eq).vortex_unwrap();
@@ -99,20 +99,30 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
 }
 
 fn has_nullable_struct(dtype: &DType) -> bool {
-    dtype.is_nullable()
+    dtype.is_struct() && dtype.is_nullable()
         || dtype
             .as_struct()
             .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
             .unwrap_or(false)
+        || dtype
+            .as_list_element()
+            .map(has_nullable_struct)
+            .unwrap_or(false)
 }
 
 fn has_duplicate_field_names(dtype: &DType) -> bool {
-    let Some(struct_dtype) = dtype.as_struct() else {
-        return false;
-    };
+    if let Some(struct_dtype) = dtype.as_struct() {
+        struct_has_duplicate_names(struct_dtype)
+    } else if let Some(list_elem) = dtype.as_list_element() {
+        has_duplicate_field_names(list_elem)
+    } else {
+        false
+    }
+}
+
+fn struct_has_duplicate_names(struct_dtype: &StructDType) -> bool {
     HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len()
-        || dtype
-            .as_struct()
-            .map(|sdt| sdt.fields().any(|dtype| has_duplicate_field_names(&dtype)))
-            .unwrap_or(false)
+        || struct_dtype
+            .fields()
+            .any(|dtype| has_duplicate_field_names(&dtype))
 }

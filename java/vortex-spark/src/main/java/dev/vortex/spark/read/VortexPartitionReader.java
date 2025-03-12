@@ -24,7 +24,6 @@ import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.impl.NativeFile;
 import dev.vortex.spark.VortexFilePartition;
-import java.io.IOException;
 import java.util.Objects;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -72,7 +71,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         checkState(Objects.nonNull(file), "File was closed");
         checkState(Objects.nonNull(arrayStream), "ArrayStream was closed");
 

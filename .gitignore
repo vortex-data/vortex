@@ -192,6 +192,7 @@ benchmarks/.out
 *.txt
 *.vortex
 *.parquet
+!docs/_static/example.parquet
 
 # TPC-H benchmarking data
 /data/

@@ -147,7 +147,7 @@ impl Validity {
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(is_valid) => {
                 let maybe_is_valid = take(is_valid, indices)?;
-                // Null indices invalidite that position.
+                // Null indices invalidate that position.
                 let is_valid = fill_null(&maybe_is_valid, Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
             }

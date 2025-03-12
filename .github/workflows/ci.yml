@@ -31,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
@@ -44,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
       - name: Python Lint - Format
         run: uv run ruff format --check .
@@ -55,6 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
@@ -103,16 +109,33 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Docs
         run: cargo doc --no-deps
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=${{ matrix.config.name }}
+
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: '-A warnings'
@@ -142,13 +165,17 @@ jobs:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui  --exclude duckdb-vortex-rs"
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
+        with:
+          submodules: "recursive"
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
         with:
           targets: ${{matrix.config.target || ''}}
       - uses: ./.github/actions/setup-c++
+      - name: Install wasm32 target
+        if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
+        run: rustup target add wasm32-unknown-unknown
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
@@ -156,12 +183,20 @@ jobs:
 
   check-min-deps:
     name: "Check build with minimal dependencies"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-min-deps
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
+        with:
+          submodules: "recursive"
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
@@ -169,12 +204,20 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - spot=false
+      - tag=rust-lint
     steps:
+      - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
+        with:
+          submodules: "recursive"
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
         run: cargo fmt --all --check
@@ -207,6 +250,8 @@ jobs:
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
@@ -243,6 +288,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Install Codspeed
@@ -283,6 +330,8 @@ jobs:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
@@ -312,6 +361,8 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@v2
         with:
@@ -332,6 +383,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust

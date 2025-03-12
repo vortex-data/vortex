@@ -37,6 +37,10 @@ public final class FFI {
 
     public static native FFIArray FFIArray_slice(FFIArray array, int start, int stop);
 
+    public static native boolean FFIArray_is_null(FFIArray array, int index);
+
+    public static native int FFIArray_null_count(FFIArray array);
+
     public static native FFIArray FFIArray_get_field(FFIArray array, int index);
 
     public static native byte FFIArray_get_u8(FFIArray array, int index);

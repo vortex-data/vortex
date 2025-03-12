@@ -17,6 +17,7 @@ pub use primitive::*;
 pub use varbinview::*;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_mask::Mask;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
     StructScalar, Utf8Scalar,
@@ -56,6 +57,9 @@ pub trait ArrayBuilder: Send {
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
+
+    /// Override builders validity with the one provided
+    fn set_validity(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
     ///

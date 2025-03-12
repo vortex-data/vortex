@@ -23,6 +23,7 @@ jobs:
         with:
           # Needed to pull full commit history for release version number inference
           fetch-depth: 0
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
@@ -46,6 +47,7 @@ jobs:
         with:
           # Needed to pull full commit history for release version number inference
           fetch-depth: 0
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
@@ -62,6 +64,8 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - name: rust-toolchain
         shell: bash
@@ -106,6 +110,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: astral-sh/setup-uv@v5
       - name: rust-toolchain
         shell: bash

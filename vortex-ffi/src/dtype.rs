@@ -68,7 +68,8 @@ pub unsafe extern "C" fn DType_new_struct(
     for i in 0..len {
         let name_ptr = *names.add(i as usize);
         let name: Arc<str> = CStr::from_ptr(name_ptr).to_string_lossy().into();
-        let dtype = (**dtypes.add(i as usize)).clone();
+        let dtype = Box::from_raw(*dtypes.add(i as usize));
+        let dtype = *dtype;
 
         rust_names.push(name);
         field_dtypes.push(dtype);
@@ -301,8 +302,6 @@ mod tests {
             let dtypes = [name, age];
 
             let person = DType_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
-            DType_free(name);
-            DType_free(age);
 
             assert_eq!(DType_get(person), DTYPE_STRUCT);
             assert_eq!(DType_field_count(person), 2);

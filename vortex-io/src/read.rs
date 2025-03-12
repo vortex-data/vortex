@@ -165,4 +165,8 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     async fn size(&self) -> io::Result<u64> {
         self.read.size().await
     }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        self.read.performance_hint()
+    }
 }

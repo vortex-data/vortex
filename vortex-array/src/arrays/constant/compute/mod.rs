@@ -4,6 +4,7 @@ mod cast;
 mod compare;
 mod invert;
 mod search_sorted;
+mod take;
 
 use num_traits::{CheckedMul, ToPrimitive};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
@@ -58,6 +59,10 @@ impl ComputeVTable for ConstantEncoding {
         Some(self)
     }
 
+    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -65,21 +70,11 @@ impl ComputeVTable for ConstantEncoding {
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
-        Some(self)
-    }
 }
 
 impl ScalarAtFn<&ConstantArray> for ConstantEncoding {
     fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
         Ok(array.scalar().clone())
-    }
-}
-
-impl TakeFn<&ConstantArray> for ConstantEncoding {
-    fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(array.scalar().clone(), indices.len()).into_array())
     }
 }
 
