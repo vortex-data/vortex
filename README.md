@@ -240,6 +240,12 @@ brew install rustup
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
+Setup git submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
 This repo uses uv to manage the combined Rust/Python monorepo build. After installing uv, make sure to run:
 
 ```bash
