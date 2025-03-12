@@ -36,6 +36,9 @@ impl ObjectStoreReadAt {
     }
 }
 
+/// Blocking reads to read at most this size before yielding.
+const FILE_CHUNK_SIZE: u64 = 2 << 20; // 1MB
+
 impl VortexReadAt for ObjectStoreReadAt {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = range.end - range.start)))]
     async fn read_byte_range(
@@ -65,14 +68,41 @@ impl VortexReadAt for ObjectStoreReadAt {
             .await?;
 
         let buffer = match response.payload {
-            GetResultPayload::File(file, _) => {
+            GetResultPayload::File(mut file, _) => {
+                let mut bytes_read = 0u64;
                 unsafe { buffer.set_len(len) };
-                tokio::task::spawn_blocking(move || {
-                    file.read_exact_at(&mut buffer, range.start)?;
-                    Ok::<_, io::Error>(buffer)
-                })
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+
+                while bytes_read < len as u64 {
+                    let current_chunk_end =
+                        (len as u64).min(range.start + bytes_read + FILE_CHUNK_SIZE);
+                    let (read, b, f) = tokio::task::spawn_blocking(move || {
+                        let (Ok(bytes_read), Ok(current_chunk_end)) =
+                            (bytes_read.try_into(), current_chunk_end.try_into())
+                        else {
+                            return Err(io::Error::new(
+                                io::ErrorKind::FileTooLarge,
+                                "can not read from u64 offset",
+                            ));
+                        };
+                        let slice = &mut buffer[bytes_read..current_chunk_end];
+                        let read = file.read_at(slice, range.start + bytes_read as u64)?;
+                        Ok::<_, io::Error>((read, buffer, file))
+                    })
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??;
+
+                    if read == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "premature eof",
+                        ));
+                    }
+
+                    bytes_read += read as u64;
+                    buffer = b;
+                    file = f;
+                }
+                buffer
             }
             GetResultPayload::Stream(mut byte_stream) => {
                 while let Some(bytes) = byte_stream.next().await {
