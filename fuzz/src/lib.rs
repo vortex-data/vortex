@@ -13,13 +13,12 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::ListEncoding;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::{Operator, SearchResult, SearchSortedSide, scalar_at};
-use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayRef, ArrayVisitorExt, EncodingId, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
+use vortex_dtype::DType;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -74,7 +73,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
 
-        let valid_actions = actions_for_array(&current_array);
+        let valid_actions = actions_for_dtype(current_array.dtype()).into_iter().collect::<Vec<_>>();
 
         let mut actions = Vec::new();
         let action_count = u.int_in_range(1..=4)?;
@@ -201,21 +200,18 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=5;
 
-fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
-    if ListEncoding.id() == encoding_id {
+fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
+    match dtype {
+        // All but compare
+        DType::Struct(sdt, _) => sdt
+            .fields()
+            .map(|child| actions_for_dtype(&child))
+            .fold((0..=4).collect(), |acc, actions| {
+                acc.intersection(&actions).copied().collect()
+            }),
+        // Once we support more list operations also recurse here on child dtype
         // compress, slice
-        vec![0, 1].into_iter().collect()
-    } else {
-        ALL_ACTIONS.collect()
+        DType::List(..) => [0, 1].into_iter().collect(),
+        _ => ALL_ACTIONS.collect(),
     }
-}
-
-fn actions_for_array(array: &dyn Array) -> Vec<usize> {
-    array
-        .depth_first_traversal()
-        .map(|child| actions_for_encoding(child.encoding()))
-        .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
-            acc.retain(|a| actions.contains(a));
-            acc
-        })
 }

@@ -260,8 +260,8 @@ unwrap_used = "deny"
 use_debug = "deny"
 
 [profile.release]
-codegen-units = 1
-lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
+#codegen-units = 1
+#lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
 [profile.release_debug]
 debug = "full"
