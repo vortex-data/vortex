@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -47,6 +49,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
