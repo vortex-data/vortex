@@ -59,14 +59,9 @@ fn fsst_into_varbin_view(
 
     // Bulk-decompress the entire array.
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    // SAFETY: uncompressed bytes is large enough to contain all data + the 7 additional bytes
-    //  of padding required for vectorized decompression. See the docstring for `decompress_into`
-    //  for more details.
-    unsafe {
-        let len =
-            decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
-        uncompressed_bytes.set_len(len);
-    };
+    let len =
+        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+    unsafe { uncompressed_bytes.set_len(len) };
 
     let block_offset = u32::try_from(block_offset)?;
 

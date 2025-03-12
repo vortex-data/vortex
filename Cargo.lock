@@ -2136,9 +2136,9 @@ dependencies = [
 
 [[package]]
 name = "fsst-rs"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c274306bb4da50d928487c0d99e4e52a920df7d901072dd17374a25a11f2e9"
+checksum = "4bef086b2717e557af9d9ca2def97a8ef727cb808a8db00bff6b7590446c9099"
 
 [[package]]
 name = "funty"
