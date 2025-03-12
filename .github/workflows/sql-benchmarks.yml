@@ -41,8 +41,6 @@ jobs:
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Run ${{ matrix.name }} benchmark
-        with:
-          submodules: "recursive"
         if: matrix.remote_storage == null
         shell: bash
         env:
@@ -62,8 +60,6 @@ jobs:
             | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark
-        with:
-          submodules: "recursive"
         if: matrix.remote_storage != null
         shell: bash
         env:
