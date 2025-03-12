@@ -1,9 +1,13 @@
+use std::ops::Deref;
+
+use arrow_buffer::BooleanBuffer;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{Operator, scalar_at, scalar_cmp};
+use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 pub fn compare_canonical_array(
@@ -11,9 +15,19 @@ pub fn compare_canonical_array(
     value: &Scalar,
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
+    if value.is_null() {
+        return Ok(
+            BoolArray::new(BooleanBuffer::new_unset(array.len()), Validity::AllInvalid)
+                .into_array(),
+        );
+    }
+
     match array.dtype() {
         DType::Bool(_) => {
-            let bool = value.as_bool().value();
+            let bool = value
+                .as_bool()
+                .value()
+                .vortex_expect("nulls handled before");
             Ok(compare_to(
                 array
                     .to_bool()?
@@ -29,7 +43,7 @@ pub fn compare_canonical_array(
             let primitive = value.as_primitive();
             let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
-                let pval = primitive.typed_value::<$P>();
+                let pval = primitive.typed_value::<$P>().vortex_expect("nulls handled before");
                 Ok(compare_to(
                     primitive_array
                         .as_slice::<$P>()
@@ -43,20 +57,26 @@ pub fn compare_canonical_array(
             })
         }
         DType::Utf8(_) => array.to_varbinview()?.with_iterator(|iter| {
-            let utf8_value = value.as_utf8().value();
+            let utf8_value = value
+                .as_utf8()
+                .value()
+                .vortex_expect("nulls handled before");
             compare_to(
                 iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                utf8_value.as_deref(),
+                utf8_value.deref(),
                 operator,
             )
         }),
         DType::Binary(_) => array.to_varbinview()?.with_iterator(|iter| {
-            let binary_value = value.as_binary().value();
+            let binary_value = value
+                .as_binary()
+                .value()
+                .vortex_expect("nulls handled before");
             compare_to(
                 // Don't understand the lifetime problem here but identity map makes it go away
                 #[allow(clippy::map_identity)]
                 iter.map(|v| v),
-                binary_value.as_deref(),
+                binary_value.deref(),
                 operator,
             )
         }),
@@ -77,16 +97,18 @@ pub fn compare_canonical_array(
 
 fn compare_to<T: PartialOrd + PartialEq>(
     values: impl Iterator<Item = Option<T>>,
-    value: Option<T>,
+    cmp_value: T,
     operator: Operator,
 ) -> ArrayRef {
-    BoolArray::from_iter(values.map(|v| match operator {
-        Operator::Eq => v == value,
-        Operator::NotEq => v != value,
-        Operator::Gt => v > value,
-        Operator::Gte => v >= value,
-        Operator::Lt => v < value,
-        Operator::Lte => v <= value,
+    BoolArray::from_iter(values.map(|val| {
+        val.map(|v| match operator {
+            Operator::Eq => v == cmp_value,
+            Operator::NotEq => v != cmp_value,
+            Operator::Gt => v > cmp_value,
+            Operator::Gte => v >= cmp_value,
+            Operator::Lt => v < cmp_value,
+            Operator::Lte => v <= cmp_value,
+        })
     }))
     .into_array()
 }
