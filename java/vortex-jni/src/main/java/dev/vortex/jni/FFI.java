@@ -15,9 +15,7 @@
  */
 package dev.vortex.jni;
 
-import com.sun.jna.Native;
-import com.sun.jna.Pointer;
-import com.sun.jna.PointerType;
+import com.sun.jna.*;
 import com.sun.jna.ptr.IntByReference;
 
 /**
@@ -125,14 +123,25 @@ public final class FFI {
 
     public static native void File_free(FFIFile file);
 
-    public static native FFIArrayStream File_scan(FFIFile file);
+    public static native FFIArrayStream File_scan(FFIFile file, FileScanOptions options);
 
     // ArrayStream interaction
+    public static native FFIDType FFIArrayStream_dtype(FFIArrayStream stream);
+
     public static native boolean FFIArrayStream_next(FFIArrayStream stream);
 
     public static native FFIArray FFIArrayStream_current(FFIArrayStream stream);
 
     public static native void FFIArrayStream_free(FFIArrayStream stream);
+
+    @Structure.FieldOrder({"projection"})
+    public static final class FileScanOptions extends Structure {
+        public StringArray projection;
+
+        public FileScanOptions(StringArray projection) {
+            this.projection = projection;
+        }
+    }
 
     /**
      * Opaque pointer to an {@code FFIFile} from the Vortex FFI.

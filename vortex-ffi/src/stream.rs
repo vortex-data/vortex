@@ -1,7 +1,9 @@
+use std::pin::Pin;
+
 use futures::StreamExt;
-use futures::stream::BoxStream;
-use vortex::ArrayRef;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::dtype::DType;
+use vortex::error::VortexExpect;
+use vortex::stream::ArrayStream;
 
 use crate::RUNTIME;
 use crate::array::{FFIArray, FFIArray_free};
@@ -16,7 +18,19 @@ pub struct FFIArrayStream {
 /// FFI-compatible interface for dealing with a stream array.
 #[repr(C)]
 pub struct FFIArrayStreamInner {
-    pub(crate) stream: BoxStream<'static, VortexResult<ArrayRef>>,
+    pub(crate) stream: Pin<Box<dyn ArrayStream>>,
+    // pub(crate) stream: BoxStream<'static, VortexResult<ArrayRef>>,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> *const DType {
+    let stream = &*stream;
+    stream
+        .inner
+        .as_ref()
+        .vortex_expect("FFIArrayStream_dtype: called after finish")
+        .stream
+        .dtype()
 }
 
 /// Attempt to advance the `current` pointer of the stream.

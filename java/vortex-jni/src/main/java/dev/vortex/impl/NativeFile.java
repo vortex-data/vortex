@@ -15,6 +15,7 @@
  */
 package dev.vortex.impl;
 
+import com.sun.jna.StringArray;
 import dev.vortex.api.ArrayStream;
 import dev.vortex.api.DType;
 import dev.vortex.api.File;
@@ -43,8 +44,11 @@ public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
      */
     @Override
     public ArrayStream newScan(ScanOptions options) {
-        var scan = FFI.File_scan(inner);
-        return new NativeArrayStream(scan);
+        String[] columns = options.columns().toArray(new String[0]);
+        try (StringArray columnsPtr = new StringArray(columns)) {
+            var scan = FFI.File_scan(inner, new FFI.FileScanOptions(columnsPtr));
+            return new NativeArrayStream(scan);
+        }
     }
 
     @Override

@@ -18,6 +18,8 @@ package dev.vortex.api;
 public interface ArrayStream extends AutoCloseable {
     Array getCurrent();
 
+    DType getDataType();
+
     /**
      * Fetch the next element of the stream.
      * <p>
