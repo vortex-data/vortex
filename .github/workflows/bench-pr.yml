@@ -42,6 +42,8 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet

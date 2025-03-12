@@ -23,6 +23,8 @@ jobs:
       - spot=false
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
