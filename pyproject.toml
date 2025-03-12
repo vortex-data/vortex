@@ -40,7 +40,7 @@ docs = { workspace = true }
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [".venv"]
+extend-exclude = [".venv", "duckdb-vortex/**"]
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "UP", "I"]
