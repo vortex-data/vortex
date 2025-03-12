@@ -193,9 +193,9 @@ jobs:
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
