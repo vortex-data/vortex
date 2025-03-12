@@ -140,7 +140,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui  --exclude duckdb-vortex-rs"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -256,6 +256,7 @@ jobs:
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
             --exclude vortex-datafusion \
+            --exclude duckdb-vortex-rs
             --exclude vortex-tui \
             --exclude vortex-fuzz \
             --exclude pyvortex \
@@ -316,7 +317,11 @@ jobs:
         with:
           tool: nextest
       - name: Run all tests with Miri
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb
+        run: |
+          cargo miri nextest run --no-fail-fast --workspace \
+          --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst \
+          --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar \
+          --exclude vortex-duckdb --exclude duckdb-vortex-rs
         # For now, we only run Miri against known "fiddly" crates.
         if: false
       - name: Run Miri
