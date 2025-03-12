@@ -22,11 +22,10 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress => {
-                let compressed_array = BtrBlocksCompressor
+                current_array = BtrBlocksCompressor
                     .compress(current_array.to_canonical().vortex_unwrap().as_ref())
                     .vortex_unwrap();
-                assert_array_eq(&expected.array(), &compressed_array, i);
-                current_array = compressed_array;
+                assert_array_eq(&expected.array(), &current_array, i);
             }
             Action::Slice(range) => {
                 current_array = slice(&current_array, range.start, range.end).vortex_unwrap();

@@ -73,9 +73,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
 
-        let valid_actions = actions_for_dtype(current_array.dtype())
+        let mut valid_actions = actions_for_dtype(current_array.dtype())
             .into_iter()
             .collect::<Vec<_>>();
+        valid_actions.sort_unstable();
 
         let mut actions = Vec::new();
         let action_count = u.int_in_range(1..=4)?;
