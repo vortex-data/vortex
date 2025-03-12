@@ -26,7 +26,7 @@ members = [
     "vortex-tui",
     "xtask",
 ]
-exclude = ["wasm-test", "duckdb-vortex/duckdb-rs"]
+exclude = ["duckdb-vortex/duckdb-rs", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
