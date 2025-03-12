@@ -41,9 +41,9 @@ jobs:
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_storage == null
         with:
           submodules: "recursive"
+        if: matrix.remote_storage == null
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
@@ -62,9 +62,9 @@ jobs:
             | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_storage != null
         with:
           submodules: "recursive"
+        if: matrix.remote_storage != null
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
