@@ -130,22 +130,27 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 
     pub fn build(self) -> VortexResult<Scan<D>> {
-        // TODO(os): unified field mask handling for splits and segments
         let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
         let filter = self
             .filter
             .clone()
             .map(|f| simplify_typed(f, self.layout.dtype()))
             .transpose()?;
-        let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
+        let (filter_mask, projection_mask) =
+            filter_and_projection_masks(&projection, filter.as_ref(), self.layout.dtype())?;
 
-        let row_indices = self.row_indices.clone();
+        let field_mask: Vec<_> = filter_mask
+            .iter()
+            .cloned()
+            .chain(projection_mask.iter().cloned())
+            .collect();
+
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let mut collector = SegmentCollector::default();
-        let (filter_mask, projection_mask) = self.filter_and_projection_masks()?;
         self.layout
             .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
         let (mut row_range_pruner, segments) = collector.finish();
+        let row_indices = self.row_indices.clone();
         if let Some(indices) = &row_indices {
             row_range_pruner.retain_matching(indices.clone());
         }
@@ -203,40 +208,41 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
         self.into_array_stream()?.read_all().await
     }
+}
 
-    fn filter_and_projection_masks(&self) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-        let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
-        let filter = self
-            .filter
-            .clone()
-            .map(|f| simplify_typed(f, self.layout.dtype()))
-            .transpose()?;
-        let Some(struct_dtype) = self.layout.dtype().as_struct() else {
-            return Ok(match filter {
-                Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
-                None => (Vec::new(), vec![FieldMask::All]),
-            });
-        };
-        let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
-        Ok(match filter {
-            None => (
-                Vec::new(),
-                projection_mask.into_iter().map(to_field_mask).collect_vec(),
-            ),
-            Some(f) => {
-                let filter_mask = immediate_scope_access(&f, struct_dtype)?;
-                let only_projection_mask = projection_mask
-                    .difference(&filter_mask)
-                    .cloned()
-                    .map(to_field_mask)
-                    .collect_vec();
-                (
-                    filter_mask.into_iter().map(to_field_mask).collect_vec(),
-                    only_projection_mask,
-                )
-            }
-        })
-    }
+/// Compute masks of field paths referenced by the projection and filter in the scan.
+///
+/// Projection and filter must be pre-simplified.
+fn filter_and_projection_masks(
+    projection: &ExprRef,
+    filter: Option<&ExprRef>,
+    dtype: &DType,
+) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
+    let Some(struct_dtype) = dtype.as_struct() else {
+        return Ok(match filter {
+            Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
+            None => (Vec::new(), vec![FieldMask::All]),
+        });
+    };
+    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
+    Ok(match filter {
+        None => (
+            Vec::new(),
+            projection_mask.into_iter().map(to_field_mask).collect_vec(),
+        ),
+        Some(f) => {
+            let filter_mask = immediate_scope_access(f, struct_dtype)?;
+            let only_projection_mask = projection_mask
+                .difference(&filter_mask)
+                .cloned()
+                .map(to_field_mask)
+                .collect_vec();
+            (
+                filter_mask.into_iter().map(to_field_mask).collect_vec(),
+                only_projection_mask,
+            )
+        }
+    })
 }
 
 fn to_field_mask(field: FieldName) -> FieldMask {
@@ -353,29 +359,4 @@ impl<D: ScanDriver> Scan<D> {
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
         self.into_array_stream()?.read_all().await
     }
-}
-
-/// Compute a mask of field paths referenced by this scan.
-///
-/// Projection and filter must be pre-simplified.
-fn field_mask(
-    projection: &ExprRef,
-    filter: Option<&ExprRef>,
-    scope_dtype: &DType,
-) -> VortexResult<Vec<FieldMask>> {
-    let Some(struct_dtype) = scope_dtype.as_struct() else {
-        return Ok(vec![FieldMask::All]);
-    };
-
-    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
-    let filter_mask = filter
-        .map(|f| immediate_scope_access(f, struct_dtype))
-        .transpose()?
-        .unwrap_or_default();
-
-    Ok(projection_mask
-        .union(&filter_mask)
-        .cloned()
-        .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
-        .collect_vec())
 }

@@ -56,14 +56,6 @@ impl LayoutVTable for FlatLayout {
         _projection_field_mask: &[FieldMask],
         segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
-        // if !filter_field_mask
-        //     .iter()
-        //     .chain(projection_field_mask)
-        //     .any(|p| p.matches_root())
-        // {
-        //     return Ok(());
-        // }
-
         // this would iterate once
         for segment in layout.segments() {
             segments.push(row_offset, row_offset + layout.row_count(), segment);
