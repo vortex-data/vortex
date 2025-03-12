@@ -303,7 +303,7 @@ jobs:
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
             --exclude vortex-datafusion \
-            --exclude duckdb-vortex-rs
+            --exclude duckdb-vortex-rs \
             --exclude vortex-tui \
             --exclude vortex-fuzz \
             --exclude pyvortex \
