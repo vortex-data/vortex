@@ -1880,13 +1880,32 @@ dependencies = [
  "arrow",
  "calamine",
  "cast",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libduckdb-sys 1.2.0",
+ "memchr",
+ "num",
+ "num-integer",
+ "rust_decimal",
+ "smallvec",
+ "strum 0.25.0",
+]
+
+[[package]]
+name = "duckdb"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e2093a18d0c07e411104a9d27ef0097872172552ad5774feba304c2b47f382c"
+dependencies = [
+ "arrow",
+ "cast",
  "duckdb-loadable-macros",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
- "libduckdb-sys",
+ "libduckdb-sys 1.2.1",
  "memchr",
- "num",
  "num-integer",
  "rust_decimal",
  "smallvec",
@@ -1909,10 +1928,10 @@ dependencies = [
 name = "duckdb_vortex_rs"
 version = "0.1.0"
 dependencies = [
- "duckdb",
+ "duckdb 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "duckdb-loadable-macros",
  "futures",
- "libduckdb-sys",
+ "libduckdb-sys 1.2.1",
  "tokio",
  "vortex-array",
  "vortex-duckdb",
@@ -2991,6 +3010,21 @@ version = "1.2.0"
 dependencies = [
  "autocfg",
  "cc",
+ "flate2",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "tar",
+ "vcpkg",
+]
+
+[[package]]
+name = "libduckdb-sys"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddeb5c68cb108d753a03613337f4bc9bed32281123d1f7884971f060f532fb6c"
+dependencies = [
+ "autocfg",
  "flate2",
  "pkg-config",
  "prettyplease",
@@ -5879,7 +5913,7 @@ dependencies = [
 name = "vortex-duckdb"
 version = "0.25.2"
 dependencies = [
- "duckdb",
+ "duckdb 1.2.0",
  "itertools 0.14.0",
  "vortex-array",
  "vortex-dtype",
