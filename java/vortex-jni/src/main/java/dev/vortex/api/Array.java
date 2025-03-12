@@ -26,6 +26,8 @@ public interface Array extends AutoCloseable {
 
     boolean getNull(int index);
 
+    int getNullCount();
+
     byte getByte(int index);
 
     short getShort(int index);
@@ -43,4 +45,7 @@ public interface Array extends AutoCloseable {
     String getUTF8(int index);
 
     byte[] getBinary(int index);
+
+    @Override
+    void close();
 }

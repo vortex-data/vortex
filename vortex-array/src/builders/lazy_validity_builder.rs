@@ -52,7 +52,6 @@ impl LazyNullBufferBuilder {
             .append_n(n, false);
     }
 
-    #[allow(dead_code)]
     #[inline]
     pub fn append_null(&mut self) {
         self.materialize_if_needed();
@@ -62,7 +61,6 @@ impl LazyNullBufferBuilder {
             .append(false);
     }
 
-    #[allow(dead_code)]
     #[inline]
     pub fn append(&mut self, not_null: bool) {
         if not_null {

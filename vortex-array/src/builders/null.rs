@@ -2,6 +2,7 @@ use std::any::Any;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
@@ -52,6 +53,10 @@ impl ArrayBuilder for NullBuilder {
         assert_eq!(array.dtype(), &DType::Null);
         self.append_nulls(array.len());
         Ok(())
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.length = validity.len();
     }
 
     fn finish(&mut self) -> ArrayRef {

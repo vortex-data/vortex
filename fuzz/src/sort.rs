@@ -16,13 +16,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
-                .zip(
-                    bool_array
-                        .validity_mask()
-                        .vortex_expect("Failed to get logical validity")
-                        .to_boolean_buffer()
-                        .iter(),
-                )
+                .zip(bool_array.validity_mask()?.to_boolean_buffer().iter())
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();

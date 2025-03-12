@@ -82,6 +82,27 @@ pub unsafe extern "C" fn FFIArray_slice(
     Box::into_raw(Box::new(FFIArray { inner: sliced }))
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_is_null(array: *const FFIArray, index: u32) -> bool {
+    let array = &*array;
+    array
+        .inner
+        .is_invalid(index as usize)
+        .vortex_expect("FFIArray_is_null: is_invalid")
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FFIArray_null_count(array: *const FFIArray) -> u32 {
+    let array = &*array;
+    array
+        .inner
+        .as_ref()
+        .invalid_count()
+        .vortex_expect("FFIArray_null_count: invalid count")
+        .try_into()
+        .vortex_expect("FFIArray_null_count: invalid count to u32")
+}
+
 macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste::paste! {

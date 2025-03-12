@@ -5,9 +5,10 @@ use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, SerdeMetadata, ToCanonical,
+    Encoding, EncodingId, SerdeMetadata,
 };
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_buffer::Buffer;
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -16,8 +17,8 @@ use crate::serde::FSSTMetadata;
 #[derive(Clone, Debug)]
 pub struct FSSTArray {
     dtype: DType,
-    symbols: ArrayRef,
-    symbol_lengths: ArrayRef,
+    symbols: Buffer<Symbol>,
+    symbol_lengths: Buffer<u8>,
     codes: ArrayRef,
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
@@ -35,9 +36,6 @@ impl EncodingVTable for FSSTEncoding {
     }
 }
 
-pub(crate) static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-pub(crate) static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
-
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
@@ -49,20 +47,11 @@ impl FSSTArray {
     /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
-        symbols: ArrayRef,
-        symbol_lengths: ArrayRef,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: Buffer<u8>,
         codes: ArrayRef,
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<Self> {
-        // Check: symbols must be a u64 array
-        if symbols.dtype() != &SYMBOLS_DTYPE {
-            vortex_bail!(InvalidArgument: "symbols array must be of type u64")
-        }
-
-        if symbol_lengths.dtype() != &SYMBOL_LENS_DTYPE {
-            vortex_bail!(InvalidArgument: "symbol_lengths array must be of type u8")
-        }
-
         // Check: symbols must not have length > MAX_CODE
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
@@ -102,12 +91,12 @@ impl FSSTArray {
     }
 
     /// Access the symbol table array
-    pub fn symbols(&self) -> &ArrayRef {
+    pub fn symbols(&self) -> &Buffer<Symbol> {
         &self.symbols
     }
 
     /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> &ArrayRef {
+    pub fn symbol_lengths(&self) -> &Buffer<u8> {
         &self.symbol_lengths
     }
 
@@ -134,27 +123,11 @@ impl FSSTArray {
     }
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
-    /// this array, and pass it to the given function.
+    /// this array.
     ///
     /// This is private to the crate to avoid leaking `fsst-rs` types as part of the public API.
-    pub(crate) fn with_decompressor<F, R>(&self, apply: F) -> VortexResult<R>
-    where
-        F: FnOnce(Decompressor) -> VortexResult<R>,
-    {
-        // canonicalize the symbols child array, so we can view it contiguously
-        let symbols_array = self.symbols().to_primitive()?;
-        let symbols = symbols_array.as_slice::<u64>();
-
-        let symbol_lengths_array = self.symbol_lengths().to_primitive()?;
-        let symbol_lengths = symbol_lengths_array.as_slice::<u8>();
-
-        // Transmute the 64-bit symbol values into fsst `Symbol`s.
-        // SAFETY: Symbol is guaranteed to be 8 bytes, guaranteed by the compiler.
-        let symbols = unsafe { std::mem::transmute::<&[u64], &[Symbol]>(symbols) };
-
-        // Build a new decompressor that uses these symbols.
-        let decompressor = Decompressor::new(symbols, symbol_lengths);
-        apply(decompressor)
+    pub(crate) fn decompressor(&self) -> Decompressor {
+        Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
     }
 }
 

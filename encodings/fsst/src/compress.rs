@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::{Array, IntoArray};
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 
@@ -113,13 +113,9 @@ where
     let codes = builder
         .finish(DType::Binary(dtype.nullability()))
         .into_array();
-    let symbols_vec: Buffer<Symbol> = Buffer::copy_from(compressor.symbol_table());
-    // SAFETY: Symbol and u64 are same size
-    let symbols_u64: Buffer<u64> = unsafe { std::mem::transmute(symbols_vec) };
-    let symbols = symbols_u64.into_array();
+    let symbols: Buffer<Symbol> = Buffer::copy_from(compressor.symbol_table());
+    let symbol_lengths: Buffer<u8> = Buffer::<u8>::copy_from(compressor.symbol_lengths());
 
-    let symbol_lengths_vec: ByteBuffer = ByteBuffer::copy_from(compressor.symbol_lengths());
-    let symbol_lengths = symbol_lengths_vec.into_array();
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
     FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)

@@ -77,7 +77,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         let valid_actions = actions_for_array(&current_array);
 
         let mut actions = Vec::new();
-        let action_count = u.int_in_range(1..=5)?;
+        let action_count = u.int_in_range(1..=4)?;
         for _ in 0..action_count {
             actions.push(match random_value_from_list(u, valid_actions.as_slice())? {
                 0 => {
@@ -199,7 +199,7 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
     u.choose_iter(vec).cloned()
 }
 
-const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
+const ALL_ACTIONS: RangeInclusive<usize> = 0..=5;
 
 fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
     if ListEncoding.id() == encoding_id {

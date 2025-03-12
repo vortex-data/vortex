@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
@@ -80,6 +81,10 @@ impl ArrayBuilder for ExtensionBuilder {
             vortex_bail!("Expected Extension array, got {:?}", array);
         };
         array.storage().append_to_builder(self.storage.as_mut())
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.storage.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

@@ -53,15 +53,12 @@ impl BytesDictBuilder {
             )
             .or_insert_with(|| {
                 let next_code = self.views.len() as u64;
-                if val.len() <= BinaryView::MAX_INLINED_SIZE {
-                    self.views.push(BinaryView::new_inlined(val));
-                } else {
-                    self.views.push(BinaryView::new_view(
-                        u32::try_from(val.len()).vortex_unwrap(),
-                        val[0..4].try_into().vortex_unwrap(),
-                        0,
-                        u32::try_from(self.values.len()).vortex_unwrap(),
-                    ));
+                self.views.push(BinaryView::make_view(
+                    val,
+                    0,
+                    u32::try_from(self.values.len()).vortex_unwrap(),
+                ));
+                if val.len() > BinaryView::MAX_INLINED_SIZE {
                     self.values.extend_from_slice(val);
                 }
                 next_code

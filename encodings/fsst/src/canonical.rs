@@ -1,4 +1,3 @@
-use arrow_array::builder::make_view;
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -13,18 +12,15 @@ use crate::FSSTArray;
 
 impl ArrayCanonicalImpl for FSSTArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        self.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, self, 0).map(Canonical::VarBinView)
-        })
+        fsst_into_varbin_view(self.decompressor(), self, 0).map(Canonical::VarBinView)
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             return builder.extend_from_array(&self.to_canonical()?.into_array());
         };
-        let view = self.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, self, builder.completed_block_count())
-        })?;
+        let view =
+            fsst_into_varbin_view(self.decompressor(), self, builder.completed_block_count())?;
 
         builder.push_buffer_and_adjusted_views(
             view.buffers().iter().cloned(),
@@ -63,14 +59,9 @@ fn fsst_into_varbin_view(
 
     // Bulk-decompress the entire array.
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    // SAFETY: uncompressed bytes is large enough to contain all data + the 7 additional bytes
-    //  of padding required for vectorized decompression. See the docstring for `decompress_into`
-    //  for more details.
-    unsafe {
-        let len =
-            decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
-        uncompressed_bytes.set_len(len);
-    };
+    let len =
+        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+    unsafe { uncompressed_bytes.set_len(len) };
 
     let block_offset = u32::try_from(block_offset)?;
 
@@ -81,7 +72,7 @@ fn fsst_into_varbin_view(
         let mut offset = 0;
         for len in uncompressed_lens_array.as_slice::<$P>() {
             let len = *len as usize;
-            let view = make_view(
+            let view = BinaryView::make_view(
                 &uncompressed_bytes[offset..][..len],
                 block_offset,
                 offset as u32,

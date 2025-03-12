@@ -178,6 +178,11 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
+    fn set_validity(&mut self, validity: Mask) {
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
+    }
+
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_primitive().into_array()
     }
