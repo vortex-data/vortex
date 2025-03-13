@@ -26,7 +26,6 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
-use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 use vortex_datafusion::persistent::VortexFormat;
