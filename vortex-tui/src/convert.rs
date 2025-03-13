@@ -27,7 +27,7 @@ pub struct Flags {
 /// Convert Parquet files to Vortex.
 pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexResult<()> {
     if !flags.quiet {
-        println!(
+        eprintln!(
             "Converting input Parquet file: {}",
             input_path.as_ref().display()
         );
@@ -51,12 +51,12 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
     let read_complete = Instant::now();
 
     if !flags.quiet {
-        println!(
+        eprintln!(
             "Read Parquet file in {:?}",
             read_complete.duration_since(wall_start)
         );
 
-        println!(
+        eprintln!(
             "Writing {} chunks to new Vortex file {}",
             chunks.len(),
             output_path.display()
@@ -84,7 +84,7 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
     }
 
     if !flags.quiet {
-        println!(
+        eprintln!(
             "Wrote Vortex in {:?}",
             Instant::now().duration_since(read_complete)
         );

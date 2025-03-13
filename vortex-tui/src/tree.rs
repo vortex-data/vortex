@@ -7,14 +7,12 @@ use vortex::io::TokioFile;
 pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
     let opened = TokioFile::open(file)?;
 
-    let full = TOKIO_RUNTIME.block_on(async move {
-        VortexOpenOptions::file(opened)
-            .open()
-            .await?
-            .scan()
-            .read_all()
-            .await
-    })?;
+    let full = VortexOpenOptions::file(opened)
+        .open()
+        .await?
+        .scan()
+        .read_all()
+        .await?;
 
     println!("{}", full.tree_display());
 
