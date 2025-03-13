@@ -12,6 +12,8 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
+use num_traits::AsPrimitive;
+use vortex_error::{VortexResult, vortex_bail};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -490,6 +492,61 @@ impl Mask {
             _ => None,
         }
     }
+
+    /// Take given indices with validity from this mask
+    pub fn take<I: AsPrimitive<usize>>(
+        &self,
+        indices: &[I],
+        indices_validity: Mask,
+    ) -> VortexResult<Mask> {
+        if indices.len() != indices_validity.len() {
+            vortex_bail!(
+                "Indices and their validity must have the same length, {} != {}",
+                indices.len(),
+                indices_validity.len()
+            );
+        }
+        match self.boolean_buffer() {
+            AllOr::All => match indices_validity.boolean_buffer() {
+                AllOr::All => Ok(Mask::AllTrue(indices.len())),
+                AllOr::None => Ok(Mask::AllFalse(indices.len())),
+                AllOr::Some(vb) => Ok(Mask::from_buffer(vb.clone())),
+            },
+            AllOr::None => Ok(Mask::AllFalse(indices.len())),
+            AllOr::Some(b) => match indices_validity.boolean_buffer() {
+                AllOr::All => Ok(Mask::from_buffer(take_valid_indices(b, indices))),
+                AllOr::None => Ok(Mask::AllFalse(indices.len())),
+                AllOr::Some(vb) => Ok(Mask::from_buffer(&take_valid_indices(b, indices) & vb)),
+            },
+        }
+    }
+}
+
+fn take_valid_indices<I: AsPrimitive<usize>>(
+    bools: &BooleanBuffer,
+    indices: &[I],
+) -> BooleanBuffer {
+    // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
+    // the overhead to convert to a Vec<bool>.
+    if bools.len() <= 4096 {
+        let bools = bools.into_iter().collect_vec();
+        take_byte_bool(bools, indices)
+    } else {
+        take_bool(bools, indices)
+    }
+}
+
+fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BooleanBuffer {
+    BooleanBuffer::collect_bool(indices.len(), |idx| {
+        bools[unsafe { indices.get_unchecked(idx).as_() }]
+    })
+}
+
+fn take_bool<I: AsPrimitive<usize>>(bools: &BooleanBuffer, indices: &[I]) -> BooleanBuffer {
+    BooleanBuffer::collect_bool(indices.len(), |idx| {
+        // We can always take from the indices unchecked since collect_bool just iterates len.
+        bools.value(unsafe { indices.get_unchecked(idx).as_() })
+    })
 }
 
 /// Iterator over the indices or slices of a mask.
@@ -509,6 +566,35 @@ impl From<BooleanBuffer> for Mask {
 impl FromIterator<bool> for Mask {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Self::from_buffer(BooleanBuffer::from_iter(iter))
+    }
+}
+
+impl FromIterator<Mask> for Mask {
+    fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
+        let masks = iter.into_iter().collect::<Vec<_>>();
+        let total_length = masks.iter().map(|v| v.len()).sum();
+
+        // If they're all valid, then return a single validity.
+        if masks.iter().all(|v| v.all_true()) {
+            return Self::AllTrue(total_length);
+        }
+        // If they're all invalid, then return a single invalidity.
+        if masks.iter().all(|v| v.all_false()) {
+            return Self::AllFalse(total_length);
+        }
+
+        // Else, construct the boolean buffer
+        let mut buffer = BooleanBufferBuilder::new(total_length);
+        for mask in masks {
+            match mask {
+                Mask::AllTrue(count) => buffer.append_n(count, true),
+                Mask::AllFalse(count) => buffer.append_n(count, false),
+                Mask::Values(values) => {
+                    buffer.append_buffer(values.boolean_buffer());
+                }
+            };
+        }
+        Self::from_buffer(buffer.finish())
     }
 }
 
@@ -557,5 +643,53 @@ mod test {
                 AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
             );
         }
+    }
+
+    #[test]
+    fn take_valid_indices() {
+        let mask = Mask::from_iter([true, false, true, false]);
+        let take = mask.take(&[0, 0, 3, 3], Mask::AllTrue(4)).unwrap();
+        assert_eq!(take, Mask::from_iter([true, true, false, false]));
+    }
+
+    #[test]
+    fn take_with_validity() {
+        let mask = Mask::from_iter([true, false, true, false]);
+        let take = mask
+            .take(&[0, 0, 3, 3], Mask::from_iter([false, true, false, true]))
+            .unwrap();
+        assert_eq!(take, Mask::from_iter([false, true, false, false]));
+    }
+
+    #[test]
+    fn take_all_true_with_validity() {
+        let take = Mask::AllTrue(4)
+            .take(&[0, 0, 3, 3], Mask::from_iter([false, true, false, true]))
+            .unwrap();
+        assert_eq!(take, Mask::from_iter([false, true, false, true]));
+    }
+
+    #[test]
+    fn take_all_false_with_validity() {
+        let take = Mask::AllFalse(4)
+            .take(&[0, 0, 3, 3], Mask::from_iter([false, true, false, true]))
+            .unwrap();
+        assert_eq!(take, Mask::AllFalse(4));
+    }
+
+    #[test]
+    fn take_all_false() {
+        let take = Mask::AllFalse(4)
+            .take(&[0, 0, 3, 3], Mask::from_iter([false, true, false, true]))
+            .unwrap();
+        assert_eq!(take, Mask::AllFalse(4));
+    }
+
+    #[test]
+    fn take_all_true_all_invalid() {
+        let take = Mask::AllTrue(4)
+            .take(&[0, 0, 3, 3], Mask::AllFalse(4))
+            .unwrap();
+        assert_eq!(take, Mask::AllFalse(4));
     }
 }

@@ -59,9 +59,9 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         let indices = indices.to_primitive()?;
-        // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
-        let validity = array.validity().take(&indices)?;
-        let mask = validity.to_logical(indices.len())?;
+        let mask = match_each_native_ptype!(indices.ptype(), |$I| {
+             array.validity_mask()?.take(indices.as_slice::<$I>(), indices.validity_mask()?)?
+        });
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
