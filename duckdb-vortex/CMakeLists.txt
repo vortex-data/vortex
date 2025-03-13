@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Set extension name here
 set(TARGET_NAME vortex_duckdb)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(EXTENSION_SOURCES src/vortex_duckdb_extension.cpp)
