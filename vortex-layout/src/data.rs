@@ -275,6 +275,7 @@ impl Layout {
             .register_splits(self, field_mask, row_offset, splits)
     }
 
+    /// Registers matching segments to the given filter and projection field mask.
     pub fn required_segments(
         &self,
         row_offset: u64,

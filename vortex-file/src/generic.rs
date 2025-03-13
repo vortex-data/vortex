@@ -183,7 +183,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
 
             let cancel_handle =
                 inflight.insert_or_register_callback(request.id, Some(request.callback));
-            future::ready(cancel_handle.map(|handle| (request.id, location.clone(), handle).into()))
+            future::ready(
+                cancel_handle
+                    .map(|handle| SegmentRequest::new(request.id, location.clone(), handle)),
+            )
         });
 
         let inflight = inflight_segments.clone();
@@ -197,7 +200,9 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                 future::ready(segment_map.get(*id as usize).and_then(|location| {
                     inflight
                         .insert_or_register_callback(id, None)
-                        .map(|cancel_handle| (id, location.clone(), cancel_handle).into())
+                        .map(|cancel_handle| {
+                            SegmentRequest::new(id, location.clone(), cancel_handle)
+                        })
                 }))
             }
         });
@@ -283,13 +288,10 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        let mut items = Vec::new();
+        let mut items = Vec::with_capacity(*this.requests_ready_chunks);
         let requests_ended = loop {
             match this.requests.as_mut().poll_next(cx) {
                 Poll::Ready(Some(item)) => {
-                    if items.is_empty() {
-                        items.reserve(*this.requests_ready_chunks);
-                    }
                     items.push(item);
                     if items.len() >= *this.requests_ready_chunks {
                         return Poll::Ready(Some(items));
@@ -306,9 +308,6 @@ where
         let prefetch_ended = loop {
             match this.prefetch.as_mut().poll_next(cx) {
                 Poll::Ready(Some(item)) => {
-                    if items.is_empty() {
-                        items.reserve(*this.requests_ready_chunks);
-                    }
                     items.push(item);
                     if items.len() >= prefetch_limit {
                         return Poll::Ready(Some(items));
@@ -338,6 +337,13 @@ struct SegmentRequest {
 }
 
 impl SegmentRequest {
+    fn new(id: SegmentId, location: Segment, cancel_handle: oneshot::Receiver<()>) -> Self {
+        Self {
+            id,
+            location,
+            cancel_handle,
+        }
+    }
     fn range(&self) -> Range<u64> {
         self.location.offset..self.location.offset + self.location.length as u64
     }
