@@ -25,7 +25,7 @@ RELEASE_LIB = $(RUST_TARGET_DIR)/release/lib$(LIBRARY_NAME).$(LIB_EXT)
 LIB = $(DEBUG_LIB)
 
 # C flags
-CFLAGS = -Wall -I$(RUST_CRATE_DIR)/include
+CFLAGS = -Wall -I$(RUST_CRATE_DIR)/cinclude
 
 # Linking flags
 LDFLAGS = -L$(RUST_TARGET_DIR)/debug -l$(LIBRARY_NAME)

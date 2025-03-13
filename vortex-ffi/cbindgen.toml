@@ -1,0 +1,19 @@
+header = """
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct DType DType;
+"""
+
+trailer = """
+#ifdef __cplusplus
+}
+#endif
+"""
+
+[export.rename]
+"FFIArray" = "Array"
+"FFIArrayStream" = "ArrayStream"
+"FFIFile" = "File"
+

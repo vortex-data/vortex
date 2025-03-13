@@ -9,14 +9,12 @@ use crate::RUNTIME;
 use crate::array::{FFIArray, FFIArray_free};
 
 /// FFI-exposed stream interface.
-#[repr(C)]
 pub struct FFIArrayStream {
     pub inner: Option<Box<FFIArrayStreamInner>>,
     pub current: Option<Box<FFIArray>>,
 }
 
 /// FFI-compatible interface for dealing with a stream array.
-#[repr(C)]
 pub struct FFIArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
 }

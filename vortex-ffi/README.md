@@ -4,6 +4,9 @@ Vortex is a file format that can be used by any execution engine. Nearly every p
 the C ABI (Application Binary Interface), so by providing an FFI interface to work with Vortex objects we can
 make it easy to support a variety of languages.
 
+Check out the [`examples`](./examples/) directory to see an example of how to use the API to build
+a real native application.
+
 ## Design
 
 The FFI is designed to be very simple and follows a very object-oriented approach:
@@ -47,60 +50,3 @@ Because C and Rust have different string representations, functions that return 
 a pointer to a buffer, and a pointer to an integer. Any `str` or `String` from Rust will be copied into the output
 buffer,
 
-## File operations
-
-The FFI provides methods for reading Vortex files across the network or from disk.
-
-The first step is to create a new file via the `File_open` constructor, which receives a pointer to a valid
-`FileOpenOptios` structure.
-
-This structure contains the following fields:
-
-```rust
-/// Options supplied for opening a file.
-#[repr(C)]
-pub struct FileOpenOptions {
-    /// URI for opening the file.
-    pub uri: *const c_char,
-    /// Additional configuration for the file source (e.g. "s3.accessKey").
-    /// This may be null, in which case it is treated as empty.
-    pub property_keys: *const *const c_char,
-    /// Additional configuration values for the file source (e.g. S3 credentials).
-    pub property_values: *const *const c_char,
-    /// Number of properties in `property_keys` and `property_values`.
-    pub property_len: c_int,
-}
-```
-
-Here's an example usage of the C API for opening a Vortex file stored in an S3 bucket:
-
-```
-typedef struct File* File;
-typedef struct ArrayStream* ArrayStream;
-
-// Build the options object
-const char* uri = "s3://my-bucket/my-file.vortex";
-const char* keys[] = {"s3.accessKeyId", "s3.secretAccessKey"};
-const char* vals[] = {"my-access-key", "my-secret-key"};
-
-FileOpenOptions opts = {
-    .uri = uri,
-    .property_keys = keys,
-    .property_values = vals,
-    .property_len = 2,
-};
-
-// Open the file
-File file = File_open(&opts);
-
-// Build a new scan against the file
-ArrayStream scan = File_scan(file, NULL);
-while (ArrayStream_next(scan)) {
-    Array chunk = ArrayStream_get(scan);
-    // ...do something with the chunk...
-}
-
-// Close all of the resources.
-ArrayStream_free(scan);
-File_free(file);
-```

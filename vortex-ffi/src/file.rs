@@ -1,19 +1,24 @@
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{CStr, c_char, c_int};
+use std::str::FromStr;
 use std::sync::Arc;
 
+use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
+use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
+use object_store::{ObjectStore, ObjectStoreScheme};
+use url::Url;
 use vortex::dtype::DType;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, select};
 use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
-use crate::{RUNTIME, to_string};
+use crate::{RUNTIME, to_string, to_string_vec};
 
-#[repr(C)]
 pub struct FFIFile {
     pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
 }
@@ -27,8 +32,8 @@ pub struct FileOpenOptions {
     /// This may be null, in which case it is treated as empty.
     pub property_keys: *const *const c_char,
     /// Additional configuration values for the file source (e.g. S3 credentials).
-    pub property_values: *const *const c_char,
-    /// Number of properties in `property_keys` and `property_values`.
+    pub property_vals: *const *const c_char,
+    /// Number of properties in `property_keys` and `property_vals`.
     pub property_len: c_int,
 }
 
@@ -44,10 +49,21 @@ pub struct FileScanOptions {
 
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_open(path: *const c_char) -> *mut FFIFile {
-    // TODO(aduffy): switch the ObjectStore based on scheme. Need to find a reasonable way to do this.
-    let object_store = Arc::new(LocalFileSystem::new());
-    let read_at = ObjectStoreReadAt::new(object_store, to_string(path).into(), None);
+pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIFile {
+    assert!(!options.is_null(), "File_open: null options");
+
+    let options = &*options;
+
+    assert!(!options.uri.is_null(), "File_open: null uri");
+    let uri = CStr::from_ptr(options.uri).to_string_lossy();
+    let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+
+    let prop_keys = to_string_vec(options.property_keys, options.property_len);
+    let prop_vals = to_string_vec(options.property_vals, options.property_len);
+
+    let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
+        .vortex_expect("File_open: make_object_store");
+    let read_at = ObjectStoreReadAt::new(object_store, uri.path().into(), None);
 
     let result = RUNTIME.block_on(async move { VortexOpenOptions::file(read_at).open().await });
 
@@ -110,4 +126,68 @@ pub unsafe extern "C" fn File_scan(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_free(file: *mut FFIFile) {
     drop(Box::from_raw(file));
+}
+
+fn make_object_store(
+    url: &Url,
+    property_keys: &[String],
+    property_vals: &[String],
+) -> VortexResult<Arc<dyn ObjectStore>> {
+    let (scheme, _) =
+        ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
+
+    // Configure extra properties on that scheme instead.
+    match scheme {
+        ObjectStoreScheme::Local => {
+            log::trace!("using LocalFileSystem object store");
+            Ok(Arc::new(LocalFileSystem::default()))
+        }
+        ObjectStoreScheme::AmazonS3 => {
+            log::trace!("using AmazonS3 object store");
+            let mut builder = AmazonS3Builder::new();
+            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
+                if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
+                    builder = builder.with_config(config_key, val);
+                } else {
+                    log::warn!("Skipping unknown Amazon S3 config key: {}", key);
+                }
+            }
+
+            let store = Arc::new(builder.build()?);
+            Ok(store)
+        }
+        ObjectStoreScheme::MicrosoftAzure => {
+            log::trace!("using MicrosoftAzure object store");
+
+            let mut builder = MicrosoftAzureBuilder::new();
+            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
+                if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    builder = builder.with_config(config_key, val);
+                } else {
+                    log::warn!("Skipping unknown Azure config key: {}", key);
+                }
+            }
+
+            let store = Arc::new(builder.build()?);
+            Ok(store)
+        }
+        ObjectStoreScheme::GoogleCloudStorage => {
+            log::trace!("using GoogleCloudStorage object store");
+
+            let mut builder = GoogleCloudStorageBuilder::new();
+            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
+                if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
+                    builder = builder.with_config(config_key, val);
+                } else {
+                    log::warn!("Skipping unknown Google Cloud Storage config key: {}", key);
+                }
+            }
+
+            let store = Arc::new(builder.build()?);
+            Ok(store)
+        }
+        store => {
+            vortex_bail!("Unsupported store scheme: {store:?}");
+        }
+    }
 }
