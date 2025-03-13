@@ -77,7 +77,8 @@ impl VTab for HelloVTab {
         })
     }
 
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn Error>> {
+    fn init(init_info: &InitInfo) -> Result<Self::InitData, Box<dyn Error>> {
+        init_info.set_max_threads(8);
         Ok(HelloInitData {})
     }
 

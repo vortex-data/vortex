@@ -52,7 +52,7 @@ impl VTab for HelloVTabDict {
         let _bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
-        if init_data.done.load(Ordering::Relaxed) {
+        if init_data.done.swap(true, Ordering::Relaxed) {
             output.set_len(0);
             return Ok(());
         }
@@ -61,10 +61,9 @@ impl VTab for HelloVTabDict {
 
         vec.copy(&[0, 1, 2]);
 
-        let dict = output.dictionary_vector(0);
-
         let sel = SelectionVector::new_copy(&[0, 0, 1, 1, 2, 2]);
-        dict.copy_dict_into(&vec, sel);
+        output.set_len(sel.len() as usize);
+        vec.slice(sel);
 
         Ok(())
     }

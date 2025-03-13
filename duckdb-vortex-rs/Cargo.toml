@@ -14,7 +14,7 @@ strip = true
 duckdb = { workspace = true, features = ["vtab-loadable"] }
 duckdb-loadable-macros = "0.1.4"
 futures = { workspace = true, features = ["alloc"] }
-libduckdb-sys = { version = "1.2.0", features = ["loadable-extension"] }
+libduckdb-sys = { workspace = true, features = ["loadable-extension"] }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 vortex-array = { workspace = true }
 vortex-duckdb = { workspace = true }

@@ -83,7 +83,9 @@ datafusion-physical-expr = { version = "46" }
 datafusion-physical-plan = { version = "46" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
-    "vtab-full",
+    "bundled",
+] }
+libduckdb-sys = { path = "duckdb-vortex/duckdb-rs/crates/libduckdb-sys", features = [
     "bundled",
 ] }
 dyn-hash = "0.2.0"
