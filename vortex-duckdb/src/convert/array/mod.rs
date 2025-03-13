@@ -1,21 +1,59 @@
 mod data_chunk_adaptor;
 
-use duckdb::core::DataChunkHandle;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use duckdb::core::{DataChunkHandle, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
 use vortex_array::arrays::StructArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::compute::try_cast;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_dict::{DictArray, DictEncoding};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::PType::U32;
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::convert::array::data_chunk_adaptor::{
     DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
 };
+use crate::convert::scalar::ToDuckDBScalar;
 
 pub trait ToDuckDB {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()>;
+}
+
+pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+    if let Some(const_) = array.as_constant() {
+        let value = Box::new(const_.to_duckdb_scalar());
+        // let value = const_.to_duckdb_scalar();
+        chunk.flat_vector().constant(&value);
+    }
+
+    if array.is_encoding(DictEncoding.id()) {
+        array
+            .as_any()
+            .downcast_ref::<DictArray>()
+            .vortex_expect("dict id")
+            .to_duckdb(chunk)
+    } else {
+        array.into_arrow_preferred()?.to_duckdb(chunk)
+    }
+}
+
+impl ToDuckDB for DictArray {
+    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+        to_duckdb(self.values().clone(), chunk)?;
+        let indices =
+            try_cast(self.codes(), &DType::Primitive(U32, NonNullable))?.to_primitive()?;
+        let indices = indices.as_slice::<u32>();
+        let sel = SelectionVector::new_copy(indices);
+        chunk.flat_vector().slice(sel);
+        Ok(())
+    }
 }
 
 pub fn to_duckdb_chunk(
@@ -23,16 +61,15 @@ pub fn to_duckdb_chunk(
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<()> {
     for (idx, field) in struct_array.fields().iter().enumerate() {
-        field.to_duckdb(&mut DataChunkHandleSlice::new(chunk, idx))?;
+        to_duckdb(field.clone(), &mut DataChunkHandleSlice::new(chunk, idx))?;
     }
     chunk.set_len(struct_array.len());
     Ok(())
 }
 
-impl ToDuckDB for ArrayRef {
+impl ToDuckDB for ArrowArrayRef {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
-        let arrow = &self.clone().into_arrow_preferred()?;
-        write_arrow_array_to_vector(arrow, chunk)
+        write_arrow_array_to_vector(self, chunk)
             .map_err(|e| vortex_err!("Failed to convert vrotex duckdb array: {}", e.to_string()))
     }
 }
@@ -87,8 +124,13 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
-    use duckdb::core::DataChunkHandle;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
+    // use std::io;
+    // use std::io::Write;
+
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::arrays::{
+        BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray,
+    };
     use vortex_array::validity::Validity;
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -145,5 +187,44 @@ mod tests {
         }
         assert_eq!(vx_arr.len(), arr.len());
         assert_eq!(vx_arr.dtype(), arr.dtype());
+    }
+
+    #[test]
+    fn test_const_vortex_to_duckdb() {
+        let arr = ConstantArray::new::<i64>(23444233.into(), 100).to_array();
+        let arr2 = ConstantArray::new::<i32>(234.into(), 100).to_array();
+        let st = StructArray::from_fields(&[
+            ("1", arr.clone()),
+            ("2", arr2.clone()), // ("2", arr2.clone())
+        ])
+        .unwrap();
+        let mut output_chunk = DataChunkHandle::new(&[
+            LogicalTypeHandle::from(LogicalTypeId::Bigint),
+            LogicalTypeHandle::from(LogicalTypeId::Integer),
+        ]);
+        // let _ = st;
+        // let _ = output_chunk;
+        // let _ = arr;
+        // let _ = arr2;
+        // println!("chunk {:?}", output_chunk);
+        to_duckdb_chunk(&st, &mut output_chunk).unwrap();
+
+        // println!("test wow {}", output_chunk.len());
+
+        // io::stdout().flush().unwrap();
+
+        println!("chunk {:?}", output_chunk);
+        //
+        // let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
+        //     &output_chunk,
+        //     &[false],
+        //     FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+        // ))
+        // .unwrap();
+        //
+        // println!("vx arr {}", vx_arr.tree_display());
+        //
+        // assert_eq!(vx_arr.len(), arr.len());
+        // assert_eq!(vx_arr.dtype(), arr.dtype());
     }
 }

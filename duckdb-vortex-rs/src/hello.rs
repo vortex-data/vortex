@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use duckdb::core::{
     DataChunkHandle, FlatVector, LogicalTypeHandle, LogicalTypeId, SelectionVector,
 };
+use duckdb::vtab;
 use duckdb::vtab::{BindInfo, InitInfo, TableFunctionInfo, VTab};
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -59,11 +60,10 @@ impl VTab for HelloVTabDict {
 
         let mut vec = output.flat_vector(0);
 
-        vec.copy(&[0, 1, 2]);
+        let value = vtab::Value::from(5612);
+        vec.constant(&value);
 
-        let sel = SelectionVector::new_copy(&[0, 0, 1, 1, 2, 2]);
-        output.set_len(sel.len() as usize);
-        vec.slice(sel);
+        output.set_len(100);
 
         Ok(())
     }

@@ -9,7 +9,7 @@ EXTENSION_NAME=duckdb_vortex_rs
 USE_UNSTABLE_C_API=1
 
 # Target DuckDB version
-TARGET_DUCKDB_VERSION=9248ef4715
+TARGET_DUCKDB_VERSION=21f1bd3467
 
 all: configure debug
 
