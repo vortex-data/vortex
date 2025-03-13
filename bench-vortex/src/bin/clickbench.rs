@@ -178,6 +178,7 @@ fn main() -> anyhow::Result<()> {
             }
             progress_bar.inc(1);
 
+            let plan = last_plan.expect("must have at least one iteration");
             if args.emit_plan {
                 fs::write(
                     format!("clickbench_{format}_q{query_idx:02}.plan",),
@@ -216,7 +217,6 @@ fn main() -> anyhow::Result<()> {
 
     match args.display_format {
         DisplayFormat::Table => {
-            let plan = last_plan.expect("must have at least one iteration");
             for metric_set in VortexMetricsFinder::find_all(plan.as_ref()).into_iter() {
                 for m in metric_set
                     .timestamps_removed()
