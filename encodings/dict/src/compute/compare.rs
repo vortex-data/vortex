@@ -1,10 +1,11 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::{CompareFn, Operator, compare, take, try_cast};
+use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
@@ -24,9 +25,9 @@ impl CompareFn<&DictArray> for DictEncoding {
                 operator,
             )?;
 
-            let bool = compare_result.to_bool()?;
-            let result_validity = bool.validity_mask()?;
-            let bool_buffer = bool.boolean_buffer();
+            let bool_result = compare_result.to_bool()?;
+            let result_validity = bool_result.validity_mask()?;
+            let bool_buffer = bool_result.boolean_buffer();
             let (first_match, second_match) = match result_validity.boolean_buffer() {
                 AllOr::All => {
                     let mut indices_iter = bool_buffer.set_indices();
@@ -41,21 +42,47 @@ impl CompareFn<&DictArray> for DictEncoding {
 
             let result = match (first_match, second_match) {
                 // Couldn't find a value match, so the result is all false
-                (None, _) => {
-                    let mut result_builder = builder_with_capacity(
-                        &DType::Bool(Nullability::Nullable),
-                        lhs.codes().len(),
-                    );
-                    result_builder.extend_from_array(
-                        &ConstantArray::new(
-                            Scalar::bool(false, lhs.dtype().nullability()),
+                (None, _) => match result_validity {
+                    Mask::AllTrue(_) => {
+                        let mut result_builder = builder_with_capacity(
+                            &DType::Bool(Nullability::Nullable),
                             lhs.codes().len(),
-                        )
-                        .into_array(),
-                    )?;
-                    result_builder.set_validity(lhs.codes().validity_mask()?);
-                    result_builder.finish()
-                }
+                        );
+                        result_builder.extend_from_array(
+                            &ConstantArray::new(
+                                Scalar::bool(false, lhs.dtype().nullability()),
+                                lhs.codes().len(),
+                            )
+                            .into_array(),
+                        )?;
+                        result_builder.set_validity(lhs.codes().validity_mask()?);
+                        result_builder.finish()
+                    }
+                    Mask::AllFalse(_) => ConstantArray::new(
+                        Scalar::null(DType::Bool(Nullability::Nullable)),
+                        lhs.codes().len(),
+                    )
+                    .into_array(),
+                    Mask::Values(_) => {
+                        let mut result_builder = builder_with_capacity(
+                            &DType::Bool(Nullability::Nullable),
+                            lhs.codes().len(),
+                        );
+                        result_builder.extend_from_array(
+                            &ConstantArray::new(
+                                Scalar::bool(false, lhs.dtype().nullability()),
+                                lhs.codes().len(),
+                            )
+                            .into_array(),
+                        )?;
+                        result_builder.set_validity(
+                            Validity::from_mask(result_validity, bool_result.dtype().nullability())
+                                .take(lhs.codes())?
+                                .to_logical(lhs.codes().len())?,
+                        );
+                        result_builder.finish()
+                    }
+                },
                 // We found a single matching value so we can compare the codes directly.
                 // Note: the codes include nullability so we can just compare the codes directly, to the found code.
                 (Some(code), None) => try_cast(
@@ -67,7 +94,7 @@ impl CompareFn<&DictArray> for DictEncoding {
                     &DType::Bool(lhs.dtype().nullability()),
                 )?,
                 // more than one value matches
-                _ => take(&bool, lhs.codes())?,
+                _ => take(&bool_result, lhs.codes())?,
             };
             return Ok(Some(result));
         }
