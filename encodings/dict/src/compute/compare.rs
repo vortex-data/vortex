@@ -139,4 +139,33 @@ mod tests {
             Mask::from_iter([false, true, false])
         );
     }
+
+    #[test]
+    fn test_compare_null_values() {
+        let dict = DictArray::try_new(
+            buffer![0u32, 1, 2].into_array(),
+            PrimitiveArray::new(
+                buffer![1i32, 2, 0],
+                Validity::from_iter([true, true, false]),
+            )
+            .into_array(),
+        )
+        .unwrap();
+
+        let res = compare(
+            &dict,
+            &ConstantArray::new(Scalar::from(0i32), 3),
+            Operator::Eq,
+        )
+        .unwrap();
+        let res = res.to_bool().unwrap();
+        assert_eq!(
+            res.boolean_buffer().iter().collect::<Vec<_>>(),
+            vec![false, false, false]
+        );
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([true, true, false])
+        );
+    }
 }
