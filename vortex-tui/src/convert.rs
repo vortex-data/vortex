@@ -33,26 +33,34 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
     let parquet = ParquetRecordBatchStreamBuilder::new(file)
         .await?
         .with_batch_size(BATCH_SIZE);
-
-    // Parquet reader returns batches, rather than row groups. So make sure we correctly
-    // configure the progress bar.
-    let nbatches = u64::try_from(parquet.metadata().file_metadata().num_rows())
-        .vortex_expect("negative row count?")
-        .div_ceil(BATCH_SIZE as u64);
-    let progress_bar = ProgressBar::new(nbatches);
+    let num_rows = parquet.metadata().file_metadata().num_rows();
 
     let dtype = DType::from_arrow(parquet.schema().as_ref());
-    let vortex_stream = ArrayStreamAdapter::new(
-        dtype,
-        progress_bar.wrap_stream(parquet.build()?.map(|record_batch| {
+    let mut vortex_stream = parquet
+        .build()?
+        .map(|record_batch| {
             record_batch
                 .map_err(VortexError::from)
                 .and_then(|rb| rb.try_into_array())
-        })),
-    );
+        })
+        .boxed();
+
+    if !flags.quiet {
+        // Parquet reader returns batches, rather than row groups. So make sure we correctly
+        // configure the progress bar.
+        let nbatches = u64::try_from(num_rows)
+            .vortex_expect("negative row count?")
+            .div_ceil(BATCH_SIZE as u64);
+        vortex_stream = ProgressBar::new(nbatches)
+            .wrap_stream(vortex_stream)
+            .boxed();
+    }
 
     VortexWriteOptions::default()
-        .write(File::create(output_path).await?, vortex_stream)
+        .write(
+            File::create(output_path).await?,
+            ArrayStreamAdapter::new(dtype, vortex_stream),
+        )
         .await?;
 
     Ok(())
