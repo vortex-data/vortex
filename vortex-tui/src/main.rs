@@ -42,7 +42,7 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file)).expect("exec_tre"),
+        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file)).expect("exec_tree"),
         Commands::Convert { file, quiet } => TOKIO_RUNTIME
             .block_on(exec_convert(file, Flags { quiet }))
             .expect("exec_convert"),
