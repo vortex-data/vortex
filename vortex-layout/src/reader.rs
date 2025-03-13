@@ -13,12 +13,12 @@ use crate::{Layout, RowMask};
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: Send + Sync + ExprEvaluator {
+pub trait LayoutReader: 'static + Send + Sync + ExprEvaluator {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;
 }
 
-impl LayoutReader for Arc<dyn LayoutReader + 'static> {
+impl LayoutReader for Arc<dyn LayoutReader> {
     fn layout(&self) -> &Layout {
         self.as_ref().layout()
     }
@@ -34,19 +34,19 @@ pub trait ExprEvaluator: Send + Sync {
 
     /// Refine the row mask by evaluating any pruning. This should be relatively cheap, statistics
     /// based evaluation, and returns an approximate result.
-    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+    async fn refine_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
         Ok(row_mask)
     }
 }
 
 #[async_trait]
-impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
+impl ExprEvaluator for Arc<dyn LayoutReader> {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
         self.as_ref().evaluate_expr(row_mask, expr).await
     }
 
-    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
-        self.as_ref().prune_mask(row_mask, expr).await
+    async fn refine_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        self.as_ref().refine_mask(row_mask, expr).await
     }
 }
 

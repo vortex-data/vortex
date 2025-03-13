@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_array::arcref::ArcRef;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
@@ -34,7 +35,7 @@ pub struct StatsLayoutWriter {
     ctx: ArrayContext,
     options: StatsLayoutOptions,
     child_writer: Box<dyn LayoutWriter>,
-    stats_strategy: Arc<dyn LayoutStrategy>,
+    stats_strategy: ArcRef<dyn LayoutStrategy>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
 
@@ -51,7 +52,7 @@ impl StatsLayoutWriter {
         //  impl LayoutStrategy for StatsLayoutStrategy, which holds options, and options contain
         //  other layout strategies?
         child_writer: Box<dyn LayoutWriter>,
-        stats_strategy: Arc<dyn LayoutStrategy>,
+        stats_strategy: ArcRef<dyn LayoutStrategy>,
         options: StatsLayoutOptions,
     ) -> VortexResult<Self> {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();

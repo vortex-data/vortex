@@ -20,9 +20,6 @@ use crate::{CHUNKED_LAYOUT_ID, LayoutId};
 pub struct ChunkedLayout;
 
 /// In-memory representation of Chunked layout.
-///
-/// First child in the list is the metadata table
-/// Subsequent children are consecutive chunks of this layout
 impl LayoutVTable for ChunkedLayout {
     fn id(&self) -> LayoutId {
         CHUNKED_LAYOUT_ID
@@ -44,9 +41,8 @@ impl LayoutVTable for ChunkedLayout {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
         let mut offset = row_offset;
-        for i in 0..nchunks {
+        for i in 0..layout.nchildren() {
             let child = layout.child(i, layout.dtype().clone(), format!("[{}]", i))?;
             child.register_splits(field_mask, offset, splits)?;
             offset += child.row_count();
@@ -63,9 +59,8 @@ impl LayoutVTable for ChunkedLayout {
         projection_field_mask: &[FieldMask],
         segments: &mut SegmentCollector,
     ) -> VortexResult<()> {
-        let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
         let mut offset = row_offset;
-        for i in 0..nchunks {
+        for i in 0..layout.nchildren() {
             let child = layout.child(i, layout.dtype().clone(), format!("[{i}]"))?;
             child.required_segments(offset, filter_field_mask, projection_field_mask, segments)?;
             offset += child.row_count();

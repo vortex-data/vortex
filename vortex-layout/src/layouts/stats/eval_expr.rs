@@ -20,7 +20,7 @@ impl ExprEvaluator for StatsReader {
         self.child().evaluate_expr(row_mask, expr).await
     }
 
-    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+    async fn refine_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
         // Compute the pruning mask
         let Some(pruning_mask) = self.pruning_mask(&expr).await? else {
             // If there is no pruning mask, then we can't prune anything!
@@ -72,6 +72,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
+    use vortex_array::arcref::ArcRef;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
@@ -100,7 +101,7 @@ mod test {
                 Default::default(),
             )
             .boxed(),
-            Arc::new(FlatLayout),
+            ArcRef::new_ref(&FlatLayout),
             StatsLayoutOptions {
                 block_size: 3,
                 ..Default::default()
@@ -161,7 +162,7 @@ mod test {
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .prune_mask(RowMask::new_valid_between(0, row_count), expr.clone())
+                .refine_mask(RowMask::new_valid_between(0, row_count), expr.clone())
                 .await
                 .unwrap()
                 .filter_mask()

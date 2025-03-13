@@ -235,7 +235,7 @@ impl FilterEvaluation {
         // First, we run all conjuncts through the evaluators pruning function. This helps trim
         // down the mask based on cheap statistics.
         let pruning_masks = try_join_all(self.filter_expr.conjuncts.iter().map(|expr| {
-            evaluator.prune_mask(
+            evaluator.refine_mask(
                 RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
                 expr.clone(),
             )

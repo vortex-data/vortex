@@ -51,7 +51,7 @@ impl ExprEvaluator for ChunkedReader {
         Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
 
-    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+    async fn refine_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
         // TODO(ngates): we should push-down to each child
         Ok(row_mask)
     }

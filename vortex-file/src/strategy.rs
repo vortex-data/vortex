@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::arcref::ArcRef;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -34,7 +35,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 ctx.clone(),
                 &DType::Null,
                 ChunkedLayoutOptions {
-                    chunk_strategy: Arc::new(FlatLayoutOptions::default()),
+                    chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutOptions::default()) as _),
                 },
             )
             .boxed(),
@@ -59,7 +60,9 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 ctx.clone(),
                 dtype,
                 writer,
-                Arc::new(FlatLayout),
+                ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                    child: ArcRef::new_ref(&FlatLayout),
+                })),
                 StatsLayoutOptions {
                     block_size: 8192,
                     stats: PRUNING_STATS.into(),
@@ -76,6 +79,17 @@ impl LayoutStrategy for VortexLayoutStrategy {
         .boxed();
 
         Ok(writer)
+    }
+}
+
+struct BtrBlocksCompressedStrategy {
+    child: ArcRef<dyn LayoutStrategy>,
+}
+
+impl LayoutStrategy for BtrBlocksCompressedStrategy {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        let child = self.child.new_writer(ctx, dtype)?;
+        Ok(BtrBlocksCompressedWriter { child }.boxed())
     }
 }
 

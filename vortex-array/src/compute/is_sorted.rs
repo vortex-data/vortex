@@ -59,6 +59,11 @@ where
 }
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
+    // We currently don't support sorting struct arrays.
+    if array.dtype().is_struct() {
+        return Ok(false);
+    }
+
     if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsSorted) {
         return Ok(value);
     }
@@ -76,6 +81,11 @@ pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     Ok(is_sorted)
 }
 pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
+    // We currently don't support sorting struct arrays.
+    if array.dtype().is_struct() {
+        return Ok(false);
+    }
+
     if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsStrictSorted) {
         return Ok(value);
     }

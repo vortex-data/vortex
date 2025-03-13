@@ -260,7 +260,7 @@ impl Layout {
         &self,
         segment_reader: Arc<dyn AsyncSegmentReader>,
         ctx: ArrayContext,
-    ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
         self.vtable().reader(self.clone(), ctx, segment_reader)
     }
 

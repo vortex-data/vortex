@@ -54,7 +54,7 @@ impl ExprEvaluator for StructReader {
         partitioned.root.evaluate(&root_scope)
     }
 
-    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+    async fn refine_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
         // We currently can only perform pruning if the expression references a single field.
         // Otherwise, we have no good way to recombine the results.
         let partitioned = self.partition_expr(expr.clone())?;
@@ -69,7 +69,7 @@ impl ExprEvaluator for StructReader {
             .next()
             .vortex_expect("one partition");
         self.child(field_name)?
-            .prune_mask(row_mask, partitioned.partitions[0].clone())
+            .refine_mask(row_mask, partitioned.partitions[0].clone())
             .await
     }
 }

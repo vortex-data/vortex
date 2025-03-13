@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use vortex_array::arcref::ArcRef;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
@@ -14,13 +13,13 @@ use crate::writer::LayoutWriter;
 
 pub struct ChunkedLayoutOptions {
     /// The layout strategy for each chunk.
-    pub chunk_strategy: Arc<dyn LayoutStrategy>,
+    pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedLayoutOptions {
     fn default() -> Self {
         Self {
-            chunk_strategy: Arc::new(FlatLayout),
+            chunk_strategy: ArcRef::new_ref(&FlatLayout),
         }
     }
 }

@@ -33,11 +33,7 @@ impl ChunkedReader {
         }
 
         // The number of chunks
-        let mut nchunks = layout.nchildren();
-        if layout.metadata().is_some() {
-            // The final child is the statistics table.
-            nchunks -= 1;
-        }
+        let nchunks = layout.nchildren();
 
         // Construct a lazy scan for each chunk of the layout.
         let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();

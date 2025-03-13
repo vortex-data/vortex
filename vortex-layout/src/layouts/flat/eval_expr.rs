@@ -40,7 +40,7 @@ impl ExprEvaluator for FlatReader {
         Ok(array)
     }
 
-    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+    async fn refine_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
         // No cheap pruning for us to do without fetching data.
         Ok(row_mask)
     }
