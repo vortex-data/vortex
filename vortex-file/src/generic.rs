@@ -164,7 +164,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
         let segment_requests = self.segment_channel.into_stream();
         let segment_map = self.footer.segment_map().clone();
-        let inflight_segments: InflightSegments = Default::default();
+        let inflight_segments = InflightSegments::default();
 
         let inflight = inflight_segments.clone();
         let segment_requests = segment_requests.filter_map(move |request| {
