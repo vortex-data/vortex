@@ -18,6 +18,20 @@ pub struct FFIFile {
     pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
 }
 
+/// Options supplied for opening a file.
+#[repr(C)]
+pub struct FileOpenOptions {
+    /// URI for opening the file.
+    pub uri: *const c_char,
+    /// Additional configuration for the file source (e.g. "s3.accessKey").
+    /// This may be null, in which case it is treated as empty.
+    pub property_keys: *const *const c_char,
+    /// Additional configuration values for the file source (e.g. S3 credentials).
+    pub property_values: *const *const c_char,
+    /// Number of properties in `property_keys` and `property_values`.
+    pub property_len: c_int,
+}
+
 /// Scan options provided by an FFI client calling the `File_scan` function.
 #[repr(C)]
 pub struct FileScanOptions {
