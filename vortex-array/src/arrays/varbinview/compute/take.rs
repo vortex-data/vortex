@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -58,10 +58,9 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
 
         // This is valid since all elements (of all arrays) even null values are inside must be the
         // min-max valid range.
+        let validity = array.validity().take(indices)?;
+        let mask = validity.to_mask(indices.len())?;
         let indices = indices.to_primitive()?;
-        let mask = match_each_native_ptype!(indices.ptype(), |$I| {
-             array.validity_mask()?.take(indices.as_slice::<$I>(), indices.validity_mask()?)?
-        });
 
         match_each_integer_ptype!(indices.ptype(), |$I| {
             // This is valid since all elements even null values are inside the min-max valid range.

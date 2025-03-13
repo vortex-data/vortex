@@ -6102,7 +6102,6 @@ version = "0.25.2"
 dependencies = [
  "arrow-buffer",
  "itertools 0.14.0",
- "num-traits",
  "vortex-error",
 ]
 

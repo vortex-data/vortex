@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 arrow-buffer = { workspace = true }
 itertools = { workspace = true }
-num-traits = { workspace = true }
 vortex-error = { workspace = true }
 
 [lints]
