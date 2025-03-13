@@ -9,6 +9,7 @@ use arrow_array::StructArray as ArrowStructArray;
 use futures_util::Stream;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
 use pin_project::pin_project;
 use tokio::fs::File;
 use vortex::arrays::ChunkedArray;
@@ -36,14 +37,19 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
     let wall_start = Instant::now();
 
     let output_path = input_path.as_ref().with_extension("vortex");
-    let file = File::open(input_path).await?;
+    let mut file = File::open(input_path).await?;
+
+    let metadata =
+        ArrowReaderMetadata::load_async(&mut file, ArrowReaderOptions::default()).await?;
+    let has_root_level_nulls = metadata.parquet_schema().root_schema().is_optional();
+
     let mut reader = ParquetRecordBatchStreamBuilder::new(file).await?.build()?;
     let mut chunks = Vec::new();
 
     while let Some(mut reader) = reader.next_row_group().await? {
         for batch in reader.by_ref() {
             let batch = ArrowStructArray::from(batch?);
-            let next_chunk = ArrayRef::from_arrow(&batch, true);
+            let next_chunk = ArrayRef::from_arrow(&batch, has_root_level_nulls);
             chunks.push(next_chunk);
         }
     }
