@@ -47,7 +47,8 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
 
     use crate::RunEndArray;
 
@@ -60,7 +61,7 @@ mod test {
 
     #[test]
     fn ree_take() {
-        let taken = take(&ree_array(), &PrimitiveArray::from_iter([9, 8, 1, 3])).unwrap();
+        let taken = take(&ree_array(), &buffer![9u8, 8, 1, 3].into_array()).unwrap();
         assert_eq!(
             taken.to_primitive().unwrap().as_slice::<i32>(),
             &[5, 5, 1, 4]
@@ -69,7 +70,7 @@ mod test {
 
     #[test]
     fn ree_take_end() {
-        let taken = take(&ree_array(), &PrimitiveArray::from_iter([11])).unwrap();
+        let taken = take(&ree_array(), &buffer![11u8].into_array()).unwrap();
         assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[5]);
     }
 
@@ -82,7 +83,7 @@ mod test {
     #[test]
     fn sliced_take() {
         let sliced = slice(&ree_array(), 4, 9).unwrap();
-        let taken = take(sliced.as_ref(), &PrimitiveArray::from_iter([1, 3, 4])).unwrap();
+        let taken = take(sliced.as_ref(), &buffer![1u8, 3, 4].into_array()).unwrap();
 
         assert_eq!(taken.len(), 3);
         assert_eq!(scalar_at(taken.as_ref(), 0).unwrap(), 4.into());

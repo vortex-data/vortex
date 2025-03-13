@@ -51,7 +51,7 @@ mod tests {
         let taken = take(
             &array,
             &PrimitiveArray::new(
-                buffer![0, 5, 7],
+                buffer![0u8, 5, 7],
                 Validity::from_iter(vec![false, true, false]),
             )
             .into_array(),

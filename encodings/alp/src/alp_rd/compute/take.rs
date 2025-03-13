@@ -45,7 +45,8 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -65,7 +66,7 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = take(&encoded, &PrimitiveArray::from_iter([0, 2]))
+        let taken = take(&encoded, &buffer![0u8, 2].into_array())
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -91,7 +92,7 @@ mod test {
 
         let taken = take(
             &encoded,
-            &PrimitiveArray::from_option_iter([Some(0), Some(2), None]),
+            &PrimitiveArray::from_option_iter([Some(0u8), Some(2), None]),
         )
         .unwrap()
         .to_primitive()

@@ -54,7 +54,7 @@ mod test {
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
         let sparse = slice(&sparse, 30, 40).unwrap();
-        let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
+        let sparse = take(&sparse, &buffer![6u8, 7, 8].into_array()).unwrap();
         assert_eq!(scalar_at(&sparse, 0).unwrap(), test_array_fill_value());
         assert_eq!(scalar_at(&sparse, 1).unwrap(), Scalar::from(Some(0.47)));
         assert_eq!(scalar_at(&sparse, 2).unwrap(), test_array_fill_value());
@@ -63,9 +63,10 @@ mod test {
     #[test]
     fn sparse_take() {
         let sparse = sparse_array();
-        let taken =
-            SparseArray::try_from(take(&sparse, &buffer![0, 47, 47, 0, 99].into_array()).unwrap())
-                .unwrap();
+        let taken = SparseArray::try_from(
+            take(&sparse, &buffer![0u8, 47, 47, 0, 99].into_array()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             taken
                 .patches()
@@ -89,7 +90,7 @@ mod test {
     #[test]
     fn nonexistent_take() {
         let sparse = sparse_array();
-        let taken = take(&sparse, &buffer![69].into_array()).unwrap();
+        let taken = take(&sparse, &buffer![69u8].into_array()).unwrap();
         assert_eq!(taken.len(), 1);
         assert_eq!(scalar_at(&taken, 0).unwrap(), test_array_fill_value());
     }
@@ -98,7 +99,7 @@ mod test {
     fn ordered_take() {
         let sparse = sparse_array();
         let taken =
-            SparseArray::try_from(take(&sparse, &buffer![69, 37].into_array()).unwrap()).unwrap();
+            SparseArray::try_from(take(&sparse, &buffer![69u8, 37].into_array()).unwrap()).unwrap();
         assert_eq!(
             taken
                 .patches()

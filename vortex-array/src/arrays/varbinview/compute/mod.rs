@@ -135,7 +135,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
+        let taken = take(&arr, &buffer![0u8, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -178,7 +178,7 @@ mod tests {
 
         let mut builder = VarBinViewBuilder::with_capacity(arr.dtype().clone(), arr.len());
 
-        take_into(&arr, &buffer![0, 3].into_array(), &mut builder).unwrap();
+        take_into(&arr, &buffer![0u8, 3].into_array(), &mut builder).unwrap();
 
         let taken = builder.finish();
         assert!(taken.dtype().is_nullable());

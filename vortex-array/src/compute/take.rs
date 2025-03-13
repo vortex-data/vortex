@@ -66,9 +66,9 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         );
     }
 
-    if !indices.dtype().is_int() {
+    if !indices.dtype().is_unsigned_int() {
         vortex_bail!(
-            "Take indices must be an integer type, got {}",
+            "Take indices must be an unsinged integer type, got {}",
             indices.dtype()
         );
     }
@@ -135,9 +135,9 @@ pub fn take_into(
         );
     }
 
-    if !indices.dtype().is_int() {
+    if !indices.dtype().is_unsigned_int() {
         vortex_bail!(
-            "Take indices must be an integer type, got {}",
+            "Take indices must be an unsigned integer type, got {}",
             indices.dtype()
         );
     }

@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn take_zigzag() {
         let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
-        let indices = buffer![0, 2].into_array();
+        let indices = buffer![0u8, 2].into_array();
         let actual = take(&zigzag, &indices).unwrap().to_primitive().unwrap();
         let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()

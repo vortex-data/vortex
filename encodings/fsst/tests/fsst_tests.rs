@@ -67,7 +67,7 @@ fn test_fsst_array_ops() {
     );
 
     // test take
-    let indices = buffer![0, 2].into_array();
+    let indices = buffer![0u8, 2].into_array();
     let fsst_taken = take(&fsst_array, &indices).unwrap();
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(

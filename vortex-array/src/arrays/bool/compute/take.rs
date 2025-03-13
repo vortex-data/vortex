@@ -80,7 +80,7 @@ mod test {
     use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
-    use crate::{Array, ToCanonical};
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn take_nullable() {
@@ -92,7 +92,7 @@ mod test {
             Some(false),
         ]);
 
-        let b = take(&reference, &PrimitiveArray::from_iter([0, 3, 4]))
+        let b = take(&reference, &buffer![0u8, 3, 4].into_array())
             .unwrap()
             .to_bool()
             .unwrap();
@@ -120,7 +120,7 @@ mod test {
     fn test_bool_array_take_with_null_out_of_bounds_indices() {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
-            buffer![0, 3, 100],
+            buffer![0u8, 3, 100],
             Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
         let actual = take(&values, &indices).unwrap();
@@ -135,7 +135,7 @@ mod test {
     fn test_non_null_bool_array_take_with_null_out_of_bounds_indices() {
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
-            buffer![0, 3, 100],
+            buffer![0u8, 3, 100],
             Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
         let actual = take(&values, &indices).unwrap();

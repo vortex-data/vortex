@@ -4,8 +4,8 @@ use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
-    match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
+    NativePType, Nullability, PType, match_each_native_ptype, match_each_native_simd_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
@@ -23,11 +23,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.to_primitive()?;
         let validity = array.validity().take(&indices)?;
 
-        if array.ptype() != PType::F16
-            && indices.dtype().is_unsigned_int()
-            && indices.all_valid()?
-            && array.all_valid()?
-        {
+        if array.ptype() != PType::F16 && indices.all_valid()? && array.all_valid()? {
             // TODO(alex): handle nullable codes & values
             match_each_unsigned_integer_ptype!(indices.ptype(), |$C| {
                 match_each_native_simd_ptype!(array.ptype(), |$V| {
@@ -45,7 +41,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         }
 
         match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive(array.as_slice::<$T>(), indices.as_slice::<$I>());
                 Ok(PrimitiveArray::new(values, validity).into_array())
             })
@@ -64,7 +60,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         let mask = validity.to_logical(indices.len())?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |$I| {
                 take_into_impl::<$T, $I>(array, &indices, mask, builder)
             })
         })
@@ -195,7 +191,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false, false, true]).into_array()),
         );
         let indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
+            buffer![0u8, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let actual = take(&values, &indices).unwrap();
@@ -210,7 +206,7 @@ mod test {
     fn test_take_into() {
         let values = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
         let all_valid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
+            buffer![0u8, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
@@ -221,7 +217,7 @@ mod test {
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(Some(5)));
 
         let mixed_valid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
+            buffer![0u8, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
@@ -233,7 +229,7 @@ mod test {
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
 
         let all_invalid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
+            buffer![0u8, 3, 4],
             Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
@@ -243,7 +239,7 @@ mod test {
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
 
-        let non_null_indices = PrimitiveArray::new(buffer![0, 3, 4], Validity::NonNullable);
+        let non_null_indices = PrimitiveArray::new(buffer![0u8, 3, 4], Validity::NonNullable);
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
         take_into(&values, &non_null_indices, &mut builder).unwrap();
         let actual = builder.finish();

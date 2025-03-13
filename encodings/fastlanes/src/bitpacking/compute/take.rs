@@ -137,7 +137,7 @@ mod test {
 
     #[test]
     fn take_indices() {
-        let indices = buffer![0, 125, 2047, 2049, 2151, 2790].into_array();
+        let indices = buffer![0u32, 125, 2047, 2049, 2151, 2790].into_array();
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
@@ -153,7 +153,7 @@ mod test {
         let unpacked = Buffer::from_iter(0u32..1024).into_array();
         let bitpacked = BitPackedArray::encode(&unpacked, 2).unwrap();
 
-        let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);
+        let indices = buffer![0u8, 2, 4, 6].into_array();
 
         let primitive_result = take(&bitpacked, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u32>();
@@ -162,7 +162,7 @@ mod test {
 
     #[test]
     fn take_sliced_indices() {
-        let indices = buffer![1919, 1921].into_array();
+        let indices = buffer![1919u16, 1921].into_array();
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));

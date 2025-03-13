@@ -41,9 +41,10 @@ impl SliceFn<&BitPackedArray> for BitPackedEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::{Array, IntoArray};
+    use vortex_buffer::buffer;
 
     use crate::BitPackedArray;
 
@@ -166,7 +167,7 @@ mod test {
         // Chunk 2: physical indices 1024-2047, logical indices  102-1125
         // Chunk 3: physical indices 2048-2060, logical indices 1126-1138
 
-        let taken = take(&sliced, &PrimitiveArray::from_iter([101i64, 1125, 1138])).unwrap();
+        let taken = take(&sliced, &buffer![101u64, 1125, 1138].into_array()).unwrap();
         assert_eq!(taken.len(), 3);
     }
 }
