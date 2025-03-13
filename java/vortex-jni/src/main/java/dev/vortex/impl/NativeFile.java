@@ -21,6 +21,10 @@ import dev.vortex.api.DType;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.jni.FFI;
+import java.net.URI;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Map;
 
 public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     private NativeFile(FFI.FFIFile inner) {
@@ -28,10 +32,28 @@ public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     }
 
     /**
-     * Open a file at the provided path on the filesystem.
+     * Open a handle to a local vortex File stored at the given path.
      */
     public static NativeFile open(String path) {
-        return new NativeFile(FFI.File_open(path));
+        return open(Paths.get(path));
+    }
+
+    /**
+     * Open a handle to a local vortex File stored at the given path.
+     */
+    public static NativeFile open(Path path) {
+        return open(path.toUri(), Map.of());
+    }
+
+    /**
+     * Open a file at the provided URI, with configuration supplied.
+     */
+    public static NativeFile open(URI uri, Map<String, String> properties) {
+        try (StringArray keys = new StringArray(properties.keySet().toArray(new String[0]));
+                StringArray values = new StringArray(properties.values().toArray(new String[0]))) {
+            FFI.FileOpenOptions options = new FFI.FileOpenOptions(uri.toString(), keys, values, properties.size());
+            return new NativeFile(FFI.File_open(options));
+        }
     }
 
     @Override

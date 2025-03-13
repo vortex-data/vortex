@@ -117,7 +117,7 @@ public final class FFI {
     public static native void DType_free(FFIDType dtype);
 
     // File interactions
-    public static native FFIFile File_open(String path);
+    public static native FFIFile File_open(FileOpenOptions options);
 
     public static native FFIDType File_dtype(FFIFile file);
 
@@ -133,6 +133,21 @@ public final class FFI {
     public static native FFIArray FFIArrayStream_current(FFIArrayStream stream);
 
     public static native void FFIArrayStream_free(FFIArrayStream stream);
+
+    @Structure.FieldOrder({"path", "property_keys", "property_vals", "property_count"})
+    public static final class FileOpenOptions extends Structure {
+        public String path;
+        public Pointer property_keys;
+        public Pointer property_vals;
+        public int property_count;
+
+        public FileOpenOptions(String path, StringArray property_keys, StringArray property_vals, int property_count) {
+            this.path = path;
+            this.property_keys = property_keys;
+            this.property_vals = property_vals;
+            this.property_count = property_count;
+        }
+    }
 
     @Structure.FieldOrder({"projection", "projection_len"})
     public static final class FileScanOptions extends Structure {
