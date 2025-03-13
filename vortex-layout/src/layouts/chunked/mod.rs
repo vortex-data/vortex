@@ -66,7 +66,7 @@ impl LayoutVTable for ChunkedLayout {
         let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
         let mut offset = row_offset;
         for i in 0..nchunks {
-            let child = layout.child(i, layout.dtype().clone(), format!("[{}]", i))?;
+            let child = layout.child(i, layout.dtype().clone(), format!("[{i}]"))?;
             child.required_segments(offset, filter_field_mask, projection_field_mask, segments)?;
             offset += child.row_count();
         }
