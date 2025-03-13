@@ -170,7 +170,7 @@ impl RowRangePruner {
         };
 
         let cancelled_segments: Vec<_> = {
-            let mut store = self.store.write().vortex_expect("poisoned lock");
+            let mut store = self.store.write()?;
             let to_remove: Vec<_> = store
                 .keys()
                 .filter(|key| key.kind != RequiredSegmentKind::PRUNING)
