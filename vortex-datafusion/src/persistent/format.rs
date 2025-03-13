@@ -28,7 +28,7 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{VortexExpr, and};
-use vortex_file::{VORTEX_FILE_EXTENSION, VortexOpenOptions};
+use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
@@ -69,7 +69,7 @@ impl VortexFormatFactory {
     // Because FileFormatFactory has a default method
     /// Create a new [`VortexFormatFactory`] with the default encoding context.
     pub fn default_config() -> Self {
-        Self::with_registry(Arc::new(ArrayRegistry::default()))
+        Self::with_registry(DEFAULT_REGISTRY.clone())
     }
 
     /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::ArrayContext).
