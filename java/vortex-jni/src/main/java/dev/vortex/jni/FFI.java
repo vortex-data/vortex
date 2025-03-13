@@ -15,8 +15,6 @@
  */
 package dev.vortex.jni;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import com.sun.jna.*;
 import com.sun.jna.ptr.IntByReference;
 
@@ -141,10 +139,9 @@ public final class FFI {
         public Pointer projection;
         public int projection_len;
 
-        public FileScanOptions(StringArray projection) {
-            checkArgument(projection.size() < Integer.MAX_VALUE, "projection too large");
+        public FileScanOptions(StringArray projection, int length) {
             this.projection = projection;
-            this.projection_len = (int) projection.size();
+            this.projection_len = length;
         }
     }
 

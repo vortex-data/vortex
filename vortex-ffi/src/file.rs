@@ -62,7 +62,6 @@ pub unsafe extern "C" fn File_scan(
     opts: *const FileScanOptions,
 ) -> *mut FFIArrayStream {
     let file = unsafe { &*file };
-
     let mut stream = file.inner.scan();
 
     if !opts.is_null() {

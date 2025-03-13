@@ -46,7 +46,7 @@ public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     public ArrayStream newScan(ScanOptions options) {
         String[] columns = options.columns().toArray(new String[0]);
         try (StringArray columnsPtr = new StringArray(columns)) {
-            var scan = FFI.File_scan(inner, new FFI.FileScanOptions(columnsPtr));
+            var scan = FFI.File_scan(inner, new FFI.FileScanOptions(columnsPtr, columns.length));
             return new NativeArrayStream(scan);
         }
     }
