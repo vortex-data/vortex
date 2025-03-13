@@ -1,6 +1,6 @@
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::c_char;
+use std::ffi::{c_char, c_int};
 use std::sync::Arc;
 
 use object_store::local::LocalFileSystem;
@@ -23,6 +23,8 @@ pub struct FFIFile {
 pub struct FileScanOptions {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
+    /// Number of columns in `projection`.
+    pub projection_len: c_int,
     // TODO(aduffy): add predicate pushdown here somehow.
 }
 
@@ -64,14 +66,10 @@ pub unsafe extern "C" fn File_scan(
     let mut stream = file.inner.scan();
 
     if !opts.is_null() {
-        let opts = unsafe { &*opts };
+        let opts = &*opts;
         let mut field_names = Vec::new();
-        for i in 0.. {
-            let col_name = unsafe { *opts.projection.offset(i) };
-            if col_name.is_null() {
-                break;
-            }
-
+        for i in 0..opts.projection_len {
+            let col_name = unsafe { *opts.projection.offset(i as isize) };
             let col_name: Arc<str> = to_string(col_name).into();
             field_names.push(col_name);
         }
