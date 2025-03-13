@@ -113,6 +113,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut all_measurements = Vec::default();
 
+    let mut metrics = Vec::new();
     for format in &args.formats {
         let session_context = get_session_with_cache(args.emulate_object_store);
         let context = session_context.clone();
@@ -198,7 +199,11 @@ fn main() -> anyhow::Result<()> {
                 )
                 .expect("Unable to write file");
             }
-
+            metrics.push((
+                query_idx,
+                format,
+                VortexMetricsFinder::find_all(plan.as_ref()),
+            ));
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 storage: "nvme".to_string(),
@@ -217,14 +222,19 @@ fn main() -> anyhow::Result<()> {
 
     match args.display_format {
         DisplayFormat::Table => {
-            for metric_set in VortexMetricsFinder::find_all(plan.as_ref()).into_iter() {
-                for m in metric_set
-                    .timestamps_removed()
-                    .aggregate()
-                    .sorted_for_display()
-                    .iter()
-                {
-                    println!("{}", m);
+            for (query, format, metric_sets) in metrics {
+                println!();
+                println!("metrics for query={query}, {format}:");
+                for (idx, metric_set) in metric_sets.into_iter().enumerate() {
+                    println!("scan[{idx}]:");
+                    for m in metric_set
+                        .timestamps_removed()
+                        .aggregate()
+                        .sorted_for_display()
+                        .iter()
+                    {
+                        println!("{}", m);
+                    }
                 }
             }
             render_table(all_measurements, &args.formats, RatioMode::Time).unwrap()
