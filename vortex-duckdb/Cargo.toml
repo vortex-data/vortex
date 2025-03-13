@@ -28,7 +28,5 @@ vortex-error = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 duckdb = { workspace = true }
 
-[dev-dependencies]
-
 [lints]
 workspace = true
