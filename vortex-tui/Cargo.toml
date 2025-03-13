@@ -14,14 +14,12 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-arrow-array = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
 futures-util = { workspace = true }
-indicatif = { workspace = true }
+indicatif = { workspace = true, features = ["futures"] }
 parquet = { workspace = true, features = ["arrow", "async"] }
-pin-project = { workspace = true }
 ratatui = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio", "parquet"] }
