@@ -3,7 +3,6 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
@@ -12,7 +11,7 @@ use vortex::file::{Footer, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::segments::{SegmentId, SegmentReader};
+use vortex_layout::segments::{PendingSegment, SegmentId, SegmentReader};
 use vortex_layout::{
     CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
@@ -217,7 +216,7 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         .footer()
         .clone();
 
-    let reader = Arc::new(SegmentReader {
+    let reader = Arc::new(TuiSegmentReader {
         reader: file.clone(),
         footer: footer.clone(),
     }) as _;
@@ -236,12 +235,12 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
     })
 }
 
-struct SegmentReader {
+struct TuiSegmentReader {
     pub reader: TokioFile,
     pub footer: Footer,
 }
 
-impl SegmentReader {
+impl TuiSegmentReader {
     // Read the provided byte range
     fn read_bytes_sync(&self, range: Range<u64>, alignment: Alignment) -> ByteBuffer {
         let mut buf = ByteBufferMut::zeroed_aligned(
@@ -255,11 +254,10 @@ impl SegmentReader {
     }
 }
 
-#[async_trait]
-impl SegmentReader for SegmentReader {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+impl SegmentReader for TuiSegmentReader {
+    fn get(&self, id: SegmentId) -> VortexResult<Arc<dyn PendingSegment>> {
         let segment = &self.footer.segment_map()[*id as usize];
         let range = segment.offset..(segment.offset + segment.length as u64);
-        Ok(self.read_bytes_sync(range, segment.alignment))
+        Ok(Arc::new(self.read_bytes_sync(range, segment.alignment)))
     }
 }
