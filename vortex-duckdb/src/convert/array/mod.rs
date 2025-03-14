@@ -29,7 +29,7 @@ pub trait ToDuckDB {
 pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
     if let Some(const_) = array.as_constant() {
         let value = const_.to_duckdb_scalar();
-        chunk.flat_vector().constant(&value);
+        chunk.flat_vector().assign_to_constant(&value);
         Ok(())
     } else if array.is_encoding(DictEncoding.id()) {
         array
@@ -188,8 +188,8 @@ mod tests {
 
     #[test]
     fn test_const_vortex_to_duckdb() {
-        let arr = ConstantArray::new::<i64>(23444233.into(), 100).to_array();
-        let arr2 = ConstantArray::new::<i32>(234.into(), 100).to_array();
+        let arr = ConstantArray::new::<i64>(23444233, 100).to_array();
+        let arr2 = ConstantArray::new::<i32>(234, 100).to_array();
         let st = StructArray::from_fields(&[("1", arr.clone()), ("2", arr2.clone())]).unwrap();
         let mut output_chunk = DataChunkHandle::new(&[
             LogicalTypeHandle::from(LogicalTypeId::Bigint),
