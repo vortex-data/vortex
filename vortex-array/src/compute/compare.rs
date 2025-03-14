@@ -10,6 +10,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::compute::preferred_arrow_data_type;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -195,21 +196,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    // Make sure both of the arrays end up with the same arrow data type
-    let lhs = if matches!(left.dtype(), DType::Utf8(_)) {
-        Datum::with_target_datatype(left.to_array(), &DataType::Utf8View)?
-    } else if matches!(left.dtype(), DType::Binary(_)) {
-        Datum::with_target_datatype(left.to_array(), &DataType::BinaryView)?
-    } else {
-        Datum::try_new(left.to_array())?
-    };
-    let rhs = if matches!(right.dtype(), DType::Utf8(_)) {
-        Datum::with_target_datatype(right.to_array(), &DataType::Utf8View)?
-    } else if matches!(right.dtype(), DType::Binary(_)) {
-        Datum::with_target_datatype(right.to_array(), &DataType::BinaryView)?
-    } else {
-        Datum::try_new(right.to_array())?
-    };
+    let lhs = Datum::try_new(left.to_canonical()?.into_array())?;
+    let rhs = Datum::try_new(right.to_canonical()?.into_array())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
