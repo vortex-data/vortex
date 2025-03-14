@@ -99,10 +99,11 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
-    use fsst::{CompressorBuilder, Symbol};
+    use fsst::{CompressorBuilder, Decompressor, Symbol};
     use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{Operator, compare, scalar_at};
     use vortex_array::{Array, ToCanonical};
+    use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -166,20 +167,24 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_compare_random_string() {
         let value = "AAtttttttttttHHHHHHHHHHHHHHttttttttttttttttttttttttttttttttt,tttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0tttttttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\0\0\0\0\0\0\0\u{8}\u{18}\u{18}))))))\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\u{18}\u{18}\u{18}\u{18}HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHttttttttttttttttttttt|tttttttttttttttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\0\0\0\0\0\0\0\u{8}\u{18}";
-        let mut compressor_builder = CompressorBuilder::new();
-        compressor_builder.insert(Symbol::from_slice(&[116, 116, 0, 0, 0, 0, 0, 0]), 2);
-        compressor_builder.insert(Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]), 1);
-        compressor_builder.insert(
+        let symbols = Buffer::from_iter(vec![
+            Symbol::from_slice(&[116, 116, 0, 0, 0, 0, 0, 0]),
+            Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]),
             Symbol::from_slice(&[116, 116, 116, 116, 116, 116, 116, 116]),
-            8,
-        );
-        compressor_builder.insert(Symbol::from_slice(&[24, 24, 24, 24, 24, 24, 24, 24]), 8);
-        compressor_builder.insert(Symbol::from_slice(&[116, 0, 0, 0, 0, 0, 0, 0]), 1);
-        compressor_builder.insert(Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]), 1);
-        compressor_builder.insert(Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]), 1);
-        compressor_builder.insert(Symbol::from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]), 1);
-        compressor_builder.insert(Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]), 1);
-        let compressor = compressor_builder.build();
+            Symbol::from_slice(&[24, 24, 24, 24, 24, 24, 24, 24]),
+            Symbol::from_slice(&[116, 0, 0, 0, 0, 0, 0, 0]),
+            Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]),
+            Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]),
+            Symbol::from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]),
+            Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]),
+        ]);
+        let lengths = Buffer::from_iter(vec![2, 1, 8, 8, 1, 1, 1, 1, 1]);
+        let mut compressor = CompressorBuilder::new();
+        for (symbol, symbol_len) in symbols.iter().zip(lengths.iter()) {
+            compressor.insert(*symbol, *symbol_len as usize);
+        }
+        let compressor = compressor.build();
+
         let compressed = compressor.compress(value.as_bytes());
         let expected = vec![
             255u8, 65, 255, 65, 2, 0, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 2, 2, 2, 2, 4,
@@ -191,6 +196,7 @@ mod tests {
             8, 8, 2, 2, 0, 0, 4, 255, 124, 2, 2, 2, 2, 4, 8, 8, 8, 8, 8, 8, 3, 3, 1, 5, 255, 48, 1,
             1, 1, 5, 7, 7, 7, 7, 7, 7, 7, 255, 8, 5,
         ];
+        assert_eq!(Decompressor::new(&symbols, &lengths).decompress(&compressed), value.as_bytes());
         assert_eq!(compressed, expected);
     }
 }
