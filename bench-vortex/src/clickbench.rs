@@ -254,6 +254,7 @@ pub async fn register_parquet_files(
 ) -> anyhow::Result<()> {
     let format = Arc::new(ParquetFormat::new());
     let table_path = input_path.join("parquet/")?;
+    info!("Registering table from {}", &table_path);
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
