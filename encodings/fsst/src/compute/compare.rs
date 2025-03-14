@@ -6,6 +6,7 @@ use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -17,9 +18,7 @@ impl CompareFn<&FSSTArray> for FSSTEncoding {
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
-            Some(constant) => {
-                compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
-            }
+            Some(constant) => compare_fsst_constant(lhs, constant, operator),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -29,16 +28,15 @@ impl CompareFn<&FSSTArray> for FSSTEncoding {
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
     left: &FSSTArray,
-    right: &ConstantArray,
+    right: Scalar,
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let rhs_scalar = right.scalar();
-    let is_rhs_empty = match rhs_scalar.dtype() {
-        DType::Binary(_) => rhs_scalar
+    let is_rhs_empty = match right.dtype() {
+        DType::Binary(_) => right
             .as_binary()
             .is_empty()
             .vortex_expect("RHS should not be null"),
-        DType::Utf8(_) => rhs_scalar
+        DType::Utf8(_) => right
             .as_utf8()
             .is_empty()
             .vortex_expect("RHS should not be null"),
@@ -80,7 +78,6 @@ fn compare_fsst_constant(
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => {
             let value = right
-                .scalar()
                 .as_utf8()
                 .value()
                 .vortex_expect("Expected non-null scalar");
@@ -88,7 +85,6 @@ fn compare_fsst_constant(
         }
         DType::Binary(_) => {
             let value = right
-                .scalar()
                 .as_binary()
                 .value()
                 .vortex_expect("Expected non-null scalar");
@@ -103,6 +99,7 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
+    use fsst::{CompressorBuilder, Symbol};
     use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{Operator, compare, scalar_at};
     use vortex_array::{Array, ToCanonical};
@@ -163,5 +160,37 @@ mod tests {
         for idx in 0..lhs.len() {
             assert!(scalar_at(&noteq_null, idx).unwrap().is_null());
         }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_compare_random_string() {
+        let value = "AAtttttttttttHHHHHHHHHHHHHHttttttttttttttttttttttttttttttttt,tttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0tttttttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\0\0\0\0\0\0\0\u{8}\u{18}\u{18}))))))\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\u{18}\u{18}\u{18}\u{18}HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHttttttttttttttttttttt|tttttttttttttttttttttttttttttttttHHHHHH\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}0\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\u{18}\0\0\0\0\0\0\0\u{8}\u{18}";
+        let mut compressor_builder = CompressorBuilder::new();
+        compressor_builder.insert(Symbol::from_slice(&[116, 116, 0, 0, 0, 0, 0, 0]), 2);
+        compressor_builder.insert(Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]), 1);
+        compressor_builder.insert(
+            Symbol::from_slice(&[116, 116, 116, 116, 116, 116, 116, 116]),
+            8,
+        );
+        compressor_builder.insert(Symbol::from_slice(&[24, 24, 24, 24, 24, 24, 24, 24]), 8);
+        compressor_builder.insert(Symbol::from_slice(&[116, 0, 0, 0, 0, 0, 0, 0]), 1);
+        compressor_builder.insert(Symbol::from_slice(&[24, 0, 0, 0, 0, 0, 0, 0]), 1);
+        compressor_builder.insert(Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]), 1);
+        compressor_builder.insert(Symbol::from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]), 1);
+        compressor_builder.insert(Symbol::from_slice(&[72, 0, 0, 0, 0, 0, 0, 0]), 1);
+        let compressor = compressor_builder.build();
+        let compressed = compressor.compress(value.as_bytes());
+        let expected = vec![
+            255u8, 65, 255, 65, 2, 0, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 2, 2, 2, 2, 4,
+            255, 44, 2, 2, 0, 0, 4, 8, 8, 8, 8, 8, 8, 3, 3, 1, 5, 255, 48, 2, 2, 2, 4, 8, 8, 8, 8,
+            8, 8, 3, 3, 1, 5, 255, 48, 1, 1, 1, 5, 7, 7, 7, 7, 7, 7, 7, 255, 8, 1, 255, 41, 255,
+            41, 255, 41, 255, 41, 255, 41, 255, 41, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+            7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 1, 1,
+            8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+            8, 8, 2, 2, 0, 0, 4, 255, 124, 2, 2, 2, 2, 4, 8, 8, 8, 8, 8, 8, 3, 3, 1, 5, 255, 48, 1,
+            1, 1, 5, 7, 7, 7, 7, 7, 7, 7, 255, 8, 5,
+        ];
+        assert_eq!(compressed, expected);
     }
 }

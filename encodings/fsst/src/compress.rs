@@ -67,15 +67,7 @@ fn fsst_train_compressor_iter<'a, I>(iter: I) -> Compressor
 where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
-    let mut lines = Vec::with_capacity(8_192);
-
-    for string in iter {
-        match string {
-            None => {}
-            Some(b) => lines.push(b),
-        }
-    }
-
+    let lines = iter.flatten().collect::<Vec<_>>();
     Compressor::train(&lines)
 }
 

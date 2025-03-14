@@ -1,6 +1,5 @@
 use core::fmt;
 use std::fmt::{Display, Formatter};
-
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
