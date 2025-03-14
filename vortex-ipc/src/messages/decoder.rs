@@ -168,7 +168,7 @@ mod test {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
-        let mut decoder = MessageDecoder::new(ArrayRegistry::default());
+        let mut decoder = MessageDecoder::new(ArrayRegistry::canonical_only());
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
