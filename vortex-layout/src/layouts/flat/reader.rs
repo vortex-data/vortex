@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_once_cell::OnceCell;
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
@@ -11,12 +11,13 @@ use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReaderExt, LayoutVTable, instrument};
 
 pub struct FlatReader {
-    layout: Layout,
-    ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
+    pub(crate) layout: Layout,
+    pub(crate) ctx: ArrayContext,
+    pub(crate) segment_reader: Arc<dyn AsyncSegmentReader>,
     // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
     //  cache.
     array: Arc<OnceCell<ArrayRef>>,
+    pub(crate) array2: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
 }
 
 impl FlatReader {
@@ -34,6 +35,7 @@ impl FlatReader {
             ctx,
             segment_reader,
             array: Arc::new(Default::default()),
+            array2: Arc::new(Default::default()),
         })
     }
 

@@ -1,10 +1,13 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::{Layout, RowMask};
 
@@ -30,6 +33,18 @@ impl LayoutReader for Arc<dyn LayoutReader> {
 ///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
 pub trait ExprEvaluator: Send + Sync {
+    /// Construct an expression evaluation future for the given row range, expression, and mask.
+    ///
+    /// The row range is relative to the start of the layout.
+    async fn evaluate_expr2(
+        &self,
+        _row_range: Range<u64>,
+        _expr: ExprRef,
+        _mask: BoxFuture<'static, VortexResult<Mask>>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        todo!()
+    }
+
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef>;
 
     /// Refine the row mask by evaluating any pruning. This should be relatively cheap, statistics

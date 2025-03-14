@@ -1,14 +1,87 @@
+use std::ops::Range;
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use vortex_array::compute::{filter, slice};
+use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::{ExprRef, Identity};
+use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::FlatReader;
+use crate::reader::LayoutReaderExt;
 use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
+    async fn evaluate_expr2(
+        &self,
+        row_range: Range<u64>,
+        expr: ExprRef,
+        mask: BoxFuture<'static, VortexResult<Mask>>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if row_range.end > self.layout.row_count() {
+            vortex_bail!("Row range exceeds layout row count");
+        }
+
+        let segment_id = self
+            .layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+
+        // We launch, but don't await, the segment request. This allows for prefetching.
+        let segment_fut = self.segment_reader.get(segment_id);
+
+        // Wait for the mask, and short-circuit if it's all false.
+        let mask = mask.await?;
+        if mask.all_false() {
+            return Ok(None);
+        }
+
+        // Now we can await the segment request.
+        let segment = segment_fut.await?;
+
+        // And decode the array through our OnceCell.
+        let mut array = self
+            .array2
+            .get_or_init(|| {
+                // Fetch all the array segment.
+                let row_count = usize::try_from(self.layout.row_count())
+                    .vortex_expect("FlatLayout row count does not fit within usize");
+
+                ArrayParts::try_from(segment)?
+                    .decode(self.ctx(), self.dtype().clone(), row_count)
+                    .map_err(|e| Arc::new(e))
+            })
+            .clone()?;
+
+        // Convert the range into an usize now that we expect it to fit.
+        let start = usize::try_from(row_range.start)
+            .vortex_expect("RowMask begin must fit within FlatLayout size");
+        let end = usize::try_from(row_range.end)
+            .vortex_expect("RowMask end must fit within FlatLayout size");
+        let row_range = start..end;
+
+        // Slice the array based on the row mask.
+        if start > 0 || row_range.end < array.len() {
+            array = slice(&array, start, end)?;
+        }
+
+        // Filter the array based on the row mask.
+        if !mask.all_true() {
+            array = filter(&array, &mask)?;
+        }
+
+        // Evaluate the projection expression.
+        if !expr.as_any().is::<Identity>() {
+            array = expr.evaluate(&array)?;
+        }
+
+        Ok(Some(array))
+    }
+
     async fn evaluate_expr(
         self: &Self,
         row_mask: RowMask,
