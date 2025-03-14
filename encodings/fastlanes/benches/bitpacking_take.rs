@@ -151,7 +151,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         NUM_EXCEPTIONS as usize
     );
 
-    let indices = PrimitiveArray::from_iter(0..10);
+    let indices = PrimitiveArray::from_iter(0u8..10);
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))

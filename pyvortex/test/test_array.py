@@ -23,7 +23,7 @@ def test_varbin_array_round_trip():
 
 def test_varbin_array_take():
     a = vortex.array(pa.array(["a", "b", "c", "d"], type=pa.string_view()))
-    assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array() == pa.array(
+    assert a.take(vortex.array(pa.array([0, 2], type=pa.uint32))).to_arrow_array() == pa.array(
         ["a", "c"],
         type=pa.string_view(),
     )
