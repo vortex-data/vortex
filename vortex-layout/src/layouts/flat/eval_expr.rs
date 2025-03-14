@@ -2,25 +2,23 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use vortex_array::compute::{filter, slice};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::{ExprRef, Identity};
-use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutReaderExt;
-use crate::{ExprEvaluator, RowMask};
+use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
     async fn evaluate_expr2(
         &self,
-        row_range: Range<u64>,
-        expr: ExprRef,
-        mask: BoxFuture<'static, VortexResult<Mask>>,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: MaskFuture,
     ) -> VortexResult<Option<ArrayRef>> {
         if row_range.end > self.layout.row_count() {
             vortex_bail!("Row range exceeds layout row count");

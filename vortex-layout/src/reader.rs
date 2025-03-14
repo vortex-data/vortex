@@ -2,10 +2,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, Shared};
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{SharedVortexResult, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -27,6 +27,8 @@ impl LayoutReader for Arc<dyn LayoutReader> {
     }
 }
 
+pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
+
 /// A trait for evaluating expressions against a [`LayoutReader`].
 ///
 /// FIXME(ngates): what if this was evaluating_predicate(mask, expr) -> mask,
@@ -38,9 +40,9 @@ pub trait ExprEvaluator: Send + Sync {
     /// The row range is relative to the start of the layout.
     async fn evaluate_expr2(
         &self,
-        _row_range: Range<u64>,
-        _expr: ExprRef,
-        _mask: BoxFuture<'static, VortexResult<Mask>>,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+        _mask: MaskFuture,
     ) -> VortexResult<Option<ArrayRef>> {
         todo!()
     }
