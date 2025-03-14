@@ -2,7 +2,7 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     id("com.diffplug.spotless") version "7.0.2"
-    id("com.palantir.consistent-versions") version "2.31.0"
+    id("com.palantir.consistent-versions") version "2.32.0"
     id("com.palantir.git-version") version "3.1.0"
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     id("net.ltgt.errorprone") version "4.1.0" apply false

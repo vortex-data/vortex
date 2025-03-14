@@ -2741,6 +2741,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
 dependencies = [
  "console",
+ "futures-core",
  "number_prefix",
  "portable-atomic",
  "unicode-width 0.2.0",
@@ -6181,14 +6182,12 @@ dependencies = [
 name = "vortex-tui"
 version = "0.25.2"
 dependencies = [
- "arrow-array",
  "async-trait",
  "clap",
  "crossterm",
  "futures-util",
  "indicatif",
  "parquet",
- "pin-project",
  "ratatui",
  "tokio",
  "vortex",

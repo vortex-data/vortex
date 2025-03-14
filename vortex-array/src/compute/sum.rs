@@ -43,14 +43,19 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         return Ok(Scalar::new(sum_dtype, sum));
     }
 
+    if array.is_empty() {
+        return if sum_dtype.is_float() {
+            Ok(Scalar::new(sum_dtype, 0.0.into()))
+        } else {
+            Ok(Scalar::new(sum_dtype, 0.into()))
+        };
+    }
+
     // If the array is constant, we can compute the sum directly.
     if let Some(mut constant) = array.as_constant() {
         if constant.is_null() {
             // An all-null constant array has a sum of 0.
-            return if PType::try_from(&sum_dtype)
-                .vortex_expect("must be primitive")
-                .is_float()
-            {
+            return if sum_dtype.is_float() {
                 Ok(Scalar::new(sum_dtype, 0.0.into()))
             } else {
                 Ok(Scalar::new(sum_dtype, 0.into()))

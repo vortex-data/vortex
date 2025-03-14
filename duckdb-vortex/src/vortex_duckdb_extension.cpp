@@ -47,6 +47,7 @@ static void LoadInternal(DatabaseInstance &instance) {
 void VortexDuckdbExtension::Load(DuckDB &db) {
 	LoadInternal(*db.instance);
 }
+
 std::string VortexDuckdbExtension::Name() {
 	return "vortex_duckdb";
 }
