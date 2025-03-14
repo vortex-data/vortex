@@ -58,8 +58,7 @@ pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<()> {
-    let len = struct_array.len();
-    chunk.set_len(len);
+    chunk.set_len(struct_array.len());
     for (idx, field) in struct_array.fields().iter().enumerate() {
         to_duckdb(field.clone(), &mut DataChunkHandleSlice::new(chunk, idx))?;
     }
