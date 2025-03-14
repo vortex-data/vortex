@@ -180,11 +180,6 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
-        println!(
-            "Ensure capacity {}, current capacity {}",
-            capacity,
-            self.values.capacity()
-        );
         if capacity > self.values.capacity() {
             self.values.reserve(capacity - self.values.len());
             self.nulls.ensure_capacity(capacity);
