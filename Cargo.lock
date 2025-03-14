@@ -6094,6 +6094,7 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
+ "vortex-metrics",
 ]
 
 [[package]]

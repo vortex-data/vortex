@@ -49,5 +49,6 @@ impl<F: FileType> VortexFile<F> {
             self.footer.layout().clone(),
             self.footer().ctx().clone(),
         )
+        .with_metrics(self.metrics.clone())
     }
 }
