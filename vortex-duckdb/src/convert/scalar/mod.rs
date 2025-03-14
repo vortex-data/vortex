@@ -1,5 +1,6 @@
 use duckdb::core::Value;
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::half::f16;
+use vortex_dtype::{DType, PType, match_each_native_simd_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{BoolScalar, PrimitiveScalar, Scalar};
 
@@ -23,8 +24,16 @@ impl ToDuckDBScalar for Scalar {
 }
 
 fn prim_to_duckdb_scalar(scalar: PrimitiveScalar) -> Value {
-    match_each_native_ptype!(scalar.ptype(), |$P| {
-        Value::from(scalar.as_::<u64>().vortex_expect("ptype value mismatch"))
+    if scalar.ptype() == PType::F16 {
+        return Value::from(
+            scalar
+                .as_::<f16>()
+                .vortex_expect("check ptyped")
+                .map(|f| f.to_f32()),
+        );
+    }
+    match_each_native_simd_ptype!(scalar.ptype(), |$P| {
+        Value::from(scalar.as_::<$P>().vortex_expect("ptype value mismatch"))
     })
 }
 
