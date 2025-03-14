@@ -124,6 +124,13 @@ impl ArrayBuilder for StructBuilder {
         Ok(())
     }
 
+    fn ensure_capacity(&mut self, capacity: usize) {
+        self.builders.iter_mut().for_each(|builder| {
+            builder.ensure_capacity(capacity);
+        });
+        self.validity.ensure_capacity(capacity);
+    }
+
     fn set_validity(&mut self, validity: Mask) {
         self.validity = LazyNullBufferBuilder::new(validity.len());
         self.validity.append_validity_mask(validity);

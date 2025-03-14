@@ -213,7 +213,7 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
 ) -> VortexResult<PrimitiveArray> {
     let n = array.len();
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    assert!(size_of::<T>() == size_of::<UnsignedT>());
+    assert_eq!(size_of::<T>(), size_of::<UnsignedT>());
     unpack_into::<T, UnsignedT, _, _>(
         array,
         &mut builder,
@@ -224,7 +224,7 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
         // &mut [UnsignedT] is therefore safe.
         |x| unsafe { std::mem::transmute(x) },
     )?;
-    assert!(builder.len() == n, "{} {}", builder.len(), n);
+    assert_eq!(builder.len(), n);
     Ok(builder.finish_into_primitive())
 }
 
