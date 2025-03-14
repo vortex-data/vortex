@@ -31,10 +31,14 @@ impl ToArrowFn<&VarBinArray> for VarBinEncoding {
         data_type: &DataType,
     ) -> VortexResult<Option<ArrayRef>> {
         let array_ref = match data_type {
-            DataType::BinaryView | DataType::FixedSizeBinary(_) | DataType::Utf8View => {
+            DataType::FixedSizeBinary(_) => {
                 // TODO(ngates): we should support converting VarBin into these Arrow arrays.
                 return Ok(None);
             }
+            DataType::BinaryView | DataType::Utf8View => Ok(arrow_cast::cast(
+                &*varbin_to_arrow::<i32>(array)?,
+                data_type,
+            )?),
             DataType::Binary | DataType::Utf8 => {
                 // These are both supported with a zero-copy cast, see below
                 varbin_to_arrow::<i32>(array)

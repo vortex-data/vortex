@@ -42,6 +42,10 @@ impl ComputeVTable for VarBinViewEncoding {
         Some(self)
     }
 
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -55,10 +59,6 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 
