@@ -111,6 +111,9 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
+    use fsst::{CompressorBuilder, Symbol};
     use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{Operator, compare, scalar_at};
     use vortex_array::{Array, ToCanonical};
@@ -171,5 +174,33 @@ mod tests {
         for idx in 0..lhs.len() {
             assert!(scalar_at(&noteq_null, idx).unwrap().is_null());
         }
+    }
+
+    #[test]
+    fn test_symbols_bad() {
+        let symbols: &[u64] = &[
+            24931, 25698, 25442, 25699, 25186, 25444, 24932, 25188, 25185, 25441, 25697, 25700,
+            24929, 24930, 25443, 25187, 6513249, 6512995, 6578786, 6513761, 6513507, 6382434,
+            6579042, 6512994, 6447460, 6447969, 6382178, 6579041, 6512993, 6448226, 6513250,
+            6579297, 6513506, 6447459, 6513764, 6447458, 6578529, 6382180, 6513762, 6447714,
+            6579299, 6513508, 6382436, 6513763, 6578532, 6381924, 6448228, 6579300, 6381921,
+            6382690, 6382179, 6447713, 6447972, 6513505, 6447457, 6382692, 6513252, 6578785,
+            6578787, 6578531, 6448225, 6382177, 6382433, 6578530, 6448227, 6381922, 6578788,
+            6579044, 6382691, 6512996, 6579043, 6579298, 6447970, 6447716, 6447971, 6381923,
+            6447715, 97, 98, 100, 99, 97, 98, 99, 100,
+        ];
+        let lens: Vec<u8> = iter::repeat_n(2u8, 16)
+            .chain(iter::repeat_n(3u8, 61))
+            .chain(iter::repeat_n(1u8, 8))
+            .collect();
+
+        let mut builder = CompressorBuilder::new();
+        for (symbol, len) in symbols.iter().zip(lens.iter()) {
+            let symbol = Symbol::from_slice(&symbol.to_le_bytes());
+            builder.insert(symbol, *len as usize);
+        }
+        let compressor = builder.build();
+        let built_symbols: &[u64] = unsafe { std::mem::transmute(compressor.symbol_table()) };
+        assert_eq!(built_symbols, symbols);
     }
 }
