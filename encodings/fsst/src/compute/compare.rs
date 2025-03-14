@@ -77,6 +77,14 @@ fn compare_fsst_constant(
     }
     let compressor = compressor.build();
 
+    let built_symbols: &[u64] = unsafe { std::mem::transmute(compressor.symbol_table()) };
+    let expected_symbols: &[u64] = unsafe { std::mem::transmute(symbols.as_slice()) };
+    assert_eq!(
+        built_symbols, expected_symbols,
+        "built symbol table does not match expected"
+    );
+    assert_eq!(compressor.symbol_lengths(), symbol_lens.as_slice());
+
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => {
             let value = right
