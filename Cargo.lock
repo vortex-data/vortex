@@ -5863,11 +5863,14 @@ dependencies = [
 name = "vortex-duckdb"
 version = "0.25.2"
 dependencies = [
+ "arrow-array",
  "duckdb",
  "itertools 0.14.0",
  "vortex-array",
+ "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-scalar",
 ]
 
 [[package]]
