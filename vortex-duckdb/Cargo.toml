@@ -19,10 +19,13 @@ path = "src/lib.rs"
 bench = false
 
 [dependencies]
+arrow-array = { workspace = true }
 itertools = { workspace = true }
 vortex-array = { workspace = true }
+vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+vortex-scalar = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 duckdb = { workspace = true, features = ["vtab-arrow"] }

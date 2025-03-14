@@ -714,21 +714,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "calamine"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe0ba51a659bb6c8bffd6f7c1c5ffafcafa0c97e4769411d841c3cc5c154ab47"
-dependencies = [
- "byteorder",
- "codepage",
- "encoding_rs",
- "log",
- "quick-xml 0.30.0",
- "serde",
- "zip",
-]
-
-[[package]]
 name = "cassowary"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -848,15 +833,6 @@ name = "clap_lex"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
-
-[[package]]
-name = "codepage"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48f68d061bc2828ae826206326e61251aca94c1e4a5305cf52d9138639c918b4"
-dependencies = [
- "encoding_rs",
-]
 
 [[package]]
 name = "codspeed"
@@ -1878,13 +1854,12 @@ name = "duckdb"
 version = "1.2.0"
 dependencies = [
  "arrow",
- "calamine",
  "cast",
  "duckdb-loadable-macros 0.1.4",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
- "libduckdb-sys 1.2.0",
+ "libduckdb-sys",
  "memchr",
  "num",
  "num-integer",
@@ -1922,7 +1897,7 @@ dependencies = [
  "duckdb",
  "duckdb-loadable-macros 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
- "libduckdb-sys 1.2.1",
+ "libduckdb-sys",
  "tokio",
  "vortex-array",
  "vortex-duckdb",
@@ -3003,21 +2978,6 @@ dependencies = [
  "cc",
  "flate2",
  "pkg-config",
- "serde",
- "serde_json",
- "tar",
- "vcpkg",
-]
-
-[[package]]
-name = "libduckdb-sys"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddeb5c68cb108d753a03613337f4bc9bed32281123d1f7884971f060f532fb6c"
-dependencies = [
- "autocfg",
- "flate2",
- "pkg-config",
  "prettyplease",
  "quote",
  "serde",
@@ -3446,7 +3406,7 @@ dependencies = [
  "md-5",
  "parking_lot",
  "percent-encoding",
- "quick-xml 0.37.2",
+ "quick-xml",
  "rand 0.8.5",
  "reqwest",
  "ring",
@@ -4056,16 +4016,6 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
-]
-
-[[package]]
-name = "quick-xml"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eff6510e86862b57b210fd8cbe8ed3f0d7d600b9c2863cd4549a2e033c66e956"
-dependencies = [
- "encoding_rs",
- "memchr",
 ]
 
 [[package]]
@@ -5904,11 +5854,14 @@ dependencies = [
 name = "vortex-duckdb"
 version = "0.25.2"
 dependencies = [
+ "arrow-array",
  "duckdb",
  "itertools 0.14.0",
  "vortex-array",
+ "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-scalar",
 ]
 
 [[package]]
@@ -6940,18 +6893,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70b40401a28d86ce16a330b863b86fd7dbee4d7c940587ab09ab8c019f9e3fdf"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "zip"
-version = "0.6.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "760394e246e4c28189f19d488c058bf16f564016aefac5d32bb1f3b51d5e9261"
-dependencies = [
- "byteorder",
- "crc32fast",
- "crossbeam-utils",
- "flate2",
 ]
 
 [[package]]
