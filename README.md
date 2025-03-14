@@ -6,7 +6,7 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
 > \[!TIP\]
-> Check out our [Docs](https://docs.vortex.dev/)
+> Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev) 
 
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
 Arrow arrays
