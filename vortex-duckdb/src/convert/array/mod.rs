@@ -5,7 +5,7 @@ use duckdb::core::{DataChunkHandle, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
-use vortex_array::arrays::StructArray;
+use vortex_array::arrays::{StructArray, VarBinViewArray, VarBinViewEncoding};
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::try_cast;
 use vortex_array::validity::Validity;
@@ -28,8 +28,7 @@ pub trait ToDuckDB {
 
 pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
     if let Some(const_) = array.as_constant() {
-        let value = Box::new(const_.to_duckdb_scalar());
-        // let value = const_.to_duckdb_scalar();
+        let value = const_.to_duckdb_scalar();
         chunk.flat_vector().constant(&value);
     }
 
@@ -37,7 +36,7 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
         array
             .as_any()
             .downcast_ref::<DictArray>()
-            .vortex_expect("dict id")
+            .vortex_expect("dict id checked")
             .to_duckdb(chunk)
     } else {
         array.into_arrow_preferred()?.to_duckdb(chunk)
@@ -60,10 +59,11 @@ pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<()> {
+    let len = struct_array.len();
+    chunk.set_len(len);
     for (idx, field) in struct_array.fields().iter().enumerate() {
         to_duckdb(field.clone(), &mut DataChunkHandleSlice::new(chunk, idx))?;
     }
-    chunk.set_len(struct_array.len());
     Ok(())
 }
 
@@ -128,6 +128,7 @@ mod tests {
     // use std::io::Write;
 
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use duckdb::vtab::arrow::WritableVector;
     use vortex_array::arrays::{
         BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray,
     };
@@ -135,9 +136,11 @@ mod tests {
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_scalar::Scalar;
 
-    use crate::convert::array::data_chunk_adaptor::NamedDataChunk;
+    use crate::convert::array::data_chunk_adaptor::{DataChunkHandleSlice, NamedDataChunk};
     use crate::convert::array::to_duckdb_chunk;
+    use crate::convert::scalar::ToDuckDBScalar;
     use crate::{FromDuckDB, ToDuckDBType};
 
     fn data() -> ArrayRef {
@@ -202,19 +205,9 @@ mod tests {
             LogicalTypeHandle::from(LogicalTypeId::Bigint),
             LogicalTypeHandle::from(LogicalTypeId::Integer),
         ]);
-        // let _ = st;
-        // let _ = output_chunk;
-        // let _ = arr;
-        // let _ = arr2;
-        // println!("chunk {:?}", output_chunk);
         to_duckdb_chunk(&st, &mut output_chunk).unwrap();
 
-        // println!("test wow {}", output_chunk.len());
-
-        // io::stdout().flush().unwrap();
-
-        println!("chunk {:?}", output_chunk);
-        //
+        println!("chunk {:?}", &output_chunk);
         // let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
         //     &output_chunk,
         //     &[false],
@@ -226,5 +219,44 @@ mod tests {
         //
         // assert_eq!(vx_arr.len(), arr.len());
         // assert_eq!(vx_arr.dtype(), arr.dtype());
+    }
+
+    #[test]
+    fn test_const_create() {
+        let _value2 = Scalar::from(2494i64).to_duckdb_scalar();
+        let _value3 = Scalar::from(2495u64).to_duckdb_scalar();
+
+        let mut output_chunk = DataChunkHandle::new(&[
+            LogicalTypeHandle::from(LogicalTypeId::Integer),
+            LogicalTypeHandle::from(LogicalTypeId::Bigint),
+            LogicalTypeHandle::from(LogicalTypeId::UBigint),
+        ]);
+
+        {
+            println!("value 2");
+            let mut vec1 = DataChunkHandleSlice::new(&mut output_chunk, 0).flat_vector();
+            let value1 = { Scalar::from(2491i32).to_duckdb_scalar() };
+            // let mut vec1 = output_chunk.flat_vector(0);
+            vec1.constant(&value1);
+        }
+        {
+            println!("value 2");
+            let mut vec2 = DataChunkHandleSlice::new(&mut output_chunk, 1).flat_vector();
+            let value2 = Scalar::from(21i64).to_duckdb_scalar();
+            // let mut vec1 = output_chunk.flat_vector(0);
+            vec2.constant(&value2);
+        }
+        {
+            println!("value 3");
+            let mut vec3 = DataChunkHandleSlice::new(&mut output_chunk, 2).flat_vector();
+            let value3 = Scalar::from(22u64).to_duckdb_scalar();
+            // let mut vec1 = output_chunk.flat_vector(0);
+            vec3.constant(&value3);
+        }
+        // output_chunk.set_len(1004);
+        output_chunk.set_len(2048);
+
+        println!("chunk {:?}", output_chunk);
+        drop(output_chunk);
     }
 }

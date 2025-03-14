@@ -1,5 +1,5 @@
-use duckdb::vtab::Value;
-use vortex_dtype::{DType, PType};
+use duckdb::core::Value;
+use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{BoolScalar, PrimitiveScalar, Scalar};
 
@@ -23,12 +23,9 @@ impl ToDuckDBScalar for Scalar {
 }
 
 fn prim_to_duckdb_scalar(scalar: PrimitiveScalar) -> Value {
-    match scalar.ptype() {
-        PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::I8 | PType::I16 => todo!(),
-        PType::I32 => Value::from(scalar.as_::<i32>().vortex_expect("is i32")),
-        PType::I64 => Value::from(scalar.as_::<i64>().vortex_expect("is i64")),
-        PType::F16 | PType::F32 | PType::F64 => todo!(),
-    }
+    match_each_native_ptype!(scalar.ptype(), |$P| {
+        Value::from(scalar.as_::<u64>().vortex_expect("ptype value mismatch"))
+    })
 }
 
 impl ToDuckDBScalar for BoolScalar<'_> {
