@@ -16,7 +16,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::instrument;
 use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentReader, SegmentStream};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentEvent, SegmentId, SegmentStream};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, Segment};
@@ -157,7 +157,7 @@ impl InflightSegments {
 impl<R: VortexReadAt> GenericScanDriver<R> {}
 
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
-    fn segment_reader(&self) -> Arc<dyn SegmentReader> {
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         self.segment_channel.reader()
     }
 

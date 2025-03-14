@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 use crate::LayoutId;
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
-use crate::segments::{SegmentCollector, SegmentId, SegmentReader};
+use crate::segments::{AsyncSegmentReader, SegmentCollector, SegmentId};
 use crate::vtable::LayoutVTableRef;
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
@@ -258,7 +258,7 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        segment_reader: Arc<dyn SegmentReader>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
         ctx: ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         self.vtable().reader(self.clone(), ctx, segment_reader)

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::{Stream, stream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{PendingSegment, SegmentId, SegmentReader, SegmentStream};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
 use vortex_metrics::VortexMetrics;
 
 use crate::segments::SegmentCache;
@@ -47,7 +48,7 @@ impl FileType for InMemoryVortexFile {
 }
 
 impl ScanDriver for InMemoryVortexFile {
-    fn segment_reader(&self) -> Arc<dyn SegmentReader> {
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         Arc::new(self.clone())
     }
 
@@ -56,8 +57,9 @@ impl ScanDriver for InMemoryVortexFile {
     }
 }
 
-impl SegmentReader for InMemoryVortexFile {
-    fn get(&self, id: SegmentId) -> VortexResult<Arc<dyn PendingSegment>> {
+#[async_trait]
+impl AsyncSegmentReader for InMemoryVortexFile {
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         let segment: &Segment = self
             .footer
             .segment_map()
@@ -67,6 +69,6 @@ impl SegmentReader for InMemoryVortexFile {
         let start = usize::try_from(segment.offset).map_err(|_| vortex_err!("offset too large"))?;
         let end = start + segment.length as usize;
 
-        Ok(Arc::new(self.buffer.slice(start..end)))
+        Ok(self.buffer.slice(start..end))
     }
 }

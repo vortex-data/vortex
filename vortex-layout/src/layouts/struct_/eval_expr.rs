@@ -91,14 +91,14 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::segments::SegmentReader;
+    use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
+    fn struct_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
@@ -150,7 +150,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
     ) {
@@ -173,7 +173,7 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
     ) {
@@ -203,7 +203,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
     ) {

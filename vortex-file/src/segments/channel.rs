@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::channel::mpsc;
-use futures::{FutureExt, Stream};
+use futures::{SinkExt, Stream};
 use oneshot;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_layout::segments::{PendingSegment, SegmentId, SegmentReader, SharedPendingSegment};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::segments::SegmentRequest;
 
@@ -29,7 +31,7 @@ impl SegmentChannel {
     }
 
     /// Returns a reader for the segment cache.
-    pub fn reader(&self) -> Arc<dyn SegmentReader + 'static> {
+    pub fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static> {
         Arc::new(SegmentChannelReader(self.request_send.clone()))
     }
 
@@ -41,8 +43,9 @@ impl SegmentChannel {
 
 struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
-impl SegmentReader for SegmentChannelReader {
-    fn get(&self, id: SegmentId) -> VortexResult<Arc<dyn PendingSegment>> {
+#[async_trait]
+impl AsyncSegmentReader for SegmentChannelReader {
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
 
@@ -52,12 +55,17 @@ impl SegmentReader for SegmentChannelReader {
         // Send a request to the segment channel.
         self.0
             .clone()
-            .unbounded_send(SegmentRequest { id, callback: send })
+            .send(SegmentRequest { id, callback: send })
+            .await
             .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
 
         // Await the callback
-        Ok(Arc::new(SharedPendingSegment::new(recv.map(|r| {
-            r.unwrap_or_else(|_recv| Err(vortex_err!("Segment request handler was dropped")))
-        }))))
+        match recv.await {
+            Ok(result) => result,
+            Err(_canceled) => {
+                // The sender was dropped before returning a result to us
+                Err(vortex_err!("Segment request handler was dropped {}", id,))
+            }
+        }
     }
 }

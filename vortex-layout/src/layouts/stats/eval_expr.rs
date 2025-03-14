@@ -82,14 +82,14 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
-    use crate::segments::SegmentReader;
+    use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout, RowMask};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
@@ -124,7 +124,7 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
     ) {
@@ -150,7 +150,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn AsyncSegmentReader>,
             Layout,
         ),
     ) {

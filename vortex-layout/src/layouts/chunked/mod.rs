@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use crate::data::Layout;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{SegmentCollector, SegmentReader};
+use crate::segments::{AsyncSegmentReader, SegmentCollector};
 use crate::vtable::LayoutVTable;
 use crate::{CHUNKED_LAYOUT_ID, LayoutId};
 
@@ -29,7 +29,7 @@ impl LayoutVTable for ChunkedLayout {
         &self,
         layout: Layout,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn SegmentReader>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(ChunkedReader::try_new(layout, ctx, segment_reader)?.into_arc())
     }
