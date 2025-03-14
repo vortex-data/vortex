@@ -58,7 +58,7 @@ pub trait ArrayBuilder: Send {
     /// Extends the array with the provided array, canonicalizing if necessary.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
-    /// Ensure that the builder can hold at least [`capacity`] number of items
+    /// Ensure that the builder can hold at least `capacity` number of items
     fn ensure_capacity(&mut self, capacity: usize);
 
     /// Override builders validity with the one provided
