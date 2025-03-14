@@ -17,7 +17,7 @@ use vortex_mask::Mask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
+use crate::segments::{RowRangePruner, SegmentCollector, SegmentReader, SegmentStream};
 use crate::{
     ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
 };
@@ -28,7 +28,7 @@ mod split_by;
 pub mod unified;
 
 pub trait ScanDriver: 'static + Sized {
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
+    fn segment_reader(&self) -> Arc<dyn SegmentReader>;
 
     /// Return a future that drives the I/O stream for the segment reader.
     /// The future should return when the stream is complete, and can return an error to

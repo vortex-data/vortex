@@ -12,7 +12,7 @@ use vortex::file::{Footer, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::{SegmentId, SegmentReader};
 use vortex_layout::{
     CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
@@ -193,7 +193,7 @@ pub struct AppState {
     pub filter: Option<Vec<bool>>,
 
     pub footer: Footer,
-    pub reader: Arc<dyn AsyncSegmentReader>,
+    pub reader: Arc<dyn SegmentReader>,
     pub cursor: LayoutCursor,
     pub current_tab: Tab,
 
@@ -256,7 +256,7 @@ impl SegmentReader {
 }
 
 #[async_trait]
-impl AsyncSegmentReader for SegmentReader {
+impl SegmentReader for SegmentReader {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         let segment = &self.footer.segment_map()[*id as usize];
         let range = segment.offset..(segment.offset + segment.length as u64);

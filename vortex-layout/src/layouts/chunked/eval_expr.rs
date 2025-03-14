@@ -80,14 +80,14 @@ mod test {
     use vortex_expr::Identity;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::segments::AsyncSegmentReader;
+    use crate::segments::SegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
@@ -111,7 +111,7 @@ mod test {
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {

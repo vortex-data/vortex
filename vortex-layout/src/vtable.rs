@@ -7,7 +7,7 @@ use vortex_array::arcref::ArcRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::segments::{AsyncSegmentReader, SegmentCollector};
+use crate::segments::{SegmentCollector, SegmentReader};
 use crate::{Layout, LayoutId, LayoutReader};
 
 /// A reference to a layout VTable, either static or arc'd.
@@ -24,7 +24,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
         &self,
         layout: Layout,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn SegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 
     /// Register the row splits for this layout, these represent natural boundaries at which

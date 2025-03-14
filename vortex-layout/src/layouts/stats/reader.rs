@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::segments::SegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
 
 type PruningCache = Arc<OnceCell<Option<Mask>>>;
@@ -23,7 +23,7 @@ type PruningCache = Arc<OnceCell<Option<Mask>>>;
 pub struct StatsReader {
     layout: Layout,
     ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
+    segment_reader: Arc<dyn SegmentReader>,
 
     /// The number of blocks
     nblocks: usize,
@@ -43,7 +43,7 @@ impl StatsReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn SegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")

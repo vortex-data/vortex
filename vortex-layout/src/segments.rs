@@ -6,10 +6,11 @@ use std::task::Poll;
 
 use async_trait::async_trait;
 use futures::channel::mpsc;
-use futures::{SinkExt, Stream, StreamExt};
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt, SinkExt, Stream, StreamExt};
 use range_union_find::RangeUnionFind;
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
 
 use crate::range_intersection;
 
@@ -38,10 +39,55 @@ impl Display for SegmentId {
     }
 }
 
-#[async_trait]
-pub trait AsyncSegmentReader: 'static + Send + Sync {
+/// A trait used by layouts to register interest in a segment, returning a [`PendingSegment`].
+/// The layout may later resolve or cancel the pending segment. This allows I/O drivers to begin
+/// pre-fetching data before it is explicitly requested by a layout.
+pub trait SegmentReader: 'static + Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
+    fn get(&self, id: SegmentId) -> VortexResult<Arc<dyn PendingSegment>>;
+}
+
+/// Returned by an [`SegmentReader`], this trait represents a registered interest in a segment
+/// that may later be explicitly requested with [`PendingSegment.resolve`], or cancelled with
+/// [`PendingSegment.cancel`].
+#[async_trait]
+pub trait PendingSegment: 'static + Send + Sync {
+    /// Resolve the pending segment, returning the segment data.
+    /// Continues to return the buffer if called multiple times.
+    async fn resolve(&self) -> VortexResult<ByteBuffer>;
+
+    /// Cancel the pending segment, releasing any resources associated with it.
+    fn cancel(&self);
+}
+
+#[async_trait]
+impl PendingSegment for ByteBuffer {
+    async fn resolve(&self) -> VortexResult<ByteBuffer> {
+        Ok(self.clone())
+    }
+
+    fn cancel(&self) {}
+}
+
+/// A [`PendingSegment`] where all callers reuse the same underlying future.
+pub struct SharedPendingSegment(Shared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>);
+
+impl SharedPendingSegment {
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = VortexResult<ByteBuffer>> + Send + 'static,
+    {
+        Self(future.map(|r| r.map_err(Arc::new)).boxed().shared())
+    }
+}
+
+#[async_trait]
+impl PendingSegment for SharedPendingSegment {
+    async fn resolve(&self) -> VortexResult<ByteBuffer> {
+        self.0.clone().await.map_err(|e| VortexError::from(&e))
+    }
+
+    fn cancel(&self) {}
 }
 
 pub trait SegmentWriter {
@@ -299,13 +345,14 @@ pub mod test {
         }
     }
 
-    #[async_trait]
-    impl AsyncSegmentReader for TestSegments {
-        async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-            self.segments
-                .get(*id as usize)
-                .cloned()
-                .ok_or_else(|| vortex_err!("Segment not found"))
+    impl SegmentReader for TestSegments {
+        fn get(&self, id: SegmentId) -> VortexResult<Arc<dyn PendingSegment>> {
+            Ok(Arc::new(
+                self.segments
+                    .get(*id as usize)
+                    .cloned()
+                    .ok_or_else(|| vortex_err!("Segment not found"))?,
+            ))
         }
     }
 

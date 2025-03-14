@@ -7,13 +7,13 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::segments::SegmentReader;
 use crate::{Layout, LayoutReaderExt, LayoutVTable, instrument};
 
 pub struct FlatReader {
     layout: Layout,
     ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
+    segment_reader: Arc<dyn SegmentReader>,
     // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
     //  cache.
     array: Arc<OnceCell<ArrayRef>>,
@@ -23,7 +23,7 @@ impl FlatReader {
     pub(crate) fn try_new(
         layout: Layout,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn SegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -59,7 +59,7 @@ impl FlatReader {
                     );
 
                     // Fetch all the array segment.
-                    let buffer = self.segment_reader.get(segment_id).await?;
+                    let buffer = self.segment_reader.get(segment_id)?.resolve().await?;
                     let row_count = usize::try_from(self.layout().row_count())
                         .vortex_expect("FlatLayout row count does not fit within usize");
 
