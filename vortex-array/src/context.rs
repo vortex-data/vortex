@@ -17,8 +17,8 @@ use crate::vtable::VTableRef;
 pub type ArrayContext = VTableContext<VTableRef>;
 pub type ArrayRegistry = VTableRegistry<VTableRef>;
 
-impl Default for ArrayRegistry {
-    fn default() -> Self {
+impl ArrayRegistry {
+    pub fn canonical_only() -> Self {
         let mut this = Self::empty();
 
         // Register the canonical encodings

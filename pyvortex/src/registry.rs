@@ -45,7 +45,7 @@ pub(crate) struct PyRegistry {
 impl PyRegistry {
     #[new]
     fn new() -> Self {
-        let mut array = ArrayRegistry::default();
+        let mut array = ArrayRegistry::canonical_only();
         array.register_many(DEFAULT_REGISTRY.vtables().cloned());
         let layout = LayoutRegistry::default();
         Self {

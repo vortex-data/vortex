@@ -118,7 +118,7 @@ impl FileFormatFactory for VortexFormatFactory {
 impl Default for VortexFormat {
     fn default() -> Self {
         Self::new(
-            Arc::new(ArrayRegistry::default()),
+            DEFAULT_REGISTRY.clone(),
             Arc::new(LayoutRegistry::default()),
         )
     }
