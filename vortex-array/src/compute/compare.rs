@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
+use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -194,8 +195,21 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_new(&left.to_canonical()?.into_array())?;
-    let rhs = Datum::try_new(&right.to_canonical()?.into_array())?;
+    // Make sure both of the arrays end up with the same arrow data type
+    let lhs = if matches!(left.dtype(), DType::Utf8(_)) {
+        Datum::with_target_datatype(left, &DataType::Utf8View)?
+    } else if matches!(left.dtype(), DType::Binary(_)) {
+        Datum::with_target_datatype(left, &DataType::BinaryView)?
+    } else {
+        Datum::try_new(left)?
+    };
+    let rhs = if matches!(right.dtype(), DType::Utf8(_)) {
+        Datum::with_target_datatype(right, &DataType::Utf8View)?
+    } else if matches!(right.dtype(), DType::Binary(_)) {
+        Datum::with_target_datatype(right, &DataType::BinaryView)?
+    } else {
+        Datum::try_new(right)?
+    };
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,

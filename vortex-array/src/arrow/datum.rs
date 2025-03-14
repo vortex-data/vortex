@@ -30,15 +30,18 @@ impl Datum {
         }
     }
 
-    pub fn with_target_datatype(array: ArrayRef, target_datatype: &DataType) -> VortexResult<Self> {
+    pub fn with_target_datatype(
+        array: &dyn Array,
+        target_datatype: &DataType,
+    ) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(&array, 0, 1)?.into_arrow(target_datatype)?,
+                array: slice(array, 0, 1)?.into_arrow(target_datatype)?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.into_arrow(target_datatype)?,
+                array: array.to_array().into_arrow(target_datatype)?,
                 is_scalar: false,
             })
         }
