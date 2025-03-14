@@ -195,21 +195,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    // Make sure both of the arrays end up with the same arrow data type
-    let lhs = if matches!(left.dtype(), DType::Utf8(_)) {
-        Datum::with_target_datatype(left, &DataType::Utf8View)?
-    } else if matches!(left.dtype(), DType::Binary(_)) {
-        Datum::with_target_datatype(left, &DataType::BinaryView)?
-    } else {
-        Datum::try_new(left)?
-    };
-    let rhs = if matches!(right.dtype(), DType::Utf8(_)) {
-        Datum::with_target_datatype(right, &DataType::Utf8View)?
-    } else if matches!(right.dtype(), DType::Binary(_)) {
-        Datum::with_target_datatype(right, &DataType::BinaryView)?
-    } else {
-        Datum::try_new(right)?
-    };
+    let lhs = datum_for_cmp(left)?;
+    let rhs = datum_for_cmp(right)?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -261,6 +248,17 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             b,
             (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
         )
+    }
+}
+
+// Make sure both of the arrays end up with the same arrow data type
+fn datum_for_cmp(array: &dyn Array) -> VortexResult<Datum> {
+    if matches!(array.dtype(), DType::Utf8(_)) {
+        Datum::with_target_datatype(array, &DataType::Utf8View)
+    } else if matches!(array.dtype(), DType::Binary(_)) {
+        Datum::with_target_datatype(array, &DataType::BinaryView)
+    } else {
+        Datum::try_new(array)
     }
 }
 
