@@ -116,8 +116,8 @@ pub(crate) fn arrow_like(
         "Arrow Like: length mismatch for {}",
         array.encoding()
     );
-    let lhs = Datum::try_new(array.to_array())?;
-    let rhs = Datum::try_new(pattern.to_array())?;
+    let lhs = Datum::try_new(array)?;
+    let rhs = Datum::try_new(pattern)?;
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,

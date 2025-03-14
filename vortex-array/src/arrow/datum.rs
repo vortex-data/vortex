@@ -15,15 +15,15 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
-    pub fn try_new(array: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(&array, 0, 1)?.into_arrow_preferred()?,
+                array: slice(array, 0, 1)?.into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.into_arrow_preferred()?,
+                array: array.to_array().into_arrow_preferred()?,
                 is_scalar: false,
             })
         }
