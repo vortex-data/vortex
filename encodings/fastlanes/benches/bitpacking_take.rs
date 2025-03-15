@@ -63,7 +63,7 @@ fn take_10k_contiguous(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed =
         BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
-    let indices = PrimitiveArray::from_iter(0..10_000);
+    let indices = PrimitiveArray::from_iter(0u32..10_000);
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
