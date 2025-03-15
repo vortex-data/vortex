@@ -131,7 +131,7 @@ fn patched_take_10_stratified(bencher: Bencher) {
         NUM_EXCEPTIONS as usize
     );
 
-    let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
+    let indices = PrimitiveArray::from_iter((0u32..10).map(|i| i * 10_000));
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
