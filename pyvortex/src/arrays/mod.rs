@@ -507,8 +507,9 @@ impl PyArray {
     ///
     /// Keep only the first and third elements:
     ///
+    ///     >>> import pyarrow as pa
     ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vx.array([0, 2])
+    ///     >>> indices = vx.array(pa.array([0, 2], type=pa.uint32()))
     ///     >>> a.take(indices).to_arrow_array()
     ///     <pyarrow.lib.StringArray object at ...>
     ///     [
@@ -518,8 +519,9 @@ impl PyArray {
     ///
     /// Permute and repeat the first and second elements:
     ///
+    ///     >>> import pyarrow as pa
     ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vx.array([0, 1, 1, 0])
+    ///     >>> indices = vx.array(pa.array([0, 1, 1, 0], type=pa.uint32()))
     ///     >>> a.take(indices).to_arrow_array()
     ///     <pyarrow.lib.StringArray object at ...>
     ///     [
