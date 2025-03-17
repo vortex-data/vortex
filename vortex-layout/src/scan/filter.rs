@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::iter;
 use std::ops::BitAnd;
 use std::sync::{Arc, RwLock};

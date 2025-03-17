@@ -1,5 +1,7 @@
+use std::ops::Range;
+
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{BoxFuture, try_join_all};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
@@ -7,10 +9,19 @@ use vortex_expr::ExprRef;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReaderExt;
-use crate::{ExprEvaluator, RowMask};
+use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
+    fn evaluate_expr2(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+        _mask: MaskFuture,
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+        todo!()
+    }
+
     async fn evaluate_expr(
         self: &Self,
         row_mask: RowMask,

@@ -1,25 +1,25 @@
+use std::ops::BitAnd;
 use std::sync::Arc;
 
-use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{Stream, StreamExt, stream};
+use executor::{TaskExecutor, ThreadsExecutor};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
-use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{ArrayContext, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
 use crate::{
-    ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
+    ExprEvaluator, Layout, LayoutReader, MaskFuture, RowMask, instrument, mask_future_ready,
+    range_intersection,
 };
 
 pub mod executor;
@@ -249,6 +249,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
+#[allow(dead_code)]
 pub struct Scan<D> {
     driver: D,
     task_executor: TaskExecutor,
@@ -275,74 +276,91 @@ impl<D: ScanDriver> Scan<D> {
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
         let segment_reader = self.driver.segment_reader();
-        let task_executor = self.task_executor.clone();
+        let _task_executor = self.task_executor.clone();
         let reader: Arc<dyn LayoutReader> = self.layout.reader(segment_reader, self.ctx.clone())?;
+        //
+        // let pruning = self
+        //     .filter
+        //     .as_ref()
+        //     .map(|filter| {
+        //         let pruning = Arc::new(FilterExpr::try_new(
+        //             reader
+        //                 .dtype()
+        //                 .as_struct()
+        //                 .ok_or_else(|| {
+        //                     vortex_err!("Vortex scan currently only works for struct arrays")
+        //                 })?
+        //                 .clone(),
+        //             filter.clone(),
+        //             self.prefetch_conjuncts,
+        //         )?);
+        //
+        //         VortexResult::Ok(pruning)
+        //     })
+        //     .transpose()?;
 
-        let pruning = self
-            .filter
-            .as_ref()
-            .map(|filter| {
-                let pruning = Arc::new(FilterExpr::try_new(
-                    reader
-                        .dtype()
-                        .as_struct()
-                        .ok_or_else(|| {
-                            vortex_err!("Vortex scan currently only works for struct arrays")
-                        })?
-                        .clone(),
-                    filter.clone(),
-                    self.prefetch_conjuncts,
-                )?);
+        // Initialize a stream of mask futures.
+        let mut masks = self
+            .row_masks
+            .iter()
+            .map(|row_mask| {
+                let row_range = row_mask.begin()..row_mask.end();
+                let mask = mask_future_ready(row_mask.filter_mask().clone());
 
-                VortexResult::Ok(pruning)
+                (row_range, mask)
             })
-            .transpose()?;
+            .collect_vec();
 
-        // We start with a stream of row masks
-        let row_masks = stream::iter(self.row_masks);
-        let projection = self.projection.clone();
-        let row_range_pruner = self.row_range_pruner.clone();
+        // Construct the filter expressions if necessary
+        if let Some(filter) = self.filter.as_ref() {
+            masks = masks
+                .into_iter()
+                .map(|(row_range, mask_future)| {
+                    // FIXME(ngates): use the FilterEvaluator for conjunct short-circuiting.
 
-        let exec_stream = row_masks
-            .map(move |row_mask| {
-                let reader = reader.clone();
-                let projection = projection.clone();
-                let pruning = pruning.clone();
-                let reader = reader.clone();
-                let mut row_range_pruner = row_range_pruner.clone();
+                    let range_len = usize::try_from(
+                        row_range
+                            .end
+                            .checked_sub(row_range.start)
+                            .vortex_expect("row range overflow"),
+                    )
+                    .vortex_expect("row range overflow");
 
-                // This future is the processing task
-                instrument!("process", async move {
-                    let row_mask = match pruning {
-                        None => row_mask,
-                        Some(pruning_filter) => {
-                            pruning_filter
-                                .new_evaluation(&row_mask)
-                                .evaluate(reader.clone())
-                                .await?
-                        }
-                    };
+                    // NOTE that we currently pass an all-true mask to the filter expression.
+                    let mask_future: MaskFuture = reader
+                        .evaluate_expr2(
+                            &row_range,
+                            filter,
+                            mask_future_ready(Mask::new_true(range_len)),
+                        )
+                        .map_err(VortexError::from)
+                        .and_then(async move |array: Option<ArrayRef>| {
+                            // The array is a boolean array, so we extract the mask.
+                            let filter_result = array
+                                .map(|array| Mask::try_from(&array.to_bool()?))
+                                .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
 
-                    // Filter out all-false masks
-                    if row_mask.filter_mask().all_false() {
-                        row_range_pruner
-                            .remove(row_mask.begin()..row_mask.end())
-                            .await?;
-                        Ok(None)
-                    } else {
-                        let mut array = reader.evaluate_expr(row_mask, projection).await?;
-                        if self.canonicalize {
-                            let mut builder = builder_with_capacity(array.dtype(), array.len());
-                            array.append_to_builder(builder.as_mut())?;
-                            array = builder.finish();
-                        }
-                        VortexResult::Ok(Some(array))
-                    }
+                            // Intersect the filter result with the original mask.
+                            let mask = mask_future.await?;
+                            Ok(mask.bitand(&filter_result))
+                        })
+                        .map_err(Arc::new)
+                        .boxed()
+                        .shared();
+                    (row_range, mask_future)
                 })
-            })
-            .map(move |processing_task| task_executor.spawn(processing_task))
+                .collect_vec();
+        }
+
+        // Project the masks into the final array futures.
+        let projection = self.projection.clone();
+        let arrays = masks
+            .into_iter()
+            .map(move |(row_range, mask)| reader.evaluate_expr2(&row_range, &projection, mask));
+
+        let exec_stream = stream::iter(arrays)
             .buffered(self.concurrency)
-            .filter_map(|v| async move { v.unnest().transpose() });
+            .filter_map(|v| async move { v.transpose() });
 
         let exec_stream = instrument!("exec_stream", exec_stream);
         let io_stream = self.driver.io_stream(self.segments);

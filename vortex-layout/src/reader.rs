@@ -59,9 +59,7 @@ pub trait ExprEvaluator: Send + Sync {
         _row_range: &Range<u64>,
         _expr: &ExprRef,
         _mask: MaskFuture,
-    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
-        todo!()
-    }
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef>;
 
@@ -74,6 +72,15 @@ pub trait ExprEvaluator: Send + Sync {
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader> {
+    fn evaluate_expr2(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: MaskFuture,
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+        self.as_ref().evaluate_expr2(row_range, expr, mask)
+    }
+
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
         self.as_ref().evaluate_expr(row_mask, expr).await
     }
