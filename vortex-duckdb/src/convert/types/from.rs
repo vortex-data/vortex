@@ -42,7 +42,7 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
             | LogicalTypeId::Map
             | LogicalTypeId::Uuid
             | LogicalTypeId::Union
-            | LogicalTypeId::TimestampTZ => todo!(),
+            | LogicalTypeId::TimestampTZ => todo!("missing type: {:?}", type_),
         }
     }
 }

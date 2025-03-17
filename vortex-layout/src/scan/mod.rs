@@ -14,6 +14,7 @@ use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
+use vortex_metrics::VortexMetrics;
 
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
@@ -56,6 +57,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     // The number of splits to make progress on concurrently.
     concurrency: usize,
     prefetch_conjuncts: bool,
+    metrics: VortexMetrics,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -72,6 +74,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             canonicalize: false,
             prefetch_conjuncts: false,
             concurrency: 1024,
+            metrics: Default::default(),
         }
     }
 
@@ -126,6 +129,11 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
     pub fn with_task_executor(mut self, task_executor: TaskExecutor) -> Self {
         self.task_executor = Some(task_executor);
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
+        self.metrics = metrics;
         self
     }
 

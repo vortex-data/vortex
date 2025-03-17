@@ -174,6 +174,14 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
+    fn ensure_capacity(&mut self, capacity: usize) {
+        if capacity > self.views_builder.capacity() {
+            self.views_builder
+                .reserve(capacity - self.views_builder.len());
+            self.null_buffer_builder.ensure_capacity(capacity);
+        }
+    }
+
     fn set_validity(&mut self, validity: Mask) {
         self.null_buffer_builder = LazyNullBufferBuilder::new(validity.len());
         self.null_buffer_builder.append_validity_mask(validity);

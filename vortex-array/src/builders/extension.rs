@@ -83,6 +83,10 @@ impl ArrayBuilder for ExtensionBuilder {
         array.storage().append_to_builder(self.storage.as_mut())
     }
 
+    fn ensure_capacity(&mut self, capacity: usize) {
+        self.storage.ensure_capacity(capacity)
+    }
+
     fn set_validity(&mut self, validity: Mask) {
         self.storage.set_validity(validity);
     }

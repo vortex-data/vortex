@@ -135,6 +135,20 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    pub fn ensure_capacity(&mut self, capacity: usize) {
+        if self.inner.is_none() {
+            self.capacity = capacity;
+        } else {
+            let inner = self
+                .inner
+                .as_mut()
+                .vortex_expect("buffer just materialized");
+            if capacity < inner.capacity() {
+                inner.reserve(capacity - inner.len());
+            }
+        }
+    }
+
     #[inline]
     fn materialize_if_needed(&mut self) {
         if self.inner.is_none() {

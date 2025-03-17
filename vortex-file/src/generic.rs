@@ -231,10 +231,18 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
             prefetch: prefetch_stream,
             requests_ready_chunks: 1024,
             prefetch_ready_chunks: self.options.io_concurrency,
+            requested_segments: self.metrics.requested_segments.clone(),
+            prefetched_segments: self.metrics.prefetched_segments.clone(),
         }
-        .map(move |r| coalesce(r, perf_hint.coalescing_window(), perf_hint.max_read()))
-        .flat_map(stream::iter)
-        .inspect(move |(coalesced, _)| self.metrics.record(coalesced));
+        .map(move |r| {
+            coalesce(
+                r,
+                perf_hint.coalescing_window(),
+                perf_hint.max_read(),
+                self.metrics.clone(),
+            )
+        })
+        .flat_map(stream::iter);
 
         // Submit the coalesced requests to the I/O.
         let read = self.read.clone();
@@ -276,6 +284,8 @@ pin_project! {
         pub prefetch: Prefetch,
         requests_ready_chunks: usize,
         prefetch_ready_chunks: usize,
+        requested_segments: Arc<Counter>,
+        prefetched_segments: Arc<Counter>,
     }
 }
 
@@ -293,6 +303,7 @@ where
             match this.requests.as_mut().poll_next(cx) {
                 Poll::Ready(Some(item)) => {
                     items.push(item);
+                    this.requested_segments.inc();
                     if items.len() >= *this.requests_ready_chunks {
                         return Poll::Ready(Some(items));
                     }
@@ -309,6 +320,7 @@ where
             match this.prefetch.as_mut().poll_next(cx) {
                 Poll::Ready(Some(item)) => {
                     items.push(item);
+                    this.prefetched_segments.inc();
                     if items.len() >= prefetch_limit {
                         return Poll::Ready(Some(items));
                     }
@@ -349,17 +361,6 @@ impl SegmentRequest {
     }
 }
 
-impl From<(SegmentId, Segment, oneshot::Receiver<()>)> for SegmentRequest {
-    fn from(value: (SegmentId, Segment, oneshot::Receiver<()>)) -> Self {
-        let (id, location, cancel_handle) = value;
-        SegmentRequest {
-            id,
-            location,
-            cancel_handle,
-        }
-    }
-}
-
 async fn filter_with_cache(
     request: SegmentRequest,
     cache: Arc<dyn SegmentCache>,
@@ -392,19 +393,37 @@ struct CoalescedSegmentRequest {
 }
 
 #[derive(Default)]
-struct CoalescedCancellationHandle(Vec<oneshot::Receiver<()>>);
+struct CoalescedCancellationHandle {
+    handles: Vec<oneshot::Receiver<()>>,
+    cancel_received: Arc<Counter>,
+    cancelled: Arc<Counter>,
+}
 
 impl CoalescedCancellationHandle {
+    fn new(
+        handles: Vec<oneshot::Receiver<()>>,
+        cancel_received: Arc<Counter>,
+        cancelled: Arc<Counter>,
+    ) -> Self {
+        Self {
+            handles,
+            cancel_received,
+            cancelled,
+        }
+    }
+
     fn push(&mut self, handle: oneshot::Receiver<()>) {
-        self.0.push(handle);
+        self.handles.push(handle);
     }
 
     async fn cancelled(self) {
-        for rx in self.0 {
+        for rx in self.handles {
             // if this segment is completed before cancellation,
             // tx of this will be dropped, so ignore errors.
             let _ = rx.await;
+            self.cancel_received.inc();
         }
+        self.cancelled.inc();
     }
 }
 
@@ -480,6 +499,7 @@ fn coalesce(
     requests: Vec<SegmentRequest>,
     coalescing_window: u64,
     max_read: Option<u64>,
+    metrics: CoalescingMetrics,
 ) -> Vec<(CoalescedSegmentRequest, CoalescedCancellationHandle)> {
     let fetch_ranges = merge_ranges(
         requests.iter().map(|r| r.range()),
@@ -501,7 +521,11 @@ fn coalesce(
                     byte_range: range.clone(),
                     requests: vec![],
                 },
-                CoalescedCancellationHandle::default(),
+                CoalescedCancellationHandle::new(
+                    Vec::new(),
+                    metrics.cancel_received.clone(),
+                    metrics.cancelled.clone(),
+                ),
             )
         })
         .collect::<Vec<_>>();
@@ -516,6 +540,7 @@ fn coalesce(
     // Ensure we sort the requests by segment ID within the coalesced request.
     for (req, _) in coalesced.iter_mut() {
         req.requests.sort_unstable_by_key(|(id, _)| *id);
+        metrics.record(req);
     }
     coalesced
 }
@@ -563,11 +588,16 @@ where
     ret
 }
 
+#[derive(Clone)]
 struct CoalescingMetrics {
     bytes_uncoalesced: Arc<Counter>,
     bytes_coalesced: Arc<Counter>,
     request_count_uncoalesced: Arc<Counter>,
     request_count_coalesced: Arc<Counter>,
+    prefetched_segments: Arc<Counter>,
+    requested_segments: Arc<Counter>,
+    cancel_received: Arc<Counter>,
+    cancelled: Arc<Counter>,
 }
 
 impl From<VortexMetrics> for CoalescingMetrics {
@@ -579,6 +609,10 @@ impl From<VortexMetrics> for CoalescingMetrics {
             bytes_coalesced: metrics.counter(format!("{BYTES}.coalesced")),
             request_count_uncoalesced: metrics.counter(format!("{COUNT}.uncoalesced")),
             request_count_coalesced: metrics.counter(format!("{COUNT}.coalesced")),
+            prefetched_segments: metrics.counter("vortex.scan.segments.prefetch_count"),
+            requested_segments: metrics.counter("vortex.scan.segments.request_count"),
+            cancel_received: metrics.counter("vortex.scan.segments.cancel_received"),
+            cancelled: metrics.counter("vortex.scan.segments.cancelled"),
         }
     }
 }

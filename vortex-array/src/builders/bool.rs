@@ -86,6 +86,13 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
+    fn ensure_capacity(&mut self, capacity: usize) {
+        if capacity > self.inner.capacity() {
+            self.nulls.ensure_capacity(capacity);
+            self.inner.reserve(capacity - self.inner.capacity());
+        }
+    }
+
     fn set_validity(&mut self, validity: Mask) {
         self.nulls = LazyNullBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);

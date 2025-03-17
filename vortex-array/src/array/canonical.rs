@@ -21,7 +21,6 @@ pub trait ArrayCanonicalImpl {
     /// - The length of the builder is incremented by the length of the input array.
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let canonical = self._to_canonical()?;
-        // debug!("default impl append_to_builder {}", canonical.encoding());
         builder.extend_from_array(canonical.as_ref())
     }
 }

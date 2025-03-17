@@ -3,7 +3,7 @@ com.google.guava:failureaccess = 1.0.2
 com.google.guava:guava = 33.4.0-jre
 com.google.guava:listenablefuture = 9999.0-empty-to-avoid-conflict-with-guava
 com.jakewharton.nopen:* = 1.0.1
-net.java.dev.jna:* = 5.16.0
+net.java.dev.jna:* = 5.17.0
 org.apache.spark:* = 3.5.5
 org.immutables:value = 2.10.1
 
