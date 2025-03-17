@@ -9,13 +9,14 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{ArrayContext, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
+use crate::scan::executor::Executor;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
 use crate::{
@@ -285,7 +286,7 @@ impl<D: ScanDriver> Scan<D> {
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
         let segment_reader = self.driver.segment_reader();
-        let _task_executor = self.task_executor.clone();
+        let task_executor = self.task_executor.clone();
         let reader: Arc<dyn LayoutReader> = self.layout.reader(segment_reader, self.ctx.clone())?;
         //
         // let pruning = self
@@ -369,8 +370,9 @@ impl<D: ScanDriver> Scan<D> {
             .try_collect()?;
 
         let exec_stream = stream::iter(arrays)
+            .map(move |task| task_executor.spawn(task))
             .buffered(self.concurrency)
-            .filter_map(|v| async move { v.transpose() });
+            .filter_map(|v| async move { v.unnest().transpose() });
 
         let exec_stream = instrument!("exec_stream", exec_stream);
         let io_stream = self.driver.io_stream(self.segments);

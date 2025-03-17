@@ -55,6 +55,7 @@ impl AsyncSegmentReader for SegmentChannelReader {
         // Send a request to the segment channel.
         let channel = self.0.clone();
 
+        //println!("SEGMENT REQUEST {}", id);
         SegmentFuture {
             future: async move {
                 channel
@@ -91,6 +92,7 @@ where
     type Output = VortexResult<ByteBuffer>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        //println!("SEGMENT POLL {}", self.id);
         match self.future.poll_unpin(cx) {
             Poll::Ready(r) => {
                 self.complete = true;
@@ -102,5 +104,9 @@ where
 }
 
 impl<F> Drop for SegmentFuture<F> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        if !self.complete {
+            //println!("SEGMENT DROP {} {}", self.complete, self.id);
+        }
+    }
 }

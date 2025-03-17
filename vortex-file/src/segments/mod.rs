@@ -1,5 +1,6 @@
 mod cache;
 pub(crate) mod channel;
+mod queue;
 pub(crate) mod writer;
 
 pub use cache::*;
