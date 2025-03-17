@@ -74,7 +74,7 @@ impl ChunkedReader {
         self.chunk_offsets[idx]
     }
 
-    pub(crate) fn chunk_range(&self, row_range: Range<u64>) -> Range<usize> {
+    pub(crate) fn chunk_range(&self, row_range: &Range<u64>) -> Range<usize> {
         let start_chunk = self
             .chunk_offsets
             .binary_search(&row_range.start)

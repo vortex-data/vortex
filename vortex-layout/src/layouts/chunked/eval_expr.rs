@@ -1,7 +1,9 @@
-use std::ops::Range;
+use std::ops::{Add, Range};
 
 use async_trait::async_trait;
 use futures::future::{BoxFuture, try_join_all};
+use futures::{FutureExt, TryFutureExt};
+use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
@@ -15,11 +17,71 @@ use crate::{ExprEvaluator, MaskFuture, RowMask};
 impl ExprEvaluator for ChunkedReader {
     fn evaluate_expr2(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-        _mask: MaskFuture,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: MaskFuture,
     ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
-        todo!()
+        // Compute the result dtype of the expression.
+        let dtype = expr
+            .return_dtype(self.dtype())
+            .vortex_expect("Failed to compute result dtype");
+
+        // Figure out which chunks intersect the RowMask
+        let chunk_range = self.chunk_range(row_range);
+
+        // Now we have to create a future for each chunk.
+        let child_futures = chunk_range
+            .clone()
+            .map(|chunk_idx| {
+                // Figure out the chunk row range relative to the mask's row range.
+                let chunk_row_range =
+                    self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+
+                let relative_start =
+                    usize::try_from(chunk_row_range.start.saturating_sub(row_range.start))
+                        .vortex_expect("Invalid usize row range");
+                let relative_end =
+                    usize::try_from(chunk_row_range.end.saturating_sub(row_range.start))
+                        .vortex_expect("Invalid usize row range");
+                let relative_mask_range = relative_start..relative_end;
+
+                let mask: MaskFuture = mask
+                    .clone()
+                    .map_ok(move |mask| {
+                        mask.slice(relative_mask_range.start, relative_mask_range.end)
+                    })
+                    .boxed()
+                    .shared();
+
+                // Figure out the range of the chunk we need.
+                let chunk_relative_start = row_range.start.saturating_sub(chunk_row_range.start);
+                let chunk_relative_end = chunk_relative_start.add(relative_mask_range.len() as u64);
+
+                self.child(chunk_idx)
+                    .vortex_expect("out of bounds")
+                    .evaluate_expr2(&(chunk_relative_start..chunk_relative_end), expr, mask)
+            })
+            .collect_vec();
+
+        Box::pin(async move {
+            let mut chunks: Vec<ArrayRef> = try_join_all(child_futures)
+                .await?
+                .into_iter()
+                .filter_map(|array| array)
+                .collect_vec();
+
+            if chunks.len() == 1 {
+                // Avoid creating a chunked array for a single chunk
+                let chunk = chunks
+                    .pop()
+                    .vortex_expect("Expected at least one chunk to be evaluated");
+                return Ok(Some(chunk));
+            }
+
+            Ok(Some(
+                ChunkedArray::new_unchecked(chunks, dtype).into_array(),
+            ))
+        })
     }
 
     async fn evaluate_expr(
@@ -31,7 +93,7 @@ impl ExprEvaluator for ChunkedReader {
         let dtype = expr.return_dtype(self.dtype())?;
 
         // Figure out which chunks intersect the RowMask
-        let chunk_range = self.chunk_range(row_mask.begin()..row_mask.end());
+        let chunk_range = self.chunk_range(&(row_mask.begin()..row_mask.end()));
 
         // Now we set up futures to evaluate each chunk at the same time
         let mut chunks = Vec::new();
