@@ -379,6 +379,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Test removing segments in range 0..200
@@ -437,6 +438,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // First removal (0..100)
@@ -480,6 +482,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // First removal (0..75)
@@ -524,6 +527,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Create a buffer with specific row indices
@@ -575,6 +579,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Drop the receiver to close the channel
@@ -601,6 +606,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Test removing segments that cover the entire range
