@@ -26,13 +26,13 @@ impl ExprEvaluator for StatsReader {
             return self.data_child.evaluate_expr2(row_range, expr, mask);
         };
 
-        let zone_range = self.zone_range(&row_range);
+        let zone_range = self.zone_range(row_range);
 
         // We create an "un-pruned" future to ensure visibility into pre-fetching, although we
         // may never await this.
         let result = self
             .data_child
-            .evaluate_expr2(&row_range, &expr, mask.clone())?;
+            .evaluate_expr2(row_range, expr, mask.clone())?;
 
         Ok(Box::pin(async move {
             let mask = mask.clone().await?;

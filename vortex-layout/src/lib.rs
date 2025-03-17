@@ -1,6 +1,6 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
-
+#![allow(dead_code)]
 mod data;
 pub use data::*;
 mod context;

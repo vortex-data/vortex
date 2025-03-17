@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![allow(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 

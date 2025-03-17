@@ -47,7 +47,7 @@ impl ExprEvaluator for FlatReader {
                     let segment = segment_fut.await?;
                     ArrayParts::try_from(segment)?
                         .decode(&ctx, dtype.clone(), row_count)
-                        .map_err(|e| Arc::new(e))
+                        .map_err(Arc::new)
                 }
                 .boxed()
                 .shared()

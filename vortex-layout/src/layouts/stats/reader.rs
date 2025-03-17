@@ -71,7 +71,7 @@ impl StatsReader {
 
         let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
         let stats_child = layout
-            .child(1, stats_dtype.clone(), "stats_table")?
+            .child(1, stats_dtype, "stats_table")?
             .reader(segment_reader.clone(), ctx.clone())?;
 
         Ok(Self {

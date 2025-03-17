@@ -26,7 +26,7 @@ impl ExprEvaluator for StructReader {
         // Short-circuit if there is only one partition
         if partitioned.partition_names.len() == 1 {
             return self.child(&partitioned.partition_names[0])?.evaluate_expr2(
-                &row_range,
+                row_range,
                 &partitioned.partitions[0],
                 mask,
             );
@@ -39,7 +39,7 @@ impl ExprEvaluator for StructReader {
             .zip_eq(partitioned.partitions.iter())
             .map(|(name, expr)| {
                 self.child(name)?
-                    .evaluate_expr2(&row_range, expr, mask.clone())
+                    .evaluate_expr2(row_range, expr, mask.clone())
             })
             .try_collect()?;
 
@@ -55,7 +55,7 @@ impl ExprEvaluator for StructReader {
             let arrays = try_join_all(field_futures)
                 .await?
                 .into_iter()
-                .zip(partitioned.partition_names.clone().into_iter())
+                .zip(&*partitioned.partition_names.clone())
                 .map(|(a, field_name)| {
                     if a.is_none() {
                         vortex_panic!(
