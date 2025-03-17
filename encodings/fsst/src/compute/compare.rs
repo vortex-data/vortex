@@ -68,22 +68,15 @@ fn compare_fsst_constant(
         return Ok(None);
     }
 
-    let symbols = left.symbols();
-    let symbol_lens = left.symbol_lengths();
-
-    let mut compressor = fsst::CompressorBuilder::new();
-    for (symbol, symbol_len) in symbols.iter().zip(symbol_lens.iter()) {
-        compressor.insert(*symbol, *symbol_len as usize);
-    }
-    let compressor = compressor.build();
+    let compressor = fsst::Compressor::rebuild_from(left.symbols(), left.symbol_lengths());
 
     let built_symbols: &[u64] = unsafe { std::mem::transmute(compressor.symbol_table()) };
-    let expected_symbols: &[u64] = unsafe { std::mem::transmute(symbols.as_slice()) };
+    let expected_symbols: &[u64] = unsafe { std::mem::transmute(left.symbols().as_slice()) };
     assert_eq!(
         built_symbols, expected_symbols,
         "built symbol table does not match expected"
     );
-    assert_eq!(compressor.symbol_lengths(), symbol_lens.as_slice());
+    assert_eq!(compressor.symbol_lengths(), left.symbol_lens().as_slice());
 
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => {
