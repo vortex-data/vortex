@@ -146,9 +146,10 @@ impl<D: ScanDriver> ScanBuilder<D> {
             .collect();
 
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
-        let mut collector = SegmentCollector::default();
-        self.layout
-            .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
+        let collector = SegmentCollector::default();
+        // FIXME(ngates): do not prefetch!!
+        // self.layout
+        //     .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
         let (mut row_range_pruner, segments) = collector.finish();
         let row_indices = self.row_indices.clone();
         if let Some(indices) = &row_indices {
