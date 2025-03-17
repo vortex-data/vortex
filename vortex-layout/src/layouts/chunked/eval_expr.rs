@@ -1,4 +1,4 @@
-use std::ops::{Add, Range};
+use std::ops::Range;
 
 use async_trait::async_trait;
 use futures::future::{BoxFuture, try_join_all};
@@ -35,25 +35,25 @@ impl ExprEvaluator for ChunkedReader {
                 let chunk_row_range =
                     self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
 
-                let relative_start =
-                    usize::try_from(chunk_row_range.start.saturating_sub(row_range.start))
-                        .vortex_expect("Invalid usize row range");
-                let relative_end =
-                    usize::try_from(chunk_row_range.end.saturating_sub(row_range.start))
-                        .vortex_expect("Invalid usize row range");
-                let relative_mask_range = relative_start..relative_end;
+                // Find the intersection of the mask and the chunk row ranges.
+                let intersecting_row_range = row_range.start.max(chunk_row_range.start)
+                    ..row_range.end.min(chunk_row_range.end);
+                let intersecting_len =
+                    usize::try_from(intersecting_row_range.end - intersecting_row_range.start)?;
+
+                // Figure out the offset into the mask.
+                let mask_relative_start =
+                    usize::try_from(intersecting_row_range.start - row_range.start)?;
 
                 let mask: MaskFuture = mask
                     .clone()
-                    .map_ok(move |mask| {
-                        mask.slice(relative_mask_range.start, relative_mask_range.end)
-                    })
+                    .map_ok(move |mask| mask.slice(mask_relative_start, intersecting_len))
                     .boxed()
                     .shared();
 
-                // Figure out the range of the chunk we need.
-                let chunk_relative_start = row_range.start.saturating_sub(chunk_row_range.start);
-                let chunk_relative_end = chunk_relative_start.add(relative_mask_range.len() as u64);
+                // Figure out the row range within the chunk.
+                let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
+                let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
 
                 self.child(chunk_idx)
                     .vortex_expect("out of bounds")
