@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use vortex_array::compute::{filter, slice};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef};
@@ -14,70 +15,82 @@ use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    async fn evaluate_expr2(
+    fn evaluate_expr2(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if row_range.end > self.layout.row_count() {
-            vortex_bail!("Row range exceeds layout row count");
-        }
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+        let layout = self.layout.clone();
+        let segment_reader = self.segment_reader.clone();
+        let array_cache = self.array2.clone();
+        let ctx = self.ctx.clone();
+        let dtype = self.dtype().clone();
+        let row_range = row_range.clone();
+        let expr = expr.clone();
 
-        let segment_id = self
-            .layout
-            .segment_id(0)
-            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+        Box::pin(async move {
+            if row_range.end > layout.row_count() {
+                vortex_bail!("Row range exceeds layout row count");
+            }
 
-        // We launch, but don't await, the segment request. This allows for prefetching.
-        let segment_fut = self.segment_reader.get(segment_id);
+            let segment_id = layout
+                .segment_id(0)
+                .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
 
-        // Wait for the mask, and short-circuit if it's all false.
-        let mask = mask.await?;
-        if mask.all_false() {
-            return Ok(None);
-        }
+            let row_count = usize::try_from(layout.row_count())
+                .vortex_expect("FlatLayout row count does not fit within usize");
 
-        // Now we can await the segment request.
-        let segment = segment_fut.await?;
+            // We launch, but don't await, the segment request. This allows for prefetching.
+            // TODO(ngates): the reason we do it here, and not through the array decoder cache,
+            //  is so if the layout is reused within the file, we can request the segment using the
+            //  correct row offset, allowing the segment reader to correctly prioritise the request.
+            let segment_fut = segment_reader.get(segment_id);
 
-        // And decode the array through our OnceCell.
-        let mut array = self
-            .array2
-            .get_or_init(|| {
-                // Fetch all the array segment.
-                let row_count = usize::try_from(self.layout.row_count())
-                    .vortex_expect("FlatLayout row count does not fit within usize");
+            // Wait for the mask, and short-circuit if it's all false.
+            let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(None);
+            }
 
-                ArrayParts::try_from(segment)?
-                    .decode(self.ctx(), self.dtype().clone(), row_count)
-                    .map_err(|e| Arc::new(e))
-            })
-            .clone()?;
+            // Now we can await the segment request.
+            let segment = segment_fut.await?;
 
-        // Convert the range into an usize now that we expect it to fit.
-        let start = usize::try_from(row_range.start)
-            .vortex_expect("RowMask begin must fit within FlatLayout size");
-        let end = usize::try_from(row_range.end)
-            .vortex_expect("RowMask end must fit within FlatLayout size");
-        let row_range = start..end;
+            // And decode the array through our OnceCell.
+            let mut array = array_cache
+                .get_or_init(|| {
+                    // Fetch all the array segment.
 
-        // Slice the array based on the row mask.
-        if start > 0 || row_range.end < array.len() {
-            array = slice(&array, start, end)?;
-        }
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, dtype.clone(), row_count)
+                        .map_err(|e| Arc::new(e))
+                })
+                .clone()?;
 
-        // Filter the array based on the row mask.
-        if !mask.all_true() {
-            array = filter(&array, &mask)?;
-        }
+            // Convert the range into an usize now that we expect it to fit.
+            let start = usize::try_from(row_range.start)
+                .vortex_expect("RowMask begin must fit within FlatLayout size");
+            let end = usize::try_from(row_range.end)
+                .vortex_expect("RowMask end must fit within FlatLayout size");
+            let row_range = start..end;
 
-        // Evaluate the projection expression.
-        if !expr.as_any().is::<Identity>() {
-            array = expr.evaluate(&array)?;
-        }
+            // Slice the array based on the row mask.
+            if start > 0 || row_range.end < array.len() {
+                array = slice(&array, start, end)?;
+            }
 
-        Ok(Some(array))
+            // Filter the array based on the row mask.
+            if !mask.all_true() {
+                array = filter(&array, &mask)?;
+            }
+
+            // Evaluate the projection expression.
+            if !expr.as_any().is::<Identity>() {
+                array = expr.evaluate(&array)?;
+            }
+
+            Ok(Some(array))
+        })
     }
 
     async fn evaluate_expr(

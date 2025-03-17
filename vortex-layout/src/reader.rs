@@ -2,10 +2,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{SharedVortexResult, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -29,6 +30,13 @@ impl LayoutReader for Arc<dyn LayoutReader> {
 
 pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
 
+/// Create a resolved [`MaskFuture`] from a [`Mask`].
+pub fn mask_future_ready(mask: Mask) -> MaskFuture {
+    async move { Ok::<_, Arc<VortexError>>(mask) }
+        .boxed()
+        .shared()
+}
+
 /// A trait for evaluating expressions against a [`LayoutReader`].
 ///
 /// FIXME(ngates): what if this was evaluating_predicate(mask, expr) -> mask,
@@ -38,12 +46,20 @@ pub trait ExprEvaluator: Send + Sync {
     /// Construct an expression evaluation future for the given row range, expression, and mask.
     ///
     /// The row range is relative to the start of the layout.
-    async fn evaluate_expr2(
+    ///
+    /// Note: this function returns a future with a static lifetime. It is recommended that
+    /// after producing evaluation futures for each desired row range, that the original
+    /// [`LayoutReader`] is dropped. This does two things:
+    ///  * Any caches will be automatically cleaned up at the earliest opportunity.
+    ///  * Any segments that were requested at creation of the future, but are not longer needed
+    ///    (for example, those that are pruned away with statistics), will be dropped. Enabling
+    ///    the segment reader to cancel any in-flight or upcoming requests.
+    fn evaluate_expr2(
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
         _mask: MaskFuture,
-    ) -> VortexResult<Option<ArrayRef>> {
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
         todo!()
     }
 

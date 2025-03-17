@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{BoxFuture, try_join_all};
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
@@ -14,63 +14,67 @@ use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
-    async fn evaluate_expr2(
+    fn evaluate_expr2(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone())?;
-        let field_readers: Vec<_> = partitioned
-            .partition_names
-            .iter()
-            .map(|name| self.child(name))
-            .try_collect()?;
-
-        // Short-circuit if there is only one partition
-        if partitioned.partitions.len() == 1 {
-            return self
-                .child(&partitioned.partition_names[0])?
-                .evaluate_expr2(row_range, &partitioned.partitions[0], mask)
-                .await;
-        }
-
-        // Otherwise, evaluate all partitions concurrently
-        let arrays = try_join_all(
-            field_readers
+    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+        Box::pin(async move {
+            // Partition the expression into expressions that can be evaluated over individual fields
+            let partitioned = self.partition_expr(expr.clone())?;
+            let field_readers: Vec<_> = partitioned
+                .partition_names
                 .iter()
-                .zip_eq(partitioned.partitions.iter())
-                .map(|(reader, partition)| {
-                    reader.evaluate_expr2(&row_range, partition, mask.clone())
-                }),
-        )
-        .await?;
+                .map(|name| self.child(name))
+                .try_collect()?;
 
-        let row_count = mask.await?.true_count();
-        if row_count == 0 {
-            // Short-circuit if the mask is all false
-            return Ok(None);
-        }
+            // Short-circuit if there is only one partition
+            if partitioned.partitions.len() == 1 {
+                return self
+                    .child(&partitioned.partition_names[0])?
+                    .evaluate_expr2(row_range, &partitioned.partitions[0], mask)
+                    .await;
+            }
 
-        let arrays = arrays
-            .into_iter()
-            .map(|a| a.vortex_expect("Layout incorrectly returned empty array for non-empty mask"))
-            .collect::<Vec<_>>();
-        assert!(
-            arrays.iter().all(|a| a.len() == row_count),
-            "Struct fields returned arrays of incorrect length"
-        );
+            // Otherwise, evaluate all partitions concurrently
+            let arrays = try_join_all(
+                field_readers
+                    .iter()
+                    .zip_eq(partitioned.partitions.iter())
+                    .map(|(reader, partition)| {
+                        reader.evaluate_expr2(&row_range, partition, mask.clone())
+                    }),
+            )
+            .await?;
 
-        let root_scope = StructArray::try_new(
-            partitioned.partition_names.clone(),
-            arrays,
-            row_count,
-            Validity::NonNullable,
-        )?
-        .into_array();
+            let row_count = mask.await?.true_count();
+            if row_count == 0 {
+                // Short-circuit if the mask is all false
+                return Ok(None);
+            }
 
-        Ok(Some(partitioned.root.evaluate(&root_scope)?))
+            let arrays = arrays
+                .into_iter()
+                .map(|a| {
+                    a.vortex_expect("Layout incorrectly returned empty array for non-empty mask")
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                arrays.iter().all(|a| a.len() == row_count),
+                "Struct fields returned arrays of incorrect length"
+            );
+
+            let root_scope = StructArray::try_new(
+                partitioned.partition_names.clone(),
+                arrays,
+                row_count,
+                Validity::NonNullable,
+            )?
+            .into_array();
+
+            Ok(Some(partitioned.root.evaluate(&root_scope)?))
+        })
     }
 
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
