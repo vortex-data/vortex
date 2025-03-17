@@ -1,9 +1,10 @@
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures::Stream;
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
-use moka::future::FutureExt;
+use futures::{FutureExt, Stream};
 use oneshot;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
@@ -46,7 +47,7 @@ struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
 impl AsyncSegmentReader for SegmentChannelReader {
     fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        log::info!("Requesting segment {}", id);
+        println!("SEGMENT REQUESTED {}", id);
 
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
@@ -56,20 +57,54 @@ impl AsyncSegmentReader for SegmentChannelReader {
         // Send a request to the segment channel.
         let channel = self.0.clone();
 
-        async move {
-            channel
-                .unbounded_send(SegmentRequest { id, callback: send })
-                .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
+        SegmentFuture {
+            future: async move {
+                channel
+                    .unbounded_send(SegmentRequest { id, callback: send })
+                    .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
 
-            // Await the callback
-            match recv.await {
-                Ok(result) => result,
-                Err(_canceled) => {
-                    // The sender was dropped before returning a result to us
-                    Err(vortex_err!("Segment request handler was dropped {}", id,))
+                // Await the callback
+                match recv.await {
+                    Ok(result) => result,
+                    Err(_canceled) => {
+                        // The sender was dropped before returning a result to us
+                        Err(vortex_err!("Segment request handler was dropped {}", id,))
+                    }
                 }
             }
+            .boxed(),
+            id,
+            complete: false,
         }
         .boxed()
+    }
+}
+
+pub struct SegmentFuture<F> {
+    future: F,
+    id: SegmentId,
+    complete: bool,
+}
+
+impl<F> Future for SegmentFuture<F>
+where
+    F: Future<Output = VortexResult<ByteBuffer>> + Unpin,
+{
+    type Output = VortexResult<ByteBuffer>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.future.poll_unpin(cx) {
+            Poll::Ready(r) => {
+                self.complete = true;
+                Poll::Ready(r)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<F> Drop for SegmentFuture<F> {
+    fn drop(&mut self) {
+        println!("SEGMENT DROPPED {} {}", self.complete, self.id);
     }
 }
