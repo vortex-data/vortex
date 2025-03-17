@@ -27,8 +27,8 @@ pub trait ToDuckDB {
 }
 
 pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
-    if let Some(const_) = array.as_constant() {
-        let value = const_.to_duckdb_scalar();
+    if let Some(constant) = array.as_constant() {
+        let value = constant.to_duckdb_scalar();
         chunk.flat_vector().assign_to_constant(&value);
         Ok(())
     } else if array.is_encoding(DictEncoding.id()) {

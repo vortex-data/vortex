@@ -73,7 +73,7 @@ pub fn ext_to_duckdb(ext_dtype: &ExtDType) -> LogicalTypeHandle {
         },
         TemporalMetadata::Timestamp(time_unit, tz) => {
             if tz.is_some() {
-                vortex_panic!(InvalidArgument: "Timestamp with timezone is not yet")
+                vortex_panic!(InvalidArgument: "Timestamp with timezone is not yet supported")
             }
             match time_unit {
                 TimeUnit::Ns => LogicalTypeHandle::from(LogicalTypeId::TimestampNs),
