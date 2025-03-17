@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
+use futures::Stream;
 use futures::channel::mpsc;
-use futures::{SinkExt, Stream};
+use futures::future::BoxFuture;
+use moka::future::FutureExt;
 use oneshot;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
@@ -43,9 +44,8 @@ impl SegmentChannel {
 
 struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
-#[async_trait]
 impl AsyncSegmentReader for SegmentChannelReader {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         log::info!("Requesting segment {}", id);
 
         // Set up a channel to send the segment back to the caller.
@@ -53,21 +53,23 @@ impl AsyncSegmentReader for SegmentChannelReader {
 
         // TODO(ngates): attempt to resolve the segments from the cache before joining the
         //  request queue.
-
         // Send a request to the segment channel.
-        self.0
-            .clone()
-            .send(SegmentRequest { id, callback: send })
-            .await
-            .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
+        let channel = self.0.clone();
 
-        // Await the callback
-        match recv.await {
-            Ok(result) => result,
-            Err(_canceled) => {
-                // The sender was dropped before returning a result to us
-                Err(vortex_err!("Segment request handler was dropped {}", id,))
+        async move {
+            channel
+                .unbounded_send(SegmentRequest { id, callback: send })
+                .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
+
+            // Await the callback
+            match recv.await {
+                Ok(result) => result,
+                Err(_canceled) => {
+                    // The sender was dropped before returning a result to us
+                    Err(vortex_err!("Segment request handler was dropped {}", id,))
+                }
             }
         }
+        .boxed()
     }
 }

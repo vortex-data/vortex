@@ -1,5 +1,4 @@
 use std::ops::Range;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::{BoxFuture, try_join_all};
@@ -11,7 +10,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ExprEvaluator, LayoutReader, MaskFuture, RowMask};
+use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -24,47 +23,35 @@ impl ExprEvaluator for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
 
+        // Short-circuit if there is only one partition
+        if partitioned.partition_names.len() == 1 {
+            return self.child(&partitioned.partition_names[0])?.evaluate_expr2(
+                &row_range,
+                &partitioned.partitions[0],
+                mask,
+            );
+        }
+
         // Construct readers for each child.
-        let field_readers = partitioned
+        let field_futures: Vec<_> = partitioned
             .partition_names
             .iter()
-            .map(|name| self.child(name).cloned())
-            .collect_vec();
+            .zip_eq(partitioned.partitions.iter())
+            .map(|(name, expr)| {
+                self.child(name)?
+                    .evaluate_expr2(&row_range, expr, mask.clone())
+            })
+            .try_collect()?;
 
-        let row_range = row_range.clone();
-
-        Box::pin(async move {
-            // Return any errors from constructing the child readers.
-            let field_readers: Vec<Arc<dyn LayoutReader>> =
-                field_readers.into_iter().try_collect()?;
-
-            // Short-circuit if there is only one partition
-            if field_readers.len() == 1 {
-                return field_readers
-                    .iter()
-                    .next()
-                    .vortex_expect("one partition")
-                    .evaluate_expr2(&row_range, &partitioned.partitions[0], mask)
-                    .await;
-            }
-
-            let arrays = try_join_all(
-                field_readers
-                    .iter()
-                    .zip_eq(partitioned.partitions.iter())
-                    .map(|(reader, partition)| {
-                        reader.evaluate_expr2(&row_range, partition, mask.clone())
-                    }),
-            )
-            .await?;
-
+        Ok(Box::pin(async move {
             let row_count = mask.await?.true_count();
             if row_count == 0 {
                 // Short-circuit if the mask is all false
                 return Ok(None);
             }
 
-            let arrays = arrays
+            let arrays = try_join_all(field_futures)
+                .await?
                 .into_iter()
                 .map(|a| {
                     a.vortex_expect("Layout incorrectly returned empty array for non-empty mask")
@@ -84,7 +71,7 @@ impl ExprEvaluator for StructReader {
             .into_array();
 
             Ok(Some(partitioned.root.evaluate(&root_scope)?))
-        })
+        }))
     }
 
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {

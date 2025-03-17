@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::{Stream, stream};
+use futures::future::BoxFuture;
+use futures::{FutureExt, Stream, stream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::scan::ScanDriver;
@@ -57,18 +57,22 @@ impl ScanDriver for InMemoryVortexFile {
     }
 }
 
-#[async_trait]
 impl AsyncSegmentReader for InMemoryVortexFile {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        let segment: &Segment = self
-            .footer
-            .segment_map()
-            .get(*id as usize)
-            .ok_or_else(|| vortex_err!("segment not found"))?;
+    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let segment_map = self.footer.segment_map().clone();
+        let buffer = self.buffer.clone();
 
-        let start = usize::try_from(segment.offset).map_err(|_| vortex_err!("offset too large"))?;
-        let end = start + segment.length as usize;
+        async move {
+            let segment: &Segment = segment_map
+                .get(*id as usize)
+                .ok_or_else(|| vortex_err!("segment not found"))?;
 
-        Ok(self.buffer.slice(start..end))
+            let start =
+                usize::try_from(segment.offset).map_err(|_| vortex_err!("offset too large"))?;
+            let end = start + segment.length as usize;
+
+            Ok(buffer.slice(start..end))
+        }
+        .boxed()
     }
 }
