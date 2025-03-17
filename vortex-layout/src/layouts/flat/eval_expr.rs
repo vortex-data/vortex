@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::{filter, slice};
 use vortex_array::serde::ArrayParts;
@@ -10,7 +11,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::{ExprRef, Identity};
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::LayoutReaderExt;
 use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
@@ -20,52 +20,52 @@ impl ExprEvaluator for FlatReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
-        let layout = self.layout.clone();
-        let segment_reader = self.segment_reader.clone();
-        let array_cache = self.array2.clone();
-        let ctx = self.ctx.clone();
-        let dtype = self.dtype().clone();
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
+        if row_range.end > self.layout.row_count() {
+            vortex_bail!("Row range exceeds layout row count");
+        }
+
+        let segment_id = self
+            .layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+
+        let row_count = usize::try_from(self.layout.row_count())
+            .vortex_expect("FlatLayout row count does not fit within usize");
+
+        let array_future = self
+            .array2
+            .get_or_init(|| {
+                let segment_reader = self.segment_reader.clone();
+                let ctx = self.ctx.clone();
+                let dtype = self.layout.dtype().clone();
+
+                // We create, but don't await, the segment request. This allows for prefetching.
+                let segment_fut = segment_reader.get(segment_id);
+
+                async move {
+                    let segment = segment_fut.await?;
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, dtype.clone(), row_count)
+                        .map_err(|e| Arc::new(e))
+                }
+                .boxed()
+                .shared()
+            })
+            .clone();
+
         let row_range = row_range.clone();
         let expr = expr.clone();
 
-        Box::pin(async move {
-            if row_range.end > layout.row_count() {
-                vortex_bail!("Row range exceeds layout row count");
-            }
-
-            let segment_id = layout
-                .segment_id(0)
-                .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
-
-            let row_count = usize::try_from(layout.row_count())
-                .vortex_expect("FlatLayout row count does not fit within usize");
-
-            // We launch, but don't await, the segment request. This allows for prefetching.
-            // TODO(ngates): the reason we do it here, and not through the array decoder cache,
-            //  is so if the layout is reused within the file, we can request the segment using the
-            //  correct row offset, allowing the segment reader to correctly prioritise the request.
-            let segment_fut = segment_reader.get(segment_id);
-
+        Ok(Box::pin(async move {
             // Wait for the mask, and short-circuit if it's all false.
             let mask = mask.await?;
             if mask.all_false() {
                 return Ok(None);
             }
 
-            // Now we can await the segment request.
-            let segment = segment_fut.await?;
-
-            // And decode the array through our OnceCell.
-            let mut array = array_cache
-                .get_or_init(|| {
-                    // Fetch all the array segment.
-
-                    ArrayParts::try_from(segment)?
-                        .decode(&ctx, dtype.clone(), row_count)
-                        .map_err(|e| Arc::new(e))
-                })
-                .clone()?;
+            // Now we await the array .
+            let mut array = array_future.await?;
 
             // Convert the range into an usize now that we expect it to fit.
             let start = usize::try_from(row_range.start)
@@ -90,7 +90,7 @@ impl ExprEvaluator for FlatReader {
             }
 
             Ok(Some(array))
-        })
+        }))
     }
 
     async fn evaluate_expr(

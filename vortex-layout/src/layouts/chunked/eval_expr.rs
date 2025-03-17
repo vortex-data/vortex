@@ -20,17 +20,15 @@ impl ExprEvaluator for ChunkedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         // Compute the result dtype of the expression.
-        let dtype = expr
-            .return_dtype(self.dtype())
-            .vortex_expect("Failed to compute result dtype");
+        let dtype = expr.return_dtype(self.dtype())?;
 
         // Figure out which chunks intersect the RowMask
         let chunk_range = self.chunk_range(row_range);
 
         // Now we have to create a future for each chunk.
-        let child_futures = chunk_range
+        let child_futures: Vec<_> = chunk_range
             .clone()
             .map(|chunk_idx| {
                 // Figure out the chunk row range relative to the mask's row range.
@@ -61,9 +59,9 @@ impl ExprEvaluator for ChunkedReader {
                     .vortex_expect("out of bounds")
                     .evaluate_expr2(&(chunk_relative_start..chunk_relative_end), expr, mask)
             })
-            .collect_vec();
+            .try_collect()?;
 
-        Box::pin(async move {
+        Ok(Box::pin(async move {
             let mut chunks: Vec<ArrayRef> = try_join_all(child_futures)
                 .await?
                 .into_iter()
@@ -81,7 +79,7 @@ impl ExprEvaluator for ChunkedReader {
             Ok(Some(
                 ChunkedArray::new_unchecked(chunks, dtype).into_array(),
             ))
-        })
+        }))
     }
 
     async fn evaluate_expr(

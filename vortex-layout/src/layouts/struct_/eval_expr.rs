@@ -20,7 +20,7 @@ impl ExprEvaluator for StructReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
 

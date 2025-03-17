@@ -4,8 +4,8 @@ use std::ops::{Bound, Deref, Range, RangeBounds};
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
 
-use async_trait::async_trait;
 use futures::channel::mpsc;
+use futures::future::BoxFuture;
 use futures::{SinkExt, Stream, StreamExt};
 use range_union_find::RangeUnionFind;
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -38,10 +38,9 @@ impl Display for SegmentId {
     }
 }
 
-#[async_trait]
 pub trait AsyncSegmentReader: 'static + Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
+    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
 }
 
 pub trait SegmentWriter {

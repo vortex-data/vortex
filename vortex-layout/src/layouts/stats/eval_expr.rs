@@ -19,7 +19,7 @@ impl ExprEvaluator for StatsReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> BoxFuture<'static, VortexResult<Option<ArrayRef>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         let Some(pruning_mask) = self.pruning_mask(expr.clone()) else {
             // TODO(ngates): we should check if the predicate can be evaluated with the stats
             //  that are present.

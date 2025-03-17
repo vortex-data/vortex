@@ -333,7 +333,7 @@ impl<D: ScanDriver> Scan<D> {
                             &row_range,
                             filter,
                             mask_future_ready(Mask::new_true(range_len)),
-                        )
+                        )?
                         .map_err(VortexError::from)
                         .and_then(async move |array: Option<ArrayRef>| {
                             // The array is a boolean array, so we extract the mask.
@@ -348,16 +348,17 @@ impl<D: ScanDriver> Scan<D> {
                         .map_err(Arc::new)
                         .boxed()
                         .shared();
-                    (row_range, mask_future)
+                    Ok::<_, VortexError>((row_range, mask_future))
                 })
-                .collect_vec();
+                .try_collect()?;
         }
 
         // Project the masks into the final array futures.
         let projection = self.projection.clone();
-        let arrays = masks
+        let arrays: Vec<_> = masks
             .into_iter()
-            .map(move |(row_range, mask)| reader.evaluate_expr2(&row_range, &projection, mask));
+            .map(move |(row_range, mask)| reader.evaluate_expr2(&row_range, &projection, mask))
+            .try_collect()?;
 
         let exec_stream = stream::iter(arrays)
             .buffered(self.concurrency)
