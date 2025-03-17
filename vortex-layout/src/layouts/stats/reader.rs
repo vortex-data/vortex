@@ -24,8 +24,6 @@ type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
 pub struct StatsReader {
     layout: Layout,
-    ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// Data layout reader
     pub(crate) data_child: Arc<dyn LayoutReader>,
@@ -78,8 +76,6 @@ impl StatsReader {
 
         Ok(Self {
             layout,
-            ctx,
-            segment_reader,
             data_child,
             stats_child,
             nzones,
@@ -171,11 +167,6 @@ impl StatsReader {
         let zone_end = usize::try_from(row_range.end.div_ceil(self.zone_len as u64))
             .vortex_expect("Invalid zone end");
         zone_start..zone_end
-    }
-
-    /// Return the row offset of a given zone.
-    pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
-        ((zone_idx * self.zone_len) as u64).min(self.layout.child_row_count(0))
     }
 }
 

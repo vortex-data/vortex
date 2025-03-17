@@ -88,19 +88,20 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
-        Ok(
-            match self
-                .partitioned_expr_cache
-                .write()?
-                .entry(ExactExpr(expr.clone()))
-            {
-                Entry::Occupied(entry) => entry.get().clone(),
-                Entry::Vacant(entry) => entry
-                    .insert(Arc::new(partition(expr, self.dtype())?))
-                    .clone(),
-            },
-        )
+    pub(crate) fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr> {
+        match self
+            .partitioned_expr_cache
+            .write()
+            .vortex_expect("poisoned lock")
+            .entry(ExactExpr(expr.clone()))
+        {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => entry
+                .insert(Arc::new(partition(expr, self.dtype()).vortex_expect(
+                    "We should not fail to partition expression over struct fields",
+                )))
+                .clone(),
+        }
     }
 }
 
