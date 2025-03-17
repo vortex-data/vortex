@@ -1,16 +1,14 @@
-use std::ops::{BitAnd, Range, Sub};
+use std::ops::Range;
 
-use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
-use vortex_array::ArrayRef;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::{Array, ArrayRef};
+use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::StatsReader;
-use crate::{ExprEvaluator, LayoutReader, MaskFuture, RowMask};
+use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
@@ -28,56 +26,33 @@ impl ExprEvaluator for StatsReader {
             return self.data_child.evaluate_expr2(row_range, expr, mask);
         };
 
-        let row_range2 = row_range.clone();
         let zone_range = self.zone_range(&row_range);
-        let row_count = self.layout().row_count();
-        let zone_len = self.zone_len;
 
-        // Refine the mask based on the result of the pruning mask.
-        let mask: MaskFuture = pruning_mask
-            .and_then(move |pruning_mask| {
-                let row_range = row_range2.clone();
-                let zone_range = zone_range.clone();
+        // We create an "un-pruned" future to ensure visibility into pre-fetching, although we
+        // may never await this.
+        let result = self
+            .data_child
+            .evaluate_expr2(&row_range, &expr, mask.clone())?;
 
-                async move {
-                    // Await the original row mask.
-                    let mask = mask.await?;
+        Ok(Box::pin(async move {
+            let mask = mask.clone().await?;
 
-                    let Some(pruning_mask) = pruning_mask else {
-                        // If the pruning mask couldn't be evaluated, we return the original mask.
-                        return Ok(mask);
-                    };
-
-                    // A function to compute the offset of a given zone.
-                    let zone_offset =
-                        |zone_idx: usize| ((zone_idx * zone_len) as u64).min(row_count);
-
-                    let mut builder = BooleanBufferBuilder::new(mask.len());
-                    for zone_idx in zone_range {
-                        // Figure out the range in the mask that corresponds to the zone
-                        let start =
-                            usize::try_from(zone_offset(zone_idx).saturating_sub(row_range.start))
-                                .vortex_expect("Invalid usize row range");
-                        let end = usize::try_from(
-                            zone_offset(zone_idx + 1)
-                                .sub(row_range.start)
-                                .min(mask.len() as u64),
-                        )
-                        .vortex_expect("Invalid usize row range");
-                        builder.append_n(end - start, !pruning_mask.value(zone_idx));
-                    }
-
-                    let pruning_row_mask = Mask::from(builder.finish());
-                    assert_eq!(pruning_row_mask.len(), mask.len(), "Mask length mismatch");
-
-                    // Apply the mask to the row mask
-                    Ok(mask.bitand(&pruning_row_mask))
+            if let Some(pruning_mask) = pruning_mask.await? {
+                if zone_range
+                    .clone()
+                    .all(|zone_idx| pruning_mask.value(zone_idx))
+                {
+                    // If all zones covering the row range are pruned, we can return a constant
+                    // false response.
+                    return Ok(Some(
+                        ConstantArray::new(false, mask.true_count()).into_array(),
+                    ));
                 }
-            })
-            .boxed()
-            .shared();
+            }
 
-        self.data_child.evaluate_expr2(&row_range, &expr, mask)
+            // Otherwise, we must delegate to the child.
+            result.await
+        }))
     }
 
     async fn evaluate_expr(

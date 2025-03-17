@@ -47,8 +47,6 @@ struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
 impl AsyncSegmentReader for SegmentChannelReader {
     fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        println!("SEGMENT REQUESTED {}", id);
-
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
 
@@ -104,7 +102,5 @@ where
 }
 
 impl<F> Drop for SegmentFuture<F> {
-    fn drop(&mut self) {
-        println!("SEGMENT DROPPED {} {}", self.complete, self.id);
-    }
+    fn drop(&mut self) {}
 }

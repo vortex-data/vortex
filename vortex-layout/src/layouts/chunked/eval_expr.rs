@@ -76,9 +76,14 @@ impl ExprEvaluator for ChunkedReader {
                 return Ok(Some(chunk));
             }
 
-            Ok(Some(
-                ChunkedArray::new_unchecked(chunks, dtype).into_array(),
-            ))
+            let chunked_array = ChunkedArray::new_unchecked(chunks, dtype);
+            assert_eq!(
+                chunked_array.len(),
+                mask.await?.true_count(),
+                "Mask length mismatch for chunked layout"
+            );
+
+            Ok(Some(chunked_array.into_array()))
         }))
     }
 

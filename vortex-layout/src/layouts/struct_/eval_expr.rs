@@ -6,11 +6,11 @@ use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ExprEvaluator, MaskFuture, RowMask};
+use crate::{ExprEvaluator, LayoutReader, MaskFuture, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -43,6 +43,8 @@ impl ExprEvaluator for StructReader {
             })
             .try_collect()?;
 
+        let name = self.layout().name().to_string();
+
         Ok(Box::pin(async move {
             let row_count = mask.await?.true_count();
             if row_count == 0 {
@@ -53,7 +55,15 @@ impl ExprEvaluator for StructReader {
             let arrays = try_join_all(field_futures)
                 .await?
                 .into_iter()
-                .map(|a| {
+                .zip(partitioned.partition_names.clone().into_iter())
+                .map(|(a, field_name)| {
+                    if a.is_none() {
+                        vortex_panic!(
+                            "Layout {} child {} incorrectly returned None for non-empty mask",
+                            name,
+                            field_name,
+                        )
+                    }
                     a.vortex_expect("Layout incorrectly returned empty array for non-empty mask")
                 })
                 .collect::<Vec<_>>();
