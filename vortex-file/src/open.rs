@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use flatbuffers::root;
@@ -10,49 +9,42 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
+use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFileRef};
 
 pub trait FileType: Sized {
     type Options: Clone;
     type Read: VortexReadAt;
-    type ScanDriver: ScanDriver;
 
-    fn scan_driver(
-        read: Self::Read,
-        options: Self::Options,
-        footer: Footer,
-        segment_cache: Arc<dyn SegmentCache>,
-        metrics: VortexMetrics,
-    ) -> Self::ScanDriver;
+    /// Open the file using the configured options.
+    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFileRef>;
 }
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions<F: FileType> {
     /// The underlying file reader.
-    read: F::Read,
+    pub(crate) read: F::Read,
     /// File-specific options
     pub(crate) options: F::Options,
     /// The registry of array encodings.
-    registry: Arc<ArrayRegistry>,
+    pub(crate) registry: Arc<ArrayRegistry>,
     /// The registry of layouts.
-    layout_registry: Arc<LayoutRegistry>,
+    pub(crate) layout_registry: Arc<LayoutRegistry>,
     /// An optional, externally provided, file size.
-    file_size: Option<u64>,
+    pub(crate) file_size: Option<u64>,
     /// An optional, externally provided, DType.
-    dtype: Option<DType>,
+    pub(crate) dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     // TODO(ngates): add an optional DType so we only read the layout segment.
-    footer: Option<Footer>,
-    segment_cache: Arc<dyn SegmentCache>,
-    initial_read_size: u64,
-    metrics: VortexMetrics,
+    pub(crate) footer: Option<Footer>,
+    pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub(crate) initial_read_size: u64,
+    pub(crate) metrics: VortexMetrics,
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
@@ -138,23 +130,13 @@ impl<F: FileType> VortexOpenOptions<F> {
 
 impl<F: FileType> VortexOpenOptions<F> {
     /// Open the Vortex file using asynchronous IO.
-    pub async fn open(mut self) -> VortexResult<VortexFile<F>> {
+    pub async fn open(mut self) -> VortexResult<VortexFileRef> {
         // If we need to read the file layout, then do so.
         let footer = match self.footer.take() {
             None => self.read_footer().await?,
             Some(footer) => footer,
         };
-
-        // TODO(ngates): construct layout and array context from the footer + registry.
-
-        Ok(VortexFile {
-            read: self.read,
-            options: self.options,
-            footer,
-            segment_cache: self.segment_cache,
-            metrics: self.metrics,
-            _marker: PhantomData,
-        })
+        F::open(self, footer)
     }
 
     /// Read the [`Footer`] from the file.

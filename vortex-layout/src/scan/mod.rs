@@ -6,7 +6,7 @@ use futures::{FutureExt, Stream, StreamExt, TryFutureExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{ArrayContext, ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult};
@@ -17,11 +17,10 @@ use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
 use crate::scan::executor::Executor;
-use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
+use crate::segments::{AsyncSegmentReader, SegmentStream};
 use crate::{
-    ExprEvaluator, Layout, LayoutReader, MaskFuture, RowMask, instrument, mask_future_ready,
-    range_intersection,
+    ExprEvaluator, LayoutReader, LayoutReaderExt, MaskFuture, RowMask, instrument,
+    mask_future_ready, range_intersection,
 };
 
 pub mod executor;
@@ -45,11 +44,9 @@ pub trait ScanDriver: 'static + Sized {
 }
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<D: ScanDriver> {
-    driver: D,
+pub struct ScanBuilder {
     task_executor: Option<TaskExecutor>,
-    layout: Layout,
-    ctx: ArrayContext, // TODO(ngates): store this on larger context on Layout
+    layout_reader: Arc<dyn LayoutReader>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
@@ -61,13 +58,11 @@ pub struct ScanBuilder<D: ScanDriver> {
     metrics: VortexMetrics,
 }
 
-impl<D: ScanDriver> ScanBuilder<D> {
-    pub fn new(driver: D, layout: Layout, ctx: ArrayContext) -> Self {
+impl ScanBuilder {
+    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
-            driver,
             task_executor: None,
-            layout,
-            ctx,
+            layout_reader,
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
@@ -138,15 +133,15 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn build(self) -> VortexResult<Scan<D>> {
-        let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
+    pub fn build(self) -> VortexResult<Scan> {
+        let projection = simplify_typed(self.projection.clone(), self.layout_reader.dtype())?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, self.layout.dtype()))
+            .map(|f| simplify_typed(f, self.layout_reader.dtype()))
             .transpose()?;
         let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), self.layout.dtype())?;
+            filter_and_projection_masks(&projection, filter.as_ref(), self.layout_reader.dtype())?;
 
         let field_mask: Vec<_> = filter_mask
             .iter()
@@ -154,17 +149,10 @@ impl<D: ScanDriver> ScanBuilder<D> {
             .chain(projection_mask.iter().cloned())
             .collect();
 
-        let splits = self.split_by.splits(&self.layout, &field_mask)?;
-        let collector = SegmentCollector::default();
-        // FIXME(ngates): do not prefetch!!
-        // self.layout
-        //     .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
-        let (mut row_range_pruner, segments) = collector.finish();
+        let splits = self
+            .split_by
+            .splits(&self.layout_reader.layout(), &field_mask)?;
         let row_indices = self.row_indices.clone();
-        if let Some(indices) = &row_indices {
-            row_range_pruner.retain_matching(indices.clone());
-        }
-
         let row_masks = splits
             .into_iter()
             .filter_map(move |row_range| {
@@ -193,20 +181,16 @@ impl<D: ScanDriver> ScanBuilder<D> {
             .collect_vec();
 
         Ok(Scan {
-            driver: self.driver,
             task_executor: self
                 .task_executor
                 .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
-            layout: self.layout,
-            ctx: self.ctx,
+            layout_reader: self.layout_reader,
             projection,
             filter,
             row_masks,
             canonicalize: self.canonicalize,
             concurrency: self.concurrency,
             prefetch_conjuncts: self.prefetch_conjuncts,
-            row_range_pruner,
-            segments,
         })
     }
 
@@ -260,11 +244,9 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 }
 
 #[allow(dead_code)]
-pub struct Scan<D> {
-    driver: D,
+pub struct Scan {
     task_executor: TaskExecutor,
-    layout: Layout,
-    ctx: ArrayContext,
+    layout_reader: Arc<dyn LayoutReader>,
     // Guaranteed to be simplified
     projection: ExprRef,
     // Guaranteed to be simplified
@@ -274,20 +256,19 @@ pub struct Scan<D> {
     //TODO(adam): bake this into the executors?
     concurrency: usize,
     prefetch_conjuncts: bool,
-    row_range_pruner: RowRangePruner,
-    segments: SegmentStream,
 }
 
-impl<D: ScanDriver> Scan<D> {
+impl Scan {
     /// Perform the scan operation and return a stream of arrays.
     ///
     /// The returned stream should be considered to perform I/O-bound operations and requires
     /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
-        let segment_reader = self.driver.segment_reader();
         let task_executor = self.task_executor.clone();
-        let reader: Arc<dyn LayoutReader> = self.layout.reader(segment_reader, self.ctx.clone())?;
+
+        let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
+
         //
         // let pruning = self
         //     .filter
@@ -337,7 +318,8 @@ impl<D: ScanDriver> Scan<D> {
                     .vortex_expect("row range overflow");
 
                     // NOTE that we currently pass an all-true mask to the filter expression.
-                    let mask_future: MaskFuture = reader
+                    let mask_future: MaskFuture = self
+                        .layout_reader
                         .evaluate_expr2(
                             &row_range,
                             filter,
@@ -366,7 +348,10 @@ impl<D: ScanDriver> Scan<D> {
         let projection = self.projection.clone();
         let arrays: Vec<_> = masks
             .into_iter()
-            .map(move |(row_range, mask)| reader.evaluate_expr2(&row_range, &projection, mask))
+            .map(move |(row_range, mask)| {
+                self.layout_reader
+                    .evaluate_expr2(&row_range, &projection, mask)
+            })
             .try_collect()?;
 
         let exec_stream = stream::iter(arrays)
@@ -375,15 +360,15 @@ impl<D: ScanDriver> Scan<D> {
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let exec_stream = instrument!("exec_stream", exec_stream);
-        let io_stream = self.driver.io_stream(self.segments);
+        //
+        // let io_stream = self.driver.io_stream(self.segments);
+        //
+        // let unified = UnifiedDriverStream {
+        //     exec_stream,
+        //     io_stream,
+        // };
 
-        let unified = UnifiedDriverStream {
-            exec_stream,
-            io_stream,
-        };
-
-        let result_dtype = self.projection.return_dtype(self.layout.dtype())?;
-        Ok(ArrayStreamAdapter::new(result_dtype, unified))
+        Ok(ArrayStreamAdapter::new(result_dtype, exec_stream))
     }
 
     pub async fn read_all(self) -> VortexResult<ArrayRef> {

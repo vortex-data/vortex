@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_layout::scan::ScanBuilder;
+use vortex_layout::segments::AsyncSegmentReader;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::Footer;
@@ -35,20 +37,36 @@ impl<F: FileType> VortexFile<F> {
     pub fn file_stats(&self) -> Option<&Arc<[StatsSet]>> {
         self.footer.statistics()
     }
+}
 
-    pub fn scan(&self) -> ScanBuilder<F::ScanDriver> {
-        let driver = F::scan_driver(
-            self.read.clone(),
-            self.options.clone(),
-            self.footer.clone(),
-            self.segment_cache.clone(),
-            self.metrics.clone(),
-        );
-        ScanBuilder::new(
-            driver,
-            self.footer.layout().clone(),
-            self.footer().ctx().clone(),
-        )
-        .with_metrics(self.metrics.clone())
+pub trait VortexFileDyn {
+    fn footer(&self) -> &Footer;
+
+    fn row_count(&self) -> u64 {
+        self.footer().row_count()
+    }
+
+    fn dtype(&self) -> &DType {
+        self.footer().dtype()
+    }
+
+    fn file_stats(&self) -> Option<&Arc<[StatsSet]>> {
+        self.footer().statistics()
+    }
+
+    fn metrics(&self) -> &VortexMetrics;
+
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
+
+    fn scan(&self) -> ScanBuilder {
+        let layout_reader = self
+            .footer()
+            .layout()
+            .reader(self.segment_reader(), self.footer().ctx().clone())
+            // FIXME(ngates): why can this fail?
+            .vortex_expect("failed to create layout reader");
+        ScanBuilder::new(layout_reader).with_metrics(self.metrics().clone())
     }
 }
+
+pub type VortexFileRef = Arc<dyn VortexFileDyn>;

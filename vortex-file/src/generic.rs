@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::future;
-use std::marker::PhantomData;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,7 +7,7 @@ use std::task::{Context, Poll};
 
 use dashmap::{DashMap, Entry};
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, select, stream};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, select, stream};
 use moka::future::CacheBuilder;
 use pin_project_lite::pin_project;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -21,13 +20,20 @@ use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, Segment};
 use crate::segments::channel::SegmentChannel;
+use crate::segments::queue::SegmentQueue;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
-use crate::{FileType, VortexOpenOptions};
+use crate::{FileType, VortexFileDyn, VortexFileRef, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
-pub struct GenericVortexFile<R>(PhantomData<R>);
+pub struct GenericVortexFile<R> {
+    footer: Footer,
+    read: R,
+    segment_reader: Arc<dyn AsyncSegmentReader>,
+    segment_cache: Arc<dyn SegmentCache>,
+    metrics: VortexMetrics,
+}
 
 impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
@@ -40,35 +46,47 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
             )))
             .with_initial_read_size(Self::INITIAL_READ_SIZE)
     }
+
+    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
+        self.options.io_concurrency = io_concurrency;
+        self
+    }
 }
 
 impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
-    type ScanDriver = GenericScanDriver<R>;
 
-    fn scan_driver(
-        read: Self::Read,
-        options: Self::Options,
-        footer: Footer,
-        segment_cache: Arc<dyn SegmentCache>,
-        metrics: VortexMetrics,
-    ) -> Self::ScanDriver {
-        GenericScanDriver {
-            read,
-            options,
+    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFileRef> {
+        let segment_queue = SegmentQueue::new();
+        let segment_reader = segment_queue.segment_reader();
+
+        // Spawn an I/O driver to serve requests while this file is open.
+        tokio::spawn(segment_queue.io_driver().inspect_err(|e| {
+            log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", e)
+        }));
+
+        Ok(Arc::new(GenericVortexFile {
             footer,
-            segment_cache,
-            segment_channel: SegmentChannel::new(),
-            metrics: metrics.into(),
-        }
+            read: options.read,
+            segment_reader,
+            segment_cache: options.segment_cache,
+            metrics: options.metrics,
+        }) as _)
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
-    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
-        self.options.io_concurrency = io_concurrency;
-        self
+impl<R: VortexReadAt> VortexFileDyn for GenericVortexFile<R> {
+    fn footer(&self) -> &Footer {
+        &self.footer
+    }
+
+    fn metrics(&self) -> &VortexMetrics {
+        &self.metrics
+    }
+
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
+        self.segment_reader.clone()
     }
 }
 

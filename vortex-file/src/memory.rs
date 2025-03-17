@@ -8,8 +8,7 @@ use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
 use vortex_metrics::VortexMetrics;
 
-use crate::segments::SegmentCache;
-use crate::{FileType, Footer, Segment, VortexOpenOptions};
+use crate::{FileType, Footer, Segment, VortexFileDyn, VortexFileRef, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -19,6 +18,7 @@ use crate::{FileType, Footer, Segment, VortexOpenOptions};
 pub struct InMemoryVortexFile {
     buffer: ByteBuffer,
     footer: Footer,
+    metrics: VortexMetrics,
 }
 
 impl VortexOpenOptions<InMemoryVortexFile> {
@@ -31,19 +31,27 @@ impl VortexOpenOptions<InMemoryVortexFile> {
 impl FileType for InMemoryVortexFile {
     type Options = ();
     type Read = ByteBuffer;
-    type ScanDriver = Self;
 
-    fn scan_driver(
-        read: Self::Read,
-        _options: Self::Options,
-        footer: Footer,
-        _segment_cache: Arc<dyn SegmentCache>,
-        _metrics: VortexMetrics,
-    ) -> Self::ScanDriver {
-        Self {
-            buffer: read,
+    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFileRef> {
+        Ok(Arc::new(InMemoryVortexFile {
+            buffer: options.read,
             footer,
-        }
+            metrics: options.metrics,
+        }))
+    }
+}
+
+impl VortexFileDyn for InMemoryVortexFile {
+    fn footer(&self) -> &Footer {
+        &self.footer
+    }
+
+    fn metrics(&self) -> &VortexMetrics {
+        &self.metrics
+    }
+
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
+        Arc::new(self.clone())
     }
 }
 
