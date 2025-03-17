@@ -46,6 +46,8 @@ struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 #[async_trait]
 impl AsyncSegmentReader for SegmentChannelReader {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        log::info!("Requesting segment {}", id);
+
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
 
