@@ -22,9 +22,9 @@ import dev.vortex.api.ArrayStream;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 
-public final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> implements ArrayStream {
+final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> implements ArrayStream {
 
-    public NativeArrayStream(FFI.FFIArrayStream inner) {
+    NativeArrayStream(FFI.FFIArrayStream inner) {
         super(inner);
     }
 

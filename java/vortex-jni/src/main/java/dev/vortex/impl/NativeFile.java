@@ -26,7 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 
-public final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
+final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     private NativeFile(FFI.FFIFile inner) {
         super(inner);
     }
