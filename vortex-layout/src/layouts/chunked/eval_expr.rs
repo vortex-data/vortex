@@ -29,7 +29,6 @@ impl ExprEvaluator for ChunkedReader {
 
         // Now we have to create a future for each chunk.
         let child_futures: Vec<_> = chunk_range
-            
             .map(|chunk_idx| {
                 // Figure out the chunk row range relative to the mask's row range.
                 let chunk_row_range =
