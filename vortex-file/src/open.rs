@@ -15,14 +15,14 @@ use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, Postscript, Segment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFileRef};
+use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
 pub trait FileType: Sized {
     type Options: Clone;
     type Read: VortexReadAt;
 
     /// Open the file using the configured options.
-    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFileRef>;
+    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile>;
 }
 
 /// Open options for a Vortex file reader.
@@ -130,7 +130,7 @@ impl<F: FileType> VortexOpenOptions<F> {
 
 impl<F: FileType> VortexOpenOptions<F> {
     /// Open the Vortex file using asynchronous IO.
-    pub async fn open(mut self) -> VortexResult<VortexFileRef> {
+    pub async fn open(mut self) -> VortexResult<VortexFile> {
         // If we need to read the file layout, then do so.
         let footer = match self.footer.take() {
             None => self.read_footer().await?,

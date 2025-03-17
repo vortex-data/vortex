@@ -21,7 +21,7 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFileRef, VortexOpenOptions, VortexWriteOptions};
+use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 
 #[test]
 fn test_eof_values() {
@@ -964,7 +964,7 @@ async fn test_repeated_projection() {
     );
 }
 
-async fn chunked_file() -> VortexResult<VortexFileRef> {
+async fn chunked_file() -> VortexResult<VortexFile> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),

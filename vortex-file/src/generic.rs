@@ -22,7 +22,7 @@ use crate::footer::{Footer, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::queue::SegmentQueue;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
-use crate::{FileType, VortexFileDyn, VortexFileRef, VortexOpenOptions};
+use crate::{FileType, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -57,7 +57,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
 
-    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFileRef> {
+    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
         let segment_queue = SegmentQueue::new();
         let segment_reader = segment_queue.segment_reader();
 
@@ -66,27 +66,11 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
             log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", e)
         }));
 
-        Ok(Arc::new(GenericVortexFile {
+        Ok(VortexFile {
             footer,
-            read: options.read,
             segment_reader,
-            segment_cache: options.segment_cache,
             metrics: options.metrics,
-        }) as _)
-    }
-}
-
-impl<R: VortexReadAt> VortexFileDyn for GenericVortexFile<R> {
-    fn footer(&self) -> &Footer {
-        &self.footer
-    }
-
-    fn metrics(&self) -> &VortexMetrics {
-        &self.metrics
-    }
-
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
-        self.segment_reader.clone()
+        })
     }
 }
 
