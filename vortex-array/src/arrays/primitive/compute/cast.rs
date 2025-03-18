@@ -165,7 +165,7 @@ mod test {
         let VortexError::ComputeError(s, _) = error else {
             unreachable!()
         };
-        assert_eq!(s.to_string(), "Failed to cast -1 to U32");
+        assert_eq!(s.to_string(), "Failed to cast -1 to u32");
     }
 
     #[test]
