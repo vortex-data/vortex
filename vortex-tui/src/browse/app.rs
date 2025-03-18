@@ -134,14 +134,14 @@ impl LayoutCursor {
         self.layout
             .segments()
             .last()
-            .map(|id| self.segment_description(id).length as usize)
+            .map(|id| self.segment_spec(id).length as usize)
             .unwrap_or_default()
     }
 
     pub fn segment_size(&self) -> usize {
         self.layout()
             .segments()
-            .map(|id| self.segment_description(id).length as usize)
+            .map(|id| self.segment_spec(id).length as usize)
             .sum()
     }
 
@@ -165,7 +165,7 @@ impl LayoutCursor {
         &self.layout
     }
 
-    pub fn segment_description(&self, id: SegmentId) -> &SegmentSpec {
+    pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
 }
