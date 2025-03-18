@@ -152,7 +152,9 @@ impl PendingSegment {
 impl Drop for PendingSegment {
     fn drop(&mut self) {
         // When a pending segment is dropped, we clean it up and remove it from the map.
-        log::debug!("Dropping segment {:?}", self.id);
+        if self.send.is_some() {
+            log::info!("Dropping segment request {:?} prior to launch", self.id);
+        }
         self.segments
             .write()
             .vortex_expect("poisoned lock")

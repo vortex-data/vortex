@@ -5,11 +5,12 @@ use executor::{TaskExecutor, ThreadsExecutor};
 use futures::{FutureExt, Stream, StreamExt, TryFutureExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult};
+use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
@@ -17,6 +18,7 @@ use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
 use crate::scan::executor::Executor;
+use crate::scan::filter::FilterExpr;
 use crate::segments::{AsyncSegmentReader, SegmentStream};
 use crate::{
     ExprEvaluator, LayoutReader, LayoutReaderExt, MaskFuture, RowMask, instrument,
@@ -269,35 +271,32 @@ impl Scan {
 
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
 
-        //
-        // let pruning = self
-        //     .filter
-        //     .as_ref()
-        //     .map(|filter| {
-        //         let pruning = Arc::new(FilterExpr::try_new(
-        //             reader
-        //                 .dtype()
-        //                 .as_struct()
-        //                 .ok_or_else(|| {
-        //                     vortex_err!("Vortex scan currently only works for struct arrays")
-        //                 })?
-        //                 .clone(),
-        //             filter.clone(),
-        //             self.prefetch_conjuncts,
-        //         )?);
-        //
-        //         VortexResult::Ok(pruning)
-        //     })
-        //     .transpose()?;
+        let pruning = self
+            .filter
+            .as_ref()
+            .map(|filter| {
+                let pruning = Arc::new(FilterExpr::try_new(
+                    self.layout_reader
+                        .dtype()
+                        .as_struct()
+                        .ok_or_else(|| {
+                            vortex_err!("Vortex scan currently only works for struct arrays")
+                        })?
+                        .clone(),
+                    filter.clone(),
+                    self.prefetch_conjuncts,
+                )?);
+                VortexResult::Ok(pruning)
+            })
+            .transpose()?;
 
-        // Initialize a stream of mask futures.
+        // Map each mask into a future that resolves the array for the row range.
         let mut masks = self
             .row_masks
             .iter()
             .map(|row_mask| {
                 let row_range = row_mask.begin()..row_mask.end();
                 let mask = mask_future_ready(row_mask.filter_mask().clone());
-
                 (row_range, mask)
             })
             .collect_vec();
@@ -346,11 +345,28 @@ impl Scan {
 
         // Project the masks into the final array futures.
         let projection = self.projection.clone();
+        let should_canonicalize = self.canonicalize;
         let arrays: Vec<_> = masks
             .into_iter()
             .map(move |(row_range, mask)| {
-                self.layout_reader
-                    .evaluate_expr2(&row_range, &projection, mask)
+                Ok::<_, VortexError>(
+                    self.layout_reader
+                        .evaluate_expr2(&row_range, &projection, mask)?
+                        .map(move |array| {
+                            if should_canonicalize {
+                                array?
+                                    .map(|array| {
+                                        let mut builder =
+                                            builder_with_capacity(array.dtype(), array.len());
+                                        array.append_to_builder(builder.as_mut())?;
+                                        Ok(builder.finish())
+                                    })
+                                    .transpose()
+                            } else {
+                                array
+                            }
+                        }),
+                )
             })
             .try_collect()?;
 

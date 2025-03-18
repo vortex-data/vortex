@@ -42,6 +42,7 @@ pub trait VortexReadAt: Clone + 'static {
     fn size(&self) -> impl Future<Output = io::Result<u64>>;
 }
 
+#[derive(Debug)]
 pub struct PerformanceHint {
     coalescing_window: u64,
     max_read: Option<u64>,

@@ -134,7 +134,7 @@ fn is_sorted_impl(array: &dyn Array, strict: bool) -> VortexResult<bool> {
             vtable_fn.is_sorted(array)?
         }
     } else {
-        log::debug!("No is_sorted implementation found for {}", array.encoding());
+        // log::debug!("No is_sorted implementation found for {}", array.encoding());
         let array = array.to_canonical()?;
 
         if let Some(vtable_fn) = array.as_ref().vtable().is_sorted_fn() {
