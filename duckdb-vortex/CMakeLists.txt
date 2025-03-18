@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
-set(TARGET_NAME vortex_duckdb)
+set(TARGET_NAME vortex)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
-set(EXTENSION_SOURCES src/vortex_duckdb_extension.cpp)
+set(EXTENSION_SOURCES src/vortex_extension.cpp)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 # DuckDB's extension distribution supports vcpkg. As such, dependencies can be
