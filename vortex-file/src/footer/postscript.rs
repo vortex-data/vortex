@@ -2,12 +2,12 @@ use flatbuffers::Follow;
 use vortex_error::{VortexError, vortex_err};
 use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
 
-use crate::footer::segment::Segment;
+use crate::footer::segment::SegmentDescription;
 
 /// Captures the layout information of a Vortex file.
 pub(crate) struct Postscript {
-    pub(crate) dtype: Option<Segment>,
-    pub(crate) footer: Segment,
+    pub(crate) dtype: Option<SegmentDescription>,
+    pub(crate) footer: SegmentDescription,
 }
 
 impl FlatBufferRoot for Postscript {}
@@ -19,8 +19,8 @@ impl WriteFlatBuffer for Postscript {
         &self,
         fbb: &mut flatbuffers::FlatBufferBuilder<'fb>,
     ) -> flatbuffers::WIPOffset<Self::Target<'fb>> {
-        let dtype = self.dtype.as_ref().map(fb::Segment::from);
-        let footer = fb::Segment::from(&self.footer);
+        let dtype = self.dtype.as_ref().map(fb::SegmentDescription::from);
+        let footer = fb::SegmentDescription::from(&self.footer);
         fb::Postscript::create(
             fbb,
             &fb::PostscriptArgs {
@@ -39,8 +39,8 @@ impl ReadFlatBuffer for Postscript {
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
-            dtype: fb.dtype().map(Segment::try_from).transpose()?,
-            footer: Segment::try_from(
+            dtype: fb.dtype().map(SegmentDescription::try_from).transpose()?,
+            footer: SegmentDescription::try_from(
                 fb.footer()
                     .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
             )?,

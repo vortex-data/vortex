@@ -8,7 +8,7 @@ use vortex_io::VortexWrite;
 use vortex_layout::stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
-use crate::footer::{Footer, Postscript, Segment};
+use crate::footer::{Footer, Postscript, SegmentDescription};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -55,7 +55,7 @@ impl VortexWriteOptions {
     /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
         self,
-        write: W,
+        writer: W,
         mut stream: S,
     ) -> VortexResult<W> {
         // Set up a Context to capture the encodings used in the file.
@@ -69,27 +69,28 @@ impl VortexWriteOptions {
         )?;
 
         // First we write the magic number
-        let mut write = futures::io::Cursor::new(write);
-        write.write_all(MAGIC_BYTES).await?;
+        let mut writer = futures::io::Cursor::new(writer);
+        writer.write_all(MAGIC_BYTES).await?;
 
         // Our buffered message writer accumulates messages for each batch so we can flush them
         // into the file.
         let mut segment_writer = BufferedSegmentWriter::default();
-        let mut segments = vec![];
+        let mut segment_descriptions = vec![];
 
         // Then write the stream via the root layout
         while let Some(chunk) = stream.next().await {
-            layout_writer.push_chunk(&mut segment_writer, chunk?)?;
+            let chunk = chunk?;
+            layout_writer.push_chunk(&mut segment_writer, chunk)?;
             // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
             segment_writer
-                .flush_async(&mut write, &mut segments)
+                .flush_async(&mut writer, &mut segment_descriptions)
                 .await?;
         }
 
         // Flush the final layout messages into the file
         let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
-            .flush_async(&mut write, &mut segments)
+            .flush_async(&mut writer, &mut segment_descriptions)
             .await?;
 
         // Write the DType, followed by the Footer. We choose this order because in many cases
@@ -99,16 +100,16 @@ impl VortexWriteOptions {
         let dtype_segment = if self.exclude_dtype {
             None
         } else {
-            Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
+            Some(self.write_flatbuffer(&mut writer, stream.dtype()).await?)
         };
 
         let footer_segment = self
             .write_flatbuffer(
-                &mut write,
+                &mut writer,
                 &Footer::flatbuffer_writer(
                     ctx,
                     layout,
-                    segments.into(),
+                    segment_descriptions.into(),
                     self.file_statistics
                         .is_some()
                         .then(|| layout_writer.into_stats_sets().into()),
@@ -131,26 +132,26 @@ impl VortexWriteOptions {
         }
         let postscript_len = u16::try_from(postscript_buffer.len())
             .vortex_expect("Postscript already verified to fit into u16");
-        write.write_all(postscript_buffer).await?;
+        writer.write_all(postscript_buffer).await?;
 
         // And finally, the EOF 8-byte footer.
         let mut eof = [0u8; EOF_SIZE];
         eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
         eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
-        write.write_all(eof).await?;
+        writer.write_all(eof).await?;
 
-        Ok(write.into_inner())
+        Ok(writer.into_inner())
     }
 
     async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
         &self,
         write: &mut futures::io::Cursor<W>,
         flatbuffer: &F,
-    ) -> VortexResult<Segment> {
+    ) -> VortexResult<SegmentDescription> {
         let layout_offset = write.position();
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
-        Ok(Segment {
+        Ok(SegmentDescription {
             offset: layout_offset,
             length: u32::try_from(write.position() - layout_offset)
                 .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,

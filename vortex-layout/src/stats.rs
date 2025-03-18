@@ -60,7 +60,7 @@ impl FileStatsLayoutWriter {
 impl LayoutWriter for FileStatsLayoutWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         match chunk.as_struct_typed() {
@@ -73,10 +73,10 @@ impl LayoutWriter for FileStatsLayoutWriter {
                 }
             }
         }
-        self.inner.push_chunk(segments, chunk)
+        self.inner.push_chunk(segment_writer, chunk)
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        self.inner.finish(segments)
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+        self.inner.finish(segment_writer)
     }
 }

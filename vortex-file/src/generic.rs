@@ -19,7 +19,7 @@ use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentEvent, SegmentId, SegmentStream};
 use vortex_metrics::{Counter, VortexMetrics};
 
-use crate::footer::{Footer, Segment};
+use crate::footer::{Footer, SegmentDescription};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexOpenOptions};
@@ -332,12 +332,16 @@ where
 #[derive(Debug)]
 struct SegmentRequest {
     id: SegmentId,
-    location: Segment,
+    location: SegmentDescription,
     cancel_handle: oneshot::Receiver<()>,
 }
 
 impl SegmentRequest {
-    fn new(id: SegmentId, location: Segment, cancel_handle: oneshot::Receiver<()>) -> Self {
+    fn new(
+        id: SegmentId,
+        location: SegmentDescription,
+        cancel_handle: oneshot::Receiver<()>,
+    ) -> Self {
         Self {
             id,
             location,
@@ -349,8 +353,8 @@ impl SegmentRequest {
     }
 }
 
-impl From<(SegmentId, Segment, oneshot::Receiver<()>)> for SegmentRequest {
-    fn from(value: (SegmentId, Segment, oneshot::Receiver<()>)) -> Self {
+impl From<(SegmentId, SegmentDescription, oneshot::Receiver<()>)> for SegmentRequest {
+    fn from(value: (SegmentId, SegmentDescription, oneshot::Receiver<()>)) -> Self {
         let (id, location, cancel_handle) = value;
         SegmentRequest {
             id,
@@ -388,7 +392,7 @@ struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
-    pub(crate) requests: Vec<(SegmentId, Segment)>,
+    pub(crate) requests: Vec<(SegmentId, SegmentDescription)>,
 }
 
 #[derive(Default)]
@@ -411,7 +415,7 @@ impl CoalescedCancellationHandle {
 async fn evaluate<R: VortexReadAt>(
     read: R,
     request: CoalescedSegmentRequest,
-    segment_map: Arc<[Segment]>,
+    segment_map: Arc<[SegmentDescription]>,
     segment_cache: Arc<dyn SegmentCache>,
     inflight_segments: InflightSegments,
 ) -> VortexResult<()> {

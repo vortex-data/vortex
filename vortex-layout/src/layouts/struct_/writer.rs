@@ -42,10 +42,10 @@ impl StructLayoutWriter {
         })
     }
 
-    pub fn try_new_with_factory<F: LayoutStrategy>(
+    pub fn try_new_with_strategy<S: LayoutStrategy>(
         ctx: &ArrayContext,
         dtype: &DType,
-        factory: F,
+        factory: S,
     ) -> VortexResult<Self> {
         let struct_dtype = dtype
             .as_struct()
@@ -63,7 +63,7 @@ impl StructLayoutWriter {
 impl LayoutWriter for StructLayoutWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         let struct_array = chunk
@@ -86,17 +86,17 @@ impl LayoutWriter for StructLayoutWriter {
                 .vortex_expect("bounds already checked");
 
             for column_chunk in column.to_array_iterator() {
-                self.column_strategies[i].push_chunk(segments, column_chunk?)?;
+                self.column_strategies[i].push_chunk(segment_writer, column_chunk?)?;
             }
         }
 
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
-            column_layouts.push(writer.finish(segments)?);
+            column_layouts.push(writer.finish(segment_writer)?);
         }
         Ok(Layout::new_owned(
             "struct".into(),

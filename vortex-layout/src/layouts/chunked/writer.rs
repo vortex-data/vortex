@@ -50,7 +50,7 @@ impl ChunkedLayoutWriter {
 impl LayoutWriter for ChunkedLayoutWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         self.row_count += chunk.len() as u64;
@@ -61,18 +61,18 @@ impl LayoutWriter for ChunkedLayoutWriter {
             .options
             .chunk_strategy
             .new_writer(&self.ctx, chunk.dtype())?;
-        chunk_writer.push_chunk(segments, chunk)?;
+        chunk_writer.push_chunk(segment_writer, chunk)?;
         self.chunks.push(chunk_writer);
 
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         // Call finish on each chunk's writer
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {
             // FIXME(ngates): we should try calling finish after each chunk.
-            children.push(writer.finish(segments)?);
+            children.push(writer.finish(segment_writer)?);
         }
 
         // If there's only one child, there's no point even writing a stats table since
