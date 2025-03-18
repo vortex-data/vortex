@@ -7,23 +7,23 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::DictArray;
 use crate::builders::DictEncoder;
 
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    pub fn new(nullability: Nullability) -> Self {
+    pub fn new(nullability: Nullability, max_dict_bytes: usize) -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
             nullability,
+            max_dict_len: max_dict_bytes / T::PTYPE.byte_width(),
         }
     }
 
@@ -47,17 +47,17 @@ pub struct PrimitiveDictBuilder<T> {
     lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
     nullability: Nullability,
+    max_dict_len: usize,
 }
 
 impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    fn encode(&mut self, array: &dyn Array, max_dict_bytes: usize) -> VortexResult<DictArray> {
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
-        let max_dict_len = max_dict_bytes / T::PTYPE.byte_width();
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
         let primitive = array.to_primitive()?;
 
@@ -70,7 +70,7 @@ where
                         .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
-                    if self.values.len() >= max_dict_len {
+                    if self.values.len() >= self.max_dict_len {
                         break;
                     }
                 }
@@ -89,7 +89,7 @@ where
                         *value.vortex_expect("Dict encode null value in non-nullable array"),
                     );
                     unsafe { codes.push_unchecked(code) }
-                    if self.values.len() >= max_dict_len {
+                    if self.values.len() >= self.max_dict_len {
                         break;
                     }
                 }
@@ -97,9 +97,11 @@ where
             PrimitiveArray::new(codes, Validity::NonNullable)
         };
 
-        let values =
-            PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array();
-        DictArray::try_new(codes.to_array(), values)
+        Ok(codes.into_array())
+    }
+
+    fn values(&mut self) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
     }
 }
 

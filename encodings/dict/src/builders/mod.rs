@@ -2,7 +2,7 @@ use bytes::BytesDictBuilder;
 use primitive::PrimitiveDictBuilder;
 use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayExt};
+use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -12,22 +12,25 @@ mod bytes;
 mod primitive;
 
 pub trait DictEncoder {
-    fn encode(&mut self, array: &dyn Array, max_dict_bytes: usize) -> VortexResult<DictArray>;
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
+
+    fn values(&mut self) -> VortexResult<ArrayRef>;
 }
 
 pub fn dict_encode_max_sized(array: &dyn Array, max_dict_bytes: usize) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = array.as_opt::<PrimitiveArray>() {
         match_each_native_ptype!(pa.ptype(), |$P| {
-            &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())
+            &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability(), max_dict_bytes)
         })
     } else if let Some(vbv) = array.as_opt::<VarBinViewArray>() {
-        &mut BytesDictBuilder::new(vbv.dtype().clone())
+        &mut BytesDictBuilder::new(vbv.dtype().clone(), max_dict_bytes)
     } else if let Some(vb) = array.as_opt::<VarBinArray>() {
-        &mut BytesDictBuilder::new(vb.dtype().clone())
+        &mut BytesDictBuilder::new(vb.dtype().clone(), max_dict_bytes)
     } else {
         vortex_bail!("Can only encode primitive or varbin/view arrays")
     };
-    dict_builder.encode(array, max_dict_bytes)
+    let codes = dict_builder.encode(array)?;
+    DictArray::try_new(codes, dict_builder.values()?)
 }
 
 pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {
