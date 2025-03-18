@@ -143,14 +143,14 @@ mod tests {
             buffer![0u32, 1, 2].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
-            .unwrap();
+        .unwrap();
 
         let res = compare(
             &dict,
             &ConstantArray::new(Scalar::from(1i32), 3),
             Operator::Gt,
         )
-            .unwrap();
+        .unwrap();
         let res = res.to_bool().unwrap();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
