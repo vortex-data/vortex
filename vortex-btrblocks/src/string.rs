@@ -29,15 +29,15 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
-    let mut disinct = HashSet::with_capacity(views.len() / 2);
+    let mut distinct = HashSet::with_capacity(views.len() / 2);
     views.iter().for_each(|&view| {
         // SAFETY: we're doing bitwise manipulations. Did you expect that to be safe??
         let view_u128: u128 = unsafe { std::mem::transmute(view) };
         let len_and_prefix = view_u128 as u64;
-        disinct.insert(len_and_prefix);
+        distinct.insert(len_and_prefix);
     });
 
-    disinct
+    distinct
         .len()
         .try_into()
         .vortex_expect("distinct count must fit in u32")
@@ -48,9 +48,9 @@ impl CompressorStats for StringStats {
 
     fn generate_opts(input: &Self::ArrayType, opts: GenerateStatsOptions) -> Self {
         let null_count = input
-            .validity()
-            .null_count(input.len())
-            .vortex_expect("null_count");
+            .statistics()
+            .compute_null_count()
+            .vortex_expect("null count");
         let value_count = input.len() - null_count;
         let estimated_distinct = if opts.count_distinct_values {
             estimate_distinct_count(input)

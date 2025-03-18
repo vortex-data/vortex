@@ -135,11 +135,12 @@ where
         };
     }
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
-    let null_count = validity.false_count();
-    let value_count = validity.true_count();
-    let mut min = T::max_value();
-    let mut max = T::min_value();
+    let null_count = array
+        .statistics()
+        .compute_null_count()
+        .vortex_expect("null count");
+    let value_count = array.len() - null_count;
+
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is
     // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
@@ -147,6 +148,8 @@ where
     } else {
         HashMap::with_hasher(FxBuildHasher)
     };
+
+    let validity = array.validity_mask().vortex_expect("logical_validity");
 
     let mut runs = 1;
     let head_idx = validity
@@ -159,9 +162,6 @@ where
     match validity.boolean_buffer() {
         AllOr::All => {
             for value in first_valid_buff {
-                min = min.min(value);
-                max = max.max(value);
-
                 if count_distinct_values {
                     *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
                 }
@@ -179,9 +179,6 @@ where
                 .zip_eq(v.slice(head_idx, array.len() - head_idx).iter())
             {
                 if valid {
-                    min = min.min(value);
-                    max = max.max(value);
-
                     if count_distinct_values {
                         *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
                     }
