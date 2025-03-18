@@ -203,8 +203,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
         let layout_ctx = LayoutContext::empty();
         let layout = self.layout.write_flatbuffer(fbb, &layout_ctx);
 
-        let segments =
-            fbb.create_vector_from_iter(self.segments.iter().map(fb::SegmentSpec::from));
+        let segments = fbb.create_vector_from_iter(self.segments.iter().map(fb::SegmentSpec::from));
         let statistics = self
             .statistics
             .as_ref()
