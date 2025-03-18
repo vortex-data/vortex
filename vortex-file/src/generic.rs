@@ -111,6 +111,8 @@ impl<R: VortexReadAt> GenericScanDriver<R> {
 
             // Otherwise, take all the pending requests.
             self.segment_queue.with_pending_segments(|pending| {
+                coalesce()
+
                 for p in pending {
                     println!("Pending: {:?}", p);
                 }
@@ -371,17 +373,16 @@ where
 struct SegmentRequest {
     id: SegmentId,
     location: Segment,
-    cancel_handle: oneshot::Receiver<()>,
 }
 
 impl SegmentRequest {
-    fn new(id: SegmentId, location: Segment, cancel_handle: oneshot::Receiver<()>) -> Self {
+    fn new(id: SegmentId, location: Segment) -> Self {
         Self {
             id,
             location,
-            cancel_handle,
         }
     }
+
     fn range(&self) -> Range<u64> {
         self.location.offset..self.location.offset + self.location.length as u64
     }
