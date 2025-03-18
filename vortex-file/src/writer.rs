@@ -8,7 +8,7 @@ use vortex_io::VortexWrite;
 use vortex_layout::stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
-use crate::footer::{Footer, Postscript, SegmentDescription};
+use crate::footer::{Footer, Postscript, SegmentSpec};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -148,10 +148,10 @@ impl VortexWriteOptions {
         &self,
         write: &mut futures::io::Cursor<W>,
         flatbuffer: &F,
-    ) -> VortexResult<SegmentDescription> {
+    ) -> VortexResult<SegmentSpec> {
         let layout_offset = write.position();
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
-        Ok(SegmentDescription {
+        Ok(SegmentSpec {
             offset: layout_offset,
             length: u32::try_from(write.position() - layout_offset)
                 .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,

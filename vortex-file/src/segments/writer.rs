@@ -3,7 +3,7 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_io::VortexWrite;
 use vortex_layout::segments::{SegmentId, SegmentWriter};
 
-use crate::footer::SegmentDescription;
+use crate::footer::SegmentSpec;
 
 /// A segment writer that holds buffers in memory until they are flushed by a writer.
 #[derive(Default)]
@@ -27,7 +27,7 @@ impl BufferedSegmentWriter {
     pub async fn flush_async<W: VortexWrite>(
         &mut self,
         writer: &mut futures::io::Cursor<W>,
-        segment_descriptions: &mut Vec<SegmentDescription>,
+        segment_descriptions: &mut Vec<SegmentSpec>,
     ) -> VortexResult<()> {
         for buffers in self.segments_buffers.drain(..) {
             // The API requires us to write these buffers contiguously. Therefore, we can only
@@ -53,7 +53,7 @@ impl BufferedSegmentWriter {
                 writer.write_all(buffer).await?;
             }
 
-            segment_descriptions.push(SegmentDescription {
+            segment_descriptions.push(SegmentSpec {
                 offset,
                 length: u32::try_from(writer.position() - offset)
                     .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,

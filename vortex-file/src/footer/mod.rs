@@ -22,7 +22,7 @@ pub struct Footer {
     ctx: ArrayContext,
     layout_ctx: LayoutContext,
     layout: Layout,
-    segments: Arc<[SegmentDescription]>,
+    segments: Arc<[SegmentSpec]>,
     statistics: Option<Arc<[StatsSet]>>,
 }
 
@@ -36,7 +36,7 @@ impl Footer {
         ctx: ArrayContext,
         layout_ctx: LayoutContext,
         root_layout: Layout,
-        segments: Arc<[SegmentDescription]>,
+        segments: Arc<[SegmentSpec]>,
         statistics: Option<Arc<[StatsSet]>>,
     ) -> Self {
         // Note this assertion is `<=` since we allow zero-length segments
@@ -110,7 +110,7 @@ impl Footer {
             .ok_or_else(|| vortex_err!("Footer missing segments"))?;
         let segments = fb_segments
             .iter()
-            .map(SegmentDescription::try_from)
+            .map(SegmentSpec::try_from)
             .try_collect()?;
 
         let statistics = fb
@@ -147,7 +147,7 @@ impl Footer {
     }
 
     /// Returns the segment map of the file.
-    pub fn segment_map(&self) -> &Arc<[SegmentDescription]> {
+    pub fn segment_map(&self) -> &Arc<[SegmentSpec]> {
         &self.segments
     }
 
@@ -171,7 +171,7 @@ impl Footer {
     pub(crate) fn flatbuffer_writer<'a>(
         ctx: ArrayContext,
         layout: Layout,
-        segments: Arc<[SegmentDescription]>,
+        segments: Arc<[SegmentSpec]>,
         statistics: Option<Arc<[StatsSet]>>,
     ) -> impl WriteFlatBuffer<Target<'a> = fb::Footer<'a>> + FlatBufferRoot {
         FooterFlatBufferWriter {
@@ -186,7 +186,7 @@ impl Footer {
 pub(crate) struct FooterFlatBufferWriter {
     ctx: ArrayContext,
     layout: Layout,
-    segments: Arc<[SegmentDescription]>,
+    segments: Arc<[SegmentSpec]>,
     statistics: Option<Arc<[StatsSet]>>,
 }
 
@@ -204,7 +204,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
         let layout = self.layout.write_flatbuffer(fbb, &layout_ctx);
 
         let segments =
-            fbb.create_vector_from_iter(self.segments.iter().map(fb::SegmentDescription::from));
+            fbb.create_vector_from_iter(self.segments.iter().map(fb::SegmentSpec::from));
         let statistics = self
             .statistics
             .as_ref()
