@@ -13,6 +13,9 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::dict::writer::{
+    DictLayoutOptions, DictLayoutWriter, dict_layout_supported,
+};
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
@@ -51,6 +54,24 @@ impl LayoutStrategy for VortexLayoutStrategy {
         }
         .boxed();
 
+        let compress_strategy = BtrBlocksCompressedStrategy {
+            child: strategy,
+        };
+
+        let writer = if dict_layout_supported(dtype) {
+            DictLayoutWriter::new(
+                ctx.clone(),
+                dtype,
+                compress_strategy,
+                ArcRef::new_ref(&FlatLayout),
+                DictLayoutOptions {
+                    max_dict_size_bytes: 1024 * 1024,
+                },
+            )
+        } else {
+            compress_strategy.new_writer(ctx, &DType::Null)
+        };
+
         // Prior to compression, re-partition into size-based chunks.
         let writer = RepartitionWriter::new(
             dtype.clone(),
@@ -63,7 +84,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
         .boxed();
 
         // Prior to repartitioning, we record statistics
-        let stats_writer = StatsLayoutWriter::try_new(
+        let stats_writer = StatsLayoutWriter::new(
             ctx.clone(),
             dtype,
             writer,
@@ -74,7 +95,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
             },
-        )?
+        )
         .boxed();
 
         let writer = RepartitionWriter::new(

@@ -155,7 +155,7 @@ mod test {
     fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
-        let layout = StatsLayoutWriter::try_new(
+        let layout = StatsLayoutWriter::new(
             ctx.clone(),
             &DType::Primitive(PType::I32, NonNullable),
             ChunkedLayoutWriter::new(
@@ -170,7 +170,6 @@ mod test {
                 ..Default::default()
             },
         )
-        .unwrap()
         .push_all(
             &mut segments,
             [
