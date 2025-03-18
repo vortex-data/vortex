@@ -43,11 +43,8 @@ impl SegmentQueue {
         (this, segment_reader)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.segments
-            .read()
-            .vortex_expect("poisoned lock")
-            .is_empty()
+    pub fn has_pending(&self) -> bool {
+        self.with_pending_segments(|pending| pending.next().is_some())
     }
 
     /// Inspect all pending segments, in order of segment ID.

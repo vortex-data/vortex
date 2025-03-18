@@ -117,7 +117,7 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
         // Create a stream that yields every time there is more work to do in the segment queue.
         stream::unfold(self, move |mut this| async move {
             // If the segment queue is empty, then wait for the next notification.
-            if this.segment_queue.is_empty() {
+            if !this.segment_queue.has_pending() {
                 let Some(_) = this.segment_queue.next().await else {
                     // The segment queue has completed, meaning no more requests are possible.
                     // We're done!
@@ -129,9 +129,10 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             let request = this
                 .segment_queue
                 .with_pending_segments(|pending_segments| {
-                    let first = pending_segments
-                        .next()
-                        .vortex_expect("empty iterator from non-empty queue");
+                    let Some(first) = pending_segments.next() else {
+                        return Ok(None);
+                    };
+
                     let first_spec = this
                         .footer
                         .segment_map()
@@ -198,13 +199,19 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                     // Finally, we ensure the coalesced segments are sorted by ID.
                     coalesced.requests.sort_unstable_by_key(|r| r.id);
 
-                    Ok::<_, VortexError>(coalesced)
+                    Ok::<_, VortexError>(Some(coalesced))
                 });
 
             // Launch the coalesced read.
             let read = this.read.clone();
             let segment_map = this.footer.segment_map().clone();
-            let fut = async move { evaluate(read, request?, segment_map).await };
+            let fut = async move {
+                if let Some(request) = request? {
+                    evaluate(read, request, segment_map).await
+                } else {
+                    Ok(())
+                }
+            };
 
             Some((fut, this))
         })
