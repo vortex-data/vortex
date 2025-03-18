@@ -319,4 +319,81 @@ impl BtrBlocksCompressor {
             }
         }
     }
+
+    pub fn choose_scheme(&self, array: &dyn Array) -> VortexResult<Vec<usize>> {
+        match array.to_canonical()? {
+            Canonical::Null(null_array) => Ok(Vec::default()),
+            // TODO(aduffy): Sparse, other bool compressors.
+            Canonical::Bool(bool_array) => Ok(Vec::default()),
+            Canonical::Primitive(primitive) => {
+                if primitive.ptype().is_int() {
+                    let stats = integer::IntegerStats::generate(&primitive);
+                    let scheme = IntCompressor::choose_scheme(&stats, false, MAX_CASCADE, &[])?;
+                } else {
+                    FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                }
+            }
+            Canonical::Struct(struct_array) => {
+                let mut fields = Vec::new();
+                for idx in 0..struct_array.nfields() {
+                    let field = struct_array
+                        .maybe_null_field_by_idx(idx)
+                        .vortex_expect("field access");
+                    let compressed = self.compress(&field)?;
+                    fields.push(compressed);
+                }
+
+                Ok(StructArray::try_new(
+                    struct_array.names().clone(),
+                    fields,
+                    struct_array.len(),
+                    struct_array.validity().clone(),
+                )?
+                .into_array())
+            }
+            Canonical::List(list_array) => {
+                // Compress the inner
+                let compressed_elems = self.compress(list_array.elements())?;
+                let compressed_offsets = self.compress(list_array.offsets())?;
+
+                Ok(ListArray::try_new(
+                    compressed_elems,
+                    compressed_offsets,
+                    list_array.validity().clone(),
+                )?
+                .into_array())
+            }
+            Canonical::VarBinView(strings) => {
+                if strings
+                    .dtype()
+                    .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
+                {
+                    StringCompressor::compress(&strings, false, MAX_CASCADE, &[])
+                } else {
+                    // Binary arrays do not compress
+                    Ok(strings.into_array())
+                }
+            }
+            Canonical::Extension(ext_array) => {
+                // We compress Timestamp-level arrays with DateTimeParts compression
+                if let Ok(temporal_array) =
+                    TemporalArray::try_from(ext_array.to_array().into_array())
+                {
+                    if let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata() {
+                        return compress_temporal(temporal_array);
+                    }
+                }
+
+                // Compress the underlying storage array.
+                let compressed_storage = self.compress(ext_array.storage())?;
+
+                Ok(
+                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
+                        .into_array(),
+                )
+            }
+        }
+
+        Ok(())
+    }
 }
