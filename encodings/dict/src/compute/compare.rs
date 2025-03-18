@@ -138,6 +138,27 @@ mod tests {
     }
 
     #[test]
+    fn test_compare_non_eq() {
+        let dict = DictArray::try_new(
+            buffer![0u32, 1, 2].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        )
+            .unwrap();
+
+        let res = compare(
+            &dict,
+            &ConstantArray::new(Scalar::from(1i32), 3),
+            Operator::Gt,
+        )
+            .unwrap();
+        let res = res.to_bool().unwrap();
+        assert_eq!(
+            res.boolean_buffer().iter().collect::<Vec<_>>(),
+            vec![false, true, true]
+        );
+    }
+
+    #[test]
     fn test_compare_nullable() {
         let dict = DictArray::try_new(
             PrimitiveArray::new(
