@@ -43,11 +43,18 @@ impl SegmentQueue {
         (this, segment_reader)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.segments
+            .read()
+            .vortex_expect("poisoned lock")
+            .is_empty()
+    }
+
     /// Inspect all pending segments, in order of segment ID.
     /// TODO(ngates): we want this in order of request, not segment ID.
-    pub fn with_pending_segments<F>(&self, f: F) -> VortexResult<()>
+    pub fn with_pending_segments<F, T>(&self, f: F) -> T
     where
-        F: FnOnce(&mut dyn Iterator<Item = &mut PendingSegment>) -> VortexResult<()>,
+        F: FnOnce(&mut dyn Iterator<Item = &mut PendingSegment>) -> T,
     {
         f(&mut self
             .segments
@@ -138,6 +145,10 @@ impl PendingSegment {
 
     pub fn id(&self) -> SegmentId {
         self.id
+    }
+
+    pub fn take_callback(&mut self) -> Option<oneshot::Sender<VortexResult<ByteBuffer>>> {
+        self.send.take()
     }
 }
 

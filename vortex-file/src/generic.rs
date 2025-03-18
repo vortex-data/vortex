@@ -5,14 +5,13 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use dashmap::{DashMap, Entry};
-use futures::stream::FuturesUnordered;
-use futures::{Stream, TryFutureExt, TryStreamExt};
-use itertools::Itertools;
+use futures::channel::oneshot;
+use futures::{Stream, StreamExt, pin_mut, stream};
 use moka::future::CacheBuilder;
 use pin_project_lite::pin_project;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_io::VortexReadAt;
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
@@ -32,7 +31,7 @@ pub struct GenericVortexFile<R> {
     metrics: VortexMetrics,
 }
 
-impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send + Sync> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {
@@ -60,16 +59,24 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
         // Spawn an I/O driver to serve requests while this file is open.
         let driver = GenericScanDriver {
             read: options.read,
-            options: options.options,
             footer: footer.clone(),
             segment_cache: options.segment_cache,
             segment_queue,
             metrics: CoalescingMetrics::from(options.metrics.clone()),
         };
 
-        tokio::spawn(driver.io_driver().inspect_err(|e| {
-            log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", e)
-        }));
+        options.options.io_dispatcher.dispatch(move || async move {
+            let io_stream = driver
+                .io_driver()
+                .buffer_unordered(options.options.io_concurrency);
+
+            pin_mut!(io_stream);
+            while let Some(r) = io_stream.next().await {
+                if r.is_err() {
+                    log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", r)
+                }
+            }
+        })?;
 
         Ok(VortexFile {
             footer,
@@ -84,54 +91,123 @@ pub struct GenericScanOptions {
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
+    /// The dispatcher pool used to perform I/O.
+    io_dispatcher: IoDispatcher,
 }
 
 impl Default for GenericScanOptions {
     fn default() -> Self {
-        Self { io_concurrency: 16 }
+        Self {
+            io_concurrency: 16,
+            io_dispatcher: IoDispatcher::default(),
+        }
     }
 }
 
 pub struct GenericScanDriver<R> {
     read: R,
-    options: GenericScanOptions,
     footer: Footer,
     segment_cache: Arc<dyn SegmentCache>,
     segment_queue: SegmentQueue,
     metrics: CoalescingMetrics,
 }
 
-impl<R: VortexReadAt> GenericScanDriver<R> {
-    pub async fn io_driver(mut self) -> VortexResult<()> {
-        loop {
-            let Some(_) = self.segment_queue.next().await else {
-                // The segment queue has completed, meaning no more requests are possible.
-                // We're done!
-                return Ok(());
-            };
+impl<R: VortexReadAt + Send> GenericScanDriver<R> {
+    pub fn io_driver(self) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> {
+        // Create a stream that yields every time there is more work to do in the segment queue.
+        stream::unfold(self, move |mut this| async move {
+            // If the segment queue is empty, then wait for the next notification.
+            if this.segment_queue.is_empty() {
+                let Some(_) = this.segment_queue.next().await else {
+                    // The segment queue has completed, meaning no more requests are possible.
+                    // We're done!
+                    return None;
+                };
+            }
 
-            // Otherwise, take all the pending requests.
-            self.segment_queue.with_pending_segments(|pending| {
-                let pending = pending.collect_vec();
-                let requests: Vec<SegmentRequest> = pending.iter()
-                    .map(|p| {
-                        let spec = self.footer.segment_map().get(*p.id() as usize)
-                            .ok_or_else(|| vortex_err!("SegmentID not found"))?
-                            .clone();
-                        Ok(SegmentRequest::new(p.id(), spec))
-                    })
-                    .try_collect()?;
+            // Using the pending segments, construct a single coalesced read.
+            let request = this
+                .segment_queue
+                .with_pending_segments(|pending_segments| {
+                    let first = pending_segments
+                        .next()
+                        .vortex_expect("empty iterator from non-empty queue");
+                    let first_spec = this
+                        .footer
+                        .segment_map()
+                        .get(*first.id() as usize)
+                        .ok_or_else(|| vortex_err!("SegmentID {} not found", first.id()))?;
+                    let first_req = SegmentRequest {
+                        id: first.id(),
+                        spec: first_spec.clone(),
+                        callback: first
+                            .take_callback()
+                            .vortex_expect("pending segment must have callback"),
+                    };
 
-                let perf_hint = self.read.performance_hint();
+                    // We build up a single coalesced read from the pending segments.
+                    // Since pending segments are ordered by priority, we _always_ launch a request
+                    // for the highest priority segment.
+                    let mut coalesced = CoalescedSegmentRequest {
+                        alignment: first_spec.alignment,
+                        byte_range: first_spec.offset..first_spec.offset + first_spec.length as u64,
+                        requests: vec![first_req],
+                    };
 
-                coalesce(requests, perf_hint.coalescing_window(), perf_hint.max_read(), &self.metrics)
+                    let perf_hint = this.read.performance_hint();
+                    let window = perf_hint.coalescing_window();
+                    let max_read = perf_hint.max_read().unwrap_or(2 << 24); // 16MB.
 
-                for p in pending {
-                    println!("Pending: {:?}", p);
-                }
-                Ok(())
-            })?;
-        }
+                    for pending in pending_segments {
+                        // If the coalesced request has reached the maximum size, ship it.
+                        if coalesced.size_bytes() > max_read {
+                            break;
+                        }
+
+                        // Otherwise, try to include the pending segment in the request.
+                        let spec = this
+                            .footer
+                            .segment_map()
+                            .get(*pending.id() as usize)
+                            .ok_or_else(|| vortex_err!("SegmentID {} not found", pending.id()))?;
+
+                        let segment_start = spec.offset;
+                        let segment_end = spec.offset + spec.length as u64;
+
+                        // Check if the segment should be included in the coalesced request.
+                        if coalesced.byte_range.contains(&segment_start)
+                            || coalesced.byte_range.contains(&segment_end)
+                            || segment_start.abs_diff(coalesced.byte_range.end) < window
+                            || segment_end.abs_diff(coalesced.byte_range.start) < window
+                        {
+                            coalesced.byte_range.start =
+                                coalesced.byte_range.start.min(segment_start);
+                            coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
+                            // Take the maximum alignment of all segments in the coalesced request.
+                            coalesced.alignment = coalesced.alignment.max(spec.alignment);
+                            coalesced.requests.push(SegmentRequest {
+                                id: pending.id(),
+                                spec: spec.clone(),
+                                callback: pending
+                                    .take_callback()
+                                    .vortex_expect("pending segment must have callback"),
+                            });
+                        }
+                    }
+
+                    // Finally, we ensure the coalesced segments are sorted by ID.
+                    coalesced.requests.sort_unstable_by_key(|r| r.id);
+
+                    Ok::<_, VortexError>(coalesced)
+                });
+
+            // Launch the coalesced read.
+            let read = this.read.clone();
+            let segment_map = this.footer.segment_map().clone();
+            let fut = async move { evaluate(read, request?, segment_map).await };
+
+            Some((fut, this))
+        })
     }
 }
 
@@ -386,16 +462,10 @@ where
 struct SegmentRequest {
     id: SegmentId,
     spec: SegmentSpec,
+    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
 }
 
 impl SegmentRequest {
-    fn new(id: SegmentId, spec: SegmentSpec) -> Self {
-        Self {
-            id,
-            spec,
-        }
-    }
-
     fn range(&self) -> Range<u64> {
         self.spec.offset..self.spec.offset + self.spec.length as u64
     }
@@ -429,7 +499,13 @@ struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
-    pub(crate) requests: Vec<(SegmentId, SegmentSpec)>,
+    pub(crate) requests: Vec<SegmentRequest>,
+}
+
+impl CoalescedSegmentRequest {
+    fn size_bytes(&self) -> u64 {
+        self.byte_range.end - self.byte_range.start
+    }
 }
 
 #[derive(Default)]
@@ -467,12 +543,10 @@ impl CoalescedCancellationHandle {
     }
 }
 
-async fn evaluate<R: VortexReadAt>(
+async fn evaluate<R: VortexReadAt + Send>(
     read: R,
     request: CoalescedSegmentRequest,
     segment_map: Arc<[SegmentSpec]>,
-    segment_cache: Arc<dyn SegmentCache>,
-    inflight_segments: InflightSegments,
 ) -> VortexResult<()> {
     log::debug!(
         "Reading byte range for {} requests {:?} size={}",
@@ -492,8 +566,6 @@ async fn evaluate<R: VortexReadAt>(
     // Note that we may have multiple requests for the same segment.
     let mut requests_iter = request.requests.into_iter().peekable();
 
-    let cache_futures = FuturesUnordered::new();
-    let mut results = Vec::new();
     for (i, segment) in segment_map[start..end].iter().enumerate() {
         let segment_id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
@@ -502,17 +574,20 @@ async fn evaluate<R: VortexReadAt>(
             .aligned(segment.alignment);
 
         // Find any request callbacks and send the buffer
-        while let Some((id, _)) = requests_iter.peek() {
+        while let Some(req) = requests_iter.peek() {
             // If the request is before the current segment, we should have already resolved it.
-            match id.cmp(&segment_id) {
+            match req.id.cmp(&segment_id) {
                 Ordering::Less => {
                     // This should never happen, it means we missed a segment request.
                     vortex_panic!("Skipped segment request");
                 }
                 Ordering::Equal => {
                     // Resolve the request
-                    let (id, _) = requests_iter.next().vortex_expect("next request");
-                    results.push((id, Ok(buf.clone())));
+                    let req = requests_iter.next().vortex_expect("next request");
+                    if let Err(_) = req.callback.send(Ok(buf.clone())) {
+                        // The receiver was dropped, which means the segment is no longer needed.
+                        log::debug!("Segment request was dropped while in-flight: {}", req.id);
+                    }
                 }
                 Ordering::Greater => {
                     // No request for this segment, so we continue
@@ -520,112 +595,9 @@ async fn evaluate<R: VortexReadAt>(
                 }
             }
         }
-
-        cache_futures.push(segment_cache.put(segment_id, buf));
-    }
-
-    // Populate the cache
-    cache_futures.try_collect::<()>().await?;
-    // resolve requests
-    for (id, buf) in results {
-        inflight_segments.complete(id, buf);
     }
 
     Ok(())
-}
-
-/// TODO(ngates): outsource coalescing to a trait
-fn coalesce(
-    requests: Vec<SegmentRequest>,
-    coalescing_window: u64,
-    max_read: Option<u64>,
-    metrics: &CoalescingMetrics,
-) -> Vec<CoalescedSegmentRequest> {
-    let fetch_ranges = merge_ranges(
-        requests.iter().map(|r| r.range()),
-        coalescing_window,
-        max_read,
-    );
-    let mut coalesced = fetch_ranges
-        .iter()
-        .map(|range| {
-            (
-                CoalescedSegmentRequest {
-                    // We use the alignment of the first segment as the alignment for the entire request.
-                    // TODO(ngates): if we had a VortexReadRanges trait, we could use pread where possible
-                    //  to ensure correct alignment for all coalesced buffers.
-                    alignment: requests
-                        .first()
-                        .map(|r| r.spec.alignment)
-                        .unwrap_or(Alignment::none()),
-                    byte_range: range.clone(),
-                    requests: vec![],
-                },
-                CoalescedCancellationHandle::new(
-                    Vec::new(),
-                    metrics.cancel_received.clone(),
-                    metrics.cancelled.clone(),
-                ),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    for req in requests {
-        let idx = fetch_ranges.partition_point(|v| v.start <= req.spec.offset) - 1;
-        let (ref mut request, ref mut cancellation) = coalesced[idx];
-        request.requests.push((req.id, req.spec));
-        cancellation.push(req.cancel_handle);
-    }
-
-    // Ensure we sort the requests by segment ID within the coalesced request.
-    for (req, _) in coalesced.iter_mut() {
-        req.requests.sort_unstable_by_key(|(id, _)| *id);
-        metrics.record(req);
-    }
-    coalesced
-}
-
-/// Returns a sorted list of ranges that cover `ranges`
-///
-/// From arrow-rs.
-fn merge_ranges<R>(ranges: R, coalesce: u64, max_read: Option<u64>) -> Vec<Range<u64>>
-where
-    R: IntoIterator<Item = Range<u64>>,
-{
-    let mut ranges: Vec<Range<u64>> = ranges.into_iter().collect();
-    ranges.sort_unstable_by_key(|range| range.start);
-
-    let mut ret = Vec::with_capacity(ranges.len());
-    let mut start_idx = 0;
-    let mut end_idx = 1;
-
-    while start_idx != ranges.len() {
-        let start = ranges[start_idx].start;
-        let mut range_end = ranges[start_idx].end;
-
-        while end_idx != ranges.len()
-            && ranges[end_idx]
-                .start
-                .checked_sub(range_end)
-                .map(|delta| delta <= coalesce)
-                .unwrap_or(true)
-        {
-            let new_range_end = range_end.max(ranges[end_idx].end);
-            if max_read.is_some_and(|max| new_range_end - start > max) {
-                break;
-            }
-            range_end = new_range_end;
-            end_idx += 1;
-        }
-
-        let end = range_end;
-        ret.push(start..end);
-
-        start_idx = end_idx;
-        end_idx += 1;
-    }
-
-    ret
 }
 
 #[derive(Clone)]
@@ -654,27 +626,6 @@ impl From<VortexMetrics> for CoalescingMetrics {
             cancel_received: metrics.counter("vortex.scan.segments.cancel_received"),
             cancelled: metrics.counter("vortex.scan.segments.cancelled"),
         }
-    }
-}
-
-impl CoalescingMetrics {
-    fn record(&self, req: &CoalescedSegmentRequest) {
-        // record request counts
-        self.request_count_coalesced.inc();
-        if let Ok(len) = req.requests.len().try_into() {
-            self.request_count_uncoalesced.add(len);
-        }
-
-        // record uncoalesced total byte requests vs coalesced
-        if let Ok(bytes) = (req.byte_range.end - req.byte_range.start).try_into() {
-            self.bytes_coalesced.add(bytes);
-        }
-        self.bytes_uncoalesced.add(
-            req.requests
-                .iter()
-                .map(|(_, location)| location.length as i64)
-                .sum(),
-        );
     }
 }
 
