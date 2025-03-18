@@ -85,51 +85,6 @@ impl ExprEvaluator for ChunkedReader {
             Ok(Some(chunked_array.into_array()))
         }))
     }
-
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayRef> {
-        // Compute the result dtype of the expression.
-        let dtype = expr.return_dtype(self.dtype())?;
-
-        // Figure out which chunks intersect the RowMask
-        let chunk_range = self.chunk_range(&(row_mask.begin()..row_mask.end()));
-
-        // Now we set up futures to evaluate each chunk at the same time
-        let mut chunks = Vec::new();
-
-        for chunk_idx in chunk_range {
-            let chunk_mask = self.chunk_mask(chunk_idx, &row_mask)?;
-
-            if chunk_mask.true_count() == 0 {
-                // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
-                continue;
-            }
-
-            // Otherwise, we need to read it. So we set up a mask for the chunk range.
-            let chunk_reader = self.child(chunk_idx)?;
-            chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr.clone()));
-        }
-
-        if chunks.len() == 1 {
-            // Avoid creating a chunked array for a single chunk
-            let chunk = chunks
-                .pop()
-                .vortex_expect("Expected at least one chunk to be evaluated")
-                .await?;
-            return Ok(chunk);
-        }
-
-        let chunks = try_join_all(chunks).await?;
-        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
-    }
-
-    async fn refine_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
-        // TODO(ngates): we should push-down to each child
-        Ok(row_mask)
-    }
 }
 
 impl ChunkedReader {

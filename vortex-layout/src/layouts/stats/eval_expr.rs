@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
 use crate::layouts::stats::reader::StatsReader;
-use crate::{ExprEvaluator, MaskFuture, RowMask};
+use crate::{ExprEvaluator, MaskFuture};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
@@ -53,14 +53,6 @@ impl ExprEvaluator for StatsReader {
             // Otherwise, we must delegate to the child.
             result.await
         }))
-    }
-
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayRef> {
-        self.data_child.evaluate_expr(row_mask, expr).await
     }
 }
 

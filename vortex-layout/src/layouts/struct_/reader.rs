@@ -12,15 +12,14 @@ use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
-#[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
     ctx: ArrayContext,
     segment_reader: Arc<dyn AsyncSegmentReader>,
 
-    field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    field_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    partitioned_expr_cache: RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>,
 }
 
 impl StructReader {
@@ -58,7 +57,7 @@ impl StructReader {
             segment_reader,
             field_readers,
             field_lookup,
-            partitioned_expr_cache: Arc::new(Default::default()),
+            partitioned_expr_cache: Default::default(),
         })
     }
 

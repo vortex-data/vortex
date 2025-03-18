@@ -10,15 +10,15 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{ResultExt, VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
+use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
-use crate::scan::filter::FilterExpr;
 use crate::segments::{AsyncSegmentReader, SegmentStream};
 use crate::{
     ExprEvaluator, LayoutReader, LayoutReaderExt, MaskFuture, RowMask, instrument,
@@ -26,7 +26,6 @@ use crate::{
 };
 
 pub mod executor;
-pub(crate) mod filter;
 mod split_by;
 pub mod unified;
 
@@ -71,7 +70,7 @@ impl ScanBuilder {
             split_by: SplitBy::Layout,
             canonicalize: false,
             prefetch_conjuncts: false,
-            concurrency: 1024,
+            concurrency: 8,
             metrics: Default::default(),
         }
     }
@@ -268,27 +267,7 @@ impl Scan {
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
         let task_executor = self.task_executor.clone();
-
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-
-        let pruning = self
-            .filter
-            .as_ref()
-            .map(|filter| {
-                let pruning = Arc::new(FilterExpr::try_new(
-                    self.layout_reader
-                        .dtype()
-                        .as_struct()
-                        .ok_or_else(|| {
-                            vortex_err!("Vortex scan currently only works for struct arrays")
-                        })?
-                        .clone(),
-                    filter.clone(),
-                    self.prefetch_conjuncts,
-                )?);
-                VortexResult::Ok(pruning)
-            })
-            .transpose()?;
 
         // Map each mask into a future that resolves the array for the row range.
         let mut masks = self
@@ -303,6 +282,8 @@ impl Scan {
 
         // Construct the filter expressions if necessary
         if let Some(filter) = self.filter.as_ref() {
+            let filter_reader = FilterLayoutReader::new(self.layout_reader.clone());
+
             masks = masks
                 .into_iter()
                 .map(|(row_range, mask_future)| {
@@ -317,8 +298,7 @@ impl Scan {
                     .vortex_expect("row range overflow");
 
                     // NOTE that we currently pass an all-true mask to the filter expression.
-                    let mask_future: MaskFuture = self
-                        .layout_reader
+                    let mask_future: MaskFuture = filter_reader
                         .evaluate_expr2(
                             &row_range,
                             filter,

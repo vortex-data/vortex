@@ -1,5 +1,4 @@
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
 
 use futures::channel::{mpsc, oneshot};
@@ -12,11 +11,11 @@ use vortex_error::{
 };
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
-type SegmentsMap = Arc<RwLock<BTreeMap<SegmentId, PendingSegment>>>;
+type Segments = Arc<RwLock<VecDeque<PendingSegment>>>;
 
 /// Pre-fetch queue for segments for the generic file reader.
 pub struct SegmentQueue {
-    segments: SegmentsMap,
+    segments: Segments,
     recv: mpsc::UnboundedReceiver<()>,
 }
 
@@ -24,7 +23,7 @@ impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
     /// populate it.
     pub fn new() -> (Self, Arc<dyn AsyncSegmentReader>) {
-        let segments = Arc::new(RwLock::new(BTreeMap::new()));
+        let segments = Arc::new(RwLock::new(VecDeque::default()));
 
         let (send, recv) = mpsc::unbounded();
         let this = Self {
@@ -57,7 +56,7 @@ impl SegmentQueue {
             .segments
             .write()
             .vortex_expect("poisoned lock")
-            .values_mut()
+            .iter_mut()
             .filter(|p| p.send.is_some()))
     }
 
@@ -69,22 +68,19 @@ impl SegmentQueue {
 }
 
 struct SegmentQueueSegmentReader {
-    segments: SegmentsMap,
+    segments: Segments,
     notifier: Mutex<mpsc::UnboundedSender<()>>,
 }
 
 impl AsyncSegmentReader for SegmentQueueSegmentReader {
     fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        match self
-            .segments
-            .write()
-            .vortex_expect("poisoned lock")
-            .entry(id)
-        {
-            Entry::Vacant(e) => {
+        let mut segments = self.segments.write().vortex_expect("poisoned lock");
+
+        match segments.iter().find(|p| p.id == id) {
+            None => {
                 let (pending, fut) = PendingSegment::new(id, self.segments.clone());
                 // Insert the pending segment into the map, return the strong shared future to the caller.
-                e.insert(pending);
+                segments.push_back(pending);
                 self.notifier
                     .lock()
                     .vortex_expect("poisoned lock")
@@ -93,9 +89,9 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                     .vortex_expect("Failed to notify segment queue");
                 Box::pin(fut.map_err(VortexError::from))
             }
-            Entry::Occupied(e) => {
-                // If the entry is occupied, and the pending segment
-                if let Some(fut) = e.get().recv.upgrade() {
+            Some(pending) => {
+                // If the entry is occupied, return a clone of the future
+                if let Some(fut) = pending.recv.upgrade() {
                     Box::pin(fut.map_err(VortexError::from))
                 } else {
                     vortex_panic!("Segment lost all strong refs without cleaning itself up");
@@ -112,13 +108,13 @@ pub struct PendingSegment {
     /// If the option is empty, it means it is in-flight by a current request.
     send: Option<oneshot::Sender<VortexResult<ByteBuffer>>>,
     recv: WeakShared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>,
-    segments: SegmentsMap,
+    segments: Segments,
 }
 
 impl PendingSegment {
     fn new(
         segment_id: SegmentId,
-        segments: SegmentsMap,
+        segments: Segments,
     ) -> (
         Self,
         Shared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>,
@@ -153,11 +149,16 @@ impl Drop for PendingSegment {
     fn drop(&mut self) {
         // When a pending segment is dropped, we clean it up and remove it from the map.
         if self.send.is_some() {
-            log::info!("Dropping segment request {:?} prior to launch", self.id);
+            log::info!(
+                "DROP DROP DROP segment request {:?} prior to launch",
+                self.id
+            );
         }
-        self.segments
-            .write()
-            .vortex_expect("poisoned lock")
-            .remove(&self.id);
+        let mut segments = self.segments.write().vortex_expect("poisoned lock");
+        let idx = segments
+            .iter()
+            .position(|p| p.id == self.id)
+            .vortex_expect("Segment not found");
+        segments.remove(idx);
     }
 }

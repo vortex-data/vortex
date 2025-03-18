@@ -180,13 +180,14 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                         // Check if the segment should be included in the coalesced request.
                         if coalesced.byte_range.contains(&segment_start)
                             || coalesced.byte_range.contains(&segment_end)
-                            || segment_start.abs_diff(coalesced.byte_range.end) < window
-                            || segment_end.abs_diff(coalesced.byte_range.start) < window
+                            || segment_start.abs_diff(coalesced.byte_range.end) <= window
+                            || segment_end.abs_diff(coalesced.byte_range.start) <= window
                         {
                             coalesced.byte_range.start =
                                 coalesced.byte_range.start.min(segment_start);
                             coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
                             // Take the maximum alignment of all segments in the coalesced request.
+                            // FIXME(ngates): shouldn't this be the _first_ segment?
                             coalesced.alignment = coalesced.alignment.max(spec.alignment);
                             coalesced.requests.push(SegmentRequest {
                                 id: pending.id(),
@@ -209,7 +210,6 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             let segment_map = this.footer.segment_map().clone();
             let fut = async move {
                 if let Some(request) = request? {
-                    log::info!("Launching coalesced read {:?}", request);
                     evaluate(read, request, segment_map).await
                 } else {
                     Ok(())

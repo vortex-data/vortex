@@ -7,7 +7,7 @@ use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_dtype::TryFromBytes;
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -16,7 +16,7 @@ use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
+use crate::{Layout, LayoutVTable, mask_future_ready};
 
 type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
@@ -104,26 +104,29 @@ impl StatsReader {
     /// resolve to the same result.
     pub(crate) fn stats_table(&self) -> Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>> {
         self.stats_table
-            .get_or_init(|| {
+            .get_or_try_init(|| {
                 let stats_child = self.stats_child.clone();
                 let present_stats = self.present_stats.clone();
                 let nzones = self.nzones;
 
-                async move {
-                    let stats_array = stats_child
-                        .evaluate_expr(
-                            RowMask::new_valid_between(0, nzones as u64),
-                            Identity::new_expr(),
-                        )
-                        .await?;
+                let stats_future = stats_child.evaluate_expr2(
+                    &(0..nzones as u64),
+                    &Identity::new_expr(),
+                    mask_future_ready(Mask::new_true(nzones)),
+                )?;
 
-                    // SAFETY: This is only fine to call because we perform validation above
-                    Ok(StatsTable::unchecked_new(stats_array, present_stats))
-                }
-                .map_err(Arc::new)
-                .boxed()
-                .shared()
+                Ok::<_, VortexError>(
+                    async move {
+                        let stats_array = stats_future.await?.vortex_expect("Mask was all true");
+                        // SAFETY: This is only fine to call because we perform validation above
+                        Ok(StatsTable::unchecked_new(stats_array, present_stats))
+                    }
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared(),
+                )
             })
+            .vortex_expect("Failed to construct stats expression")
             .clone()
     }
 

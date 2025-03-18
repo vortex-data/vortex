@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::{ExprRef, Identity};
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::{ExprEvaluator, MaskFuture, RowMask};
+use crate::{ExprEvaluator, MaskFuture};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
@@ -91,42 +91,6 @@ impl ExprEvaluator for FlatReader {
 
             Ok(Some(array))
         }))
-    }
-
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayRef> {
-        assert!(row_mask.true_count() > 0);
-
-        let mut array = self.array().await?.clone();
-
-        // TODO(ngates): what's the best order to apply the filter mask / expression?
-        let begin = usize::try_from(row_mask.begin())
-            .vortex_expect("RowMask begin must fit within FlatLayout size");
-
-        // Slice the array based on the row mask.
-        if begin > 0 || (begin + row_mask.len()) < array.len() {
-            array = slice(&array, begin, begin + row_mask.len())?;
-        }
-
-        // Filter the array based on the row mask.
-        if !row_mask.filter_mask().all_true() {
-            array = filter(&array, row_mask.filter_mask())?;
-        }
-
-        // Evaluate the projection expression.
-        if !expr.as_any().is::<Identity>() {
-            array = expr.evaluate(&array)?;
-        }
-
-        Ok(array)
-    }
-
-    async fn refine_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
-        // No cheap pruning for us to do without fetching data.
-        Ok(row_mask)
     }
 }
 
