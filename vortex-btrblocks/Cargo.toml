@@ -14,12 +14,12 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-parking_lot = { workspace = true }
 arrow-buffer = { workspace = true }
 getrandom_v02 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
+parking_lot = { workspace = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
 vortex-alp = { workspace = true }

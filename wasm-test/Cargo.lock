@@ -502,7 +502,7 @@ version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "988360e80225a42d5e2f78fcb90ef7d54d1e4394d335476b5465d34942426776"
 dependencies = [
- "ordered-float",
+ "ordered-float 5.0.0",
  "rand",
 ]
 
@@ -581,9 +581,9 @@ dependencies = [
 
 [[package]]
 name = "fsst-rs"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bef086b2717e557af9d9ca2def97a8ef727cb808a8db00bff6b7590446c9099"
+checksum = "5fa1df9a00094a6b351a2aa517e7972ec23a97d97f5223eafab15d5c3531f1e9"
 
 [[package]]
 name = "futures"
@@ -1233,6 +1233,15 @@ checksum = "d75b0bedcc4fe52caa0e03d9f1151a323e4aa5e2d78ba3580400cd3c9e2bc4bc"
 
 [[package]]
 name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "ordered-float"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2c1f9f56e534ac6a9b8a4600bdf0f530fb393b5f393e7b4d03489c3cf0c3f01"
@@ -1601,6 +1610,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1924,6 +1943,7 @@ dependencies = [
  "itertools",
  "log",
  "num-traits",
+ "parking_lot",
  "rand",
  "rustc-hash",
  "vortex-alp",
@@ -2123,6 +2143,7 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
+ "vortex-metrics",
 ]
 
 [[package]]
@@ -2132,6 +2153,15 @@ dependencies = [
  "arrow-buffer",
  "itertools",
  "vortex-error",
+]
+
+[[package]]
+name = "vortex-metrics"
+version = "0.25.2"
+dependencies = [
+ "getrandom 0.3.1",
+ "vortex-error",
+ "witchcraft-metrics",
 ]
 
 [[package]]
@@ -2400,6 +2430,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags 2.9.0",
+]
+
+[[package]]
+name = "witchcraft-metrics"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "867a74dec702d742179279ab0b5bcab72ca5858c0c3ccf870bdb5c99f54d675b"
+dependencies = [
+ "exponential-decay-histogram",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
