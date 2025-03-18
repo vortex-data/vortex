@@ -25,84 +25,83 @@ impl CompareFn<&DictArray> for DictEncoding {
                 operator,
             )?;
 
-            let bool_result = compare_result.to_bool()?;
-            let result_validity = bool_result.validity_mask()?;
-            let bool_buffer = bool_result.boolean_buffer();
-            let (first_match, second_match) = match result_validity.boolean_buffer() {
-                AllOr::All => {
-                    let mut indices_iter = bool_buffer.set_indices();
-                    (indices_iter.next(), indices_iter.next())
-                }
-                AllOr::None => (None, None),
-                AllOr::Some(v) => {
-                    let mut indices_iter = bool_buffer.set_indices().filter(|i| v.value(*i));
-                    (indices_iter.next(), indices_iter.next())
-                }
+            return if operator == Operator::Eq {
+                dict_equal_to(lhs.codes(), compare_result, lhs.dtype().nullability()).map(Some)
+            } else {
+                take(&compare_result, lhs.codes()).map(Some)
             };
-
-            let result = match (first_match, second_match) {
-                // Couldn't find a value match, so the result is all false
-                (None, _) => match result_validity {
-                    Mask::AllTrue(_) => {
-                        let mut result_builder = builder_with_capacity(
-                            &DType::Bool(Nullability::Nullable),
-                            lhs.codes().len(),
-                        );
-                        result_builder.extend_from_array(
-                            &ConstantArray::new(
-                                Scalar::bool(false, lhs.dtype().nullability()),
-                                lhs.codes().len(),
-                            )
-                            .into_array(),
-                        )?;
-                        result_builder.set_validity(lhs.codes().validity_mask()?);
-                        result_builder.finish()
-                    }
-                    Mask::AllFalse(_) => ConstantArray::new(
-                        Scalar::null(DType::Bool(Nullability::Nullable)),
-                        lhs.codes().len(),
-                    )
-                    .into_array(),
-                    Mask::Values(_) => {
-                        let mut result_builder = builder_with_capacity(
-                            &DType::Bool(Nullability::Nullable),
-                            lhs.codes().len(),
-                        );
-                        result_builder.extend_from_array(
-                            &ConstantArray::new(
-                                Scalar::bool(false, lhs.dtype().nullability()),
-                                lhs.codes().len(),
-                            )
-                            .into_array(),
-                        )?;
-                        result_builder.set_validity(
-                            Validity::from_mask(result_validity, bool_result.dtype().nullability())
-                                .take(lhs.codes())?
-                                .to_logical(lhs.codes().len())?,
-                        );
-                        result_builder.finish()
-                    }
-                },
-                // We found a single matching value so we can compare the codes directly.
-                // Note: the codes include nullability so we can just compare the codes directly, to the found code.
-                (Some(code), None) => try_cast(
-                    &compare(
-                        lhs.codes(),
-                        &try_cast(&ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
-                        operator,
-                    )?,
-                    &DType::Bool(lhs.dtype().nullability()),
-                )?,
-                // more than one value matches
-                _ => take(&bool_result, lhs.codes())?,
-            };
-            return Ok(Some(result));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
         // values in the future.
         Ok(None)
     }
+}
+
+fn dict_equal_to(
+    codes: &ArrayRef,
+    values_compare: ArrayRef,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let bool_result = values_compare.to_bool()?;
+    let result_validity = bool_result.validity_mask()?;
+    let bool_buffer = bool_result.boolean_buffer();
+    let (first_match, second_match) = match result_validity.boolean_buffer() {
+        AllOr::All => {
+            let mut indices_iter = bool_buffer.set_indices();
+            (indices_iter.next(), indices_iter.next())
+        }
+        AllOr::None => (None, None),
+        AllOr::Some(v) => {
+            let mut indices_iter = bool_buffer.set_indices().filter(|i| v.value(*i));
+            (indices_iter.next(), indices_iter.next())
+        }
+    };
+
+    Ok(match (first_match, second_match) {
+        // Couldn't find a value match, so the result is all false
+        (None, _) => match result_validity {
+            Mask::AllTrue(_) => {
+                let mut result_builder =
+                    builder_with_capacity(&DType::Bool(Nullability::Nullable), codes.len());
+                result_builder.extend_from_array(
+                    &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+                )?;
+                result_builder.set_validity(codes.validity_mask()?);
+                result_builder.finish()
+            }
+            Mask::AllFalse(_) => ConstantArray::new(
+                Scalar::null(DType::Bool(Nullability::Nullable)),
+                codes.len(),
+            )
+            .into_array(),
+            Mask::Values(_) => {
+                let mut result_builder =
+                    builder_with_capacity(&DType::Bool(Nullability::Nullable), codes.len());
+                result_builder.extend_from_array(
+                    &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+                )?;
+                result_builder.set_validity(
+                    Validity::from_mask(result_validity, bool_result.dtype().nullability())
+                        .take(codes)?
+                        .to_logical(codes.len())?,
+                );
+                result_builder.finish()
+            }
+        },
+        // We found a single matching value so we can compare the codes directly.
+        // Note: the codes include nullability so we can just compare the codes directly, to the found code.
+        (Some(code), None) => try_cast(
+            &compare(
+                codes,
+                &try_cast(&ConstantArray::new(code, codes.len()), codes.dtype())?,
+                Operator::Eq,
+            )?,
+            &DType::Bool(nullability),
+        )?,
+        // more than one value matches
+        _ => take(&bool_result, codes)?,
+    })
 }
 
 #[cfg(test)]
