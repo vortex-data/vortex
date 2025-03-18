@@ -18,7 +18,6 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
 impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
-    #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
         let validity = array.validity().take(&indices)?;
@@ -90,10 +89,7 @@ fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     Ok(())
 }
 
-fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &[T],
-    indices: &[I],
-) -> Buffer<T> {
+fn take_primitive<T: Copy, I: AsPrimitive<usize>>(array: &[T], indices: &[I]) -> Buffer<T> {
     indices.iter().map(|idx| array[idx.as_()]).collect()
 }
 

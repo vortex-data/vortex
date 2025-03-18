@@ -1,5 +1,6 @@
 //! Physical type definitions and behavior.
 
+use num_traits::bounds::LowerBounded;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -7,12 +8,12 @@ use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 
-use crate::DType;
-use crate::DType::*;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
+use crate::DType;
+use crate::DType::*;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
@@ -366,6 +367,13 @@ impl PType {
     pub fn max_value_as_u64(&self) -> u64 {
         match_each_native_ptype!(self, |$T| <$T as UpperBounded>::max_value().to_u64().unwrap_or(u64::MAX))
     }
+
+    /// Returns the minimum value of this PType if it is an integer type
+    /// Returns `i64::MIN` if the value is too small to fit in a `i64`
+    pub fn min_value_as_i64(&self) -> i64 {
+        match_each_native_ptype!(self, |$T| <$T as LowerBounded>::min_value().to_i64().unwrap_or(i64::MIN))
+    }
+
 
     /// Returns the PType that corresponds to the signed version of this PType
     pub const fn to_signed(self) -> Self {

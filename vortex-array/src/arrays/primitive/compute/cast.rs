@@ -43,6 +43,30 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
             .into_array());
         }
 
+        if new_ptype.bit_width() == array.ptype().bit_width() {
+            if new_ptype.is_unsigned_int() {
+                if let Some(min) = array.statistics().compute_min::<i64>() {
+                    if min >= 0 {
+                        return Ok(array.reinterpret_cast(new_ptype).into_array());
+                    }
+                }
+            }
+
+            if new_ptype.is_signed_int() {
+                let max = array.statistics().compute_max::<u64>();
+                let min = array.statistics().compute_min::<i64>();
+                if max
+                    .zip(min)
+                    .map(|(max, min)| {
+                        max <= new_ptype.max_value_as_u64() && min >= new_ptype.min_value_as_i64()
+                    })
+                    .unwrap_or(false)
+                {
+                    return Ok(array.reinterpret_cast(new_ptype).into_array());
+                }
+            }
+        }
+
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
             Ok(PrimitiveArray::new(
@@ -58,7 +82,7 @@ fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
     match_each_native_ptype!(array.ptype(), |$P| {
         for item in array.as_slice::<$P>() {
             let item = T::from(*item).ok_or_else(
-                || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+                || vortex_err!(ComputeError: "Failed to cast {} to {}", item, T::PTYPE),
             )?;
             // SAFETY: we've pre-allocated the required capacity
             unsafe { buffer.push_unchecked(item) }
