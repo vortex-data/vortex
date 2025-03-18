@@ -26,7 +26,7 @@ impl CompareFn<&DictArray> for DictEncoding {
             )?;
 
             return if operator == Operator::Eq {
-                dict_equal_to(lhs.codes(), compare_result, lhs.dtype().nullability()).map(Some)
+                dict_equal_to(compare_result, lhs.codes(), lhs.dtype().nullability()).map(Some)
             } else {
                 take(&compare_result, lhs.codes()).map(Some)
             };
@@ -39,8 +39,8 @@ impl CompareFn<&DictArray> for DictEncoding {
 }
 
 fn dict_equal_to(
-    codes: &ArrayRef,
     values_compare: ArrayRef,
+    codes: &ArrayRef,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     let bool_result = values_compare.to_bool()?;
