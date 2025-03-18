@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
 
-use crate::{FileType, Footer, Segment, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -58,7 +58,7 @@ impl AsyncSegmentReader for InMemoryVortexFile {
         let buffer = self.buffer.clone();
 
         async move {
-            let segment: &Segment = segment_map
+            let segment: &SegmentSpec = segment_map
                 .get(*id as usize)
                 .ok_or_else(|| vortex_err!("segment not found"))?;
 

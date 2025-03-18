@@ -8,7 +8,7 @@ use vortex_io::VortexWrite;
 use vortex_layout::stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
-use crate::footer::{Footer, Postscript, Segment};
+use crate::footer::{Footer, Postscript, SegmentSpec};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -75,21 +75,22 @@ impl VortexWriteOptions {
         // Our buffered message writer accumulates messages for each batch so we can flush them
         // into the file.
         let mut segment_writer = BufferedSegmentWriter::default();
-        let mut segments = vec![];
+        let mut segment_map = vec![];
 
         // Then write the stream via the root layout
         while let Some(chunk) = stream.next().await {
-            layout_writer.push_chunk(&mut segment_writer, chunk?)?;
+            let chunk = chunk?;
+            layout_writer.push_chunk(&mut segment_writer, chunk)?;
             // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
             segment_writer
-                .flush_async(&mut write, &mut segments)
+                .flush_async(&mut write, &mut segment_map)
                 .await?;
         }
 
         // Flush the final layout messages into the file
         let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
-            .flush_async(&mut write, &mut segments)
+            .flush_async(&mut write, &mut segment_map)
             .await?;
 
         // Write the DType, followed by the Footer. We choose this order because in many cases
@@ -108,7 +109,7 @@ impl VortexWriteOptions {
                 &Footer::flatbuffer_writer(
                     ctx,
                     layout,
-                    segments.into(),
+                    segment_map.into(),
                     self.file_statistics
                         .is_some()
                         .then(|| layout_writer.into_stats_sets().into()),
@@ -147,10 +148,10 @@ impl VortexWriteOptions {
         &self,
         write: &mut futures::io::Cursor<W>,
         flatbuffer: &F,
-    ) -> VortexResult<Segment> {
+    ) -> VortexResult<SegmentSpec> {
         let layout_offset = write.position();
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
-        Ok(Segment {
+        Ok(SegmentSpec {
             offset: layout_offset,
             length: u32::try_from(write.position() - layout_offset)
                 .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,

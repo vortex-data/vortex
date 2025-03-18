@@ -3,18 +3,19 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_io::VortexWrite;
 use vortex_layout::segments::{SegmentId, SegmentWriter};
 
-use crate::footer::Segment;
+use crate::footer::SegmentSpec;
 
 /// A segment writer that holds buffers in memory until they are flushed by a writer.
 #[derive(Default)]
 pub(crate) struct BufferedSegmentWriter {
-    segments: Vec<Vec<ByteBuffer>>,
+    /// A Vec byte buffers for segments
+    segments_buffers: Vec<Vec<ByteBuffer>>,
     next_id: SegmentId,
 }
 
 impl SegmentWriter for BufferedSegmentWriter {
     fn put(&mut self, data: &[ByteBuffer]) -> SegmentId {
-        self.segments.push(data.to_vec());
+        self.segments_buffers.push(data.to_vec());
         let id = self.next_id;
         self.next_id = SegmentId::from(*self.next_id + 1);
         id
@@ -25,10 +26,10 @@ impl BufferedSegmentWriter {
     /// Flush the segments to the provided async writer.
     pub async fn flush_async<W: VortexWrite>(
         &mut self,
-        write: &mut futures::io::Cursor<W>,
-        segments: &mut Vec<Segment>,
+        writer: &mut futures::io::Cursor<W>,
+        segment_descriptions: &mut Vec<SegmentSpec>,
     ) -> VortexResult<()> {
-        for buffers in self.segments.drain(..) {
+        for buffers in self.segments_buffers.drain(..) {
             // The API requires us to write these buffers contiguously. Therefore, we can only
             // respect the alignment of the first one.
             // Don't worry, in most cases the caller knows what they're doing and will align the
@@ -39,22 +40,22 @@ impl BufferedSegmentWriter {
                 .unwrap_or_else(Alignment::none);
 
             // Add any padding required to align the segment.
-            let offset = write.position();
+            let offset = writer.position();
             let padding = offset.next_multiple_of(*alignment as u64) - offset;
             if padding > 0 {
-                write
+                writer
                     .write_all(ByteBuffer::zeroed(padding as usize))
                     .await?;
             }
-            let offset = write.position();
+            let offset = writer.position();
 
             for buffer in buffers {
-                write.write_all(buffer).await?;
+                writer.write_all(buffer).await?;
             }
 
-            segments.push(Segment {
+            segment_descriptions.push(SegmentSpec {
                 offset,
-                length: u32::try_from(write.position() - offset)
+                length: u32::try_from(writer.position() - offset)
                     .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
                 alignment,
             });

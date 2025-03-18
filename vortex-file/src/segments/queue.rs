@@ -135,6 +135,10 @@ impl PendingSegment {
 
         (pending, shared_recv)
     }
+
+    pub fn id(&self) -> SegmentId {
+        self.id
+    }
 }
 
 impl Drop for PendingSegment {

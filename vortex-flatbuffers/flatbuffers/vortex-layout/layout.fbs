@@ -22,7 +22,7 @@ table Layout {
     metadata: [ubyte];
     /// The children of this Layout.
     children: [Layout];
-    /// Identifiers for each `Segment` of data required by this layout.
+    /// Identifiers for each `SegmentSpec` of data required by this layout.
     segments: [uint32];
 }
 

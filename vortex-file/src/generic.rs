@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 use dashmap::{DashMap, Entry};
 use futures::stream::FuturesUnordered;
 use futures::{Stream, TryFutureExt, TryStreamExt};
+use itertools::Itertools;
 use moka::future::CacheBuilder;
 use pin_project_lite::pin_project;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -15,7 +16,7 @@ use vortex_io::VortexReadAt;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
-use crate::footer::{Footer, Segment};
+use crate::footer::{Footer, SegmentSpec};
 use crate::segments::queue::SegmentQueue;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexFile, VortexOpenOptions};
@@ -111,7 +112,19 @@ impl<R: VortexReadAt> GenericScanDriver<R> {
 
             // Otherwise, take all the pending requests.
             self.segment_queue.with_pending_segments(|pending| {
-                coalesce()
+                let pending = pending.collect_vec();
+                let requests: Vec<SegmentRequest> = pending.iter()
+                    .map(|p| {
+                        let spec = self.footer.segment_map().get(*p.id() as usize)
+                            .ok_or_else(|| vortex_err!("SegmentID not found"))?
+                            .clone();
+                        Ok(SegmentRequest::new(p.id(), spec))
+                    })
+                    .try_collect()?;
+
+                let perf_hint = self.read.performance_hint();
+
+                coalesce(requests, perf_hint.coalescing_window(), perf_hint.max_read(), &self.metrics)
 
                 for p in pending {
                     println!("Pending: {:?}", p);
@@ -372,19 +385,19 @@ where
 #[derive(Debug)]
 struct SegmentRequest {
     id: SegmentId,
-    location: Segment,
+    spec: SegmentSpec,
 }
 
 impl SegmentRequest {
-    fn new(id: SegmentId, location: Segment) -> Self {
+    fn new(id: SegmentId, spec: SegmentSpec) -> Self {
         Self {
             id,
-            location,
+            spec,
         }
     }
 
     fn range(&self) -> Range<u64> {
-        self.location.offset..self.location.offset + self.location.length as u64
+        self.spec.offset..self.spec.offset + self.spec.length as u64
     }
 }
 
@@ -393,7 +406,7 @@ async fn filter_with_cache(
     cache: Arc<dyn SegmentCache>,
     inflight_segments: InflightSegments,
 ) -> Option<SegmentRequest> {
-    match cache.get(request.id, request.location.alignment).await {
+    match cache.get(request.id, request.spec.alignment).await {
         Ok(None) => {}
         Ok(Some(buffer)) => {
             inflight_segments.complete(request.id, Ok(buffer));
@@ -416,7 +429,7 @@ struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
-    pub(crate) requests: Vec<(SegmentId, Segment)>,
+    pub(crate) requests: Vec<(SegmentId, SegmentSpec)>,
 }
 
 #[derive(Default)]
@@ -457,7 +470,7 @@ impl CoalescedCancellationHandle {
 async fn evaluate<R: VortexReadAt>(
     read: R,
     request: CoalescedSegmentRequest,
-    segment_map: Arc<[Segment]>,
+    segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     inflight_segments: InflightSegments,
 ) -> VortexResult<()> {
@@ -526,8 +539,8 @@ fn coalesce(
     requests: Vec<SegmentRequest>,
     coalescing_window: u64,
     max_read: Option<u64>,
-    metrics: CoalescingMetrics,
-) -> Vec<(CoalescedSegmentRequest, CoalescedCancellationHandle)> {
+    metrics: &CoalescingMetrics,
+) -> Vec<CoalescedSegmentRequest> {
     let fetch_ranges = merge_ranges(
         requests.iter().map(|r| r.range()),
         coalescing_window,
@@ -543,7 +556,7 @@ fn coalesce(
                     //  to ensure correct alignment for all coalesced buffers.
                     alignment: requests
                         .first()
-                        .map(|r| r.location.alignment)
+                        .map(|r| r.spec.alignment)
                         .unwrap_or(Alignment::none()),
                     byte_range: range.clone(),
                     requests: vec![],
@@ -558,9 +571,9 @@ fn coalesce(
         .collect::<Vec<_>>();
 
     for req in requests {
-        let idx = fetch_ranges.partition_point(|v| v.start <= req.location.offset) - 1;
+        let idx = fetch_ranges.partition_point(|v| v.start <= req.spec.offset) - 1;
         let (ref mut request, ref mut cancellation) = coalesced[idx];
-        request.requests.push((req.id, req.location));
+        request.requests.push((req.id, req.spec));
         cancellation.push(req.cancel_handle);
     }
 
