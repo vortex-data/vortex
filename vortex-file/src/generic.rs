@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::future;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -7,19 +6,16 @@ use std::task::{Context, Poll};
 
 use dashmap::{DashMap, Entry};
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, select, stream};
+use futures::{Stream, TryFutureExt, TryStreamExt};
 use moka::future::CacheBuilder;
 use pin_project_lite::pin_project;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::VortexReadAt;
-use vortex_layout::instrument;
-use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentEvent, SegmentId, SegmentStream};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, Segment};
-use crate::segments::channel::SegmentChannel;
 use crate::segments::queue::SegmentQueue;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexFile, VortexOpenOptions};
@@ -35,7 +31,7 @@ pub struct GenericVortexFile<R> {
     metrics: VortexMetrics,
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {
@@ -53,16 +49,24 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     }
 }
 
-impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
+impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
 
     fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
-        let segment_queue = SegmentQueue::new();
-        let segment_reader = segment_queue.segment_reader();
+        let (segment_queue, segment_reader) = SegmentQueue::new();
 
         // Spawn an I/O driver to serve requests while this file is open.
-        tokio::spawn(segment_queue.io_driver().inspect_err(|e| {
+        let driver = GenericScanDriver {
+            read: options.read,
+            options: options.options,
+            footer: footer.clone(),
+            segment_cache: options.segment_cache,
+            segment_queue,
+            metrics: CoalescingMetrics::from(options.metrics.clone()),
+        };
+
+        tokio::spawn(driver.io_driver().inspect_err(|e| {
             log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", e)
         }));
 
@@ -92,8 +96,28 @@ pub struct GenericScanDriver<R> {
     options: GenericScanOptions,
     footer: Footer,
     segment_cache: Arc<dyn SegmentCache>,
-    segment_channel: SegmentChannel,
+    segment_queue: SegmentQueue,
     metrics: CoalescingMetrics,
+}
+
+impl<R: VortexReadAt> GenericScanDriver<R> {
+    pub async fn io_driver(mut self) -> VortexResult<()> {
+        loop {
+            let Some(_) = self.segment_queue.next().await else {
+                // The segment queue has completed, meaning no more requests are possible.
+                // We're done!
+                return Ok(());
+            };
+
+            // Otherwise, take all the pending requests.
+            self.segment_queue.with_pending_segments(|pending| {
+                for p in pending {
+                    println!("Pending: {:?}", p);
+                }
+                Ok(())
+            })?;
+        }
+    }
 }
 
 struct InflightSegment {
@@ -157,126 +181,126 @@ impl InflightSegments {
 }
 
 impl<R: VortexReadAt> GenericScanDriver<R> {}
-
-impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
-        self.segment_channel.reader()
-    }
-
-    fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
-        let segment_requests = self.segment_channel.into_stream();
-        let segment_map = self.footer.segment_map().clone();
-        let inflight_segments = InflightSegments::default();
-
-        let inflight = inflight_segments.clone();
-        let segment_requests = segment_requests.filter_map(move |request| {
-            let Some(location) = segment_map.get(*request.id as usize) else {
-                request.resolve(Err(vortex_err!("segment not found")));
-                return future::ready(None);
-            };
-
-            // We support zero-length segments (so layouts don't have to store this information)
-            // If we encounter a zero-length segment, we can just resolve it now.
-            if location.length == 0 {
-                let alignment = location.alignment;
-                request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
-                return future::ready(None);
-            }
-
-            let cancel_handle =
-                inflight.insert_or_register_callback(request.id, Some(request.callback));
-            future::ready(
-                cancel_handle
-                    .map(|handle| SegmentRequest::new(request.id, location.clone(), handle)),
-            )
-        });
-
-        let inflight = inflight_segments.clone();
-        let segment_map = self.footer.segment_map().clone();
-        let prefetch_stream = segments.filter_map(move |event| match event {
-            SegmentEvent::Cancel(id) => {
-                inflight.cancel(id);
-                future::ready(None)
-            }
-            SegmentEvent::Request(id) => {
-                future::ready(segment_map.get(*id as usize).and_then(|location| {
-                    inflight
-                        .insert_or_register_callback(id, None)
-                        .map(|cancel_handle| {
-                            SegmentRequest::new(id, location.clone(), cancel_handle)
-                        })
-                }))
-            }
-        });
-
-        // Check if the segment exists in the cache
-        let segment_cache = self.segment_cache.clone();
-        let inflight = inflight_segments.clone();
-        let segment_requests = segment_requests.filter_map(move |request| {
-            filter_with_cache(request, segment_cache.clone(), inflight.clone())
-        });
-        let segment_cache = self.segment_cache.clone();
-        let inflight = inflight_segments.clone();
-        let prefetch_stream = prefetch_stream.filter_map(move |request| {
-            filter_with_cache(request, segment_cache.clone(), inflight.clone())
-        });
-
-        // Grab all available segment requests from the I/O queue so we get maximal visibility into
-        // the requests for coalescing.
-        // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
-        // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
-        // file and therefore be reasonably bounded.
-        // Coalesce the segment requests to minimize the number of I/O operations.
-        let perf_hint = self.read.performance_hint();
-        let io_stream = SegmentRequestStream {
-            requests: segment_requests,
-            prefetch: prefetch_stream,
-            requests_ready_chunks: 1024,
-            prefetch_ready_chunks: self.options.io_concurrency,
-            requested_segments: self.metrics.requested_segments.clone(),
-            prefetched_segments: self.metrics.prefetched_segments.clone(),
-        }
-        .map(move |r| {
-            coalesce(
-                r,
-                perf_hint.coalescing_window(),
-                perf_hint.max_read(),
-                self.metrics.clone(),
-            )
-        })
-        .flat_map(stream::iter);
-
-        // Submit the coalesced requests to the I/O.
-        let read = self.read.clone();
-        let segment_map = self.footer.segment_map().clone();
-        let segment_cache = self.segment_cache.clone();
-        let io_stream = io_stream.map(move |(request, cancellation_handle)| {
-            let read = read.clone();
-            let segment_map = segment_map.clone();
-            let segment_cache = segment_cache.clone();
-            let inflight = inflight_segments.clone();
-            async move {
-                select! {
-                    _ = cancellation_handle.cancelled().fuse() => Ok(()),
-                    evaluated = evaluate(
-                        read.clone(),
-                        request,
-                        segment_map.clone(),
-                        segment_cache.clone(),
-                        inflight.clone(),
-
-                    ).fuse() => evaluated,
-                }
-            }
-        });
-
-        // Buffer some number of concurrent I/O operations.
-        instrument!(
-            "io_stream",
-            io_stream.buffer_unordered(self.options.io_concurrency)
-        )
-    }
-}
+//
+// impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
+//     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
+//         self.segment_channel.reader()
+//     }
+//
+//     fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
+//         let segment_requests = self.segment_channel.into_stream();
+//         let segment_map = self.footer.segment_map().clone();
+//         let inflight_segments = InflightSegments::default();
+//
+//         let inflight = inflight_segments.clone();
+//         let segment_requests = segment_requests.filter_map(move |request| {
+//             let Some(location) = segment_map.get(*request.id as usize) else {
+//                 request.resolve(Err(vortex_err!("segment not found")));
+//                 return future::ready(None);
+//             };
+//
+//             // We support zero-length segments (so layouts don't have to store this information)
+//             // If we encounter a zero-length segment, we can just resolve it now.
+//             if location.length == 0 {
+//                 let alignment = location.alignment;
+//                 request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
+//                 return future::ready(None);
+//             }
+//
+//             let cancel_handle =
+//                 inflight.insert_or_register_callback(request.id, Some(request.callback));
+//             future::ready(
+//                 cancel_handle
+//                     .map(|handle| SegmentRequest::new(request.id, location.clone(), handle)),
+//             )
+//         });
+//
+//         let inflight = inflight_segments.clone();
+//         let segment_map = self.footer.segment_map().clone();
+//         let prefetch_stream = segments.filter_map(move |event| match event {
+//             SegmentEvent::Cancel(id) => {
+//                 inflight.cancel(id);
+//                 future::ready(None)
+//             }
+//             SegmentEvent::Request(id) => {
+//                 future::ready(segment_map.get(*id as usize).and_then(|location| {
+//                     inflight
+//                         .insert_or_register_callback(id, None)
+//                         .map(|cancel_handle| {
+//                             SegmentRequest::new(id, location.clone(), cancel_handle)
+//                         })
+//                 }))
+//             }
+//         });
+//
+//         // Check if the segment exists in the cache
+//         let segment_cache = self.segment_cache.clone();
+//         let inflight = inflight_segments.clone();
+//         let segment_requests = segment_requests.filter_map(move |request| {
+//             filter_with_cache(request, segment_cache.clone(), inflight.clone())
+//         });
+//         let segment_cache = self.segment_cache.clone();
+//         let inflight = inflight_segments.clone();
+//         let prefetch_stream = prefetch_stream.filter_map(move |request| {
+//             filter_with_cache(request, segment_cache.clone(), inflight.clone())
+//         });
+//
+//         // Grab all available segment requests from the I/O queue so we get maximal visibility into
+//         // the requests for coalescing.
+//         // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
+//         // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
+//         // file and therefore be reasonably bounded.
+//         // Coalesce the segment requests to minimize the number of I/O operations.
+//         let perf_hint = self.read.performance_hint();
+//         let io_stream = SegmentRequestStream {
+//             requests: segment_requests,
+//             prefetch: prefetch_stream,
+//             requests_ready_chunks: 1024,
+//             prefetch_ready_chunks: self.options.io_concurrency,
+//             requested_segments: self.metrics.requested_segments.clone(),
+//             prefetched_segments: self.metrics.prefetched_segments.clone(),
+//         }
+//         .map(move |r| {
+//             coalesce(
+//                 r,
+//                 perf_hint.coalescing_window(),
+//                 perf_hint.max_read(),
+//                 self.metrics.clone(),
+//             )
+//         })
+//         .flat_map(stream::iter);
+//
+//         // Submit the coalesced requests to the I/O.
+//         let read = self.read.clone();
+//         let segment_map = self.footer.segment_map().clone();
+//         let segment_cache = self.segment_cache.clone();
+//         let io_stream = io_stream.map(move |(request, cancellation_handle)| {
+//             let read = read.clone();
+//             let segment_map = segment_map.clone();
+//             let segment_cache = segment_cache.clone();
+//             let inflight = inflight_segments.clone();
+//             async move {
+//                 select! {
+//                     _ = cancellation_handle.cancelled().fuse() => Ok(()),
+//                     evaluated = evaluate(
+//                         read.clone(),
+//                         request,
+//                         segment_map.clone(),
+//                         segment_cache.clone(),
+//                         inflight.clone(),
+//
+//                     ).fuse() => evaluated,
+//                 }
+//             }
+//         });
+//
+//         // Buffer some number of concurrent I/O operations.
+//         instrument!(
+//             "io_stream",
+//             io_stream.buffer_unordered(self.options.io_concurrency)
+//         )
+//     }
+// }
 
 pin_project! {
     struct SegmentRequestStream<Requests, Prefetch> {
