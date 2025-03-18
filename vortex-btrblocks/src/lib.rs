@@ -65,10 +65,8 @@ pub trait CompressorStats: Debug + Clone {
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
 
-    fn is_similar(&self, other: &Self) -> bool {
-        self.source()
-            .dtype()
-            .eq_ignore_nullability(other.source().dtype())
+    fn is_similar(&self, _other: &Self) -> bool {
+        false
     }
 }
 
