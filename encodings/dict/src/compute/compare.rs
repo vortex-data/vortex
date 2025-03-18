@@ -63,7 +63,7 @@ fn dict_equal_to(
         (None, _) => match result_validity {
             Mask::AllTrue(_) => {
                 let mut result_builder =
-                    builder_with_capacity(&DType::Bool(Nullability::Nullable), codes.len());
+                    builder_with_capacity(&DType::Bool(nullability), codes.len());
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
                 )?;
@@ -77,7 +77,7 @@ fn dict_equal_to(
             .into_array(),
             Mask::Values(_) => {
                 let mut result_builder =
-                    builder_with_capacity(&DType::Bool(Nullability::Nullable), codes.len());
+                    builder_with_capacity(&DType::Bool(nullability), codes.len());
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
                 )?;
