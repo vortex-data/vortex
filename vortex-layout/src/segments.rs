@@ -10,6 +10,7 @@ use futures::{SinkExt, Stream, StreamExt};
 use range_union_find::RangeUnionFind;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_metrics::VortexMetrics;
 
 use crate::range_intersection;
 
@@ -93,14 +94,23 @@ type SegmentStore = BTreeMap<SegmentPriority, Vec<SegmentId>>;
 pub struct SegmentCollector {
     store: Arc<RwLock<SegmentStore>>,
     pub kind: RequiredSegmentKind,
+    metrics: VortexMetrics,
 }
 
 impl SegmentCollector {
+    pub fn new(metrics: VortexMetrics) -> Self {
+        Self {
+            metrics,
+            ..Default::default()
+        }
+    }
+
     pub fn with_priority_hint(&self, kind: RequiredSegmentKind) -> Self {
         SegmentCollector {
             store: self.store.clone(),
             // highest priority wins
             kind: kind.min(self.kind),
+            metrics: self.metrics.clone(),
         }
     }
 
@@ -110,6 +120,7 @@ impl SegmentCollector {
             RequiredSegmentKind::PRUNING => (0, 0),
             _ => (row_start, row_end),
         };
+        self.increment_metrics();
         let priority = SegmentPriority::new(start, end, self.kind);
         self.store
             .write()
@@ -126,6 +137,7 @@ impl SegmentCollector {
                 store: self.store.clone(),
                 cancellations_tx,
                 excluded_ranges: Default::default(),
+                metrics: self.metrics.clone(),
             },
             SegmentStream {
                 store: self.store,
@@ -135,6 +147,15 @@ impl SegmentCollector {
             },
         )
     }
+
+    fn increment_metrics(&self) {
+        self.metrics
+            .counter("vortex.scan.segments.count.total")
+            .inc();
+        self.metrics
+            .counter(format!("vortex.scan.segments.count.{:?}", self.kind))
+            .inc();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +163,7 @@ pub struct RowRangePruner {
     store: Arc<RwLock<SegmentStore>>,
     cancellations_tx: mpsc::UnboundedSender<SegmentId>,
     excluded_ranges: Arc<RwLock<RangeUnionFind<u64>>>,
+    metrics: VortexMetrics,
 }
 
 impl RowRangePruner {
@@ -184,6 +206,9 @@ impl RowRangePruner {
                 .flat_map(|key| store.remove(key).unwrap_or_default())
                 .collect()
         };
+        self.metrics
+            .counter("vortex.scan.segments.cancel_sent")
+            .add(cancelled_segments.len() as i64);
         for id in cancelled_segments {
             self.cancellations_tx
                 .send(id)
@@ -207,7 +232,14 @@ impl RowRangePruner {
                 if key.kind == RequiredSegmentKind::PRUNING {
                     return true; // keep segments required for pruning
                 }
-                range_intersection(&(key.row_start..key.row_end), &row_indices).is_some()
+                let keep =
+                    range_intersection(&(key.row_start..key.row_end), &row_indices).is_some();
+                if !keep {
+                    self.metrics
+                        .counter("vortex.scan.segment.pruned_by_row_indices")
+                        .inc();
+                }
+                keep
             });
     }
 }
@@ -347,6 +379,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Test removing segments in range 0..200
@@ -405,6 +438,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // First removal (0..100)
@@ -448,6 +482,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // First removal (0..75)
@@ -492,6 +527,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Create a buffer with specific row indices
@@ -543,6 +579,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Drop the receiver to close the channel
@@ -569,6 +606,7 @@ pub mod test {
                 store: store.clone(),
                 cancellations_tx: tx,
                 excluded_ranges: Default::default(),
+                metrics: Default::default(),
             };
 
             // Test removing segments that cover the entire range

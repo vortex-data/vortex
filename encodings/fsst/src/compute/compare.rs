@@ -68,14 +68,7 @@ fn compare_fsst_constant(
         return Ok(None);
     }
 
-    let symbols = left.symbols();
-    let symbol_lens = left.symbol_lengths();
-
-    let mut compressor = fsst::CompressorBuilder::new();
-    for (symbol, symbol_len) in symbols.iter().zip(symbol_lens.iter()) {
-        compressor.insert(*symbol, *symbol_len as usize);
-    }
-    let compressor = compressor.build();
+    let compressor = fsst::Compressor::rebuild_from(left.symbols(), left.symbol_lengths());
 
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => {
