@@ -27,7 +27,7 @@ use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    Compressor, CompressorState, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
 };
 
@@ -65,6 +65,7 @@ impl IntCompressor {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         let stats = IntegerStats::generate_opts(
             array,
@@ -73,8 +74,9 @@ impl IntCompressor {
             },
         );
 
+        // TODO: Choose scheme from state
         let scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
-        let output = scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
+        let output = scheme.compress(&stats, is_sample, allowed_cascading, excludes, state)?;
 
         if output.nbytes() < array.nbytes() {
             Ok(output)
@@ -154,6 +156,7 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
+        _state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
     }
@@ -202,6 +205,7 @@ impl Scheme for ConstantScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
+        _state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         // We only use Constant encoding if the entire array is constant, never if one of
         // the child arrays yields a constant value.
@@ -268,6 +272,7 @@ impl Scheme for FORScheme {
         is_sample: bool,
         _allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         let for_array = for_compress(stats.src.clone())?;
         let biased = for_array.encoded().to_primitive()?;
@@ -282,7 +287,7 @@ impl Scheme for FORScheme {
         // of bitpacking.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
-        let compressed = BitPackingScheme.compress(&biased_stats, is_sample, 0, excludes)?;
+        let compressed = BitPackingScheme.compress(&biased_stats, is_sample, 0, excludes, state)?;
 
         Ok(FoRArray::try_new(compressed, for_array.reference_scalar().clone())?.into_array())
     }
@@ -334,6 +339,7 @@ impl Scheme for ZigZagScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
@@ -349,8 +355,13 @@ impl Scheme for ZigZagScheme {
         ];
         new_excludes.extend_from_slice(excludes);
 
-        let compressed =
-            IntCompressor::compress(&encoded, is_sample, allowed_cascading - 1, &new_excludes)?;
+        let compressed = IntCompressor::compress(
+            &encoded,
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+            state,
+        )?;
 
         log::debug!("zigzag output: {}", compressed.tree_display());
 
@@ -400,6 +411,7 @@ impl Scheme for BitPackingScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
+        _state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         let bw = find_best_bit_width(stats.source())?;
         // If best bw is determined to be the current bit-width, return the original array.
@@ -464,6 +476,7 @@ impl Scheme for SparseScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
         let mask = stats.src.validity_mask()?;
@@ -539,6 +552,7 @@ impl Scheme for SparseScheme {
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
+            state,
         )?;
 
         // Compress the indices
@@ -561,6 +575,7 @@ impl Scheme for SparseScheme {
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
+            state,
         )?;
 
         Ok(SparseArray::try_new(
@@ -645,6 +660,7 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
@@ -662,6 +678,7 @@ impl Scheme for DictScheme {
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
+            state,
         )?;
 
         Ok(DictArray::try_new(compressed_codes, dict.values().clone())?.into_array())
@@ -708,6 +725,7 @@ impl Scheme for RunEndScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
@@ -729,14 +747,20 @@ impl Scheme for RunEndScheme {
             allowed_cascading - 1,
             &new_excludes,
         )?;
-        let compressed_ends =
-            ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
+        let compressed_ends = ends_scheme.compress(
+            &ends_stats,
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+            state,
+        )?;
 
         let compressed_values = IntCompressor::compress_no_dict(
             &values.to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
+            state,
         )?;
 
         Ok(RunEndArray::try_new(compressed_ends, compressed_values)?.into_array())
@@ -768,6 +792,7 @@ mod tests {
             false,
             3,
             &[],
+            None,
         )
         .unwrap();
 
@@ -795,7 +820,7 @@ mod tests {
         }
 
         let primitive = codes.freeze().into_array().to_primitive().unwrap();
-        let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
+        let compressed = IntCompressor::compress(&primitive, false, 3, &[], None).unwrap();
         log::info!("compressed values: {}", compressed.tree_display());
     }
 
@@ -821,7 +846,7 @@ mod tests {
         }
 
         let array = values.freeze().into_array().to_primitive().unwrap();
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = IntCompressor::compress(&array, false, 3, &[], None).unwrap();
         log::info!("WindowName compressed: {}", compressed.tree_display());
     }
 
@@ -832,7 +857,7 @@ mod tests {
             Validity::from_iter(vec![true, true, true, true, false]),
         );
         let compressed = SparseScheme
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .compress(&IntegerStats::generate(&array), false, 3, &[], None)
             .unwrap();
         assert_eq!(compressed.encoding(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
@@ -850,7 +875,7 @@ mod tests {
             ]),
         );
         let compressed = SparseScheme
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .compress(&IntegerStats::generate(&array), false, 3, &[], None)
             .unwrap();
         assert_eq!(compressed.encoding(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();

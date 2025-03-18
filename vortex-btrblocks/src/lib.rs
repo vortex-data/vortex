@@ -1,8 +1,15 @@
 #![feature(array_chunks)]
 
+use std::any::TypeId;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use float::{FloatScheme, FloatStats};
+use integer::{IntegerScheme, IntegerStats};
+use parking_lot::Mutex;
+use string::{StringScheme, StringStats};
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
@@ -57,6 +64,10 @@ pub trait CompressorStats: Debug + Clone {
     }
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
+
+    fn is_similar(&self, _other: &Self) -> bool {
+        false
+    }
 }
 
 /// Top-level compression scheme trait.
@@ -104,6 +115,7 @@ pub trait Scheme: Debug {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[Self::CodeType],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef>;
 }
 
@@ -131,7 +143,7 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     };
 
     let after = compressor
-        .compress(&sample, true, allowed_cascading, excludes)?
+        .compress(&sample, true, allowed_cascading, excludes, None)?
         .nbytes();
     let before = sample.source().nbytes();
 
@@ -166,9 +178,11 @@ pub trait Compressor {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef>
     where
         Self::SchemeType: 'static,
+        Self: Sized + 'static,
     {
         // Avoid compressing empty arrays.
         if array.is_empty() {
@@ -186,9 +200,27 @@ pub trait Compressor {
         } else {
             Self::StatsType::generate(array)
         };
-        let best_scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
 
-        let output = best_scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
+        let similar_stats = state.and_then(|state| state.get_similar_to::<Self>(&stats));
+
+        let best_scheme = match similar_stats {
+            Some(stats) => stats,
+            None => {
+                let scheme = ArcRef::new_ref(Self::choose_scheme(
+                    &stats,
+                    is_sample,
+                    allowed_cascading,
+                    excludes,
+                )?);
+
+                if let Some(state) = state {
+                    state.remember::<Self>(stats.clone(), scheme.clone());
+                }
+                scheme
+            }
+        };
+
+        let output = best_scheme.compress(&stats, is_sample, allowed_cascading, excludes, state)?;
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
@@ -241,21 +273,110 @@ pub trait Compressor {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct BtrBlocksCompressor {
+    inner: CompressorState,
+}
+
+impl BtrBlocksCompressor {
+    pub fn empty() -> Self {
+        Self {
+            inner: CompressorState::empty(),
+        }
+    }
+}
+
 #[derive(Debug)]
-pub struct BtrBlocksCompressor;
+pub struct CompressorState {
+    map: Mutex<HashMap<TypeId, Box<dyn std::any::Any>>>,
+}
+
+impl Default for CompressorState {
+    fn default() -> Self {
+        let mut map = HashMap::default();
+        map.insert(
+            TypeId::of::<IntCompressor>(),
+            Box::new(Vec::<(IntegerStats, ArcRef<dyn IntegerScheme>)>::default()) as _,
+        );
+        map.insert(
+            TypeId::of::<FloatCompressor>(),
+            Box::new(Vec::<(FloatStats, ArcRef<dyn FloatScheme>)>::default()) as _,
+        );
+        map.insert(
+            TypeId::of::<StringCompressor>(),
+            Box::new(Vec::<(StringStats, ArcRef<dyn StringScheme>)>::default()) as _,
+        );
+
+        let map = Mutex::new(map);
+
+        Self { map }
+    }
+}
+
+impl CompressorState {
+    pub fn empty() -> Self {
+        Self {
+            map: Default::default(),
+        }
+    }
+
+    fn get_similar_to<C: Compressor + 'static>(
+        &self,
+        stats: &C::StatsType,
+    ) -> Option<ArcRef<C::SchemeType>> {
+        log::debug!("Looking for compression scheme");
+        let guard = self.map.lock();
+        let v = guard.get(&TypeId::of::<C>())?;
+
+        let v = v
+            .downcast_ref::<Vec<(C::StatsType, ArcRef<C::SchemeType>)>>()
+            .vortex_expect("Must be initialized.");
+
+        let stats = v
+            .iter()
+            .find(|(stored, _)| stored.is_similar(stats))
+            .map(|v| v.1.clone());
+
+        if stats.is_some() {
+            log::debug!("Found existing compression scheme");
+        } else {
+            log::debug!("Couldn't find a similar compression scheme");
+        }
+
+        stats
+    }
+
+    fn remember<C: Compressor + 'static>(
+        &self,
+        stats: C::StatsType,
+        scheme: ArcRef<C::SchemeType>,
+    ) {
+        log::debug!("remembering compression scheme");
+        let mut guard = self.map.lock();
+
+        if let Some(v) = guard.get_mut(&TypeId::of::<C>()) {
+            let v = v
+                .downcast_mut::<Vec<(C::StatsType, ArcRef<C::SchemeType>)>>()
+                .vortex_expect("Must be initialized.");
+
+            v.push((stats, scheme));
+        }
+    }
+}
 
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+        let state = Some(&self.inner);
         match array.to_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &[], state)
                 } else {
-                    FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[], state)
                 }
             }
             Canonical::Struct(struct_array) => {
@@ -293,7 +414,7 @@ impl BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    StringCompressor::compress(&strings, false, MAX_CASCADE, &[])
+                    StringCompressor::compress(&strings, false, MAX_CASCADE, &[], state)
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())
@@ -318,82 +439,5 @@ impl BtrBlocksCompressor {
                 )
             }
         }
-    }
-
-    pub fn choose_scheme(&self, array: &dyn Array) -> VortexResult<Vec<usize>> {
-        match array.to_canonical()? {
-            Canonical::Null(null_array) => Ok(Vec::default()),
-            // TODO(aduffy): Sparse, other bool compressors.
-            Canonical::Bool(bool_array) => Ok(Vec::default()),
-            Canonical::Primitive(primitive) => {
-                if primitive.ptype().is_int() {
-                    let stats = integer::IntegerStats::generate(&primitive);
-                    let scheme = IntCompressor::choose_scheme(&stats, false, MAX_CASCADE, &[])?;
-                } else {
-                    FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
-                }
-            }
-            Canonical::Struct(struct_array) => {
-                let mut fields = Vec::new();
-                for idx in 0..struct_array.nfields() {
-                    let field = struct_array
-                        .maybe_null_field_by_idx(idx)
-                        .vortex_expect("field access");
-                    let compressed = self.compress(&field)?;
-                    fields.push(compressed);
-                }
-
-                Ok(StructArray::try_new(
-                    struct_array.names().clone(),
-                    fields,
-                    struct_array.len(),
-                    struct_array.validity().clone(),
-                )?
-                .into_array())
-            }
-            Canonical::List(list_array) => {
-                // Compress the inner
-                let compressed_elems = self.compress(list_array.elements())?;
-                let compressed_offsets = self.compress(list_array.offsets())?;
-
-                Ok(ListArray::try_new(
-                    compressed_elems,
-                    compressed_offsets,
-                    list_array.validity().clone(),
-                )?
-                .into_array())
-            }
-            Canonical::VarBinView(strings) => {
-                if strings
-                    .dtype()
-                    .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
-                {
-                    StringCompressor::compress(&strings, false, MAX_CASCADE, &[])
-                } else {
-                    // Binary arrays do not compress
-                    Ok(strings.into_array())
-                }
-            }
-            Canonical::Extension(ext_array) => {
-                // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) =
-                    TemporalArray::try_from(ext_array.to_array().into_array())
-                {
-                    if let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata() {
-                        return compress_temporal(temporal_array);
-                    }
-                }
-
-                // Compress the underlying storage array.
-                let compressed_storage = self.compress(ext_array.storage())?;
-
-                Ok(
-                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
-            }
-        }
-
-        Ok(())
     }
 }

@@ -23,18 +23,21 @@ pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {
         false,
         MAX_CASCADE - 1,
         &[],
+        None,
     )?;
     let seconds = IntCompressor::compress(
         &downscale_integer_array(seconds)?.to_primitive()?,
         false,
         MAX_CASCADE - 1,
         &[],
+        None,
     )?;
     let subseconds = IntCompressor::compress(
         &downscale_integer_array(subseconds)?.to_primitive()?,
         false,
         MAX_CASCADE - 1,
         &[],
+        None,
     )?;
 
     Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())

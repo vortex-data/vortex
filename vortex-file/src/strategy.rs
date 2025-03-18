@@ -107,8 +107,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
     ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
-
-        let compressed = BtrBlocksCompressor.compress(&chunk)?;
+        let block_compressor = BtrBlocksCompressor::default();
+        let compressed = block_compressor.compress(&chunk)?;
         self.child.push_chunk(segments, compressed)
     }
 

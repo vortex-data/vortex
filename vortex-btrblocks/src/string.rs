@@ -10,7 +10,7 @@ use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    Compressor, CompressorState, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
 };
 
@@ -143,6 +143,7 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[StringCode],
+        _state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
     }
@@ -188,6 +189,7 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[StringCode],
+        state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         let dict = dict_encode(&stats.source().clone().into_array())?;
 
@@ -203,6 +205,7 @@ impl Scheme for DictScheme {
             is_sample,
             allowed_cascading - 1,
             &[crate::integer::DictScheme.code()],
+            state,
         )?;
 
         // Attempt to compress the values with non-Dict compression.
@@ -212,6 +215,7 @@ impl Scheme for DictScheme {
             is_sample,
             allowed_cascading - 1,
             &[DictScheme.code()],
+            state,
         )?;
 
         Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
@@ -232,6 +236,7 @@ impl Scheme for FSSTScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[StringCode],
+        _state: Option<&CompressorState>,
     ) -> VortexResult<ArrayRef> {
         let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
@@ -265,7 +270,7 @@ mod tests {
             (&strings as &dyn Array).tree_display()
         );
 
-        let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
+        let compressed = StringCompressor::compress(&strings, false, 3, &[], None).unwrap();
 
         println!("compression tree: {}", compressed.tree_display());
     }

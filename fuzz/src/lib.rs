@@ -121,7 +121,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .map(|i| *i as u64)
                         .collect::<Buffer<u64>>()
                         .into_array();
-                    let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
+                    let compressed = BtrBlocksCompressor::empty()
+                        .compress(&indices_array)
+                        .vortex_unwrap();
                     (
                         Action::Take(compressed.into_array()),
                         ExpectedValue::Array(current_array.to_array()),

@@ -38,7 +38,7 @@ mod benchmarks {
             .with_inputs(|| make_clickbench_window_name().to_primitive().unwrap())
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
+            .bench_values(|array| IntCompressor::compress(&array, false, 3, &[], None).unwrap());
     }
 }
 

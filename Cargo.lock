@@ -5718,6 +5718,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "num-traits",
+ "parking_lot",
  "rand 0.9.0",
  "rustc-hash",
  "vortex-alp",
