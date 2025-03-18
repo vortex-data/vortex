@@ -87,10 +87,16 @@ impl IntCompressor {
     }
 }
 
-pub trait IntegerScheme: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
+pub trait IntegerScheme:
+    Scheme<StatsType = IntegerStats, CodeType = IntCode> + Send + Sync
+{
+}
 
 // Auto-impl
-impl<T> IntegerScheme for T where T: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
+impl<T> IntegerScheme for T where
+    T: Scheme<StatsType = IntegerStats, CodeType = IntCode> + Send + Sync
+{
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct IntCode(u8);

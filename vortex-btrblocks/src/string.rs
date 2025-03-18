@@ -99,9 +99,15 @@ impl Compressor for StringCompressor {
     }
 }
 
-pub trait StringScheme: Scheme<StatsType = StringStats, CodeType = StringCode> {}
+pub trait StringScheme:
+    Scheme<StatsType = StringStats, CodeType = StringCode> + Send + Sync
+{
+}
 
-impl<T> StringScheme for T where T: Scheme<StatsType = StringStats, CodeType = StringCode> {}
+impl<T> StringScheme for T where
+    T: Scheme<StatsType = StringStats, CodeType = StringCode> + Send + Sync
+{
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;

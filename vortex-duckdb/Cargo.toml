@@ -6,6 +6,7 @@ homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+publish = false
 keywords = { workspace = true }
 include = { workspace = true }
 edition = { workspace = true }
@@ -17,6 +18,7 @@ readme = { workspace = true }
 name = "vortex_duckdb"
 path = "src/lib.rs"
 bench = false
+crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 arrow-array = { workspace = true }

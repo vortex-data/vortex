@@ -288,7 +288,7 @@ impl BtrBlocksCompressor {
 
 #[derive(Debug)]
 pub struct CompressorState {
-    map: Mutex<HashMap<TypeId, Box<dyn std::any::Any>>>,
+    map: Mutex<HashMap<TypeId, Box<dyn std::any::Any + Send>>>,
 }
 
 impl Default for CompressorState {

@@ -74,7 +74,7 @@ impl StatsLayoutWriter {
 impl LayoutWriter for StatsLayoutWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         if chunk.len() > self.options.block_size {
@@ -93,11 +93,11 @@ impl LayoutWriter for StatsLayoutWriter {
 
         self.nblocks += 1;
         self.stats_accumulator.push_chunk(&chunk)?;
-        self.child_writer.push_chunk(segments, chunk)
+        self.child_writer.push_chunk(segment_writer, chunk)
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        let child = self.child_writer.finish(segments)?;
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+        let child = self.child_writer.finish(segment_writer)?;
 
         // Collect together the statistics
         let Some(stats_table) = self.stats_accumulator.as_stats_table() else {
@@ -112,7 +112,7 @@ impl LayoutWriter for StatsLayoutWriter {
         let mut stats_writer = self
             .stats_strategy
             .new_writer(&self.ctx, stats_array.dtype())?;
-        let stats_layout = stats_writer.push_one(segments, stats_table.array().clone())?;
+        let stats_layout = stats_writer.push_one(segment_writer, stats_table.array().clone())?;
 
         let mut metadata = ByteBufferMut::empty();
 

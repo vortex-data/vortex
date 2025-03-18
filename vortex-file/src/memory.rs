@@ -9,7 +9,7 @@ use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
 use vortex_metrics::VortexMetrics;
 
 use crate::segments::SegmentCache;
-use crate::{FileType, Footer, Segment, VortexOpenOptions};
+use crate::{FileType, Footer, SegmentSpec, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -60,7 +60,7 @@ impl ScanDriver for InMemoryVortexFile {
 #[async_trait]
 impl AsyncSegmentReader for InMemoryVortexFile {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        let segment: &Segment = self
+        let segment: &SegmentSpec = self
             .footer
             .segment_map()
             .get(*id as usize)

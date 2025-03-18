@@ -23,9 +23,10 @@ use crate::{
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 3;
 
-pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
+pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> + Send + Sync {}
 
-impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
+impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> + Send + Sync
+{}
 
 pub struct FloatCompressor;
 

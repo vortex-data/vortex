@@ -15,7 +15,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::footer::{Footer, Postscript, Segment};
+use crate::footer::{Footer, Postscript, SegmentSpec};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
 use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
@@ -272,7 +272,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
-        dtype: Segment,
+        dtype: SegmentSpec,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
         let sliced_buffer =
@@ -287,7 +287,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
-        segment: Segment,
+        segment: SegmentSpec,
         dtype: DType,
     ) -> VortexResult<Footer> {
         let offset = usize::try_from(segment.offset - initial_offset)?;

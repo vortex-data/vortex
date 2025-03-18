@@ -64,7 +64,7 @@ fn update_stats(array: &dyn Array, stats: &[Stat]) -> VortexResult<()> {
 impl LayoutWriter for FlatLayoutWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         if self.layout.is_some() {
@@ -80,7 +80,7 @@ impl LayoutWriter for FlatLayoutWriter {
                 include_padding: self.options.include_padding,
             },
         );
-        let segment_id = segments.put(&buffers);
+        let segment_id = segment_writer.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
             "flat".into(),
@@ -94,7 +94,7 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))

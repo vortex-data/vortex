@@ -10,7 +10,7 @@ use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_err};
-use vortex_file::{Footer, Segment, VortexOpenOptions};
+use vortex_file::{Footer, SegmentSpec, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::SegmentId;
@@ -39,7 +39,7 @@ impl From<&ObjectMeta> for Key {
 
 /// Approximate the in-memory size of a layout
 fn estimate_layout_size(footer: &Footer) -> usize {
-    let segments_size = footer.segment_map().len() * size_of::<Segment>();
+    let segments_size = footer.segment_map().len() * size_of::<SegmentSpec>();
     let stats_size = footer
         .statistics()
         .iter()
