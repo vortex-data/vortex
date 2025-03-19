@@ -194,7 +194,7 @@ impl FilterExpr {
             .conjuncts
             .iter()
             .map(|expr| reader.evaluate_expr2(row_range, expr, mask_future.clone()))
-            .map_ok(|fut| Some(fut))
+            .map_ok(Some)
             .try_collect()?;
 
         let range_len =

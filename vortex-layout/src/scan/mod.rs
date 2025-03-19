@@ -152,7 +152,7 @@ impl ScanBuilder {
 
         let splits = self
             .split_by
-            .splits(&self.layout_reader.layout(), &field_mask)?;
+            .splits(self.layout_reader.layout(), &field_mask)?;
         let row_indices = self.row_indices.clone();
         let row_masks = splits
             .into_iter()
