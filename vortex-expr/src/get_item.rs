@@ -74,7 +74,7 @@ mod proto {
     impl ExprDeserialize for GetItemSerde {
         fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
             let Kind::GetItem(expr::GetItem { path }) = kind else {
-                vortex_bail!("wrong kind {:?}", kind)
+                vortex_bail!("wrong kind {:?}, want get_item", kind)
             };
 
             Ok(GetItem::new_expr(path.to_string(), children[0].clone()))

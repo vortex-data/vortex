@@ -61,7 +61,7 @@ pub(crate) mod proto {
     impl ExprDeserialize for BinarySerde {
         fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
             let Kind::BinaryOp(op) = kind else {
-                vortex_bail!("wrong kind {:?}", kind)
+                vortex_bail!("wrong kind {:?}, binary", kind)
             };
 
             let op = BinaryOp::try_from(*op)?;
