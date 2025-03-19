@@ -1,6 +1,6 @@
 use num_traits::Num;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
@@ -19,13 +19,13 @@ pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    let canonicalized_array = array.to_primitive().unwrap();
+    let canonicalized_array = array.to_primitive().vortex_unwrap();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let one = T::from(1)
         .ok_or_else(|| vortex_err!("could not convert 1 into array native type"))
-        .unwrap();
-    let scalar_one = Scalar::from(one).cast(array.dtype()).unwrap();
+        .vortex_unwrap();
+    let scalar_one = Scalar::from(one).cast(array.dtype()).vortex_unwrap();
 
     let operators: [BinaryNumericOperator; 6] = [
         BinaryNumericOperator::Add,
@@ -44,14 +44,14 @@ where
                     &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
                     operator
                 )
-                .unwrap()
+                .vortex_unwrap()
             ),
             original_values
                 .iter()
                 .map(|x| x
                     .as_primitive()
                     .checked_binary_numeric(&scalar_one.as_primitive(), operator)
-                    .unwrap())
+                    .vortex_expect("numeric operator overflow"))
                 .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                 .collect::<Vec<Scalar>>(),
             "({:?}) {} (Constant array of {}) did not produce expected results",
@@ -67,14 +67,14 @@ where
                     &array,
                     operator
                 )
-                .unwrap()
+                .vortex_unwrap()
             ),
             original_values
                 .iter()
                 .map(|x| scalar_one
                     .as_primitive()
                     .checked_binary_numeric(&x.as_primitive(), operator)
-                    .unwrap())
+                    .vortex_expect("numeric operator overflow"))
                 .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                 .collect::<Vec<_>>(),
             "(Constant array of {}) {} ({:?}) did not produce expected results",

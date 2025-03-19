@@ -109,6 +109,8 @@ impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
 mod tests {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::test_harness::rstest_reuse::apply;
+    use vortex_array::compute::test_harness::search_sorted_conformance;
     use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
@@ -117,6 +119,18 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::SparseArray;
+
+    #[apply(search_sorted_conformance)]
+    fn sparse_search_sorted(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let sparse_array = SparseArray::try_new(array, value).unwrap();
+        let res = search_sorted(&array, value, side).unwrap();
+        assert_eq!(res, expected);
+    }
 
     fn sparse_high_null_fill() -> ArrayRef {
         SparseArray::try_new(
