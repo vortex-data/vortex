@@ -20,16 +20,21 @@ pub enum Operator {
 
 #[cfg(feature = "proto")]
 mod proto {
-    use vortex_error::{VortexError, VortexResult};
+    use vortex_error::VortexError;
     use vortex_proto::expr::BinaryOp;
 
     use crate::Operator;
 
-    impl TryFrom<Operator> for BinaryOp {
-        type Error = VortexError;
+    impl From<Operator> for i32 {
+        fn from(value: Operator) -> Self {
+            let op: BinaryOp = value.into();
+            op.into()
+        }
+    }
 
-        fn try_from(value: Operator) -> VortexResult<Self> {
-            Ok(match value {
+    impl From<Operator> for BinaryOp {
+        fn from(value: Operator) -> Self {
+            match value {
                 Operator::Eq => BinaryOp::Eq,
                 Operator::NotEq => BinaryOp::NotEq,
                 Operator::Gt => BinaryOp::Gt,
@@ -38,15 +43,21 @@ mod proto {
                 Operator::Lte => BinaryOp::Lte,
                 Operator::And => BinaryOp::And,
                 Operator::Or => BinaryOp::Or,
-            })
+            }
         }
     }
 
-    impl TryFrom<BinaryOp> for Operator {
+    impl TryFrom<i32> for Operator {
         type Error = VortexError;
 
-        fn try_from(value: BinaryOp) -> Result<Self, Self::Error> {
-            Ok(match value {
+        fn try_from(value: i32) -> Result<Self, Self::Error> {
+            Ok(BinaryOp::try_from(value)?.into())
+        }
+    }
+
+    impl From<BinaryOp> for Operator {
+        fn from(value: BinaryOp) -> Self {
+            match value {
                 BinaryOp::Eq => Operator::Eq,
                 BinaryOp::NotEq => Operator::NotEq,
                 BinaryOp::Gt => Operator::Gt,
@@ -55,7 +66,7 @@ mod proto {
                 BinaryOp::Lte => Operator::Lte,
                 BinaryOp::And => Operator::And,
                 BinaryOp::Or => Operator::Or,
-            })
+            }
         }
     }
 }

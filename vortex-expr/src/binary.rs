@@ -80,7 +80,7 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::BinaryOp(BinaryOp::try_from(self.operator)?.into()))
+            Ok(Kind::BinaryOp(self.operator.into()))
         }
     }
 }

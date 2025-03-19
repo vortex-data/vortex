@@ -349,12 +349,10 @@ mod tests {
         use crate::{VortexExprExt, deserialize_expr, eq, ident, lit};
 
         #[test]
-        fn ident_ser() {
+        fn round_trip_serde() {
             let expr = eq(ident(), lit(1));
             let res = expr.serialize().unwrap();
             let final_ = deserialize_expr(&res).unwrap();
-
-            println!("final {}", final_);
 
             assert_eq!(&expr, &final_);
         }
