@@ -144,9 +144,13 @@ fn make_object_store(
         }
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
-            let mut builder = AmazonS3Builder::new();
+            println!("S3 store with URL: {}", url);
+            let mut builder = AmazonS3Builder::new()
+                .with_url(url.to_string())
+                .with_endpoint("https://s3.amazonaws.com");
             for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
+                    println!("Applying config key {:?} value {}", config_key, val);
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Amazon S3 config key: {}", key);
@@ -159,7 +163,7 @@ fn make_object_store(
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            let mut builder = MicrosoftAzureBuilder::new();
+            let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
             for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
@@ -174,7 +178,7 @@ fn make_object_store(
         ObjectStoreScheme::GoogleCloudStorage => {
             log::trace!("using GoogleCloudStorage object store");
 
-            let mut builder = GoogleCloudStorageBuilder::new();
+            let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
             for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
