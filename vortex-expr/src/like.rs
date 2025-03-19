@@ -57,6 +57,24 @@ impl Display for Like {
     }
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use vortex_error::VortexResult;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprSerializable, Like};
+
+    impl ExprSerializable for Like {
+        fn id(&self) -> &'static str {
+            todo!()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            todo!()
+        }
+    }
+}
+
 impl VortexExpr for Like {
     fn as_any(&self) -> &dyn Any {
         self

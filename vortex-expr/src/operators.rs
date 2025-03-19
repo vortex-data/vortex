@@ -18,6 +18,48 @@ pub enum Operator {
     Or,
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use vortex_error::{VortexError, VortexResult};
+    use vortex_proto::expr::BinaryOp;
+
+    use crate::Operator;
+
+    impl TryFrom<Operator> for BinaryOp {
+        type Error = VortexError;
+
+        fn try_from(value: Operator) -> VortexResult<Self> {
+            Ok(match value {
+                Operator::Eq => BinaryOp::Eq,
+                Operator::NotEq => BinaryOp::NotEq,
+                Operator::Gt => BinaryOp::Gt,
+                Operator::Gte => BinaryOp::Gte,
+                Operator::Lt => BinaryOp::Lt,
+                Operator::Lte => BinaryOp::Lte,
+                Operator::And => BinaryOp::And,
+                Operator::Or => BinaryOp::Or,
+            })
+        }
+    }
+
+    impl TryFrom<BinaryOp> for Operator {
+        type Error = VortexError;
+
+        fn try_from(value: BinaryOp) -> Result<Self, Self::Error> {
+            Ok(match value {
+                BinaryOp::Eq => Operator::Eq,
+                BinaryOp::NotEq => Operator::NotEq,
+                BinaryOp::Gt => Operator::Gt,
+                BinaryOp::Gte => Operator::Gte,
+                BinaryOp::Lt => Operator::Lt,
+                BinaryOp::Lte => Operator::Lte,
+                BinaryOp::And => Operator::And,
+                BinaryOp::Or => Operator::Or,
+            })
+        }
+    }
+}
+
 impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let display = match &self {

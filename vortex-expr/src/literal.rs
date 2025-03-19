@@ -6,6 +6,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+// use vortex_proto::expr;
+// #[cfg(feature = "proto")]
+// use vortex_proto::expr::Expr;
 use vortex_scalar::Scalar;
 
 use crate::{ExprRef, VortexExpr};
@@ -37,6 +40,47 @@ impl Display for Literal {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use kind::Kind;
+    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr;
+    use vortex_proto::expr::kind;
+    use vortex_scalar::Scalar;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Literal};
+
+    pub(crate) struct LiteralSerde;
+
+    impl Id for LiteralSerde {
+        fn id(&self) -> &'static str {
+            &"literal"
+        }
+    }
+
+    impl ExprDeserialize for LiteralSerde {
+        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Literal(value) = kind else {
+                vortex_bail!("Expected literal kind");
+            };
+            let scalar: Scalar = value.value.as_ref().unwrap().try_into()?;
+            Ok(Literal::new_expr(scalar))
+        }
+    }
+
+    impl ExprSerializable for Literal {
+        fn id(&self) -> &'static str {
+            LiteralSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Literal(expr::Literal {
+                value: Some((&self.value).into()),
+            }))
+        }
+    }
+}
+
 impl VortexExpr for Literal {
     fn as_any(&self) -> &dyn Any {
         self
@@ -58,6 +102,15 @@ impl VortexExpr for Literal {
     fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
         Ok(self.value.dtype().clone())
     }
+
+    // #[cfg(feature = "proto")]
+    // fn serialize(self: Arc<Self>) -> VortexResult<Expr> {
+    //     Ok(Expr {
+    //         expr: Some(expr::expr::Expr::Literal(expr::Literal {
+    //             value: Some((&self.value).into()),
+    //         })),
+    //     })
+    // }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.

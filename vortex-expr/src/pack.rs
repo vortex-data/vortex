@@ -97,6 +97,38 @@ impl Display for Pack {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use vortex_error::VortexResult;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Pack};
+
+    pub struct PackSerde;
+
+    impl Id for PackSerde {
+        fn id(&self) -> &'static str {
+            "pack"
+        }
+    }
+
+    impl ExprDeserialize for PackSerde {
+        fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            todo!()
+        }
+    }
+
+    impl ExprSerializable for Pack {
+        fn id(&self) -> &'static str {
+            PackSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            todo!()
+        }
+    }
+}
+
 impl VortexExpr for Pack {
     fn as_any(&self) -> &dyn Any {
         self

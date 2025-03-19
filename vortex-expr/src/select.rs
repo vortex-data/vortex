@@ -120,6 +120,38 @@ impl Display for Select {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use vortex_error::VortexResult;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Select};
+
+    pub struct SelectSerde;
+
+    impl Id for SelectSerde {
+        fn id(&self) -> &'static str {
+            "select"
+        }
+    }
+
+    impl ExprDeserialize for SelectSerde {
+        fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            todo!()
+        }
+    }
+
+    impl ExprSerializable for Select {
+        fn id(&self) -> &'static str {
+            SelectSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            todo!()
+        }
+    }
+}
+
 impl VortexExpr for Select {
     fn as_any(&self) -> &dyn Any {
         self

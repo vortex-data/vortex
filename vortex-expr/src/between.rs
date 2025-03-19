@@ -72,6 +72,33 @@ impl PartialEq for Between {
     }
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use vortex_error::VortexResult;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::between::Between;
+    use crate::{ExprSerializable, Id};
+
+    pub(crate) struct BetweenSerde;
+
+    impl Id for BetweenSerde {
+        fn id(&self) -> &'static str {
+            "between"
+        }
+    }
+
+    impl ExprSerializable for Between {
+        fn id(&self) -> &'static str {
+            BetweenSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            todo!()
+        }
+    }
+}
+
 impl VortexExpr for Between {
     fn as_any(&self) -> &dyn Any {
         self
