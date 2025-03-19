@@ -122,18 +122,18 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
         Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
         Kind::Int8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I8(
-            *v as i8,
+            i8::try_from(*v)?,
         )))),
         Kind::Int16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I16(
-            *v as i16,
+            i16::try_from(*v)?,
         )))),
         Kind::Int32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I32(*v)))),
         Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
         Kind::Uint8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U8(
-            *v as u8,
+            u8::try_from(*v)?,
         )))),
         Kind::Uint16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U16(
-            *v as u16,
+            u16::try_from(*v)?,
         )))),
         Kind::Uint32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v)))),
         Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
@@ -250,6 +250,24 @@ mod test {
             ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(
                 0.42,
             )))),
+        ));
+    }
+
+    #[test]
+    fn test_i8() {
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(i8::MIN.into())),
+        ));
+
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(0i8.into())),
+        ));
+
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(i8::MAX.into())),
         ));
     }
 }
