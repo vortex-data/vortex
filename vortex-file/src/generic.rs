@@ -2,13 +2,12 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::{Stream, StreamExt, pin_mut, stream};
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::{AsyncSegmentReader, PendingSegmentLease, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, SegmentSpec};
@@ -113,13 +112,12 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
         // Create a stream that yields every time there is more work to do in the segment queue.
         stream::unfold(self, move |mut this| async move {
             // If the segment queue is empty, then wait for the next notification.
-            if !this.segment_queue.has_pending() {
-                let Some(_) = this.segment_queue.next().await else {
-                    // The segment queue has completed, meaning no more requests are possible.
-                    // We're done!
-                    return None;
-                };
-            }
+            let Some(_) = this.segment_queue.next().await else {
+                // The segment queue has completed, meaning no more requests are possible.
+                // We're done!
+                log::info!("I/O driver finished");
+                return None;
+            };
 
             // Using the pending segments, construct a single coalesced read.
             let request = this
@@ -135,11 +133,8 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                         .get(*first.id() as usize)
                         .ok_or_else(|| vortex_err!("SegmentID {} not found", first.id()))?;
                     let first_req = SegmentRequest {
-                        id: first.id(),
                         spec: first_spec.clone(),
-                        callback: first
-                            .take_callback()
-                            .vortex_expect("pending segment must have callback"),
+                        lease: first,
                     };
 
                     // We build up a single coalesced read from the pending segments.
@@ -159,7 +154,7 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                     for pending in pending_segments {
                         // If the coalesced request has reached the maximum size, ship it.
                         if coalesced.size_bytes() > max_read {
-                            log::info!(
+                            log::debug!(
                                 "Coalesced read {:?} reached max size {}",
                                 coalesced,
                                 max_read
@@ -190,17 +185,14 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                             // FIXME(ngates): shouldn't this be the _first_ segment?
                             coalesced.alignment = coalesced.alignment.max(spec.alignment);
                             coalesced.requests.push(SegmentRequest {
-                                id: pending.id(),
                                 spec: spec.clone(),
-                                callback: pending
-                                    .take_callback()
-                                    .vortex_expect("pending segment must have callback"),
+                                lease: pending,
                             });
                         }
                     }
 
                     // Finally, we ensure the coalesced segments are sorted by ID.
-                    coalesced.requests.sort_unstable_by_key(|r| r.id);
+                    coalesced.requests.sort_unstable_by_key(|r| r.id());
 
                     Ok::<_, VortexError>(Some(coalesced))
                 });
@@ -223,12 +215,15 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
 
 #[derive(Debug)]
 struct SegmentRequest {
-    id: SegmentId,
     spec: SegmentSpec,
-    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    lease: PendingSegmentLease,
 }
 
 impl SegmentRequest {
+    fn id(&self) -> SegmentId {
+        self.lease.id()
+    }
+
     fn range(&self) -> Range<u64> {
         self.spec.offset..self.spec.offset + self.spec.length as u64
     }
@@ -284,18 +279,18 @@ async fn evaluate<R: VortexReadAt + Send>(
         // Find any request callbacks and send the buffer
         while let Some(req) = requests_iter.peek() {
             // If the request is before the current segment, we should have already resolved it.
-            match req.id.cmp(&segment_id) {
+            match req.id().cmp(&segment_id) {
                 Ordering::Less => {
                     // This should never happen, it means we missed a segment request.
                     vortex_panic!("Skipped segment request");
                 }
                 Ordering::Equal => {
                     // Resolve the request
-                    let req = requests_iter.next().vortex_expect("next request");
-                    if let Err(_) = req.callback.send(Ok(buf.clone())) {
-                        // The receiver was dropped, which means the segment is no longer needed.
-                        log::debug!("Segment request was dropped while in-flight: {}", req.id);
-                    }
+                    requests_iter
+                        .next()
+                        .vortex_expect("next request")
+                        .lease
+                        .resolve(Ok(buf.clone()));
                 }
                 Ordering::Greater => {
                     // No request for this segment, so we continue

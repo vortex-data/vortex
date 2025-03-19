@@ -1,3 +1,4 @@
+mod pending;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::{Bound, Deref, Range, RangeBounds};
@@ -7,6 +8,7 @@ use std::task::Poll;
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use futures::{SinkExt, Stream, StreamExt};
+pub use pending::*;
 use range_union_find::RangeUnionFind;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -39,9 +41,12 @@ impl Display for SegmentId {
     }
 }
 
+/// Static future resolving to a segment byte buffer.
+pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
+
 pub trait AsyncSegmentReader: 'static + Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
-    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
+    fn get(&self, id: SegmentId) -> SegmentFuture;
 }
 
 pub trait SegmentWriter {
