@@ -1,4 +1,4 @@
-name: "Generate TPC-H files to S3"
+name: "Generate TPC-H and clickbench files to S3"
 
 on:
   workflow_dispatch: { }
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   generate_files:
-    name: Generate S3 TPCH files
+    name: Generate S3 TPCH and clickbench files
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i.2xlarge
@@ -30,10 +30,18 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
-      - name: Generate files locally
+      - name: Generate tpch locally
         shell: bash
         run: |
           # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
           cargo run --release --bin tpch -- --formats parquet,vortex -i1
           aws s3 rm --recursive s3://vortex-bench-dev-eu/tpch-sf1/
           aws s3 cp --recursive bench-vortex/data/tpch/1 s3://vortex-bench-dev-eu/tpch-sf1/
+
+      - name: Generate clickbench locally
+        shell: bash
+        run: |
+          # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
+          cargo run --release --bin clickbench -- --formats parquet,vortex -i1
+          aws s3 rm --recursive s3://vortex-bench-dev-eu/clickbench/
+          aws s3 cp --recursive bench-vortex/data/clickbench s3://vortex-bench-dev-eu/clickbench/
