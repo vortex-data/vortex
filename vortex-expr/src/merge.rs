@@ -47,7 +47,7 @@ impl Display for Merge {
 
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
-    use vortex_error::VortexResult;
+    use vortex_error::{VortexResult, vortex_bail};
     use vortex_proto::expr::kind::Kind;
 
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Merge};
@@ -62,17 +62,17 @@ pub(crate) mod proto {
 
     impl ExprDeserialize for MergeSerde {
         fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            todo!()
+            vortex_bail!(NotImplemented: "", self.id())
         }
     }
 
     impl ExprSerializable for Merge {
         fn id(&self) -> &'static str {
-            todo!()
+            MergeSerde.id()
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            todo!()
+            vortex_bail!(NotImplemented: "", self.id())
         }
     }
 }

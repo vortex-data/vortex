@@ -74,7 +74,7 @@ impl PartialEq for Between {
 
 #[cfg(feature = "proto")]
 mod proto {
-    use vortex_error::VortexResult;
+    use vortex_error::{VortexResult, vortex_bail};
     use vortex_proto::expr::kind::Kind;
 
     use crate::between::Between;
@@ -94,7 +94,7 @@ mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            todo!()
+            vortex_bail!(NotImplemented: "", self.id())
         }
     }
 }
