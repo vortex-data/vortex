@@ -7,7 +7,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::ListMetadata;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -193,7 +193,7 @@ impl ListArray {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
-            Nullability::NonNullable,
+            vortex_dtype::Nullability::NonNullable,
             iter.size_hint().0,
         );
 
@@ -219,7 +219,7 @@ impl ListArray {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
-            Nullability::Nullable,
+            vortex_dtype::Nullability::Nullable,
             iter.size_hint().0,
         );
 
@@ -245,7 +245,6 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -258,7 +257,7 @@ mod test {
 
     #[test]
     fn test_empty_list_array() {
-        let elements = PrimitiveArray::empty::<u32>(NonNullable);
+        let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
         let offsets = PrimitiveArray::from_iter([0]);
         let validity = Validity::AllValid;
 
