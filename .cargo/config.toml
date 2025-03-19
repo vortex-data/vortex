@@ -10,6 +10,5 @@ rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 
 [alias]
-wsclippy = "clippy --workspace --all-targets --all-features --exclude vortex-duckdb"
 xtask = "run -p xtask --"
 vx = "run -p vortex-tui --"
