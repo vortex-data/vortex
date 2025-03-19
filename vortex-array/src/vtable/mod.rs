@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
 use crate::serde::ArrayParts;
-use crate::{ArrayContext, ArrayRef, Canonical};
+use crate::{Array, ArrayContext, ArrayRef, Canonical};
 
 /// A reference to an array VTable, either static or arc'd.
 pub type VTableRef = ArcRef<dyn EncodingVTable>;
@@ -42,7 +42,9 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
         )
     }
 
-    fn encode(&self, input: &Canonical) -> VortexResult<Option<ArrayRef>>;
+    fn encode(&self, _input: &Canonical, _like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
+        todo!("does this need a default error?")
+    }
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {

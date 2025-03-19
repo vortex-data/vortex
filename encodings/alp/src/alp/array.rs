@@ -12,9 +12,10 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::Mask;
 
+use super::alp_encode_with_exponents;
 use crate::alp::serde::ALPMetadata;
 use crate::alp::{Exponents, alp_encode, decompress};
 
@@ -64,6 +65,32 @@ impl EncodingVTable for ALPEncoding {
             .transpose()?;
 
         Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
+    }
+
+    fn encode(&self, input: &Canonical, like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
+        let Canonical::Primitive(parray) = input else {
+            vortex_bail!("Expected ")
+        };
+
+        let like_alp = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.vtable().id()
+                    )
+                })
+            })
+            .transpose()?;
+        let exponents = like_alp.map(|a| a.exponents);
+
+        let alp = match exponents {
+            Some(e) => alp_encode_with_exponents(parray, e)?,
+            None => alp_encode(parray)?,
+        };
+
+        Ok(alp.into_array())
     }
 }
 
