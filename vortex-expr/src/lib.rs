@@ -43,9 +43,10 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
+#[cfg(feature = "proto")]
 use vortex_proto::expr;
 #[cfg(feature = "proto")]
-use vortex_proto::expr::Expr;
+use vortex_proto::expr::{Expr, kind};
 
 use crate::traversal::{Node, ReferenceCollector};
 
@@ -58,15 +59,14 @@ pub trait Id {
 
 #[cfg(feature = "proto")]
 pub trait ExprDeserialize: Id + Sync {
-    fn deserialize(&self, kind: &expr::kind::Kind, children: Vec<ExprRef>)
-    -> VortexResult<ExprRef>;
+    fn deserialize(&self, kind: &kind::Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 }
 
 #[cfg(feature = "proto")]
 pub trait ExprSerializable {
     fn id(&self) -> &'static str;
 
-    fn serialize_kind(&self) -> VortexResult<expr::kind::Kind>;
+    fn serialize_kind(&self) -> VortexResult<kind::Kind>;
 }
 
 #[cfg(not(feature = "proto"))]
