@@ -7,10 +7,12 @@ package vortex.expr;
 message Expr {
   string id = 1;
   repeated Expr children = 2;
+  // See warning message below.
   Kind kind = 3;
 }
 
 message Kind {
+  // This enum is very unstable, and will likely be replaced with something more extensible.
   oneof kind {
     Literal literal = 1;
     BinaryOp binary_op = 2;
