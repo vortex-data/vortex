@@ -7,7 +7,7 @@ package vortex.expr;
 message Expr {
   string id = 1;
   repeated Expr children = 2;
-  Kind attributes = 3;
+  Kind kind = 3;
 }
 
 message Kind {

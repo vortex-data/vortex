@@ -136,7 +136,7 @@ impl VortexExprExt for ExprRef {
         Ok(Expr {
             id: self.id().to_string(),
             children,
-            attributes: Some(expr::Kind {
+            kind: Some(expr::Kind {
                 kind: Some(self.serialize_kind()?),
             }),
         })

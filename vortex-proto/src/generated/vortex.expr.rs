@@ -6,7 +6,7 @@ pub struct Expr {
     #[prost(message, repeated, tag = "2")]
     pub children: ::prost::alloc::vec::Vec<Expr>,
     #[prost(message, optional, tag = "3")]
-    pub attributes: ::core::option::Option<Kind>,
+    pub kind: ::core::option::Option<Kind>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Kind {

@@ -40,7 +40,7 @@ pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
         .map(deserialize_expr)
         .collect::<VortexResult<Vec<_>>>()?;
     Ok(deserializer.deserialize(
-        &expr.attributes.as_ref().unwrap().kind.as_ref().unwrap(),
+        &expr.kind.as_ref().unwrap().kind.as_ref().unwrap(),
         children,
     )?)
 }
