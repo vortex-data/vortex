@@ -46,9 +46,9 @@ impl CompressorStats for StringStats {
 
     fn generate_opts(input: &Self::ArrayType, opts: GenerateStatsOptions) -> Self {
         let null_count = input
-            .validity()
-            .null_count(input.len())
-            .vortex_expect("null_count");
+            .statistics()
+            .compute_null_count()
+            .vortex_expect("null count");
         let value_count = input.len() - null_count;
         let estimated_distinct = if opts.count_distinct_values {
             estimate_distinct_count(input)
