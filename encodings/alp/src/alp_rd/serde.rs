@@ -1,16 +1,17 @@
 use serde::{Deserialize, Serialize};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use super::ALPRDEncoding;
+use super::{ALPRDEncoding, RDEncoder};
 use crate::ALPRDArray;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

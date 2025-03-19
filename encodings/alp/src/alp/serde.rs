@@ -3,13 +3,15 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 
-use super::ALPEncoding;
+use super::{ALPEncoding, alp_encode, alp_encode_with_exponents};
 use crate::{ALPArray, Exponents};
 
 impl EncodingVTable for ALPEncoding {
@@ -61,7 +63,7 @@ impl EncodingVTable for ALPEncoding {
                 })
             })
             .transpose()?;
-        let exponents = like_alp.map(|a| a.exponents);
+        let exponents = like_alp.map(|a| a.exponents());
 
         let alp = match exponents {
             Some(e) => alp_encode_with_exponents(parray, e)?,

@@ -13,7 +13,6 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use super::alp_encode_with_exponents;
 use crate::alp::serde::ALPMetadata;
 use crate::alp::{Exponents, alp_encode, decompress};
 

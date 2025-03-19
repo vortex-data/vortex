@@ -14,7 +14,6 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::RDEncoder;
 use crate::alp_rd::alp_rd_decode;
 use crate::alp_rd::serde::ALPRDMetadata;
 
