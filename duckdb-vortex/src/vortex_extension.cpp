@@ -21,20 +21,20 @@ namespace duckdb {
 /// file and its schema. This data is populated during the bind phase, which
 /// happens during the query planning phase.
 struct VortexBindData : public TableFunctionData {
-    string filename;
-    vector<LogicalType> types;
-    vector<string> names;
+    string file_name;
+    vector<LogicalType> columns_types;
+    vector<string> column_names;
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<VortexBindData>();
-        return filename == other.filename;
+        return file_name == other.file_name && column_names == other.column_names;
     }
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<VortexBindData>();
-        result->filename = filename;
-        result->types = types;
-        result->names = names;
+        result->file_name = file_name;
+        result->columns_types = columns_types;
+        result->column_names = column_names;
         return std::move(result);
     }
 };
@@ -69,12 +69,12 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 /// the schema of the data before execution begins. This enables optimizations
 /// like projection pushdown and predicate pushdown.
 static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunctionBindInput &input,
-                                       vector<LogicalType> &return_types, vector<string> &names) {
+                                       vector<LogicalType> &column_types, vector<string> &column_names) {
     auto result = make_uniq<VortexBindData>();
 
     // Get the filename from the input.
     auto filename = input.inputs[0].GetValue<string>();
-    result->filename = filename;
+    result->file_name = filename;
 
     // TODO
     // - Open the file
@@ -82,11 +82,11 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
     // - Define return_types and names based on the schema
 
     // Set a dummy schema.
-    names.push_back("vortex_sample_column");
-    return_types.push_back(LogicalType::VARCHAR);
+    column_names.push_back("vortex_sample_column");
+    column_types.push_back(LogicalType::VARCHAR);
 
-    result->names = names;
-    result->types = return_types;
+    result->column_names = column_names;
+    result->columns_types = column_types;
 
     return std::move(result);
 }
