@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_dtype::DType;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
@@ -77,13 +77,13 @@ impl From<&PValue> for pb::ScalarValue {
                 kind: Some(Kind::Uint64Value(*v)),
             },
             PValue::F16(v) => pb::ScalarValue {
-                kind: Some(Kind::Uint32Value(v.to_bits() as u32)),
+                kind: Some(Kind::F16Value(v.to_bits() as u32)),
             },
             PValue::F32(v) => pb::ScalarValue {
-                kind: Some(Kind::FloatValue(*v)),
+                kind: Some(Kind::F32Value(*v)),
             },
             PValue::F64(v) => pb::ScalarValue {
-                kind: Some(Kind::DoubleValue(*v)),
+                kind: Some(Kind::F64Value(*v)),
             },
         }
     }
@@ -121,29 +121,27 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
     match kind {
         Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
         Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
+        Kind::Int8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I8(
+            i8::try_from(*v)?,
+        )))),
+        Kind::Int16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I16(
+            i16::try_from(*v)?,
+        )))),
         Kind::Int32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I32(*v)))),
         Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
-        Kind::Uint32Value(v) => match dtype {
-            DType::Primitive(PType::F16, _) => {
-                let f16_value = f16::from_bits(u16::try_from(*v).map_err(|_| {
-                    vortex_err!(
-                        "expected f16 encoded as u16 inside u32 but found too large value {:#x}",
-                        v
-                    )
-                })?);
-
-                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                    f16_value,
-                ))))
-            }
-            DType::Primitive(PType::U32, _) => {
-                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v))))
-            }
-            _ => vortex_bail!("invalid dtype for f32 value {}", dtype),
-        },
+        Kind::Uint8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U8(
+            u8::try_from(*v)?,
+        )))),
+        Kind::Uint16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U16(
+            u16::try_from(*v)?,
+        )))),
+        Kind::Uint32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v)))),
         Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
-        Kind::FloatValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
-        Kind::DoubleValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
+        Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
+            f16::from_bits(u16::try_from(*v)?),
+        )))),
+        Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
+        Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
         Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
             BufferString::from(v.clone()),
         )))),
@@ -252,6 +250,24 @@ mod test {
             ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(
                 0.42,
             )))),
+        ));
+    }
+
+    #[test]
+    fn test_i8() {
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(i8::MIN.into())),
+        ));
+
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(0i8.into())),
+        ));
+
+        round_trip(Scalar::new(
+            DType::Primitive(PType::I8, Nullability::Nullable),
+            ScalarValue(InnerScalarValue::Primitive(i8::MAX.into())),
         ));
     }
 }

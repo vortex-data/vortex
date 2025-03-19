@@ -76,8 +76,8 @@ impl EncodingVTable for ALPEncoding {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
-    pub(crate) exponents: Exponents,
-    pub(crate) patches: Option<PatchesMetadata>,
+    exponents: Exponents,
+    patches: Option<PatchesMetadata>,
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
@@ -97,5 +97,31 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
                 .transpose()
                 .vortex_expect("Failed to create patches metadata"),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::SerdeMetadata;
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_harness::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::Exponents;
+    use crate::alp::serde::ALPMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_alp_metadata() {
+        check_metadata(
+            "alp.metadata",
+            SerdeMetadata(ALPMetadata {
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
+                exponents: Exponents {
+                    e: u8::MAX,
+                    f: u8::MAX,
+                },
+            }),
+        );
     }
 }

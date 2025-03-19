@@ -13,6 +13,40 @@ static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Identity));
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Identity;
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use vortex_error::VortexResult;
+    use vortex_proto::expr::kind;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::identity::IDENTITY;
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Identity};
+
+    pub(crate) struct IdentitySerde;
+
+    impl Id for IdentitySerde {
+        fn id(&self) -> &'static str {
+            "identity"
+        }
+    }
+
+    impl ExprDeserialize for IdentitySerde {
+        fn deserialize(&self, _expr: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            Ok(IDENTITY.clone())
+        }
+    }
+
+    impl ExprSerializable for Identity {
+        fn id(&self) -> &'static str {
+            IdentitySerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Identity(kind::Identity {}))
+        }
+    }
+}
+
 impl Identity {
     pub fn new_expr() -> ExprRef {
         IDENTITY.clone()

@@ -21,6 +21,8 @@ mod not;
 mod operators;
 mod pack;
 pub mod pruning;
+#[cfg(feature = "proto")]
+mod registry;
 mod select;
 pub mod transform;
 pub mod traversal;
@@ -34,18 +36,46 @@ pub use merge::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;
+#[cfg(feature = "proto")]
+pub use registry::deserialize_expr;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
+#[cfg(feature = "proto")]
+use vortex_proto::expr;
+#[cfg(feature = "proto")]
+use vortex_proto::expr::{Expr, kind};
 
 use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
+#[cfg(feature = "proto")]
+pub trait Id {
+    fn id(&self) -> &'static str;
+}
+
+#[cfg(feature = "proto")]
+pub trait ExprDeserialize: Id + Sync {
+    fn deserialize(&self, kind: &kind::Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
+}
+
+#[cfg(feature = "proto")]
+pub trait ExprSerializable {
+    fn id(&self) -> &'static str;
+
+    fn serialize_kind(&self) -> VortexResult<kind::Kind>;
+}
+
+#[cfg(not(feature = "proto"))]
+pub trait ExprSerializable {}
+#[cfg(not(feature = "proto"))]
+impl<T> ExprSerializable for T {}
+
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
+pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
@@ -82,6 +112,9 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn references(&self) -> HashSet<FieldName>;
+
+    #[cfg(feature = "proto")]
+    fn serialize(&self) -> VortexResult<Expr>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -90,6 +123,23 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+
+    #[cfg(feature = "proto")]
+    fn serialize(&self) -> VortexResult<Expr> {
+        let children = self
+            .children()
+            .iter()
+            .map(|e| e.serialize())
+            .collect::<VortexResult<_>>()?;
+
+        Ok(Expr {
+            id: self.id().to_string(),
+            children,
+            kind: Some(expr::Kind {
+                kind: Some(self.serialize_kind()?),
+            }),
+        })
     }
 }
 
@@ -291,5 +341,20 @@ mod tests {
             .to_string(),
             "{dog:32_u32,cat:\"rufus\"}"
         );
+    }
+
+    #[cfg(feature = "proto")]
+    mod tests_proto {
+
+        use crate::{VortexExprExt, deserialize_expr, eq, ident, lit};
+
+        #[test]
+        fn round_trip_serde() {
+            let expr = eq(ident(), lit(1));
+            let res = expr.serialize().unwrap();
+            let final_ = deserialize_expr(&res).unwrap();
+
+            assert_eq!(&expr, &final_);
+        }
     }
 }

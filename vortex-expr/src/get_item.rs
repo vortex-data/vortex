@@ -55,6 +55,45 @@ impl Display for GetItem {
     }
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, GetItem, Id};
+
+    struct GetItemSerde;
+
+    impl Id for GetItemSerde {
+        fn id(&self) -> &'static str {
+            "get_item"
+        }
+    }
+
+    impl ExprDeserialize for GetItemSerde {
+        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::GetItem(kind::GetItem { path }) = kind else {
+                vortex_bail!("wrong kind {:?}, want get_item", kind)
+            };
+
+            Ok(GetItem::new_expr(path.to_string(), children[0].clone()))
+        }
+    }
+
+    impl ExprSerializable for GetItem {
+        fn id(&self) -> &'static str {
+            GetItemSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::GetItem(kind::GetItem {
+                path: self.field.to_string(),
+            }))
+        }
+    }
+}
+
 impl VortexExpr for GetItem {
     fn as_any(&self) -> &dyn Any {
         self
