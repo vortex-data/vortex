@@ -6,9 +6,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-// use vortex_proto::expr;
-// #[cfg(feature = "proto")]
-// use vortex_proto::expr::Expr;
 use vortex_scalar::Scalar;
 
 use crate::{ExprRef, VortexExpr};
@@ -102,15 +99,6 @@ impl VortexExpr for Literal {
     fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
         Ok(self.value.dtype().clone())
     }
-
-    // #[cfg(feature = "proto")]
-    // fn serialize(self: Arc<Self>) -> VortexResult<Expr> {
-    //     Ok(Expr {
-    //         expr: Some(expr::expr::Expr::Literal(expr::Literal {
-    //             value: Some((&self.value).into()),
-    //         })),
-    //     })
-    // }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.

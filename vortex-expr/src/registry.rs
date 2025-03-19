@@ -2,8 +2,10 @@
 
 use std::sync::LazyLock;
 
+use expr::Expr;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{VortexResult, vortex_err};
+use vortex_proto::expr;
 
 use crate::binary::proto::BinarySerde;
 use crate::identity::proto::IdentitySerde;
@@ -27,17 +29,17 @@ const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
 static EXPRESSIONS_REGISTRY: LazyLock<HashMap<&'static str, &&'static dyn ExprDeserialize>> =
     LazyLock::new(move || EXPRESSIONS.into_iter().map(|e| (e.id(), e)).collect());
 
-pub fn deserialize_expr(expr: &vortex_proto::expr::Expr) -> VortexResult<ExprRef> {
-    let id = expr.id.as_str();
-    let deser = EXPRESSIONS_REGISTRY
-        .get(id)
-        .ok_or_else(|| vortex_err!("unknown expression id: {}", id))?;
+pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
+    let expr_id = expr.id.as_str();
+    let deserializer = EXPRESSIONS_REGISTRY
+        .get(expr_id)
+        .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
     let children = expr
         .children
         .iter()
         .map(deserialize_expr)
         .collect::<VortexResult<Vec<_>>>()?;
-    Ok(deser.deserialize(
+    Ok(deserializer.deserialize(
         &expr.attributes.as_ref().unwrap().kind.as_ref().unwrap(),
         children,
     )?)

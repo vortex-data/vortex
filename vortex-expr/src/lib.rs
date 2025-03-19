@@ -125,11 +125,6 @@ impl VortexExprExt for ExprRef {
         collector.into_fields()
     }
 
-    // #[cfg(feature = "proto")]
-    // fn serialize(&self) -> VortexResult<Expr> {
-    //     self.serializer().serialize(&(self.clone() as ExprRef))
-    // }
-
     #[cfg(feature = "proto")]
     fn serialize(&self) -> VortexResult<Expr> {
         let children = self
