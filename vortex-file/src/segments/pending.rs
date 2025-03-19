@@ -13,8 +13,6 @@ use vortex_error::{
 
 use crate::segments::SegmentId;
 
-type ShareableSegmentFuture = BoxFuture<'static, SharedVortexResult<ByteBuffer>>;
-
 /// A pending segment returned by the [`AsyncSegmentReader`].
 pub struct PendingSegment {
     id: SegmentId,

@@ -6,11 +6,15 @@ use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_layout::segments::{AsyncSegmentReader, PendingSegment, PendingSegmentLease, SegmentId};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+
+use crate::segments::pending::{PendingSegment, PendingSegmentLease};
 
 type Segments = Arc<RwLock<VecDeque<Weak<PendingSegment>>>>;
 
 /// Pre-fetch queue for segments for the generic file reader.
+///
+/// Segments are prioritised by the order in which they are requested.
 pub struct SegmentQueue {
     segments: Segments,
     send: mpsc::UnboundedSender<()>,
@@ -42,7 +46,6 @@ impl SegmentQueue {
     }
 
     /// Inspect all pending segments, in order of segment ID.
-    /// TODO(ngates): we want this in order of request, not segment ID.
     pub fn with_pending_segments<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut dyn Iterator<Item = PendingSegmentLease>) -> T,
@@ -54,6 +57,7 @@ impl SegmentQueue {
             .filter_map(|p| p.upgrade())
             .filter_map(|p| p.lease()));
 
+        // Throw away any segments that have been dropped.
         segments.retain(|p| p.upgrade().is_some());
 
         result

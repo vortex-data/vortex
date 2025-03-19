@@ -7,10 +7,11 @@ use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{AsyncSegmentReader, PendingSegmentLease, SegmentId};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, SegmentSpec};
+use crate::segments::pending::PendingSegmentLease;
 use crate::segments::queue::SegmentQueue;
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexFile, VortexOpenOptions};

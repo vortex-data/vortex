@@ -2,7 +2,7 @@ use std::ops::BitAnd;
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt, stream};
+use futures::{FutureExt, StreamExt, TryFutureExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
@@ -19,7 +19,6 @@ use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
-use crate::segments::{AsyncSegmentReader, SegmentStream};
 use crate::{
     ExprEvaluator, LayoutReader, LayoutReaderExt, MaskFuture, RowMask, instrument,
     mask_future_ready, range_intersection,
@@ -28,21 +27,6 @@ use crate::{
 pub mod executor;
 mod split_by;
 pub mod unified;
-
-pub trait ScanDriver: 'static + Sized {
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
-
-    /// Return a future that drives the I/O stream for the segment reader.
-    /// The future should return when the stream is complete, and can return an error to
-    /// terminate the scan early.
-    ///
-    /// It is recommended that I/O is spawned and processed on its own thread, with this driver
-    /// serving only as a mechanism to signal completion or error. There is no guarantee around
-    /// how frequently this future will be polled, so it should not be used to drive I/O.
-    ///
-    /// TODO(ngates): make this a future
-    fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>>;
-}
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder {

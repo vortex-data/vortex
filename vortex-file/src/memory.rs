@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
-use futures::{FutureExt, Stream, stream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_layout::scan::ScanDriver;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentStream};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 
@@ -39,16 +38,6 @@ impl FileType for InMemoryVortexFile {
             }),
             metrics: options.metrics,
         })
-    }
-}
-
-impl ScanDriver for InMemoryVortexFile {
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
-        Arc::new(self.clone())
-    }
-
-    fn io_stream(self, _segments: SegmentStream) -> impl Stream<Item = VortexResult<()>> {
-        stream::repeat_with(|| Ok(()))
     }
 }
 
