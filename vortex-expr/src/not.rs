@@ -36,7 +36,9 @@ impl Display for Not {
 
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
+    use expr::kind;
     use vortex_error::VortexResult;
+    use vortex_proto::expr;
     use vortex_proto::expr::kind::Kind;
 
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Not};
@@ -61,7 +63,7 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Not(vortex_proto::expr::Not {}))
+            Ok(Kind::Not(kind::Not {}))
         }
     }
 }

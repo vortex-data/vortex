@@ -21,7 +21,7 @@ pub enum Operator {
 #[cfg(feature = "proto")]
 mod proto {
     use vortex_error::VortexError;
-    use vortex_proto::expr::BinaryOp;
+    use vortex_proto::expr::kind::BinaryOp;
 
     use crate::Operator;
 

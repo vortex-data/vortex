@@ -45,7 +45,6 @@ impl Display for BinaryExpr {
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
     use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::BinaryOp;
     use vortex_proto::expr::kind::Kind;
 
     use crate::{BinaryExpr, ExprDeserialize, ExprRef, ExprSerializable, Id};
@@ -64,11 +63,9 @@ pub(crate) mod proto {
                 vortex_bail!("wrong kind {:?}, binary", kind)
             };
 
-            let op = BinaryOp::try_from(*op)?;
-
             Ok(BinaryExpr::new_expr(
                 children[0].clone(),
-                op.try_into()?,
+                (*op).try_into()?,
                 children[1].clone(),
             ))
         }

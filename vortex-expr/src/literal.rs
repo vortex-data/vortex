@@ -41,7 +41,6 @@ impl Display for Literal {
 pub(crate) mod proto {
     use kind::Kind;
     use vortex_error::{VortexResult, vortex_bail, vortex_err};
-    use vortex_proto::expr;
     use vortex_proto::expr::kind;
     use vortex_scalar::Scalar;
 
@@ -75,7 +74,7 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Literal(expr::Literal {
+            Ok(Kind::Literal(kind::Literal {
                 value: Some((&self.value).into()),
             }))
         }

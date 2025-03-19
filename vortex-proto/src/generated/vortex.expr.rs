@@ -17,87 +17,97 @@ pub struct Kind {
 }
 /// Nested message and enum types in `Kind`.
 pub mod kind {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Literal {
+        #[prost(message, optional, tag = "1")]
+        pub value: ::core::option::Option<super::super::scalar::Scalar>,
+    }
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Not {}
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Identity {}
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Merge {}
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Pack {
+        #[prost(string, repeated, tag = "1")]
+        pub paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GetItem {
+        #[prost(string, tag = "1")]
+        pub path: ::prost::alloc::string::String,
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum BinaryOp {
+        Eq = 0,
+        NotEq = 1,
+        Gt = 2,
+        Gte = 3,
+        Lt = 4,
+        Lte = 5,
+        And = 6,
+        Or = 7,
+    }
+    impl BinaryOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Eq => "Eq",
+                Self::NotEq => "NotEq",
+                Self::Gt => "Gt",
+                Self::Gte => "Gte",
+                Self::Lt => "Lt",
+                Self::Lte => "Lte",
+                Self::And => "And",
+                Self::Or => "Or",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Eq" => Some(Self::Eq),
+                "NotEq" => Some(Self::NotEq),
+                "Gt" => Some(Self::Gt),
+                "Gte" => Some(Self::Gte),
+                "Lt" => Some(Self::Lt),
+                "Lte" => Some(Self::Lte),
+                "And" => Some(Self::And),
+                "Or" => Some(Self::Or),
+                _ => None,
+            }
+        }
+    }
     /// This enum is very unstable, and will likely be replaced with something more extensible.
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
         #[prost(message, tag = "1")]
-        Literal(super::Literal),
-        #[prost(enumeration = "super::BinaryOp", tag = "2")]
+        Literal(Literal),
+        #[prost(enumeration = "BinaryOp", tag = "2")]
         BinaryOp(i32),
         #[prost(message, tag = "3")]
-        GetItem(super::GetItem),
+        GetItem(GetItem),
         #[prost(message, tag = "4")]
-        Identity(super::Identity),
+        Identity(Identity),
         #[prost(message, tag = "5")]
-        Merge(super::Merge),
+        Merge(Merge),
         #[prost(message, tag = "6")]
-        Not(super::Not),
+        Not(Not),
         #[prost(message, tag = "7")]
-        Pack(super::Pack),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Literal {
-    #[prost(message, optional, tag = "1")]
-    pub value: ::core::option::Option<super::scalar::Scalar>,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Not {}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Identity {}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Merge {}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Pack {
-    #[prost(string, repeated, tag = "1")]
-    pub paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetItem {
-    #[prost(string, tag = "1")]
-    pub path: ::prost::alloc::string::String,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum BinaryOp {
-    Eq = 0,
-    NotEq = 1,
-    Gt = 2,
-    Gte = 3,
-    Lt = 4,
-    Lte = 5,
-    And = 6,
-    Or = 7,
-}
-impl BinaryOp {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::Eq => "Eq",
-            Self::NotEq => "NotEq",
-            Self::Gt => "Gt",
-            Self::Gte => "Gte",
-            Self::Lt => "Lt",
-            Self::Lte => "Lte",
-            Self::And => "And",
-            Self::Or => "Or",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "Eq" => Some(Self::Eq),
-            "NotEq" => Some(Self::NotEq),
-            "Gt" => Some(Self::Gt),
-            "Gte" => Some(Self::Gte),
-            "Lt" => Some(Self::Lt),
-            "Lte" => Some(Self::Lte),
-            "And" => Some(Self::And),
-            "Or" => Some(Self::Or),
-            _ => None,
-        }
+        Pack(Pack),
     }
 }

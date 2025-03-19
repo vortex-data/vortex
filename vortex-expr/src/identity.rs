@@ -16,6 +16,7 @@ pub struct Identity;
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
     use vortex_error::VortexResult;
+    use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
 
     use crate::identity::IDENTITY;
@@ -41,7 +42,7 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Identity(vortex_proto::expr::Identity {}))
+            Ok(Kind::Identity(kind::Identity {}))
         }
     }
 }

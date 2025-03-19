@@ -22,39 +22,40 @@ message Kind {
     Not not = 6;
     Pack pack = 7;
   }
+
+  message Literal {
+    vortex.scalar.Scalar value = 1;
+  }
+
+  message Not {
+
+  }
+
+  message Identity {
+
+  }
+
+  message Merge {
+
+  }
+
+  message Pack {
+    repeated string paths = 1;
+  }
+
+  message GetItem {
+    string path = 1;
+  }
+
+  enum BinaryOp {
+    Eq = 0;
+    NotEq = 1;
+    Gt = 2;
+    Gte = 3;
+    Lt = 4;
+    Lte = 5;
+    And = 6;
+    Or = 7;
+  }
 }
 
-message Literal {
-  vortex.scalar.Scalar value = 1;
-}
-
-message Not {
-
-}
-
-message Identity {
-
-}
-
-message Merge {
-
-}
-
-message Pack {
-  repeated string paths = 1;
-}
-
-message GetItem {
-  string path = 1;
-}
-
-enum BinaryOp {
-  Eq = 0;
-  NotEq = 1;
-  Gt = 2;
-  Gte = 3;
-  Lt = 4;
-  Lte = 5;
-  And = 6;
-  Or = 7;
-}
