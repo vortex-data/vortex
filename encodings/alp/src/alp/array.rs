@@ -69,7 +69,7 @@ impl EncodingVTable for ALPEncoding {
 
     fn encode(&self, input: &Canonical, like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
         let Canonical::Primitive(parray) = input else {
-            vortex_bail!("Expected ")
+            vortex_bail!("Expected a primitive input")
         };
 
         let like_alp = like
