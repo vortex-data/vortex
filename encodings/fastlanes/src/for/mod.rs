@@ -1,17 +1,18 @@
 use std::fmt::Debug;
 
 pub use compress::*;
+use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
 };
-use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{DType, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::r#for::serde::ScalarValueMetadata;
 
@@ -35,6 +36,34 @@ impl Encoding for FoREncoding {
 impl EncodingVTable for FoREncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("fastlanes.for")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nchildren() != 1 {
+            vortex_bail!(
+                "Expected 1 child for FoR encoding, found {}",
+                parts.nchildren()
+            )
+        }
+
+        let ptype = PType::try_from(&dtype)?;
+        let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
+        let encoded = parts.child(0).decode(ctx, encoded_dtype, len)?;
+
+        let reference = ScalarValue::from_flexbytes(
+            parts
+                .metadata()
+                .ok_or_else(|| vortex_err!("Missing FoR metadata"))?,
+        )?;
+        let reference = Scalar::new(dtype, reference);
+
+        Ok(FoRArray::try_new(encoded, reference)?.into_array())
     }
 }
 

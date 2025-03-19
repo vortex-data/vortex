@@ -1,11 +1,12 @@
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical,
-    try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayContext, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -32,6 +33,24 @@ impl Encoding for ZigZagEncoding {
 impl EncodingVTable for ZigZagEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.zigzag")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nchildren() != 1 {
+            vortex_bail!("Expected 1 child, got {}", parts.nchildren());
+        }
+
+        let ptype = PType::try_from(&dtype)?;
+        let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
+
+        let encoded = parts.child(0).decode(ctx, encoded_type, len)?;
+        Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
 
@@ -116,6 +135,16 @@ impl ArrayVariantsImpl for ZigZagArray {
 }
 
 impl PrimitiveArrayTrait for ZigZagArray {}
+
+impl ArrayVisitorImpl for ZigZagArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", self.encoded())
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 #[cfg(test)]
 mod test {

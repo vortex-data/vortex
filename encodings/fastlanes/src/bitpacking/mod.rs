@@ -5,17 +5,19 @@ use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
+use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, DeserializeMetadata, Encoding, EncodingId,
+    RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
@@ -47,6 +49,66 @@ impl Encoding for BitPackedEncoding {
 impl EncodingVTable for BitPackedEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = RkyvMetadata::<BitPackedMetadata>::deserialize(parts.metadata())?;
+
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let packed = parts.buffer(0)?;
+
+        let load_validity = |child_idx: usize| {
+            if parts.nchildren() == child_idx {
+                Ok(Validity::from(dtype.nullability()))
+            } else if parts.nchildren() == child_idx + 1 {
+                let validity = parts.child(child_idx).decode(ctx, Validity::DTYPE, len)?;
+                Ok(Validity::Array(validity))
+            } else {
+                vortex_bail!(
+                    "Expected {} or {} children, got {}",
+                    child_idx,
+                    child_idx + 1,
+                    parts.nchildren()
+                );
+            }
+        };
+
+        // Load validity from the zero'th or second child, depending on whether patches are present.
+        let validity = if metadata.patches.is_some() {
+            load_validity(2)?
+        } else {
+            load_validity(0)?
+        };
+
+        let patches = metadata
+            .patches
+            .map(|p| {
+                let indices = parts.child(0).decode(ctx, p.indices_dtype(), p.len())?;
+                let values = parts.child(1).decode(ctx, dtype.clone(), p.len())?;
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+            })
+            .transpose()?;
+
+        Ok(unsafe {
+            BitPackedArray::new_unchecked_with_offset(
+                packed,
+                PType::try_from(&dtype)?,
+                validity,
+                patches,
+                metadata.bit_width,
+                len,
+                metadata.offset,
+            )?
+            .into_array()
+        })
     }
 }
 

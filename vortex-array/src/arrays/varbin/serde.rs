@@ -1,16 +1,10 @@
 use std::fmt::Debug;
 
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 
-use crate::arrays::{VarBinArray, VarBinEncoding};
-use crate::serde::ArrayParts;
-use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, RkyvMetadata,
-};
+use crate::arrays::VarBinArray;
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, RkyvMetadata};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct VarBinMetadata {
@@ -32,39 +26,5 @@ impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
             offsets_ptype: PType::try_from(self.offsets().dtype())
                 .vortex_expect("Must be a valid PType"),
         })
-    }
-}
-
-impl SerdeVTable<&VarBinArray> for VarBinEncoding {
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
-
-        let validity = if parts.nchildren() == 1 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 2 {
-            let validity = parts.child(1).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", parts.nchildren());
-        };
-
-        let offsets = parts.child(0).decode(
-            ctx,
-            DType::Primitive(metadata.offsets_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let bytes = parts.buffer(0)?;
-
-        Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }
 }

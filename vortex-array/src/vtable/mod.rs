@@ -4,14 +4,15 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 mod compute;
-mod serde;
 
 pub use compute::*;
-pub use serde::*;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::Array;
 use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
+use crate::serde::ArrayParts;
+use crate::{ArrayContext, ArrayRef};
 
 /// A reference to an array VTable, either static or arc'd.
 pub type VTableRef = ArcRef<dyn EncodingVTable>;
@@ -22,11 +23,24 @@ pub type VTableRef = ArcRef<dyn EncodingVTable>;
 /// It is split into multiple sub-traits to make it easier for consumers to break up the
 /// implementation, as well as to allow for optional implementation of certain features, for example
 /// compute functions.
-pub trait EncodingVTable:
-    'static + Sync + Send + ComputeVTable + for<'a> SerdeVTable<&'a dyn Array>
-{
+pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        _dtype: DType,
+        _len: usize,
+    ) -> VortexResult<ArrayRef> {
+        vortex_bail!(
+            "Decoding not supported for encoding {}",
+            ctx.lookup_encoding(parts.encoding_id())
+                .vortex_expect("Encoding already validated")
+                .id()
+        )
+    }
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {

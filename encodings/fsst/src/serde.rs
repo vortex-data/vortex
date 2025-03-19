@@ -1,20 +1,13 @@
-use fsst::Symbol;
 use serde::{Deserialize, Serialize};
-use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, SerdeMetadata,
-};
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, SerdeMetadata};
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::FSSTArray;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FSSTMetadata {
-    uncompressed_lengths_ptype: PType,
+    pub(crate) uncompressed_lengths_ptype: PType,
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
@@ -33,44 +26,6 @@ impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
             uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
                 .vortex_expect("Must be a valid PType"),
         })
-    }
-}
-
-impl SerdeVTable<&FSSTArray> for FSSTEncoding {
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
-
-        if parts.nbuffers() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", parts.nbuffers());
-        }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(parts.buffer(0)?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(parts.buffer(1)?);
-
-        if parts.nchildren() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", parts.nchildren());
-        }
-        let codes = parts
-            .child(0)
-            .decode(ctx, DType::Binary(dtype.nullability()), len)?;
-        let uncompressed_lengths = parts.child(1).decode(
-            ctx,
-            DType::Primitive(
-                metadata.uncompressed_lengths_ptype,
-                Nullability::NonNullable,
-            ),
-            len,
-        )?;
-
-        Ok(
-            FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)?
-                .into_array(),
-        )
     }
 }
 

@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
+use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId,
+    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
 };
 mod compute;
 mod serde;
@@ -31,6 +32,22 @@ impl Encoding for ExtensionEncoding {
 impl EncodingVTable for ExtensionEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.ext")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let DType::Extension(ext_dtype) = dtype else {
+            vortex_bail!("Not an extension DType");
+        };
+        let storage = parts
+            .child(0)
+            .decode(ctx, ext_dtype.storage_dtype().clone(), len)?;
+        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 }
 

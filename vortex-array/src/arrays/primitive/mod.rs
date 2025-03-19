@@ -4,20 +4,21 @@ use std::iter;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
+use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, try_from_array_ref,
+    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, try_from_array_ref,
 };
 
 mod compute;
@@ -43,6 +44,52 @@ impl Encoding for PrimitiveEncoding {
 impl EncodingVTable for PrimitiveEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.primitive")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let buffer = parts.buffer(0)?;
+
+        let validity = if parts.nchildren() == 0 {
+            Validity::from(dtype.nullability())
+        } else if parts.nchildren() == 1 {
+            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
+        };
+
+        let ptype = PType::try_from(&dtype)?;
+
+        if !buffer.is_aligned(Alignment::new(ptype.byte_width())) {
+            vortex_bail!(
+                "Buffer is not aligned to {}-byte boundary",
+                ptype.byte_width()
+            );
+        }
+        if buffer.len() != ptype.byte_width() * len {
+            vortex_bail!(
+                "Buffer length {} does not match expected length {} for {}, {} in {:?}",
+                buffer.len(),
+                ptype.byte_width() * len,
+                ptype.byte_width(),
+                len,
+                parts,
+            );
+        }
+
+        match_each_native_ptype!(ptype, |$P| {
+            let buffer = Buffer::<$P>::from_byte_buffer(buffer);
+            Ok(PrimitiveArray::new(buffer, validity).into_array())
+        })
     }
 }
 

@@ -19,7 +19,6 @@ pub use boolean::{
 };
 pub use cast::{CastFn, try_cast};
 pub use compare::{CompareFn, Operator, compare, compare_lengths_to_empty, scalar_cmp};
-pub use encode::*;
 pub use fill_forward::{FillForwardFn, fill_forward};
 pub use fill_null::{FillNullFn, fill_null};
 pub use filter::*;
@@ -53,7 +52,6 @@ mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
-mod encode;
 mod fill_forward;
 mod fill_null;
 mod filter;

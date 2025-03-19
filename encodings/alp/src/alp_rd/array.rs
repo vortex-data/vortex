@@ -2,16 +2,18 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
+use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, EncodingId, SerdeMetadata, ToCanonical,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
+    ToCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::alp_rd::alp_rd_decode;
@@ -37,6 +39,58 @@ impl Encoding for ALPRDEncoding {
 impl EncodingVTable for ALPRDEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.alprd")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = SerdeMetadata::<ALPRDMetadata>::deserialize(parts.metadata())?;
+
+        if parts.nchildren() < 2 {
+            vortex_bail!(
+                "Expected at least 2 children for ALPRD encoding, found {}",
+                parts.nchildren()
+            );
+        }
+
+        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype, dtype.nullability());
+        let left_parts = parts.child(0).decode(ctx, left_parts_dtype.clone(), len)?;
+        let left_parts_dictionary =
+            Buffer::copy_from(&metadata.dict.as_slice()[0..metadata.dict_len as usize]);
+
+        let right_parts_dtype = match &dtype {
+            DType::Primitive(PType::F32, _) => {
+                DType::Primitive(PType::U32, Nullability::NonNullable)
+            }
+            DType::Primitive(PType::F64, _) => {
+                DType::Primitive(PType::U64, Nullability::NonNullable)
+            }
+            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+        };
+        let right_parts = parts.child(1).decode(ctx, right_parts_dtype, len)?;
+
+        let left_parts_patches = metadata
+            .patches
+            .map(|p| {
+                let indices = parts.child(2).decode(ctx, p.indices_dtype(), p.len())?;
+                let values = parts.child(3).decode(ctx, left_parts_dtype, p.len())?;
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+            })
+            .transpose()?;
+
+        Ok(ALPRDArray::try_new(
+            dtype,
+            left_parts,
+            left_parts_dictionary,
+            right_parts,
+            metadata.right_bit_width,
+            left_parts_patches,
+        )?
+        .into_array())
     }
 }
 

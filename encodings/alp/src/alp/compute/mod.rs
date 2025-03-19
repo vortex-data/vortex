@@ -2,22 +2,20 @@ mod compare;
 
 use std::fmt::Debug;
 
-use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, CompareFn, EncodeFn, FilterKernel, FilterKernelAdapter, KernelRef,
-    ScalarAtFn, SliceFn, StrictComparison, TakeFn, between, encode_like, filter, scalar_at, slice,
-    take,
+    BetweenFn, BetweenOptions, CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn,
+    SliceFn, StrictComparison, TakeFn, between, filter, scalar_at, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayExt, ArrayRef};
+use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarType};
 
-use super::alp_encode_with_exponents;
-use crate::{ALPArray, ALPEncoding, ALPFloat, alp_encode, match_each_alp_float_ptype};
+use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 impl ArrayComputeImpl for ALPArray {
     const FILTER: Option<KernelRef> = FilterKernelAdapter(ALPEncoding).some();
@@ -28,10 +26,6 @@ impl ComputeVTable for ALPEncoding {
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn encode_fn(&self) -> Option<&dyn EncodeFn<&dyn Array>> {
         Some(self)
     }
 
@@ -183,38 +177,6 @@ where
         &ConstantArray::new(upper_enc, array.len()),
         &options,
     )
-}
-
-impl EncodeFn<ALPArray> for ALPEncoding {
-    fn encode(&self, input: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-        let Some(input) = input.as_opt::<PrimitiveArray>() else {
-            return Ok(None);
-        };
-
-        alp_encode(input).map(|a| Some(a.into_array()))
-    }
-
-    fn encode_like(&self, input: &dyn Array, like: &ALPArray) -> VortexResult<Option<ArrayRef>> {
-        let Some(input) = input.as_opt::<PrimitiveArray>() else {
-            return Ok(None);
-        };
-
-        let exponents = like.exponents();
-        let alp = alp_encode_with_exponents(input, exponents)?;
-
-        let encoded_ints = match encode_like(alp.encoded(), like.encoded()) {
-            Ok(Some(encoded)) => encoded,
-            Ok(None) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-
-        // TODO(adam): also needs to be encoded-liked
-        let patches = alp.patches().cloned();
-
-        Ok(Some(
-            ALPArray::try_new(encoded_ints, exponents, patches)?.into_array(),
-        ))
-    }
 }
 
 #[cfg(test)]

@@ -1,30 +1,28 @@
 mod compute;
-mod serde;
 
 use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-#[cfg(feature = "test-harness")]
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
-use crate::arrays::list::serde::ListMetadata;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
+use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
+    Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayContext, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -45,6 +43,41 @@ impl Encoding for ListEncoding {
 impl EncodingVTable for ListEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.list")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = RkyvMetadata::<ListMetadata>::deserialize(parts.metadata())?;
+
+        let validity = if parts.nchildren() == 2 {
+            Validity::from(dtype.nullability())
+        } else if parts.nchildren() == 3 {
+            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 2 or 3 children, got {}", parts.nchildren());
+        };
+
+        let DType::List(element_dtype, _) = &dtype else {
+            vortex_bail!("Expected List dtype, got {:?}", dtype);
+        };
+        let elements =
+            parts
+                .child(0)
+                .decode(ctx, element_dtype.as_ref().clone(), metadata.elements_len)?;
+
+        let offsets = parts.child(1).decode(
+            ctx,
+            DType::Primitive(metadata.offset_ptype, Nullability::NonNullable),
+            len + 1,
+        )?;
+
+        Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
     }
 }
 
@@ -199,8 +232,11 @@ impl ListArray {
         <I::Item as IntoIterator>::Item: Into<Scalar>,
     {
         let iter = iter.into_iter();
-        let mut builder =
-            ListBuilder::<O>::with_capacity(dtype.clone(), NonNullable, iter.size_hint().0);
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            Nullability::NonNullable,
+            iter.size_hint().0,
+        );
 
         for v in iter {
             let elem = Scalar::list(
@@ -222,8 +258,11 @@ impl ListArray {
         T::Item: Into<Scalar>,
     {
         let iter = iter.into_iter();
-        let mut builder =
-            ListBuilder::<O>::with_capacity(dtype.clone(), Nullable, iter.size_hint().0);
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            Nullability::Nullable,
+            iter.size_hint().0,
+        );
 
         for v in iter {
             if let Some(v) = v {
@@ -238,6 +277,28 @@ impl ListArray {
             }
         }
         Ok(builder.finish())
+    }
+}
+
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct ListMetadata {
+    elements_len: usize,
+    offset_ptype: PType,
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("elements", self.elements());
+        visitor.visit_child("offsets", self.offsets());
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<ListMetadata> {
+        RkyvMetadata(ListMetadata {
+            elements_len: self.elements().len(),
+            offset_ptype: PType::try_from(self.offsets().dtype())
+                .vortex_expect("Must be a valid PType"),
+        })
     }
 }
 

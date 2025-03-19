@@ -1,20 +1,15 @@
 use serde::{Deserialize, Serialize};
-use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
-use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerdeMetadata,
-};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::{Array, ArrayChildVisitor, ArrayVisitorImpl, SerdeMetadata};
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::RunEndArray;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunEndMetadata {
-    ends_ptype: PType,
-    num_runs: usize,
-    offset: usize,
+    pub(crate) ends_ptype: PType,
+    pub(crate) num_runs: usize,
+    pub(crate) offset: usize,
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
@@ -29,25 +24,6 @@ impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
             num_runs: self.ends().len(),
             offset: self.offset(),
         })
-    }
-}
-
-impl SerdeVTable<&RunEndArray> for RunEndEncoding {
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<RunEndMetadata>::deserialize(parts.metadata())?;
-
-        let ends_dtype = DType::Primitive(metadata.ends_ptype, Nullability::NonNullable);
-        let ends = parts.child(0).decode(ctx, ends_dtype, metadata.num_runs)?;
-
-        let values = parts.child(1).decode(ctx, dtype, metadata.num_runs)?;
-
-        Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
     }
 }
 
