@@ -5,17 +5,19 @@ use vortex_array::patches::Patches;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
     ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
+use crate::RDEncoder;
 use crate::alp_rd::alp_rd_decode;
 use crate::alp_rd::serde::ALPRDMetadata;
 
@@ -91,6 +93,44 @@ impl EncodingVTable for ALPRDEncoding {
             left_parts_patches,
         )?
         .into_array())
+    }
+
+    fn encode(&self, input: &Canonical, like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
+        let Canonical::Primitive(parray) = input else {
+            vortex_bail!("Expected a primitive input")
+        };
+
+        let like_alprd = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.vtable().id()
+                    )
+                })
+            })
+            .transpose()?;
+
+        let alprd_array = match like_alprd {
+            None => {
+                let encoder = match parray.ptype() {
+                    PType::F32 => RDEncoder::new(parray.as_slice::<f32>()),
+                    PType::F64 => RDEncoder::new(parray.as_slice::<f64>()),
+                    ptype => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
+                };
+                encoder.encode(parray)
+            }
+            Some(like) => {
+                let encoder = RDEncoder::from_parts(
+                    like.right_bit_width(),
+                    like.left_parts_dictionary().to_vec(),
+                );
+                encoder.encode(parray)
+            }
+        };
+
+        Ok(alprd_array.into_array())
     }
 }
 
