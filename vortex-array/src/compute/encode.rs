@@ -31,5 +31,8 @@ pub fn encode(input: &dyn Array, encoding_vtable: VTableRef) -> VortexResult<Opt
 
 pub fn encode_like(input: &dyn Array, like: &dyn Array) -> VortexResult<Option<ArrayRef>> {
     // TODO(adamgs): I actually don't think this is right? we need something that visits nodes of the tree or something
-    encode(input, like.vtable())
+    match like.vtable().encode_fn() {
+        None => return Ok(None),
+        Some(encode_fn) => encode_fn.encode_like(input, &like),
+    }
 }

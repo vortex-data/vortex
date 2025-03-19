@@ -5,7 +5,8 @@ use std::fmt::Debug;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::compute::{
     BetweenFn, BetweenOptions, CompareFn, EncodeFn, FilterKernel, FilterKernelAdapter, KernelRef,
-    ScalarAtFn, SliceFn, StrictComparison, TakeFn, between, filter, scalar_at, slice, take,
+    ScalarAtFn, SliceFn, StrictComparison, TakeFn, between, encode_like, filter, scalar_at, slice,
+    take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -199,7 +200,20 @@ impl EncodeFn<ALPArray> for ALPEncoding {
         };
 
         let exponents = like.exponents();
-        alp_encode_with_exponents(input, exponents).map(|a| Some(a.into_array()))
+        let alp = alp_encode_with_exponents(input, exponents)?;
+
+        let encoded_ints = match encode_like(alp.encoded(), like.encoded()) {
+            Ok(Some(encoded)) => encoded,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        // TODO(adam): also needs to be encoded-liked
+        let patches = alp.patches().cloned();
+
+        Ok(Some(
+            ALPArray::try_new(encoded_ints, exponents, patches)?.into_array(),
+        ))
     }
 }
 
