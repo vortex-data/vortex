@@ -36,7 +36,6 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-//val libraryFile = targetDir.resolve("debug/libvortex_ffi.$platformLibSuffix")
 val libraryFile = targetDir.resolve("release/libvortex_ffi.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
