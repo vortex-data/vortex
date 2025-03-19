@@ -1,5 +1,6 @@
 use vortex_error::VortexResult;
 
+use crate::vtable::VTableRef;
 use crate::{Array, ArrayExt, ArrayRef, Encoding};
 
 pub trait EncodeFn<A> {
@@ -21,10 +22,14 @@ where
     }
 }
 
-pub fn encode(_input: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-    todo!()
+pub fn encode(input: &dyn Array, encoding_vtable: VTableRef) -> VortexResult<Option<ArrayRef>> {
+    match encoding_vtable.encode_fn() {
+        None => return Ok(None),
+        Some(encode_fn) => encode_fn.encode(input),
+    }
 }
 
-pub fn encode_like(_input: &dyn Array, _like: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-    todo!()
+pub fn encode_like(input: &dyn Array, like: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+    // TODO(adamgs): I actually don't think this is right? we need something that visits nodes of the tree or something
+    encode(input, like.vtable())
 }
