@@ -27,7 +27,7 @@ const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
 ];
 
 static EXPRESSIONS_REGISTRY: LazyLock<HashMap<&'static str, &&'static dyn ExprDeserialize>> =
-    LazyLock::new(move || EXPRESSIONS.into_iter().map(|e| (e.id(), e)).collect());
+    LazyLock::new(move || EXPRESSIONS.iter().map(|e| (e.id(), e)).collect());
 
 pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
     let expr_id = expr.id.as_str();
@@ -39,8 +39,5 @@ pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
         .iter()
         .map(deserialize_expr)
         .collect::<VortexResult<Vec<_>>>()?;
-    Ok(deserializer.deserialize(
-        &expr.kind.as_ref().unwrap().kind.as_ref().unwrap(),
-        children,
-    )?)
+    deserializer.deserialize(expr.kind.as_ref().unwrap().kind.as_ref().unwrap(), children)
 }

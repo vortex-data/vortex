@@ -25,7 +25,7 @@ pub(crate) mod proto {
 
     impl Id for IdentitySerde {
         fn id(&self) -> &'static str {
-            &"identity"
+            "identity"
         }
     }
 

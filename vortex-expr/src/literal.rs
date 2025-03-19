@@ -51,7 +51,7 @@ pub(crate) mod proto {
 
     impl Id for LiteralSerde {
         fn id(&self) -> &'static str {
-            &"literal"
+            "literal"
         }
     }
 
