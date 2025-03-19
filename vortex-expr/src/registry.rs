@@ -1,5 +1,3 @@
-#![cfg(feature = "proto")]
-
 use std::sync::LazyLock;
 
 use expr::Expr;
@@ -39,5 +37,13 @@ pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
         .iter()
         .map(deserialize_expr)
         .collect::<VortexResult<Vec<_>>>()?;
-    deserializer.deserialize(expr.kind.as_ref().unwrap().kind.as_ref().unwrap(), children)
+    deserializer.deserialize(
+        expr.kind
+            .as_ref()
+            .ok_or_else(|| vortex_err!("empty_kind"))?
+            .kind
+            .as_ref()
+            .ok_or_else(|| vortex_err!("empty kind inner"))?,
+        children,
+    )
 }

@@ -342,21 +342,21 @@ mod tests {
             "{dog:32_u32,cat:\"rufus\"}"
         );
     }
-}
 
-#[cfg(all(test, feature = "proto"))]
-mod tests_proto {
+    #[cfg(feature = "proto")]
+    mod tests_proto {
 
-    use crate::{VortexExprExt, deserialize_expr, eq, ident, lit};
+        use crate::{VortexExprExt, deserialize_expr, eq, ident, lit};
 
-    #[test]
-    fn ident_ser() {
-        let expr = eq(ident(), lit(1));
-        let res = expr.serialize().unwrap();
-        let final_ = deserialize_expr(&res).unwrap();
+        #[test]
+        fn ident_ser() {
+            let expr = eq(ident(), lit(1));
+            let res = expr.serialize().unwrap();
+            let final_ = deserialize_expr(&res).unwrap();
 
-        println!("final {}", final_);
+            println!("final {}", final_);
 
-        assert_eq!(&expr, &final_);
+            assert_eq!(&expr, &final_);
+        }
     }
 }

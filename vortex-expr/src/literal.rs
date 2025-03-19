@@ -40,7 +40,7 @@ impl Display for Literal {
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
     use kind::Kind;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{VortexResult, vortex_bail, vortex_err};
     use vortex_proto::expr;
     use vortex_proto::expr::kind;
     use vortex_scalar::Scalar;
@@ -60,7 +60,11 @@ pub(crate) mod proto {
             let Kind::Literal(value) = kind else {
                 vortex_bail!("Expected literal kind");
             };
-            let scalar: Scalar = value.value.as_ref().unwrap().try_into()?;
+            let scalar: Scalar = value
+                .value
+                .as_ref()
+                .ok_or_else(|| vortex_err!("empty literal scalar"))?
+                .try_into()?;
             Ok(Literal::new_expr(scalar))
         }
     }

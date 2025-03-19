@@ -138,7 +138,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         Kind::Uint32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v)))),
         Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
         Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-            f16::from_bits(*v as u16),
+            f16::from_bits(u16::try_from(*v)?),
         )))),
         Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
         Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
