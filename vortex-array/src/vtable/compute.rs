@@ -43,6 +43,9 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Encodes an array into a provided encoding
+    ///
+    /// See: [`EncodeFn`].
     fn encode_fn(&self) -> Option<&dyn EncodeFn<&dyn Array>> {
         None
     }
