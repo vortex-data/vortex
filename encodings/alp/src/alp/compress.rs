@@ -29,25 +29,16 @@ macro_rules! match_each_alp_float_ptype {
 }
 
 pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
-    let (exponents, encoded, patches) = alp_encode_components(parray, None)?;
-    ALPArray::try_new(encoded, exponents, patches)
-}
-
-pub fn alp_encode_with_exponents(
-    parray: &PrimitiveArray,
-    exponents: Exponents,
-) -> VortexResult<ALPArray> {
-    let (exponents, encoded, patches) = alp_encode_components(parray, Some(exponents))?;
+    let (exponents, encoded, patches) = alp_encode_components(parray)?;
     ALPArray::try_new(encoded, exponents, patches)
 }
 
 pub fn alp_encode_components(
     parray: &PrimitiveArray,
-    exponents: Option<Exponents>,
 ) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)> {
     match parray.ptype() {
-        PType::F32 => alp_encode_components_typed::<f32>(parray, exponents),
-        PType::F64 => alp_encode_components_typed::<f64>(parray, exponents),
+        PType::F32 => alp_encode_components_typed::<f32>(parray),
+        PType::F64 => alp_encode_components_typed::<f64>(parray),
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     }
 }
@@ -55,7 +46,6 @@ pub fn alp_encode_components(
 #[allow(clippy::cast_possible_truncation)]
 fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
-    exponents: Option<Exponents>,
 ) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
@@ -65,7 +55,7 @@ where
     let values_slice = values.as_slice::<T>();
 
     let (exponents, encoded, exceptional_positions, exceptional_values) =
-        T::encode(values_slice, exponents);
+        T::encode(values_slice, None);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
