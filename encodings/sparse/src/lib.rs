@@ -3,18 +3,17 @@ use std::fmt::Debug;
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    DeserializeMetadata, Encoding, EncodingId, RkyvMetadata, ToCanonical, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, RkyvMetadata,
+    ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::serde::SparseMetadata;
 
@@ -36,49 +35,6 @@ pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     type Array = SparseArray;
     type Metadata = RkyvMetadata<SparseMetadata>;
-}
-
-impl EncodingVTable for SparseEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.sparse")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nchildren() != 2 {
-            vortex_bail!(
-                "Expected 2 children for sparse encoding, found {}",
-                parts.nchildren()
-            )
-        }
-        let metadata = RkyvMetadata::<SparseMetadata>::deserialize(parts.metadata())?;
-        assert_eq!(
-            metadata.patches.offset(),
-            0,
-            "Patches must start at offset 0"
-        );
-
-        let patch_indices = parts.child(0).decode(
-            ctx,
-            metadata.patches.indices_dtype(),
-            metadata.patches.len(),
-        )?;
-        let patch_values = parts
-            .child(1)
-            .decode(ctx, dtype.clone(), metadata.patches.len())?;
-
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
-
-        Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
-    }
 }
 
 impl SparseArray {

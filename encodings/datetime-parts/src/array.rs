@@ -2,16 +2,15 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::try_cast;
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, DeserializeMetadata, Encoding, EncodingId, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    Encoding, RkyvMetadata,
 };
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
@@ -30,46 +29,6 @@ pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
     type Array = DateTimePartsArray;
     type Metadata = RkyvMetadata<DateTimePartsMetadata>;
-}
-
-impl EncodingVTable for DateTimePartsEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.datetimeparts")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nchildren() != 3 {
-            vortex_bail!(
-                "Expected 3 children for datetime-parts encoding, found {}",
-                parts.nchildren()
-            )
-        }
-
-        let metadata = RkyvMetadata::<DateTimePartsMetadata>::deserialize(parts.metadata())?;
-        let days = parts.child(0).decode(
-            ctx,
-            DType::Primitive(metadata.days_ptype, dtype.nullability()),
-            len,
-        )?;
-        let seconds = parts.child(1).decode(
-            ctx,
-            DType::Primitive(metadata.seconds_ptype, Nullability::NonNullable),
-            len,
-        )?;
-        let subseconds = parts.child(2).decode(
-            ctx,
-            DType::Primitive(metadata.subseconds_ptype, Nullability::NonNullable),
-            len,
-        )?;
-
-        Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
-    }
 }
 
 impl DateTimePartsArray {

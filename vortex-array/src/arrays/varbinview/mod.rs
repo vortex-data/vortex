@@ -8,7 +8,6 @@ use arrow_array::{
     ArrayRef as ArrowArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray,
 };
 use arrow_buffer::ScalarBuffer;
-use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -18,13 +17,12 @@ use vortex_mask::Mask;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, TryFromArrayRef, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
+    TryFromArrayRef, try_from_array_ref,
 };
 
 mod accessor;
@@ -280,42 +278,6 @@ pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
     type Array = VarBinViewArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for VarBinViewEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let mut buffers: Vec<ByteBuffer> = (0..parts.nbuffers())
-            .map(|i| parts.buffer(i))
-            .try_collect()?;
-        let views = Buffer::<BinaryView>::from_byte_buffer(
-            buffers.pop().vortex_expect("Missing views buffer"),
-        );
-
-        if views.len() != len {
-            vortex_bail!("Expected {} views, got {}", len, views.len());
-        }
-
-        let validity = if parts.nchildren() == 0 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 children, got {}", parts.nchildren());
-        };
-
-        Ok(VarBinViewArray::try_new(views, buffers, dtype, validity)?.into_array())
-    }
 }
 
 impl VarBinViewArray {

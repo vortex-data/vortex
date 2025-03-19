@@ -1,14 +1,12 @@
 use arrow_array::BooleanArray;
 use arrow_buffer::MutableBuffer;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::VortexExpect;
 
 use crate::validity::Validity;
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, RkyvMetadata};
 
 mod array;
 pub mod compute;
 mod patch;
+mod serde;
 
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
@@ -49,33 +47,6 @@ impl FromIterator<Option<bool>> for BoolArray {
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
-    }
-}
-
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct BoolMetadata {
-    // We know the offset in bits must be <8
-    offset: u8,
-}
-
-impl ArrayVisitorImpl<RkyvMetadata<BoolMetadata>> for BoolArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
-            self.boolean_buffer().clone().into_inner(),
-            Alignment::none(),
-        ))
-    }
-
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&self.validity, self.len());
-    }
-
-    fn _metadata(&self) -> RkyvMetadata<BoolMetadata> {
-        let bit_offset = self.boolean_buffer().offset();
-        assert!(bit_offset < 8, "Offset must be <8, got {}", bit_offset);
-        RkyvMetadata(BoolMetadata {
-            offset: u8::try_from(bit_offset).vortex_expect("checked"),
-        })
     }
 }
 
