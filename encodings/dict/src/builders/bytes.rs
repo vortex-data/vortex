@@ -11,6 +11,7 @@ use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 
+use crate::DictArray;
 use crate::builders::DictEncoder;
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
@@ -31,6 +32,10 @@ impl BytesDictBuilder {
             hasher: DefaultHashBuilder::default(),
             dtype,
         }
+    }
+
+    fn dict_bytes(&self) -> usize {
+        self.views.len() * size_of::<BinaryView>() + self.values.len()
     }
 
     #[inline]
@@ -70,6 +75,7 @@ impl BytesDictBuilder {
         &mut self,
         accessor: &A,
         len: usize,
+        max_dict_bytes: usize,
     ) -> VortexResult<ArrayRef> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
@@ -84,6 +90,9 @@ impl BytesDictBuilder {
                         .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
+                    if self.dict_bytes() >= max_dict_bytes {
+                        break;
+                    }
                 }
             })?;
             (
@@ -101,6 +110,9 @@ impl BytesDictBuilder {
                         value.vortex_expect("Dict encode null value in non-nullable array"),
                     );
                     unsafe { codes.push_unchecked(code) }
+                    if self.dict_bytes() >= max_dict_bytes {
+                        break;
+                    }
                 }
             })?;
             (codes, Validity::NonNullable)
@@ -113,7 +125,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
+    fn encode(&mut self, array: &dyn Array, max_dict_bytes: usize) -> VortexResult<DictArray> {
         if &self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",
@@ -124,24 +136,22 @@ impl DictEncoder for BytesDictBuilder {
 
         let len = array.len();
         let codes = if let Some(varbinview) = array.as_opt::<VarBinViewArray>() {
-            self.encode_bytes(varbinview, len)?
+            self.encode_bytes(varbinview, len, max_dict_bytes)?
         } else if let Some(varbin) = array.as_opt::<VarBinArray>() {
-            self.encode_bytes(varbin, len)?
+            self.encode_bytes(varbin, len, max_dict_bytes)?
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
         };
 
-        Ok(codes)
-    }
-
-    fn values(&mut self) -> VortexResult<ArrayRef> {
-        VarBinViewArray::try_new(
+        let values = VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
             self.dtype.clone(),
             self.dtype.nullability().into(),
         )
-        .map(|a| a.into_array())
+        .map(|a| a.into_array())?;
+
+        DictArray::try_new(codes, values)
     }
 }
 
