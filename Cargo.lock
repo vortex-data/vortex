@@ -6284,6 +6284,7 @@ dependencies = [
  "itertools 0.14.0",
  "rkyv 0.8.10",
  "rstest",
+ "rstest_reuse",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

@@ -216,5 +216,5 @@ pub mod test_harness {
 
     pub use crate::compute::conformance::binary_numeric::test_binary_numeric;
     pub use crate::compute::conformance::mask::test_mask;
-    pub use crate::compute::conformance::search_sorted::search_sorted_conformance;
+    pub use crate::compute::conformance::search_sorted::*;
 }

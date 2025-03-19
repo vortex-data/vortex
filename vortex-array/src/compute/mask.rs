@@ -1,5 +1,5 @@
 use arrow_array::BooleanArray;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -115,4 +115,3 @@ fn mask_impl(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
 
     Ok(ArrayRef::from_arrow(masked, true))
 }
-

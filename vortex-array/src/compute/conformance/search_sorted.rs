@@ -8,7 +8,7 @@ use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
 
-fn sparse_high_null_fill() -> ArrayRef {
+pub fn sparse_high_null_fill() -> ArrayRef {
     PrimitiveArray::new(buffer![0; 20], Validity::AllInvalid)
         .patch(&Patches::new(
             20,
@@ -20,7 +20,7 @@ fn sparse_high_null_fill() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_high_non_null_fill() -> ArrayRef {
+pub fn sparse_high_non_null_fill() -> ArrayRef {
     PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -32,7 +32,7 @@ fn sparse_high_non_null_fill() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_low() -> ArrayRef {
+pub fn sparse_low() -> ArrayRef {
     PrimitiveArray::new(buffer![60; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -44,7 +44,7 @@ fn sparse_low() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_low_high() -> ArrayRef {
+pub fn sparse_low_high() -> ArrayRef {
     PrimitiveArray::new(buffer![30; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -56,7 +56,7 @@ fn sparse_low_high() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_high_fill_in_patches() -> ArrayRef {
+pub fn sparse_high_fill_in_patches() -> ArrayRef {
     PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -68,7 +68,7 @@ fn sparse_high_fill_in_patches() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_low_fill_in_patches() -> ArrayRef {
+pub fn sparse_low_fill_in_patches() -> ArrayRef {
     PrimitiveArray::new(buffer![55; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -80,7 +80,7 @@ fn sparse_low_fill_in_patches() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
+pub fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
     PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -92,7 +92,7 @@ fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
+pub fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
     PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -104,7 +104,7 @@ fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_edge_patch_high() -> ArrayRef {
+pub fn sparse_edge_patch_high() -> ArrayRef {
     PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -116,7 +116,7 @@ fn sparse_edge_patch_high() -> ArrayRef {
         .into_array()
 }
 
-fn sparse_edge_patch_low() -> ArrayRef {
+pub fn sparse_edge_patch_low() -> ArrayRef {
     PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
         .patch(&Patches::new(
             20,
@@ -358,7 +358,7 @@ fn sparse_edge_patch_low() -> ArrayRef {
     sparse_low_high_fill_in_patches_high(),
     33,
     SearchSortedSide::Left,
-    SearchResult::Found(17)
+    SearchResult::Found(2)
 )]
 #[case::fill_right_sparse_high_non_null_fill(
     sparse_high_non_null_fill(),
