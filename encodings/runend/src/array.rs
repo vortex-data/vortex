@@ -4,17 +4,16 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, DeserializeMetadata, Encoding, EncodingId,
-    IntoArray, SerdeMetadata, ToCanonical, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, IntoArray, SerdeMetadata, ToCanonical,
+    try_from_array_ref,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -36,29 +35,6 @@ pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
     type Array = RunEndArray;
     type Metadata = SerdeMetadata<RunEndMetadata>;
-}
-
-impl EncodingVTable for RunEndEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.runend")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<RunEndMetadata>::deserialize(parts.metadata())?;
-
-        let ends_dtype = DType::Primitive(metadata.ends_ptype, Nullability::NonNullable);
-        let ends = parts.child(0).decode(ctx, ends_dtype, metadata.num_runs)?;
-
-        let values = parts.child(1).decode(ctx, dtype, metadata.num_runs)?;
-
-        Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
-    }
 }
 
 impl RunEndArray {

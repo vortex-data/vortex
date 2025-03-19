@@ -1,16 +1,12 @@
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::array::ArrayValidityImpl;
-use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{
-    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
-    EncodingId,
-};
+use crate::vtable::VTableRef;
+use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding};
 
 mod canonical;
 mod compute;
@@ -28,27 +24,6 @@ pub struct ConstantEncoding;
 impl Encoding for ConstantEncoding {
     type Array = ConstantArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for ConstantEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.constant")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        _ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let sv = ScalarValue::from_flexbytes(&parts.buffer(0)?)?;
-        let scalar = Scalar::new(dtype, sv);
-        Ok(ConstantArray::new(scalar, len).into_array())
-    }
 }
 
 impl ConstantArray {

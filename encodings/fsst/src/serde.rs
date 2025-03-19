@@ -1,13 +1,62 @@
+use fsst::Symbol;
 use serde::{Deserialize, Serialize};
-use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, SerdeMetadata};
-use vortex_dtype::PType;
-use vortex_error::VortexExpect;
+use vortex_array::serde::ArrayParts;
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
+    DeserializeMetadata, EncodingId, SerdeMetadata,
+};
+use vortex_buffer::Buffer;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTEncoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FSSTMetadata {
-    pub(crate) uncompressed_lengths_ptype: PType,
+    uncompressed_lengths_ptype: PType,
+}
+
+impl EncodingVTable for FSSTEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.fsst")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = SerdeMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
+
+        if parts.nbuffers() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", parts.nbuffers());
+        }
+        let symbols = Buffer::<Symbol>::from_byte_buffer(parts.buffer(0)?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(parts.buffer(1)?);
+
+        if parts.nchildren() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", parts.nchildren());
+        }
+        let codes = parts
+            .child(0)
+            .decode(ctx, DType::Binary(dtype.nullability()), len)?;
+        let uncompressed_lengths = parts.child(1).decode(
+            ctx,
+            DType::Primitive(
+                metadata.uncompressed_lengths_ptype,
+                Nullability::NonNullable,
+            ),
+            len,
+        )?;
+
+        Ok(
+            FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)?
+                .into_array(),
+        )
+    }
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {

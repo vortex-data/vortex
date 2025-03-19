@@ -1,9 +1,16 @@
 use std::fmt::Formatter;
 
-use vortex_array::{ArrayChildVisitor, ArrayVisitorImpl, DeserializeMetadata, SerializeMetadata};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::ScalarValue;
+use vortex_array::serde::ArrayParts;
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
+    EncodingId, SerializeMetadata,
+};
+use vortex_dtype::{DType, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_scalar::{Scalar, ScalarValue};
 
+use super::FoREncoding;
 use crate::FoRArray;
 
 impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
@@ -13,6 +20,40 @@ impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
 
     fn _metadata(&self) -> ScalarValueMetadata {
         ScalarValueMetadata(self.reference_scalar().value().clone())
+    }
+}
+
+impl EncodingVTable for FoREncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.for")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nchildren() != 1 {
+            vortex_bail!(
+                "Expected 1 child for FoR encoding, found {}",
+                parts.nchildren()
+            )
+        }
+
+        let ptype = PType::try_from(&dtype)?;
+        let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
+        let encoded = parts.child(0).decode(ctx, encoded_dtype, len)?;
+
+        let reference = ScalarValue::from_flexbytes(
+            parts
+                .metadata()
+                .ok_or_else(|| vortex_err!("Missing FoR metadata"))?,
+        )?;
+        let reference = Scalar::new(dtype, reference);
+
+        Ok(FoRArray::try_new(encoded, reference)?.into_array())
     }
 }
 

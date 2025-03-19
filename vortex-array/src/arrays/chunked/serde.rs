@@ -1,6 +1,64 @@
+use itertools::Itertools;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
+use super::ChunkedEncoding;
 use crate::arrays::{ChunkedArray, PrimitiveArray};
+use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::{ArrayChildVisitor, ArrayVisitorImpl, EmptyMetadata};
+use crate::vtable::EncodingVTable;
+use crate::{
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
+    ToCanonical,
+};
+
+impl EncodingVTable for ChunkedEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.chunked")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        // TODO(ngates): should we avoid storing the final chunk offset and push the length instead?
+        _len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nchildren() == 0 {
+            vortex_bail!("Chunked array needs at least one child");
+        }
+
+        let nchunks = parts.nchildren() - 1;
+
+        // The first child contains the row offsets of the chunks
+        let chunk_offsets = parts
+            .child(0)
+            .decode(
+                ctx,
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+                // 1 extra offset for the end of the last chunk
+                nchunks + 1,
+            )?
+            .to_primitive()?
+            .buffer::<u64>();
+
+        // The remaining children contain the actual data of the chunks
+        let chunks = chunk_offsets
+            .iter()
+            .tuple_windows()
+            .enumerate()
+            .map(|(idx, (start, end))| {
+                let chunk_len =
+                    usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
+                parts.child(idx + 1).decode(ctx, dtype.clone(), chunk_len)
+            })
+            .try_collect()?;
+
+        // Unchecked because we just created each chunk with the same DType.
+        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
+    }
+}
 
 impl ArrayVisitorImpl for ChunkedArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {

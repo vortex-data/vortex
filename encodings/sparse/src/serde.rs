@@ -1,14 +1,64 @@
 use vortex_array::patches::PatchesMetadata;
-use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, RkyvMetadata};
+use vortex_array::serde::ArrayParts;
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
+};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::SparseArray;
+use crate::{SparseArray, SparseEncoding};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
 pub struct SparseMetadata {
-    pub(crate) patches: PatchesMetadata,
+    patches: PatchesMetadata,
+}
+
+impl EncodingVTable for SparseEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.sparse")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        if parts.nchildren() != 2 {
+            vortex_bail!(
+                "Expected 2 children for sparse encoding, found {}",
+                parts.nchildren()
+            )
+        }
+        let metadata = RkyvMetadata::<SparseMetadata>::deserialize(parts.metadata())?;
+        assert_eq!(
+            metadata.patches.offset(),
+            0,
+            "Patches must start at offset 0"
+        );
+
+        let patch_indices = parts.child(0).decode(
+            ctx,
+            metadata.patches.indices_dtype(),
+            metadata.patches.len(),
+        )?;
+        let patch_values = parts
+            .child(1)
+            .decode(ctx, dtype.clone(), metadata.patches.len())?;
+
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
+
+        Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {

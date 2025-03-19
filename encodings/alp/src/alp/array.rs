@@ -2,17 +2,15 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, DeserializeMetadata, Encoding, EncodingId,
-    SerdeMetadata,
+    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use super::alp_encode_with_exponents;
@@ -32,66 +30,6 @@ pub struct ALPEncoding;
 impl Encoding for ALPEncoding {
     type Array = ALPArray;
     type Metadata = SerdeMetadata<ALPMetadata>;
-}
-
-impl EncodingVTable for ALPEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.alp")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<ALPMetadata>::deserialize(parts.metadata())?;
-
-        let encoded_ptype = match &dtype {
-            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
-            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
-        };
-        let encoded = parts.child(0).decode(ctx, encoded_ptype, len)?;
-
-        let patches = metadata
-            .patches
-            .map(|p| {
-                let indices = parts.child(1).decode(ctx, p.indices_dtype(), p.len())?;
-                let values = parts.child(2).decode(ctx, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
-            })
-            .transpose()?;
-
-        Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
-    }
-
-    fn encode(&self, input: &Canonical, like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("Expected a primitive input")
-        };
-
-        let like_alp = like
-            .map(|like| {
-                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        self.id(),
-                        like.vtable().id()
-                    )
-                })
-            })
-            .transpose()?;
-        let exponents = like_alp.map(|a| a.exponents);
-
-        let alp = match exponents {
-            Some(e) => alp_encode_with_exponents(parray, e)?,
-            None => alp_encode(parray)?,
-        };
-
-        Ok(alp.into_array())
-    }
 }
 
 impl ALPArray {

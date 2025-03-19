@@ -14,13 +14,11 @@ use crate::array::ArrayValidityImpl;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::compute::scalar_at;
-use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, DeserializeMetadata, Encoding,
-    EncodingId, RkyvMetadata, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, RkyvMetadata, try_from_array_ref,
 };
 
 mod accessor;
@@ -45,44 +43,6 @@ pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
     type Array = VarBinArray;
     type Metadata = RkyvMetadata<VarBinMetadata>;
-}
-
-impl EncodingVTable for VarBinEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbin")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
-
-        let validity = if parts.nchildren() == 1 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 2 {
-            let validity = parts.child(1).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", parts.nchildren());
-        };
-
-        let offsets = parts.child(0).decode(
-            ctx,
-            DType::Primitive(metadata.offsets_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let bytes = parts.buffer(0)?;
-
-        Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
-    }
 }
 
 impl VarBinArray {

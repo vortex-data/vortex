@@ -2,15 +2,13 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, DeserializeMetadata, Encoding, EncodingId,
-    RkyvMetadata,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -38,54 +36,6 @@ pub struct DeltaEncoding;
 impl Encoding for DeltaEncoding {
     type Array = DeltaArray;
     type Metadata = RkyvMetadata<DeltaMetadata>;
-}
-
-impl EncodingVTable for DeltaEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.delta")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<DeltaMetadata>::deserialize(parts.metadata())?;
-
-        let validity = if parts.nchildren() == 2 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 3 {
-            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!(
-                "DeltaArray: expected 2 or 3 children, got {}",
-                parts.nchildren()
-            );
-        };
-
-        let ptype = PType::try_from(&dtype)?;
-        let lanes = match_each_unsigned_integer_ptype!(ptype, |$T| {
-            <$T as fastlanes::FastLanes>::LANES
-        });
-
-        // Compute the length of the bases array
-        let deltas_len = usize::try_from(metadata.deltas_len)
-            .vortex_expect("DeltaArray: deltas_len must be a valid usize");
-        let num_chunks = deltas_len / 1024;
-        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
-        let bases_len = num_chunks * lanes + remainder_base_size;
-
-        let bases = parts.child(0).decode(ctx, dtype.clone(), bases_len)?;
-        let deltas = parts.child(1).decode(ctx, dtype, deltas_len)?;
-
-        Ok(
-            DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)?
-                .into_array(),
-        )
-    }
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.

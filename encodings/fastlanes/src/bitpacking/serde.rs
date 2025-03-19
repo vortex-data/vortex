@@ -1,7 +1,15 @@
-use vortex_array::patches::PatchesMetadata;
-use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, RkyvMetadata};
-use vortex_error::VortexExpect;
+use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::serde::ArrayParts;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
+};
+use vortex_dtype::{DType, PType};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
+use super::BitPackedEncoding;
 use crate::BitPackedArray;
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -10,6 +18,72 @@ pub struct BitPackedMetadata {
     pub(crate) bit_width: u8,
     pub(crate) offset: u16, // must be <1024
     pub(crate) patches: Option<PatchesMetadata>,
+}
+
+impl EncodingVTable for BitPackedEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.bitpacked")
+    }
+
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let metadata = RkyvMetadata::<BitPackedMetadata>::deserialize(parts.metadata())?;
+
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let packed = parts.buffer(0)?;
+
+        let load_validity = |child_idx: usize| {
+            if parts.nchildren() == child_idx {
+                Ok(Validity::from(dtype.nullability()))
+            } else if parts.nchildren() == child_idx + 1 {
+                let validity = parts.child(child_idx).decode(ctx, Validity::DTYPE, len)?;
+                Ok(Validity::Array(validity))
+            } else {
+                vortex_bail!(
+                    "Expected {} or {} children, got {}",
+                    child_idx,
+                    child_idx + 1,
+                    parts.nchildren()
+                );
+            }
+        };
+
+        // Load validity from the zero'th or second child, depending on whether patches are present.
+        let validity = if metadata.patches.is_some() {
+            load_validity(2)?
+        } else {
+            load_validity(0)?
+        };
+
+        let patches = metadata
+            .patches
+            .map(|p| {
+                let indices = parts.child(0).decode(ctx, p.indices_dtype(), p.len())?;
+                let values = parts.child(1).decode(ctx, dtype.clone(), p.len())?;
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+            })
+            .transpose()?;
+
+        Ok(unsafe {
+            BitPackedArray::new_unchecked_with_offset(
+                packed,
+                PType::try_from(&dtype)?,
+                validity,
+                patches,
+                metadata.bit_width,
+                len,
+                metadata.offset,
+            )?
+            .into_array()
+        })
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<BitPackedMetadata>> for BitPackedArray {

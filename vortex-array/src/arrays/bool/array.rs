@@ -1,21 +1,17 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
-use super::BoolMetadata;
+use super::serde::BoolMetadata;
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::bool;
 use crate::builders::ArrayBuilder;
-use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{
-    ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, DeserializeMetadata,
-    Encoding, EncodingId, RkyvMetadata,
-};
+use crate::vtable::VTableRef;
+use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -30,42 +26,6 @@ pub struct BoolEncoding;
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = RkyvMetadata<BoolMetadata>;
-}
-
-impl EncodingVTable for BoolEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.bool")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<BoolMetadata>::deserialize(parts.metadata())?;
-
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let buffer = BooleanBuffer::new(
-            parts.buffer(0)?.into_arrow_buffer(),
-            metadata.offset as usize,
-            len,
-        );
-
-        let validity = if parts.nchildren() == 0 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
-        };
-
-        Ok(BoolArray::new(buffer, validity).into_array())
-    }
 }
 
 impl BoolArray {
