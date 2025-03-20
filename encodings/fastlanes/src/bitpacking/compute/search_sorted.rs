@@ -6,8 +6,7 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::compute::{
-    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
-    SearchSortedUsizeFn,
+    IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{DType, NativePType, match_each_unsigned_integer_ptype};
@@ -191,9 +190,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
         };
         Some(val.total_compare(*elem))
     }
-}
 
-impl<T> Len for BitPackedSearch<'_, T> {
     fn len(&self) -> usize {
         self.length
     }

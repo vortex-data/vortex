@@ -324,6 +324,7 @@ pub fn search_sorted_usize_many(
         .try_collect()
 }
 
+#[allow(clippy::len_without_is_empty)]
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
     /// For example, if self\[idx\] > elem, return Some(Greater).
@@ -344,10 +345,8 @@ pub trait IndexOrd<V> {
     fn index_ge(&self, idx: usize, elem: &V) -> bool {
         matches!(self.index_cmp(idx, elem), Some(Greater | Equal))
     }
-}
 
-#[allow(clippy::len_without_is_empty)]
-pub trait Len {
+    /// Get the length of the underlying ordered collection
     fn len(&self) -> usize;
 }
 
@@ -395,7 +394,7 @@ pub trait SearchSorted<T> {
 // Default implementation for types that implement IndexOrd.
 impl<S, T> SearchSorted<T> for S
 where
-    S: IndexOrd<T> + Len + ?Sized,
+    S: IndexOrd<T> + ?Sized,
 {
     fn search_sorted_by<F: FnMut(usize) -> Ordering, N: FnMut(usize) -> Ordering>(
         &self,
@@ -482,6 +481,10 @@ impl IndexOrd<Scalar> for dyn Array + '_ {
         let scalar_a = scalar_at(self, idx).ok()?;
         scalar_a.partial_cmp(elem)
     }
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
 }
 
 impl<T: PartialOrd> IndexOrd<T> for [T] {
@@ -489,16 +492,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
         unsafe { self.get_unchecked(idx) }.partial_cmp(elem)
     }
-}
 
-impl Len for dyn Array + '_ {
-    #[allow(clippy::same_name_method)]
-    fn len(&self) -> usize {
-        Self::len(self)
-    }
-}
-
-impl<T> Len for [T] {
     fn len(&self) -> usize {
         self.len()
     }

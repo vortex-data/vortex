@@ -1,30 +1,20 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    EmptyMetadata,
+    EmptyMetadata, EncodingId,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{ByteBoolArray, ByteBoolEncoding};
 
-impl ArrayVisitorImpl<EmptyMetadata> for ByteBoolArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.buffer());
+impl EncodingVTable for ByteBoolEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.bytebool")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len());
-    }
-
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&ByteBoolArray> for ByteBoolEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -47,5 +37,19 @@ impl SerdeVTable<&ByteBoolArray> for ByteBoolEncoding {
         let buffer = parts.buffer(0)?;
 
         Ok(ByteBoolArray::new(buffer, validity).into_array())
+    }
+}
+
+impl ArrayVisitorImpl<EmptyMetadata> for ByteBoolArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(self.buffer());
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

@@ -227,6 +227,38 @@ pub enum VortexError {
         #[backtrace]
         TryFromIntError,
     ),
+    /// Wrap serde and serde json errors
+    #[cfg(feature = "serde")]
+    #[error(transparent)]
+    SerdeJsonError(
+        #[from]
+        #[backtrace]
+        serde_json::Error,
+    ),
+    /// Wrap prost encode error
+    #[cfg(feature = "prost")]
+    #[error(transparent)]
+    ProstEncodeError(
+        #[from]
+        #[backtrace]
+        prost::EncodeError,
+    ),
+    /// Wrap prost decode error
+    #[cfg(feature = "prost")]
+    #[error(transparent)]
+    ProstDecodeError(
+        #[from]
+        #[backtrace]
+        prost::DecodeError,
+    ),
+    /// Wrap prost unknown enum value
+    #[cfg(feature = "prost")]
+    #[error(transparent)]
+    ProstUnknownEnumValue(
+        #[from]
+        #[backtrace]
+        prost::UnknownEnumValue,
+    ),
 }
 
 impl VortexError {

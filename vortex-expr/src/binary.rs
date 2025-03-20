@@ -42,6 +42,46 @@ impl Display for BinaryExpr {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{BinaryExpr, ExprDeserialize, ExprRef, ExprSerializable, Id};
+
+    pub(crate) struct BinarySerde;
+
+    impl Id for BinarySerde {
+        fn id(&self) -> &'static str {
+            "binary"
+        }
+    }
+
+    impl ExprDeserialize for BinarySerde {
+        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::BinaryOp(op) = kind else {
+                vortex_bail!("wrong kind {:?}, binary", kind)
+            };
+
+            Ok(BinaryExpr::new_expr(
+                children[0].clone(),
+                (*op).try_into()?,
+                children[1].clone(),
+            ))
+        }
+    }
+
+    impl ExprSerializable for BinaryExpr {
+        fn id(&self) -> &'static str {
+            BinarySerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::BinaryOp(self.operator.into()))
+        }
+    }
+}
+
 impl VortexExpr for BinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self

@@ -3,23 +3,19 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use super::ConstantEncoding;
+use crate::arrays::ConstantArray;
 use crate::serde::ArrayParts;
-use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata};
+use crate::vtable::EncodingVTable;
+use crate::{
+    Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
+};
 
-impl ArrayVisitorImpl for ConstantArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let buffer = self.scalar.value().to_flexbytes::<ByteBufferMut>().freeze();
-        visitor.visit_buffer(&buffer);
+impl EncodingVTable for ConstantEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.constant")
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&ConstantArray> for ConstantEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -33,5 +29,16 @@ impl SerdeVTable<&ConstantArray> for ConstantEncoding {
         let sv = ScalarValue::from_flexbytes(&parts.buffer(0)?)?;
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
+    }
+}
+
+impl ArrayVisitorImpl for ConstantArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        let buffer = self.scalar.value().to_flexbytes::<ByteBufferMut>().freeze();
+        visitor.visit_buffer(&buffer);
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

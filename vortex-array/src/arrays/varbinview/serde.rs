@@ -3,33 +3,21 @@ use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
+use super::{BinaryView, VarBinViewEncoding};
+use crate::arrays::VarBinViewArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    EmptyMetadata,
+    EmptyMetadata, EncodingId,
 };
 
-impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in self.buffers() {
-            visitor.visit_buffer(buffer);
-        }
-        visitor.visit_buffer(&self.views().clone().into_byte_buffer());
+impl EncodingVTable for VarBinViewEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.varbinview")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len())
-    }
-
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&VarBinViewArray> for VarBinViewEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -58,5 +46,22 @@ impl SerdeVTable<&VarBinViewArray> for VarBinViewEncoding {
         };
 
         Ok(VarBinViewArray::try_new(views, buffers, dtype, validity)?.into_array())
+    }
+}
+
+impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        for buffer in self.buffers() {
+            visitor.visit_buffer(buffer);
+        }
+        visitor.visit_buffer(&self.views().clone().into_byte_buffer());
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len())
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

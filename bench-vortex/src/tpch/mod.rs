@@ -15,9 +15,6 @@ use futures::StreamExt;
 use log::info;
 use named_locks::with_lock;
 use object_store::ObjectStore;
-use object_store::aws::AmazonS3Builder;
-use object_store::gcp::GoogleCloudStorageBuilder;
-use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
 use tokio::fs::OpenOptions;
 use url::Url;
@@ -30,7 +27,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{Format, get_session_with_cache};
+use crate::{Format, get_session_with_cache, make_object_store};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -54,38 +51,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     // by "$NAME.parquet".
     0, 4, 4667, 114003, 5, 5, 1, 4, 2, 175, 381105, 0, 2, 46, 1, 1, 27840, 1, 624, 1, 1804, 4009, 7,
 ];
-
-fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dyn ObjectStore>> {
-    match source.scheme() {
-        "s3" => {
-            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let s3 = Arc::new(
-                AmazonS3Builder::from_env()
-                    .with_bucket_name(bucket_name)
-                    .build()
-                    .unwrap(),
-            );
-            df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
-            Ok(s3)
-        }
-        "gs" => {
-            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let gcs = Arc::new(
-                GoogleCloudStorageBuilder::from_env()
-                    .with_bucket_name(bucket_name)
-                    .build()
-                    .unwrap(),
-            );
-            df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
-            Ok(gcs)
-        }
-        _ => {
-            let fs = Arc::new(LocalFileSystem::default());
-            df.register_object_store(&Url::parse("file:/")?, fs.clone());
-            Ok(fs)
-        }
-    }
-}
 
 // Generate table dataset.
 pub async fn load_datasets(

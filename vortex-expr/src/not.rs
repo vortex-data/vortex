@@ -34,6 +34,40 @@ impl Display for Not {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use expr::kind;
+    use vortex_error::VortexResult;
+    use vortex_proto::expr;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Not};
+
+    pub struct NotSerde;
+
+    impl Id for NotSerde {
+        fn id(&self) -> &'static str {
+            "not"
+        }
+    }
+
+    impl ExprDeserialize for NotSerde {
+        fn deserialize(&self, _expr: &Kind, mut children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            Ok(Not::new_expr(children.remove(0)))
+        }
+    }
+
+    impl ExprSerializable for Not {
+        fn id(&self) -> &'static str {
+            NotSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Not(kind::Not {}))
+        }
+    }
+}
+
 impl VortexExpr for Not {
     fn as_any(&self) -> &dyn Any {
         self

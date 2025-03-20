@@ -2,12 +2,13 @@
 
 //! Native interface to Vortex arrays, types, files and streams.
 
-pub mod array;
-pub mod dtype;
-pub mod file;
-pub mod stream;
+mod array;
+mod dtype;
+mod file;
+mod log;
+mod stream;
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;
 
 use tokio::runtime::{Builder, Runtime};
@@ -24,4 +25,10 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);
     c_str.to_string_lossy().into_owned()
+}
+
+pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec<String> {
+    (0..len)
+        .map(|i| to_string(*ptr.offset(i as isize)))
+        .collect()
 }

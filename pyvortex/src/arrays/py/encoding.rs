@@ -7,8 +7,8 @@ use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::serde::ArrayParts;
-use vortex::vtable::{ComputeVTable, EncodingVTable, SerdeVTable};
-use vortex::{Array, ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
+use vortex::vtable::{ComputeVTable, EncodingVTable};
+use vortex::{ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
 
 use crate::arrays::py::array::PyArrayInstance;
 use crate::dtype::PyDType;
@@ -57,9 +57,7 @@ impl EncodingVTable for PyEncodingClass {
     fn id(&self) -> EncodingId {
         self.id.clone()
     }
-}
 
-impl SerdeVTable<&dyn Array> for PyEncodingClass {
     fn decode(
         &self,
         parts: &ArrayParts,

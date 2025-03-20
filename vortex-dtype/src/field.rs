@@ -48,7 +48,6 @@ impl Field {
 }
 
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
-// TODO(ngates): wrap `Vec<Field>` in Option for cheaper "root" path.
 // TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
 //  with a positional index to allow cheap step_into.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

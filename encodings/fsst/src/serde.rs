@@ -1,10 +1,10 @@
 use fsst::Symbol;
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, SerdeMetadata,
+    DeserializeMetadata, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -17,26 +17,11 @@ pub struct FSSTMetadata {
     uncompressed_lengths_ptype: PType,
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
-        visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
+impl EncodingVTable for FSSTEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.fsst")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", self.codes());
-        visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
-    }
-
-    fn _metadata(&self) -> SerdeMetadata<FSSTMetadata> {
-        SerdeMetadata(FSSTMetadata {
-            uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
-                .vortex_expect("Must be a valid PType"),
-        })
-    }
-}
-
-impl SerdeVTable<&FSSTArray> for FSSTEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -71,6 +56,25 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
             FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)?
                 .into_array(),
         )
+    }
+}
+
+impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
+        visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("codes", self.codes());
+        visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
+    }
+
+    fn _metadata(&self) -> SerdeMetadata<FSSTMetadata> {
+        SerdeMetadata(FSSTMetadata {
+            uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
+                .vortex_expect("Must be a valid PType"),
+        })
     }
 }
 

@@ -1,11 +1,11 @@
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, ToCanonical,
-    try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
+    ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -27,12 +27,6 @@ pub struct ZigZagEncoding;
 impl Encoding for ZigZagEncoding {
     type Array = ZigZagArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for ZigZagEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.zigzag")
-    }
 }
 
 impl ZigZagArray {
@@ -116,6 +110,16 @@ impl ArrayVariantsImpl for ZigZagArray {
 }
 
 impl PrimitiveArrayTrait for ZigZagArray {}
+
+impl ArrayVisitorImpl for ZigZagArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", self.encoded())
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 #[cfg(test)]
 mod test {

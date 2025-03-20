@@ -18,11 +18,12 @@ impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    pub fn new(nullability: Nullability) -> Self {
+    pub fn new(nullability: Nullability, max_dict_bytes: usize) -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
             nullability,
+            max_dict_len: max_dict_bytes / T::PTYPE.byte_width(),
         }
     }
 
@@ -46,6 +47,7 @@ pub struct PrimitiveDictBuilder<T> {
     lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
     nullability: Nullability,
+    max_dict_len: usize,
 }
 
 impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
@@ -56,7 +58,6 @@ where
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
-
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
         let primitive = array.to_primitive()?;
 
@@ -69,6 +70,9 @@ where
                         .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
+                    if self.values.len() >= self.max_dict_len {
+                        break;
+                    }
                 }
             })?;
             PrimitiveArray::new(
@@ -85,6 +89,9 @@ where
                         *value.vortex_expect("Dict encode null value in non-nullable array"),
                     );
                     unsafe { codes.push_unchecked(code) }
+                    if self.values.len() >= self.max_dict_len {
+                        break;
+                    }
                 }
             })?;
             PrimitiveArray::new(codes, Validity::NonNullable)

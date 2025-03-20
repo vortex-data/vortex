@@ -5,10 +5,10 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
+    Canonical, Encoding, IntoArray, RkyvMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -27,12 +27,6 @@ pub struct DictEncoding;
 impl Encoding for DictEncoding {
     type Array = DictArray;
     type Metadata = RkyvMetadata<DictMetadata>;
-}
-
-impl EncodingVTable for DictEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.dict")
-    }
 }
 
 impl DictArray {

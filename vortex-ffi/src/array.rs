@@ -15,7 +15,6 @@ use vortex::{Array, ArrayRef, ArrayVariants};
 /// Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
 /// the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
 /// one of the various `FFIArray_*` functions.
-#[repr(C)]
 pub struct FFIArray {
     pub inner: ArrayRef,
 }

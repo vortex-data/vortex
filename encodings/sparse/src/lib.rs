@@ -5,10 +5,10 @@ use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, EncodingId,
-    RkyvMetadata, ToCanonical, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, RkyvMetadata,
+    ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -35,12 +35,6 @@ pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     type Array = SparseArray;
     type Metadata = RkyvMetadata<SparseMetadata>;
-}
-
-impl EncodingVTable for SparseEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.sparse")
-    }
 }
 
 impl SparseArray {

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerdeMetadata,
+    EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -17,22 +17,11 @@ pub struct RunEndMetadata {
     offset: usize,
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", self.ends());
-        visitor.visit_child("values", self.values());
+impl EncodingVTable for RunEndEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.runend")
     }
 
-    fn _metadata(&self) -> SerdeMetadata<RunEndMetadata> {
-        SerdeMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(self.ends().dtype()).vortex_expect("Must be a valid PType"),
-            num_runs: self.ends().len(),
-            offset: self.offset(),
-        })
-    }
-}
-
-impl SerdeVTable<&RunEndArray> for RunEndEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -48,6 +37,21 @@ impl SerdeVTable<&RunEndArray> for RunEndEncoding {
         let values = parts.child(1).decode(ctx, dtype, metadata.num_runs)?;
 
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
+    }
+}
+
+impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("ends", self.ends());
+        visitor.visit_child("values", self.values());
+    }
+
+    fn _metadata(&self) -> SerdeMetadata<RunEndMetadata> {
+        SerdeMetadata(RunEndMetadata {
+            ends_ptype: PType::try_from(self.ends().dtype()).vortex_expect("Must be a valid PType"),
+            num_runs: self.ends().len(),
+            offset: self.offset(),
+        })
     }
 }
 

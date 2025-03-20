@@ -15,8 +15,6 @@ dependencies {
     implementation("com.google.guava:guava")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
-
-    testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
 publishing {

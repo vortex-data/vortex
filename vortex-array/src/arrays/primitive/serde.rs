@@ -2,30 +2,21 @@ use vortex_buffer::{Alignment, Buffer};
 use vortex_dtype::{DType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use super::PrimitiveEncoding;
+use crate::arrays::PrimitiveArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    EmptyMetadata,
+    EmptyMetadata, EncodingId,
 };
 
-impl ArrayVisitorImpl for PrimitiveArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.byte_buffer());
+impl EncodingVTable for PrimitiveEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.primitive")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len());
-    }
-
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -70,5 +61,19 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
             let buffer = Buffer::<$P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity).into_array())
         })
+    }
+}
+
+impl ArrayVisitorImpl for PrimitiveArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(self.byte_buffer());
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }
