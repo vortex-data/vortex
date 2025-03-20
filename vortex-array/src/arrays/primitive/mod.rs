@@ -224,12 +224,6 @@ impl PrimitiveArray {
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
     }
 
-    pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
-        match_each_native_ptype!(self.ptype(), |$P| {
-            T::from(self.as_slice::<$P>()[idx]).expect("failed to cast")
-        })
-    }
-
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         if self.ptype() == ptype {
             return self.clone();
