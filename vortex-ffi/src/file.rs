@@ -5,6 +5,7 @@ use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use futures::TryStreamExt;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
@@ -30,6 +31,7 @@ pub struct FFIFile {
 #[repr(C)]
 pub struct FileOpenOptions {
     /// URI for opening the file.
+    /// This must be a valid URI, even the files (file:///path/to/file)
     pub uri: *const c_char,
     /// Additional configuration for the file source (e.g. "s3.accessKey").
     /// This may be null, in which case it is treated as empty.
@@ -62,7 +64,9 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     assert!(!options.uri.is_null(), "File_open: null uri");
     let uri = CStr::from_ptr(options.uri).to_string_lossy();
-    let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+    let uri: Url = uri
+        .parse()
+        .vortex_expect_fn(|| format!("File_open: parse uri {uri}"));
 
     let prop_keys = to_string_vec(options.property_keys, options.property_len);
     let prop_vals = to_string_vec(options.property_vals, options.property_len);

@@ -305,6 +305,11 @@ pub trait VortexExpect {
     /// Returns the value of the result if it is Ok, otherwise panics with the error.
     /// Should be called only in contexts where the error condition represents a bug (programmer error).
     fn vortex_expect(self, msg: &str) -> Self::Output;
+
+    /// Returns the value of the result if it is Ok, otherwise panics with the error.
+    fn vortex_expect_fn(self, msg: impl FnOnce() -> String) -> Self::Output {
+        self.vortex_expect(msg().as_str())
+    }
 }
 
 impl<T, E> VortexExpect for Result<T, E>
