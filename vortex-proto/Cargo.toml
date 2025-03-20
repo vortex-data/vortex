@@ -22,5 +22,7 @@ dtype = []
 expr = ["dtype", "scalar"]
 scalar = ["dtype"]
 
+default = ["expr"]
+
 [lints]
 workspace = true

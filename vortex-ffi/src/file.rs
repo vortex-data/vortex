@@ -1,6 +1,7 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
+use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -9,12 +10,14 @@ use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
+use prost::Message;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
-use vortex::expr::{Identity, select};
+use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
+use vortex::proto::expr::Expr;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
@@ -44,7 +47,10 @@ pub struct FileScanOptions {
     pub projection: *const *const c_char,
     /// Number of columns in `projection`.
     pub projection_len: c_int,
-    // TODO(aduffy): add predicate pushdown here somehow.
+    // Serialized expressions for pushdown
+    pub filter_expression: *const c_char,
+    // The len in bytes of the filter expression
+    pub filter_expression_len: c_int,
 }
 
 /// Open a file at the given path on the file system.
@@ -101,6 +107,17 @@ pub unsafe extern "C" fn File_scan(
             let col_name = unsafe { *opts.projection.offset(i as isize) };
             let col_name: Arc<str> = to_string(col_name).into();
             field_names.push(col_name);
+        }
+        let expr_str = opts.filter_expression;
+        if !expr_str.is_null() && opts.filter_expression_len > 0 {
+            let bytes = unsafe {
+                slice::from_raw_parts(expr_str as *const u8, opts.filter_expression_len as usize)
+            };
+
+            // Decode the protobuf message
+            let expr_proto = Expr::decode(bytes).vortex_expect("decode filter expression");
+            let expr = deserialize_expr(&expr_proto).vortex_expect("deserialize filter expression");
+            stream = stream.with_filter(expr)
         }
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }

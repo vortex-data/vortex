@@ -21,10 +21,11 @@ futures = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }
+prost = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["tokio", "object_store"] }
+vortex = { workspace = true, features = ["tokio", "object_store", "proto"] }
 
 [lib]
 crate-type = ["cdylib"]
