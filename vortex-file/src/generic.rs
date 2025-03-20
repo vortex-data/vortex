@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures::{Stream, StreamExt, pin_mut, stream};
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::{Counter, VortexMetrics};
@@ -108,106 +108,88 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
     /// Create a stream that is polled every time there is an available slot to perform I/O.
     pub fn io_driver(self) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> {
         stream::unfold(self, move |mut this| async move {
-            // If the segment queue is empty, then wait for the next notification.
-            println!("Awaiting I/O {}", this.segment_queue.num_pending());
-            let Some(_) = this.segment_queue.next().await else {
-                // The segment queue has completed, meaning no more requests are possible.
-                // We're done!
-                println!("I/O driver finished");
-                return None;
-            };
-            println!("AWAITED");
+            // Get the next most important segment to read, or else the stream is complete.
+            let next = this.segment_queue.next().await?;
 
-            // Using the pending segments, construct a single coalesced read.
-            let request = this
-                .segment_queue
-                .with_pending_segments(|pending_segments| {
-                    let Some(first) = pending_segments.next() else {
-                        return Ok(None);
-                    };
-
-                    let first_spec = this
-                        .footer
-                        .segment_map()
-                        .get(*first.id() as usize)
-                        .ok_or_else(|| vortex_err!("SegmentID {} not found", first.id()))?;
-                    let first_req = SegmentRequest {
-                        spec: first_spec.clone(),
-                        lease: first,
-                    };
-
-                    // We build up a single coalesced read from the pending segments.
-                    // Since pending segments are ordered by priority, we _always_ launch a request
-                    // for the highest priority segment.
-                    let mut coalesced = CoalescedSegmentRequest {
-                        alignment: first_spec.alignment,
-                        byte_range: first_spec.offset..first_spec.offset + first_spec.length as u64,
-                        requests: vec![first_req],
-                    };
-
-                    let perf_hint = this.read.performance_hint();
-                    let window = perf_hint.coalescing_window();
-                    let max_read = perf_hint.max_read().unwrap_or(2 << 24); // 16MB.
-
-                    for pending in pending_segments {
-                        // If the coalesced request has reached the maximum size, ship it.
-                        if coalesced.size_bytes() > max_read {
-                            log::debug!(
-                                "Coalesced read {:?} reached max size {}",
-                                coalesced,
-                                max_read
-                            );
-                            break;
-                        }
-
-                        // Otherwise, try to include the pending segment in the request.
-                        let spec = this
-                            .footer
-                            .segment_map()
-                            .get(*pending.id() as usize)
-                            .ok_or_else(|| vortex_err!("SegmentID {} not found", pending.id()))?;
-
-                        let segment_start = spec.offset;
-                        let segment_end = spec.offset + spec.length as u64;
-
-                        // Check if the segment should be included in the coalesced request.
-                        if coalesced.byte_range.contains(&segment_start)
-                            || coalesced.byte_range.contains(&segment_end)
-                            || segment_start.abs_diff(coalesced.byte_range.end) <= window
-                            || segment_end.abs_diff(coalesced.byte_range.start) <= window
-                        {
-                            coalesced.byte_range.start =
-                                coalesced.byte_range.start.min(segment_start);
-                            coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
-                            // Take the maximum alignment of all segments in the coalesced request.
-                            // FIXME(ngates): shouldn't this be the _first_ segment?
-                            coalesced.alignment = coalesced.alignment.max(spec.alignment);
-                            coalesced.requests.push(SegmentRequest {
-                                spec: spec.clone(),
-                                lease: pending,
-                            });
-                        }
-                    }
-
-                    // Finally, we ensure the coalesced segments are sorted by ID.
-                    coalesced.requests.sort_unstable_by_key(|r| r.id());
-
-                    Ok::<_, VortexError>(Some(coalesced))
-                });
+            // Build up a coalesced read with other segments from the queue.
+            let coalesced = this.coalesce(next);
 
             // Launch the coalesced read.
             let read = this.read.clone();
             let segment_map = this.footer.segment_map().clone();
-            let fut = async move {
-                if let Some(request) = request? {
-                    evaluate(read, request, segment_map).await
-                } else {
-                    Ok(())
-                }
-            };
+            let fut = async move { evaluate(read, coalesced?, segment_map).await };
 
             Some((fut, this))
         })
+    }
+
+    fn coalesce(&self, next: PendingSegmentLease) -> VortexResult<CoalescedSegmentRequest> {
+        let next_spec = self
+            .footer
+            .segment_map()
+            .get(*next.id() as usize)
+            .ok_or_else(|| vortex_err!("SegmentID {} not found", next.id()))?;
+        let first_req = SegmentRequest {
+            spec: next_spec.clone(),
+            lease: next,
+        };
+
+        // We build up a single coalesced read from the pending segments.
+        // Since pending segments are ordered by priority, we _always_ launch a request
+        // for the highest priority segment.
+        let mut coalesced = CoalescedSegmentRequest {
+            alignment: next_spec.alignment,
+            byte_range: next_spec.offset..next_spec.offset + next_spec.length as u64,
+            requests: vec![first_req],
+        };
+
+        let perf_hint = self.read.performance_hint();
+        let window = perf_hint.coalescing_window();
+        let max_read = perf_hint.max_read().unwrap_or(2 << 24); // 16MB.
+
+        for pending in self.segment_queue.pending() {
+            // If the coalesced request has reached the maximum size, ship it.
+            if coalesced.size_bytes() > max_read {
+                log::debug!(
+                    "Coalesced read {:?} reached max size {}",
+                    coalesced,
+                    max_read
+                );
+                break;
+            }
+
+            // Otherwise, try to include the pending segment in the request.
+            let spec = self
+                .footer
+                .segment_map()
+                .get(*pending.id() as usize)
+                .ok_or_else(|| vortex_err!("SegmentID {} not found", pending.id()))?;
+
+            let segment_start = spec.offset;
+            let segment_end = spec.offset + spec.length as u64;
+
+            // Check if the segment should be included in the coalesced request.
+            if coalesced.byte_range.contains(&segment_start)
+                || coalesced.byte_range.contains(&segment_end)
+                || segment_start.abs_diff(coalesced.byte_range.end) <= window
+                || segment_end.abs_diff(coalesced.byte_range.start) <= window
+            {
+                coalesced.byte_range.start = coalesced.byte_range.start.min(segment_start);
+                coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
+                // Take the maximum alignment of all segments in the coalesced request.
+                // FIXME(ngates): shouldn't this be the _first_ segment?
+                coalesced.alignment = coalesced.alignment.max(spec.alignment);
+                coalesced.requests.push(SegmentRequest {
+                    spec: spec.clone(),
+                    lease: pending,
+                });
+            }
+
+            // Ensure the coalesced requests are sorted
+            coalesced.requests.sort_by_key(|r| r.id());
+        }
+
+        Ok(coalesced)
     }
 }
 

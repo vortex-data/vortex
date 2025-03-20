@@ -15,36 +15,50 @@ use crate::segments::SegmentId;
 /// A pending segment returned by the [`AsyncSegmentReader`].
 pub struct PendingSegment {
     id: SegmentId,
+    inner: Mutex<PendingSegmentInner>,
+}
+
+struct PendingSegmentInner {
     /// The sender end of the one-shot channel can be taken by leasing the segment.
     /// If the lease is dropped before resolving, the sender is put back into this field to allow
     /// another lease.
-    send: Mutex<Option<oneshot::Sender<VortexResult<ByteBuffer>>>>,
-    state: Mutex<PendingSegmentState>,
+    send: Option<oneshot::Sender<VortexResult<ByteBuffer>>>,
+    recv: BoxFuture<'static, VortexResult<ByteBuffer>>,
+    result: Option<SharedVortexResult<ByteBuffer>>,
+    on_poll: Option<Box<dyn FnOnce() + Send + 'static>>,
+    on_drop: Option<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 impl Debug for PendingSegment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PendingSegment")
             .field("id", &self.id)
-            .field("state", &self.state)
             .finish()
     }
 }
 
 impl PendingSegment {
     /// Create a new [`PendingSegment`] that can be resolved later.
-    pub fn new(id: SegmentId) -> Arc<PendingSegment> {
+    pub fn new<P, D>(id: SegmentId, on_poll: P, on_drop: D) -> Arc<PendingSegment>
+    where
+        P: FnOnce() + Send + 'static,
+        D: FnOnce() + Send + 'static,
+    {
         log::debug!("Pending segment {}: REGISTERED", id);
         let (send, recv) = oneshot::channel();
 
         Arc::new(Self {
             id,
-            send: Mutex::new(Some(send)),
-            state: Mutex::new(PendingSegmentState::Prefetched(
-                recv.map_err(|e| vortex_err!("Failed to receive segment: {}", e))
+            inner: Mutex::new(PendingSegmentInner {
+                send: Some(send),
+                recv: recv
+                    .map_err(|e| vortex_err!("pending segment sender dropped: {}", e))
                     .map(|r| r.unnest())
                     .boxed(),
-            )),
+                result: None,
+                on_poll: Some(Box::new(on_poll)),
+                on_drop: Some(Box::new(on_drop)),
+            }),
         })
     }
 
@@ -52,16 +66,16 @@ impl PendingSegment {
         self.id
     }
 
-    /// Create a new shared future that resolved to the segment buffer.
-    pub fn new_future(self: Arc<Self>) -> impl Future<Output = VortexResult<ByteBuffer>> {
+    pub fn new_future(self: Arc<Self>) -> PendingSegmentFuture {
         PendingSegmentFuture { pending: self }
     }
 
     /// Take a unique lease on the pending segment to resolve it some time later.
     pub fn lease(self: Arc<Self>) -> Option<PendingSegmentLease> {
-        self.send
+        self.inner
             .lock()
             .vortex_expect("poisoned lock")
+            .send
             .take()
             .map(|send| PendingSegmentLease {
                 id: self.id,
@@ -73,36 +87,16 @@ impl PendingSegment {
 
 impl Drop for PendingSegment {
     fn drop(&mut self) {
-        match *self.state.lock().vortex_expect("poisoned lock") {
-            PendingSegmentState::Prefetched(_) => {
-                log::debug!("Pending segment {}: DROPPED", self.id);
-            }
-            PendingSegmentState::Resolved(_) => {
-                // Not interesting if a segment is dropped after being resolved
-            }
+        let mut inner = self.inner.lock().vortex_expect("poisoned lock");
+        if inner.result.is_none() && inner.send.is_some() {
+            log::debug!("Pending segment {}: DROPPED BEFORE LAUNCH", self.id);
         }
-    }
-}
-
-/// The state of a pending segment.
-enum PendingSegmentState {
-    /// The segment has been prefetched but not yet explicitly requested (polled).
-    Prefetched(BoxFuture<'static, VortexResult<ByteBuffer>>),
-    /// The segment has been resolved and the buffer is available.
-    Resolved(SharedVortexResult<ByteBuffer>),
-}
-
-impl Debug for PendingSegmentState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PendingSegmentState")
-            .field(
-                "state",
-                &match self {
-                    PendingSegmentState::Prefetched(_) => "Prefetched",
-                    PendingSegmentState::Resolved(_) => "Resolved",
-                },
-            )
-            .finish()
+        if inner.result.is_none() && inner.send.is_none() {
+            log::debug!("Pending segment {}: DROPPED IN FLIGHT", self.id);
+        }
+        if let Some(f) = inner.on_drop.take() {
+            f();
+        }
     }
 }
 
@@ -117,17 +111,25 @@ impl Future for PendingSegmentFuture {
     type Output = VortexResult<ByteBuffer>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut state = self.pending.state.lock().vortex_expect("poisoned lock");
-        match &mut *state {
-            PendingSegmentState::Prefetched(fut) => {
-                let result = ready!(fut.poll_unpin(cx)).map_err(Arc::new);
-                *state = PendingSegmentState::Resolved(result.clone());
-                Poll::Ready(result.map_err(VortexError::from))
-            }
-            PendingSegmentState::Resolved(result) => {
-                Poll::Ready(result.clone().map_err(VortexError::from))
-            }
+        let mut inner = self.pending.inner.lock().vortex_expect("poisoned lock");
+
+        // Continue to return the same result if it is already resolved.
+        if let Some(result) = &inner.result {
+            return Poll::Ready(result.clone().map_err(VortexError::from));
         }
+
+        // Trigger the on-poll callback if it exists.
+        if let Some(on_poll) = inner.on_poll.take() {
+            on_poll();
+        }
+
+        // If the result is not resolved, poll the receiver.
+        let result = ready!(inner.recv.poll_unpin(cx)).map_err(Arc::new);
+
+        // Store the result in the inner state and return.
+        inner.result = Some(result.clone());
+
+        Poll::Ready(result.map_err(VortexError::from))
     }
 }
 
@@ -171,7 +173,12 @@ impl Drop for PendingSegmentLease {
         // the pending segment.
         if let Some(send) = self.send.take() {
             if let Some(pending) = self.pending.upgrade() {
-                *pending.send.lock().vortex_expect("poisoned lock") = Some(send);
+                pending
+                    .inner
+                    .lock()
+                    .vortex_expect("poisoned lock")
+                    .send
+                    .replace(send);
             }
         }
     }

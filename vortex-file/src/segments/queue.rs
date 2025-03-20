@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+use dashmap::{DashMap, Entry};
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
@@ -16,19 +17,35 @@ type Segments = Arc<RwLock<VecDeque<Weak<PendingSegment>>>>;
 ///
 /// Segments are prioritised by the order in which they are requested.
 pub struct SegmentQueue {
-    segments: Segments,
+    inner: Arc<SegmentQueueInner>,
     recv: mpsc::UnboundedReceiver<()>,
 }
+
+#[derive(Default)]
+struct SegmentQueueInner {
+    /// A map of pending segments, indexed by segment ID.
+    segments: DashMap<SegmentId, Weak<PendingSegment>>,
+    /// A queue of segments by insertion order.
+    inserted: Mutex<VecDeque<SegmentId>>,
+    /// A queue of segments that have been explicitly requested (polled), but not yet resolved.
+    requested: Mutex<VecDeque<SegmentId>>,
+}
+
+/// Pending segments are pre-fetched in roughly the order of priority.
+///
+/// When a pending segment future is polled, it should go into a requested queue. These should
+/// always be processed first.
+///
 
 impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
     /// populate it.
     pub fn new() -> (Self, Arc<dyn AsyncSegmentReader>) {
-        let segments = Arc::new(RwLock::new(VecDeque::default()));
+        let inner: Arc<SegmentQueueInner> = Arc::new(Default::default());
 
         let (send, recv) = mpsc::unbounded();
         let this = Self {
-            segments: segments.clone(),
+            inner: inner.clone(),
             recv,
         };
 
@@ -36,63 +53,111 @@ impl SegmentQueue {
         // such that when all segment readers are dropped, the "send" end of the queue is closed,
         // and we can return `None` from the next function.
         let segment_reader = Arc::new(SegmentQueueSegmentReader {
-            segments,
+            inner,
             notifier: Mutex::new(send),
         });
 
         (this, segment_reader)
     }
 
-    pub fn num_pending(&self) -> usize {
-        self.with_pending_segments(|segments| segments.count())
-    }
-
-    /// Inspect all pending segments, in order of segment ID.
-    pub fn with_pending_segments<F, T>(&self, f: F) -> T
-    where
-        F: FnOnce(&mut dyn Iterator<Item = PendingSegmentLease>) -> T,
-    {
-        let mut segments = self.segments.write().vortex_expect("poisoned lock");
-
-        let result = f(&mut segments
+    /// Inspect all pending segments.
+    pub fn pending(&self) -> impl Iterator<Item = PendingSegmentLease> + '_ {
+        self.inner
+            .segments
             .iter()
-            .filter_map(|p| p.upgrade())
-            .filter_map(|p| p.lease()));
-
-        // Throw away any segments that have been dropped.
-        segments.retain(|p| p.upgrade().is_some());
-
-        result
+            .filter_map(|p| p.value().upgrade())
+            .filter_map(|p| p.lease())
     }
 
-    /// Returns a future that resolves when a new segment has been requested, or all segment
-    /// readers have been dropped.
-    pub async fn next(&mut self) -> Option<()> {
-        self.recv.next().await
+    /// Returns a future that resolves to the highest priority segment.
+    /// Returns `None` if the queue has been closed.
+    pub async fn next(&mut self) -> Option<PendingSegmentLease> {
+        loop {
+            // Await a notification that there may be more work to do.
+            if self.recv.next().await.is_none() {
+                // Or exit if the queue has been closed.
+                return None;
+            }
+
+            // First, we check the requested queue.
+            if let Some(lease) = self.maybe_lease(
+                self.inner
+                    .requested
+                    .lock()
+                    .vortex_expect("poisoned lock")
+                    .pop_front(),
+            ) {
+                log::info!("Using requested segment: {}", lease.id());
+                return Some(lease);
+            }
+
+            // Otherwise, we look at the next segment from the inserted queue.
+            if let Some(lease) = self.maybe_lease(
+                self.inner
+                    .inserted
+                    .lock()
+                    .vortex_expect("poisoned lock")
+                    .pop_front(),
+            ) {
+                log::info!("Using enqueued segment: {}", lease.id());
+                return Some(lease);
+            }
+        }
+    }
+
+    fn maybe_lease(&self, segment_id: Option<SegmentId>) -> Option<PendingSegmentLease> {
+        segment_id
+            .and_then(|segment_id| self.inner.segments.get(&segment_id))
+            .and_then(|p| p.value().upgrade())
+            .and_then(|p| p.lease())
     }
 }
 
+/// Segment reader that creates a [`PendingSegment`] in the segment queue.
 struct SegmentQueueSegmentReader {
-    segments: Segments,
+    inner: Arc<SegmentQueueInner>,
     notifier: Mutex<mpsc::UnboundedSender<()>>,
 }
 
 impl AsyncSegmentReader for SegmentQueueSegmentReader {
     fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let mut segments = self.segments.write().vortex_expect("poisoned lock");
+        let pending = loop {
+            // Loop in case the pending segment has no strong references, in which case we clear it
+            // out of the map and create a new one on the next iteration.
+            match self.inner.segments.entry(id) {
+                Entry::Occupied(e) => {
+                    if let Some(pending) = e.get().upgrade() {
+                        break pending;
+                    } else {
+                        e.remove();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    let inner = self.inner.clone();
+                    let pending = PendingSegment::new(
+                        id,
+                        move || {
+                            // On-poll, we insert the segment into the requested queue.
+                            inner
+                                .requested
+                                .lock()
+                                .vortex_expect("poisoned lock")
+                                .push_back(id);
+                        },
+                        move || {},
+                    );
 
-        let future = match segments
-            .iter()
-            .filter_map(|p| p.upgrade())
-            .find(|p| p.id() == id)
-        {
-            None => {
-                let pending = PendingSegment::new(id);
-                // Insert the pending segment into the map, return the strong shared future to the caller.
-                segments.push_back(Arc::downgrade(&pending));
-                pending.clone().new_future().boxed()
+                    // Insert the pending segment into the map, return the strong shared future to the caller.
+                    e.insert(Arc::downgrade(&pending));
+                    self.inner
+                        .inserted
+                        .lock()
+                        .vortex_expect("poisoned lock")
+                        .push_back(id);
+
+                    break pending;
+                }
             }
-            Some(pending) => pending.new_future().boxed(),
         };
 
         // Send a notification that there may be more work to do in the queue.
@@ -103,6 +168,6 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
             .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
             .vortex_expect("Failed to notify segment queue");
 
-        future
+        pending.new_future().boxed()
     }
 }

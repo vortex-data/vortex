@@ -8,9 +8,9 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::{ObjectStoreReadAt, TokioFile};
+use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
 use super::cache::FooterCache;
@@ -65,7 +65,6 @@ impl FileOpener for VortexFileOpener {
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
-        let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
             let vxf = if let Some(file) =
@@ -99,6 +98,9 @@ impl FileOpener for VortexFileOpener {
 
             Ok(vxf
                 .scan()
+                .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
+                    Handle::current().clone(),
+                )))
                 .with_projection(projection)
                 .with_some_filter(filter)
                 .with_canonicalize(true)
@@ -106,7 +108,6 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .with_task_executor(executor)
                 .into_array_stream()?
                 .map(move |array| {
                     let st = array?.to_struct()?;
