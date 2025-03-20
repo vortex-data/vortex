@@ -137,7 +137,7 @@ mod tests {
         #[case] side: SearchSortedSide,
         #[case] expected: SearchResult,
     ) {
-        let sparse_array = SparseArray::encode(array).vortex_unwrap();
+        let sparse_array = SparseArray::encode(&array, None).vortex_unwrap();
         let res = search_sorted(&sparse_array, value, side).unwrap();
         assert_eq!(res, expected);
     }
