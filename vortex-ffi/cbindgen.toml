@@ -1,9 +1,9 @@
+language = "C"
+
 header = """
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct DType DType;
 """
 
 trailer = """
@@ -16,4 +16,8 @@ trailer = """
 "FFIArray" = "Array"
 "FFIArrayStream" = "ArrayStream"
 "FFIFile" = "File"
+
+[parse]
+parse_deps = true
+include = ["vortex", "vortex-dtype"]
 

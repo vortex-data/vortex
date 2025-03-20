@@ -2,8 +2,6 @@
 extern "C" {
 #endif
 
-typedef struct DType DType;
-
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -59,6 +57,14 @@ typedef struct DType DType;
 #define LOG_LEVEL_TRACE 5
 
 /**
+ * The logical types of elements in Vortex arrays.
+ *
+ * Vortex arrays preserve a single logical type, while the encodings allow for multiple
+ * physical ways to encode that type.
+ */
+typedef struct DType DType;
+
+/**
  * The FFI interface for an [`Array`].
  *
  * Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
@@ -111,6 +117,8 @@ typedef struct FileScanOptions {
   int projection_len;
 } FileScanOptions;
 
+
+
 /**
  * Get the length of the array.
  */
@@ -122,7 +130,7 @@ uint64_t FFIArray_len(const struct Array *ffi_array);
  * Note that this pointer is tied to the lifetime of the array, and the caller is responsible
  * for ensuring that it is never dereferenced after the array has been freed.
  */
-const DType *FFIArray_dtype(const struct Array *ffi_array);
+const struct DType *FFIArray_dtype(const struct Array *ffi_array);
 
 const struct Array *FFIArray_get_field(const struct Array *ffi_array, uint32_t index);
 
@@ -153,7 +161,7 @@ void FFIArray_get_binary(const struct Array *array, uint32_t index, void *dst, i
  * Pointer to a `DType` value that has been heap-allocated.
  * Create a new simple dtype.
  */
-DType *DType_new(uint8_t variant, bool nullable);
+struct DType *DType_new(uint8_t variant, bool nullable);
 
 /**
  * Create a new List type with the provided element type.
@@ -161,31 +169,31 @@ DType *DType_new(uint8_t variant, bool nullable);
  * Upon successful return, this function moves the value out of the provided element pointer,
  * so it is not safe to reference afterward.
  */
-DType *DType_new_list(DType *element, bool nullable);
+struct DType *DType_new_list(struct DType *element, bool nullable);
 
-DType *DType_new_struct(const char *const *names,
-                        DType *const *dtypes,
-                        uint32_t len,
-                        bool nullable);
+struct DType *DType_new_struct(const char *const *names,
+                               struct DType *const *dtypes,
+                               uint32_t len,
+                               bool nullable);
 
 /**
  * Free an [`DType`] and all associated resources.
  */
-void DType_free(DType *dtype);
+void DType_free(struct DType *dtype);
 
 /**
  * Get the dtype variant tag for an [`DType`].
  */
-uint8_t DType_get(const DType *dtype);
+uint8_t DType_get(const struct DType *dtype);
 
-bool DType_nullable(const DType *dtype);
+bool DType_nullable(const struct DType *dtype);
 
 /**
  * For `DTYPE_STRUCT` variant DTypes, get the number of fields.
  */
-uint32_t DType_field_count(const DType *dtype);
+uint32_t DType_field_count(const struct DType *dtype);
 
-void DType_field_name(const DType *dtype, uint32_t index, void *dst, int *len);
+void DType_field_name(const struct DType *dtype, uint32_t index, void *dst, int *len);
 
 /**
  * Get the dtype of a field in a `DTYPE_STRUCT` variant DType.
@@ -193,7 +201,7 @@ void DType_field_name(const DType *dtype, uint32_t index, void *dst, int *len);
  * This returns a new owned, allocated copy of the DType that must be freed subsequently
  * by the caller.
  */
-DType *DType_field_dtype(const DType *dtype, uint32_t index);
+struct DType *DType_field_dtype(const struct DType *dtype, uint32_t index);
 
 /**
  * For a list DType, get the inner element type.
@@ -201,17 +209,17 @@ DType *DType_field_dtype(const DType *dtype, uint32_t index);
  * The pointee's lifetime is tied to the lifetime of the list DType. It should not be
  * accessed after the list DType has been freed.
  */
-const DType *DType_element_type(const DType *dtype);
+const struct DType *DType_element_type(const struct DType *dtype);
 
-bool DType_is_time(const DType *dtype);
+bool DType_is_time(const struct DType *dtype);
 
-bool DType_is_date(const DType *dtype);
+bool DType_is_date(const struct DType *dtype);
 
-bool DType_is_timestamp(const DType *dtype);
+bool DType_is_timestamp(const struct DType *dtype);
 
-uint8_t DType_time_unit(const DType *dtype);
+uint8_t DType_time_unit(const struct DType *dtype);
 
-void DType_time_zone(const DType *dtype, void *dst, int *len);
+void DType_time_zone(const struct DType *dtype, void *dst, int *len);
 
 /**
  * Open a file at the given path on the file system.
@@ -224,7 +232,7 @@ struct File *File_open(const struct FileOpenOptions *options);
  * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
  * dereferenced after the file has been freed.
  */
-const DType *File_dtype(const struct File *file);
+const struct DType *File_dtype(const struct File *file);
 
 /**
  * Build a new Scan that will stream batches of `FFIArray` from the file.
@@ -247,7 +255,7 @@ void File_free(struct File *file);
  */
 void vortex_init_logging(uint8_t level);
 
-const DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
+const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
 
 /**
  * Attempt to advance the `current` pointer of the stream.
