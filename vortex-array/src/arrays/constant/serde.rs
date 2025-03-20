@@ -30,10 +30,18 @@ impl EncodingVTable for ConstantEncoding {
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl for ConstantArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         let buffer = self.scalar.value().to_flexbytes::<ByteBufferMut>().freeze();
         visitor.visit_buffer(&buffer);
     }

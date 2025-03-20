@@ -60,12 +60,12 @@ impl EncodingVTable for FSSTEncoding {
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
         visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
     }

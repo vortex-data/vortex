@@ -58,10 +58,18 @@ impl EncodingVTable for StructEncoding {
                 .into_array(),
         )
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl for StructArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(self.validity(), self.len());
         for (idx, name) in self.names().iter().enumerate() {
             let child = self

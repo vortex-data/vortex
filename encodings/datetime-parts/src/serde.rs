@@ -60,7 +60,7 @@ pub struct DateTimePartsMetadata {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("days", self.days());
         visitor.visit_child("seconds", self.seconds());
         visitor.visit_child("subseconds", self.subseconds());

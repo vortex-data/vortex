@@ -1,27 +1,26 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::alp::serde::ALPMetadata;
-use crate::alp::{Exponents, alp_encode, decompress};
+use crate::alp::{Exponents, decompress};
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
+    pub(crate) encoded: ArrayRef,
+    pub(crate) patches: Option<Patches>,
     dtype: DType,
-    encoded: ArrayRef,
     exponents: Exponents,
-    patches: Option<Patches>,
     stats_set: ArrayStats,
 }
 
@@ -50,14 +49,6 @@ impl ALPArray {
             patches,
             stats_set: Default::default(),
         })
-    }
-
-    pub fn encode(array: ArrayRef) -> VortexResult<ArrayRef> {
-        if let Some(parray) = array.as_opt::<PrimitiveArray>() {
-            Ok(alp_encode(parray)?.into_array())
-        } else {
-            vortex_bail!("ALP can only encode primitive arrays");
-        }
     }
 
     pub fn encoded(&self) -> &ArrayRef {

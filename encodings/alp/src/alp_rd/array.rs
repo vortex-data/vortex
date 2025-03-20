@@ -20,10 +20,10 @@ use crate::alp_rd::serde::ALPRDMetadata;
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
     dtype: DType,
-    left_parts: ArrayRef,
-    left_parts_patches: Option<Patches>,
+    pub(crate) left_parts: ArrayRef,
+    pub(crate) left_parts_patches: Option<Patches>,
     left_parts_dictionary: Buffer<u16>,
-    right_parts: ArrayRef,
+    pub(crate) right_parts: ArrayRef,
     right_bit_width: u8,
     stats_set: ArrayStats,
 }
@@ -123,6 +123,10 @@ impl ALPRDArray {
     /// Patches of left-most bits.
     pub fn left_parts_patches(&self) -> Option<&Patches> {
         self.left_parts_patches.as_ref()
+    }
+
+    pub fn left_parts_patches_mut(&mut self) -> Option<&mut Patches> {
+        self.left_parts_patches.as_mut()
     }
 
     /// The dictionary that maps the codes in `left_parts` into bit patterns.

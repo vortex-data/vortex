@@ -14,7 +14,7 @@ use super::FoREncoding;
 use crate::FoRArray;
 
 impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", self.encoded())
     }
 
@@ -54,6 +54,14 @@ impl EncodingVTable for FoREncoding {
         let reference = Scalar::new(dtype, reference);
 
         Ok(FoRArray::try_new(encoded, reference)?.into_array())
+    }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
     }
 }
 

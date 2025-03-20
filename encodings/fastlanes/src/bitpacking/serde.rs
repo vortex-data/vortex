@@ -84,14 +84,22 @@ impl EncodingVTable for BitPackedEncoding {
             .into_array()
         })
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<BitPackedMetadata>> for BitPackedArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.packed());
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         if let Some(patches) = self.patches() {
             visitor.visit_patches(patches);
         }

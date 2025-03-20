@@ -47,17 +47,25 @@ impl EncodingVTable for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(views, buffers, dtype, validity)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         for buffer in self.buffers() {
             visitor.visit_buffer(buffer);
         }
         visitor.visit_buffer(&self.views().clone().into_byte_buffer());
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(self.validity(), self.len())
     }
 

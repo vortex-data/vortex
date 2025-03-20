@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
 
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
@@ -103,7 +104,7 @@ pub trait ArrayVisitorImpl<
     Metadata: SerializeMetadata + DeserializeMetadata + Debug = EmptyMetadata,
 >
 {
-    fn _buffers(&self, _visitor: &mut dyn ArrayBufferVisitor) {}
+    fn _visit_buffers(&self, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn _nbuffers(&self) -> usize {
         struct NBuffers(usize);
@@ -115,11 +116,11 @@ pub trait ArrayVisitorImpl<
         }
 
         let mut visitor = NBuffers(0);
-        self._buffers(&mut visitor);
+        self._visit_buffers(&mut visitor);
         visitor.0
     }
 
-    fn _children(&self, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn _visit_children(&self, _visitor: &mut dyn ArrayChildVisitor) {}
 
     fn _nchildren(&self) -> usize {
         struct NChildren(usize);
@@ -131,11 +132,30 @@ pub trait ArrayVisitorImpl<
         }
 
         let mut visitor = NChildren(0);
-        self._children(&mut visitor);
+        self._visit_children(&mut visitor);
         visitor.0
     }
 
     fn _metadata(&self) -> Metadata;
+}
+
+pub fn replace_patches(patches: &Patches, like_patches: &Patches) -> VortexResult<Patches> {
+    let values = like_patches.values().vtable().encode(
+        &patches.values().to_canonical()?,
+        Some(like_patches.values()),
+    )?;
+
+    let indices = like_patches.values().vtable().encode(
+        &patches.indices().to_canonical()?,
+        Some(like_patches.indices()),
+    )?;
+
+    Ok(Patches::new(
+        patches.array_len(),
+        patches.offset(),
+        indices,
+        values,
+    ))
 }
 
 pub trait ArrayBufferVisitor {
@@ -191,7 +211,7 @@ impl<A: ArrayImpl> ArrayVisitor for A {
         let mut collector = ChildrenCollector {
             children: Vec::new(),
         };
-        ArrayVisitorImpl::_children(self, &mut collector);
+        ArrayVisitorImpl::_visit_children(self, &mut collector);
         collector.children
     }
 
@@ -211,7 +231,7 @@ impl<A: ArrayImpl> ArrayVisitor for A {
         }
 
         let mut collector = ChildNameCollector { names: Vec::new() };
-        ArrayVisitorImpl::_children(self, &mut collector);
+        ArrayVisitorImpl::_visit_children(self, &mut collector);
         collector.names
     }
 
@@ -229,7 +249,7 @@ impl<A: ArrayImpl> ArrayVisitor for A {
         let mut collector = BufferCollector {
             buffers: Vec::new(),
         };
-        ArrayVisitorImpl::_buffers(self, &mut collector);
+        ArrayVisitorImpl::_visit_buffers(self, &mut collector);
         collector.buffers
     }
 

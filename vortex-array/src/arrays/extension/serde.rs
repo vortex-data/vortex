@@ -29,10 +29,18 @@ impl EncodingVTable for ExtensionEncoding {
             .decode(ctx, ext_dtype.storage_dtype().clone(), len)?;
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl for ExtensionArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("storage", self.storage())
     }
 

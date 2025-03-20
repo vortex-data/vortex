@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use vortex_array::arcref::ArcRef;
+use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -34,6 +35,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
 
         // Otherwise, we finish with compressing the chunks
         let writer = BtrBlocksCompressedWriter {
+            previous_chunk: None,
             child: ChunkedLayoutWriter::new(
                 ctx.clone(),
                 &DType::Null,
@@ -94,14 +96,26 @@ struct BtrBlocksCompressedStrategy {
 impl LayoutStrategy for BtrBlocksCompressedStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         let child = self.child.new_writer(ctx, dtype)?;
-        Ok(BtrBlocksCompressedWriter { child }.boxed())
+        Ok(BtrBlocksCompressedWriter {
+            child,
+            previous_chunk: None,
+        }
+        .boxed())
     }
 }
+
+struct PreviousCompression {
+    chunk: ArrayRef,
+    ratio: f64,
+}
+
+const COMPRESSION_DRIFT_THRESHOLD: f64 = 2.0;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
 /// compressed chunk as a hint for the next.
 struct BtrBlocksCompressedWriter {
     child: Box<dyn LayoutWriter>,
+    previous_chunk: Option<PreviousCompression>,
 }
 
 impl LayoutWriter for BtrBlocksCompressedWriter {
@@ -113,7 +127,51 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        let compressed = BtrBlocksCompressor.compress(&chunk)?;
+        let mut compressed_array = None;
+
+        if let Some(prev_compression) = self.previous_chunk.as_ref() {
+            let prev = prev_compression.chunk.clone();
+            let prev_vtable = prev.vtable();
+            let canonical = chunk.to_canonical()?;
+            let encoded = prev_vtable.encode(&canonical, Some(&prev))?;
+
+            let prev_children = prev.children();
+            let encoded_children = encoded.children();
+
+            let new_children = prev_children
+                .into_iter()
+                .zip(encoded_children.into_iter())
+                .map(|(prev, encoded)| {
+                    let encoded = encoded.to_canonical()?;
+                    let encoded = prev.vtable().encode(&encoded, Some(&prev))?;
+
+                    Ok(encoded)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+
+            let new_array = prev_vtable.from_children(encoded, new_children)?;
+            let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
+
+            // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
+            // If it isn't we  fall back to the compressor.
+            if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                compressed_array = Some(new_array);
+            }
+        }
+
+        let compressed = match compressed_array {
+            Some(array) => array,
+            None => {
+                let original_size = chunk.nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                self.previous_chunk = Some(PreviousCompression {
+                    chunk: compressed.clone(),
+                    ratio: compressed.nbytes() as f64 / original_size,
+                });
+                compressed
+            }
+        };
+
         self.child.push_chunk(segment_writer, compressed)
     }
 

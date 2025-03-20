@@ -41,7 +41,7 @@ impl EncodingVTable for RunEndEncoding {
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("ends", self.ends());
         visitor.visit_child("values", self.values());
     }

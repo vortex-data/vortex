@@ -72,6 +72,38 @@ impl EncodingVTable for ALPEncoding {
 
         Ok(alp.into_array())
     }
+
+    fn from_children(
+        &self,
+        existing: ArrayRef,
+        new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        if existing.nchildren() != new_children.len() {
+            vortex_bail!("Children length doesn't match")
+        }
+
+        let mut children = new_children.into_iter();
+        let existing = existing.as_::<<Self as Encoding>::Array>();
+
+        let encoded = children.next().vortex_expect("");
+        let patches = if children.len() == 2 {
+            let existing_patches = existing.patches().vortex_expect("Must have patches");
+            let patches_indices = children.next().vortex_expect("");
+            let patches_values = children.next().vortex_expect("");
+            Some(Patches::new(
+                existing_patches.array_len(),
+                existing_patches.offset(),
+                patches_indices,
+                patches_values,
+            ))
+        } else {
+            None
+        };
+
+        let valid = ALPArray::try_new(encoded, existing.exponents(), patches)?;
+
+        Ok(valid.into_array())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +113,7 @@ pub struct ALPMetadata {
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", self.encoded());
         if let Some(patches) = self.patches() {
             visitor.visit_patches(patches);

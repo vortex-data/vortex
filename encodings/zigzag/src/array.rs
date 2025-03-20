@@ -112,7 +112,7 @@ impl ArrayVariantsImpl for ZigZagArray {
 impl PrimitiveArrayTrait for ZigZagArray {}
 
 impl ArrayVisitorImpl for ZigZagArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", self.encoded())
     }
 

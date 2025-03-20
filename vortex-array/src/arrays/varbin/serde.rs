@@ -54,14 +54,22 @@ impl EncodingVTable for VarBinEncoding {
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());
     }

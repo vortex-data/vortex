@@ -58,10 +58,18 @@ impl EncodingVTable for ChunkedEncoding {
         // Unchecked because we just created each chunk with the same DType.
         Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl for ChunkedArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         let chunk_offsets = PrimitiveArray::new(self.chunk_offsets.clone(), Validity::NonNullable);
         visitor.visit_child("chunk_offsets", &chunk_offsets);
 

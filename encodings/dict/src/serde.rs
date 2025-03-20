@@ -48,7 +48,7 @@ impl EncodingVTable for DictEncoding {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("values", self.values());
     }

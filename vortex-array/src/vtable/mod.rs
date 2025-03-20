@@ -49,6 +49,12 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
             self.id()
         )
     }
+
+    fn from_children(
+        &self,
+        existing: ArrayRef,
+        new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {

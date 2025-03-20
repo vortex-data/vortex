@@ -62,7 +62,7 @@ impl EncodingVTable for SparseEncoding {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         let fill_value_buffer = self
             .fill_value
             .value()
@@ -71,7 +71,7 @@ impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
         visitor.visit_buffer(&fill_value_buffer);
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_patches(self.patches())
     }
 
