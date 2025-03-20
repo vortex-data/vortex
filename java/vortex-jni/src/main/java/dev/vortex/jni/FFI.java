@@ -17,6 +17,7 @@ package dev.vortex.jni;
 
 import com.sun.jna.*;
 import com.sun.jna.ptr.IntByReference;
+import java.util.Optional;
 
 /**
  * Bindings from the {@code vortex-ffi} C ABI to Java using JNA.
@@ -149,14 +150,23 @@ public final class FFI {
         }
     }
 
-    @Structure.FieldOrder({"projection", "projection_len"})
+    @Structure.FieldOrder({"projection", "projection_len", "filter_protobuf", "filter_protobuf_len"})
     public static final class FileScanOptions extends Structure {
         public Pointer projection;
         public int projection_len;
+        public Pointer filter_protobuf;
+        public int filter_protobuf_len;
 
         public FileScanOptions(StringArray projection, int length) {
+            this(projection, length, Optional.empty(), 0);
+        }
+
+        public FileScanOptions(
+                StringArray projection, int length, Optional<Memory> filter_protobuf, int filter_protobuf_len) {
             this.projection = projection;
             this.projection_len = length;
+            this.filter_protobuf = filter_protobuf.map(mem -> (Pointer) mem).orElse(Pointer.NULL);
+            this.filter_protobuf_len = filter_protobuf_len;
         }
     }
 

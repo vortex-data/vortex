@@ -15,30 +15,25 @@
  */
 package dev.vortex.api;
 
-import java.util.List;
-import java.util.Optional;
-import org.immutables.value.Value;
+import dev.vortex.api.expressions.*;
 
 /**
- * Create a new set of options for configuring the scan.
+ * Vortex expression language.
  */
-@Value.Immutable
-public interface ScanOptions {
-    /**
-     * Columns to project out.
-     */
-    List<String> columns();
+public interface Expression {
+    String type();
 
-    /**
-     * Optional pruning expression that is pushed down to the scan.
-     */
-    Optional<Expression> predicate();
+    <T> T accept(Visitor<T> visitor);
 
-    static ScanOptions of() {
-        return ImmutableScanOptions.builder().build();
-    }
+    interface Visitor<T> {
+        T visitLiteral(Literal<?> literal);
 
-    static ImmutableScanOptions.Builder builder() {
-        return ImmutableScanOptions.builder();
+        T visitIdentity(Identity identity);
+
+        T visitBinary(Binary binary);
+
+        T visitNot(Not not);
+
+        T visitGetItem(GetItem getItem);
     }
 }

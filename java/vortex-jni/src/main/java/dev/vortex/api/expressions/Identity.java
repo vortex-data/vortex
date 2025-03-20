@@ -13,32 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.api;
+package dev.vortex.api.expressions;
 
-import java.util.List;
-import java.util.Optional;
-import org.immutables.value.Value;
+import dev.vortex.api.Expression;
 
-/**
- * Create a new set of options for configuring the scan.
- */
-@Value.Immutable
-public interface ScanOptions {
-    /**
-     * Columns to project out.
-     */
-    List<String> columns();
+public final class Identity implements Expression {
+    public static final Identity INSTANCE = new Identity();
 
-    /**
-     * Optional pruning expression that is pushed down to the scan.
-     */
-    Optional<Expression> predicate();
+    private Identity() {}
 
-    static ScanOptions of() {
-        return ImmutableScanOptions.builder().build();
+    @Override
+    public String type() {
+        return "identity";
     }
 
-    static ImmutableScanOptions.Builder builder() {
-        return ImmutableScanOptions.builder();
+    @Override
+    public String toString() {
+        return "identity";
+    }
+
+    // equals and hashCode depend on address equality to INSTANCE.
+
+    @Override
+    public <T> T accept(Visitor<T> visitor) {
+        return visitor.visitIdentity(this);
     }
 }

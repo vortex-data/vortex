@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.collect.ImmutableList;
 import com.sun.jna.Memory;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.LongByReference;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 import java.nio.charset.StandardCharsets;
@@ -90,6 +91,7 @@ final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
             var fieldCount = FFI.DType_field_count(inner);
             for (int i = 0; i < fieldCount; i++) {
                 var lenRef = new IntByReference();
+                LongByReference memoryPtr = new LongByReference();
                 FFI.DType_field_name(inner, i, memory, lenRef);
                 var data = memory.getByteArray(0, lenRef.getValue());
                 var name = new String(data, StandardCharsets.UTF_8);
