@@ -150,6 +150,7 @@ rkyv = { version = "0.8.10", features = [
     "unaligned",
 ] }
 rstest = "0.25"
+rstest_reuse = "0.7.0"
 rustc-hash = "2"
 serde = "1.0.203"
 serde_json = "1.0.116"
