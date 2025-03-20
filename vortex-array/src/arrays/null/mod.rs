@@ -41,7 +41,7 @@ impl EncodingVTable for NullEncoding {
         Ok(NullArray::new(len).into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

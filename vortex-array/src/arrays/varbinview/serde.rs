@@ -48,7 +48,7 @@ impl EncodingVTable for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(views, buffers, dtype, validity)?.into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

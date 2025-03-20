@@ -39,7 +39,7 @@ impl EncodingVTable for RunEndEncoding {
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

@@ -149,7 +149,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
 
-            let new_array = prev_vtable.from_children(encoded, new_children)?;
+            let new_array = prev_vtable.replace_children(encoded, new_children)?;
             let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
 
             // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.

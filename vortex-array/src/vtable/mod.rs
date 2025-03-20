@@ -50,7 +50,7 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
         )
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

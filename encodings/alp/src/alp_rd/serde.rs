@@ -118,7 +118,7 @@ impl EncodingVTable for ALPRDEncoding {
         Ok(alprd_array.into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         existing: ArrayRef,
         new_children: Vec<ArrayRef>,
@@ -135,21 +135,19 @@ impl EncodingVTable for ALPRDEncoding {
         let left_parts = new_children.next().vortex_expect("");
         let right_parts = new_children.next().vortex_expect("");
 
-        let patches = if new_children.len() == 2 {
+        let patches = (new_children.len() == 2).then(|| {
             let existing_patches = existing
                 .left_parts_patches()
                 .vortex_expect("Must have patches");
             let patches_indices = new_children.next().vortex_expect("");
             let patches_values = new_children.next().vortex_expect("");
-            Some(Patches::new(
+            Patches::new(
                 existing_patches.array_len(),
                 existing_patches.offset(),
                 patches_indices,
                 patches_values,
-            ))
-        } else {
-            None
-        };
+            )
+        });
 
         assert!(
             new_children.next().is_none(),

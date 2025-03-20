@@ -29,7 +29,7 @@ impl EncodingVTable for ZigZagEncoding {
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

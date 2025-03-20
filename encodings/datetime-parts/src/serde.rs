@@ -48,7 +48,7 @@ impl EncodingVTable for DateTimePartsEncoding {
         Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

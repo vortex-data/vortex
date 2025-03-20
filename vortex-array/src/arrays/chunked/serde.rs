@@ -59,7 +59,7 @@ impl EncodingVTable for ChunkedEncoding {
         Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

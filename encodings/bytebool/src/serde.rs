@@ -39,7 +39,7 @@ impl EncodingVTable for ByteBoolEncoding {
         Ok(ByteBoolArray::new(buffer, validity).into_array())
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

@@ -66,7 +66,7 @@ impl EncodingVTable for DeltaEncoding {
         )
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,

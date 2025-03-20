@@ -85,7 +85,7 @@ impl EncodingVTable for BitPackedEncoding {
         })
     }
 
-    fn from_children(
+    fn replace_children(
         &self,
         _existing: ArrayRef,
         _new_children: Vec<ArrayRef>,
