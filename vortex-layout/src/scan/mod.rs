@@ -39,7 +39,6 @@ pub struct ScanBuilder {
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
     concurrency: usize,
-    prefetch_conjuncts: bool,
     metrics: VortexMetrics,
 }
 
@@ -53,7 +52,6 @@ impl ScanBuilder {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            prefetch_conjuncts: false,
             concurrency: 8,
             metrics: Default::default(),
         }
@@ -99,12 +97,6 @@ impl ScanBuilder {
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
-        self
-    }
-
-    /// The number of row splits to make progress on concurrently, must be greater than 0.
-    pub fn with_prefetch_conjuncts(mut self, prefetch: bool) -> Self {
-        self.prefetch_conjuncts = prefetch;
         self
     }
 
@@ -175,7 +167,6 @@ impl ScanBuilder {
             row_masks,
             canonicalize: self.canonicalize,
             concurrency: self.concurrency,
-            prefetch_conjuncts: self.prefetch_conjuncts,
         })
     }
 
@@ -228,7 +219,6 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
-#[allow(dead_code)]
 pub struct Scan {
     task_executor: TaskExecutor,
     layout_reader: Arc<dyn LayoutReader>,
@@ -238,9 +228,7 @@ pub struct Scan {
     filter: Option<ExprRef>,
     row_masks: Vec<RowMask>,
     canonicalize: bool,
-    //TODO(adam): bake this into the executors?
     concurrency: usize,
-    prefetch_conjuncts: bool,
 }
 
 impl Scan {

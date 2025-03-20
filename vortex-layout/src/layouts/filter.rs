@@ -186,10 +186,6 @@ impl FilterExpr {
         mask_future: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         // We construct the conjunct evaluations now to ensure that pre-fetching has full visibility.
-
-        // You know what.... for now I'm just going to launch all conjuncts concurrently and race them!
-        // Any that get pruned will return early and get dropped, hopefully before the I/O for the others starts.
-
         let mut conjunct_futures: Vec<_> = self
             .conjuncts
             .iter()
@@ -203,6 +199,7 @@ impl FilterExpr {
 
         Ok(async move {
             log::debug!("Evaluating filter conjunctions for {:?}", &row_range);
+
             // Now we poll the conjuncts in any order, and if any return all false, we can exit early.
             let mut conjunct_futures =
                 FuturesUnordered::from_iter(self.ordering.read()?.iter().map(|&i| {
@@ -211,8 +208,8 @@ impl FilterExpr {
                         .vortex_expect("duplicate conjunct in ordering")
                         .map(move |r| (i, r))
                 }));
-            let mut acc = Mask::new_true(range_len);
 
+            let mut acc = Mask::new_true(range_len);
             while let Some((i, result)) = conjunct_futures.next().await {
                 let Some(result) = result? else {
                     // The result is only None if the mask is all false, meaning we can return None.

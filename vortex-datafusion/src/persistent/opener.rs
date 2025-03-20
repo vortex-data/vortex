@@ -89,7 +89,6 @@ impl FileOpener for VortexFileOpener {
                 .scan()
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_prefetch_conjuncts(true)
                 .with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small

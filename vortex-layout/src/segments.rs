@@ -34,7 +34,6 @@ impl Display for SegmentId {
 pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
 
 pub trait AsyncSegmentReader: 'static + Send + Sync {
-    /// Attempt to get the data associated with a given segment ID.
     fn get(&self, id: SegmentId) -> SegmentFuture;
 }
 
