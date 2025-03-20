@@ -16,10 +16,11 @@ use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{info, warn};
+use url::Url;
 use vortex::TryIntoArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, vortex_err};
+use vortex::error::VortexError;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
@@ -145,11 +146,9 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     ])
 });
 
-pub async fn register_vortex_files(
+pub async fn convert_parquet_to_vortex(
     session: SessionContext,
-    table_name: &str,
     input_path: &Path,
-    schema: &Schema,
 ) -> anyhow::Result<()> {
     let vortex_dir = input_path.join("vortex");
     let parquet_path = input_path.join("parquet");
@@ -220,16 +219,22 @@ pub async fn register_vortex_files(
         .buffer_unordered(16)
         .try_collect::<Vec<_>>()
         .await?;
+    Ok(())
+}
+
+pub async fn register_vortex_files(
+    session: SessionContext,
+    table_name: &str,
+    input_path: &Url,
+    schema: &Schema,
+) -> anyhow::Result<()> {
+    let vortex_dir = input_path.join("vortex/")?;
 
     let format = Arc::new(VortexFormat::default());
-    let table_path = vortex_dir
-        .to_str()
-        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
 
-    info!("Registering table from {table_path}");
+    info!("Registering table from {vortex_dir}");
 
-    let table_path = format!("file://{table_path}/");
-    let table_url = ListingTableUrl::parse(table_path)?;
+    let table_url = ListingTableUrl::parse(vortex_dir)?;
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
@@ -244,17 +249,12 @@ pub async fn register_vortex_files(
 pub async fn register_parquet_files(
     session: &SessionContext,
     table_name: &str,
-    input_path: &Path,
+    input_path: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
     let format = Arc::new(ParquetFormat::new());
-    let table_path = input_path.join("parquet");
-    let table_path = format!(
-        "file://{}/",
-        table_path
-            .to_str()
-            .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?
-    );
+    let table_path = input_path.join("parquet/")?;
+    info!("Registering table from {}", &table_path);
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)

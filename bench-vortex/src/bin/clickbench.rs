@@ -7,7 +7,7 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::{
     Format, IdempotentPath as _, default_env_filter, execute_physical_plan,
-    feature_flagged_allocator, get_session_with_cache, physical_plan,
+    feature_flagged_allocator, get_session_with_cache, make_object_store, physical_plan,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -17,7 +17,8 @@ use log::warn;
 use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
-use vortex::error::vortex_panic;
+use url::Url;
+use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
@@ -47,6 +48,8 @@ struct Args {
     export_spans: bool,
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
     flavor: Flavor,
+    #[arg(long)]
+    use_remote_data_dir: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -96,10 +99,37 @@ fn main() -> anyhow::Result<()> {
         None => Builder::new_multi_thread().enable_all().build(),
     }
     .expect("Failed building the Runtime");
-    let basepath = format!("clickbench_{}", args.flavor).to_data_path();
-    let client = reqwest::blocking::Client::default();
 
-    args.flavor.download(&client, basepath.as_path())?;
+    let url = match args.use_remote_data_dir {
+        None => {
+            let basepath = format!("clickbench_{}", args.flavor).to_data_path();
+            let client = reqwest::blocking::Client::default();
+
+            args.flavor.download(&client, basepath.as_path())?;
+            Url::parse(
+                ("file:".to_owned() + basepath.to_str().vortex_expect("path should be utf8") + "/")
+                    .as_ref(),
+            )
+            .unwrap()
+        }
+        Some(remote_data_dir) => {
+            // e.g. "s3://vortex-bench-dev-eu/parquet/"
+            if !remote_data_dir.ends_with("/") {
+                log::warn!(
+                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
+                );
+            }
+            log::info!(
+                concat!(
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files (by running without\n",
+                    "--use-remote-data-dir) and upload data/clickbench/ to some remote location.",
+                ),
+                remote_data_dir,
+            );
+            Url::parse(&remote_data_dir).unwrap()
+        }
+    };
 
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
@@ -116,30 +146,30 @@ fn main() -> anyhow::Result<()> {
     let mut metrics = Vec::new();
     for format in &args.formats {
         let session_context = get_session_with_cache(args.emulate_object_store);
+        // register object store to the session
+        let _ = make_object_store(&session_context, &url)?;
         let context = session_context.clone();
         let mut plans = Vec::new();
 
         match format {
             Format::Parquet => runtime.block_on(async {
-                clickbench::register_parquet_files(
-                    &context,
-                    "hits",
-                    basepath.as_path(),
-                    &HITS_SCHEMA,
-                )
-                .await
-                .unwrap()
+                clickbench::register_parquet_files(&context, "hits", &url, &HITS_SCHEMA)
+                    .await
+                    .unwrap()
             }),
             Format::OnDiskVortex => {
                 runtime.block_on(async {
-                    clickbench::register_vortex_files(
-                        context.clone(),
-                        "hits",
-                        basepath.as_path(),
-                        &HITS_SCHEMA,
-                    )
-                    .await
-                    .unwrap();
+                    if url.scheme() == "file" {
+                        clickbench::convert_parquet_to_vortex(
+                            context.clone(),
+                            &url.to_file_path().unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    clickbench::register_vortex_files(context.clone(), "hits", &url, &HITS_SCHEMA)
+                        .await
+                        .unwrap();
                 });
             }
             other => vortex_panic!("Format {other} isn't supported on ClickBench"),

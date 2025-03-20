@@ -18,9 +18,14 @@ use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{ExecutionPlan, collect};
+use object_store::ObjectStore;
+use object_store::aws::AmazonS3Builder;
+use object_store::gcp::GoogleCloudStorageBuilder;
+use object_store::local::LocalFileSystem;
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
+use url::Url;
 use vortex::Array;
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
@@ -301,4 +306,39 @@ pub fn generate_struct_of_list_of_ints_array(
         arrays,
         DType::Struct(struct_dtype.clone(), Nullability::NonNullable),
     )
+}
+
+pub fn make_object_store(
+    df: &SessionContext,
+    source: &Url,
+) -> anyhow::Result<Arc<dyn ObjectStore>> {
+    match source.scheme() {
+        "s3" => {
+            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let s3 = Arc::new(
+                AmazonS3Builder::from_env()
+                    .with_bucket_name(bucket_name)
+                    .build()
+                    .unwrap(),
+            );
+            df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
+            Ok(s3)
+        }
+        "gs" => {
+            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let gcs = Arc::new(
+                GoogleCloudStorageBuilder::from_env()
+                    .with_bucket_name(bucket_name)
+                    .build()
+                    .unwrap(),
+            );
+            df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
+            Ok(gcs)
+        }
+        _ => {
+            let fs = Arc::new(LocalFileSystem::default());
+            df.register_object_store(&Url::parse("file:/")?, fs.clone());
+            Ok(fs)
+        }
+    }
 }

@@ -6027,6 +6027,7 @@ dependencies = [
  "log",
  "object_store",
  "paste",
+ "prost",
  "simplelog",
  "tokio",
  "url",

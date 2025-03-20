@@ -35,7 +35,7 @@ vortex-io = { workspace = true, optional = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true }
+vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sparse = { workspace = true }
@@ -48,3 +48,4 @@ object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-io/tokio", "vortex-file/tokio", "vortex-layout/tokio"]
+proto = ["vortex-expr/proto", "vortex-error/prost"]
