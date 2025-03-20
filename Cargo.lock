@@ -3163,7 +3163,6 @@ dependencies = [
  "loom",
  "parking_lot",
  "portable-atomic",
- "quanta",
  "rustc_version",
  "smallvec",
  "tagptr",
