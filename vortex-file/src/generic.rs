@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::SegmentId;
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, SegmentSpec};
@@ -19,17 +20,12 @@ use crate::{FileType, VortexFile, VortexOpenOptions};
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
-pub struct GenericVortexFile<R> {
-    footer: Footer,
-    read: R,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
-    segment_cache: Arc<dyn SegmentCache>,
-    metrics: VortexMetrics,
-}
+pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt + Send + Sync> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
+    /// Open a file using the provided [`VortexReadAt`] implementation.
     pub fn file(read: R) -> Self {
         Self::new(read, Default::default())
             .with_segment_cache(Arc::new(InMemorySegmentCache::new(
@@ -109,8 +105,8 @@ pub struct GenericScanDriver<R> {
 }
 
 impl<R: VortexReadAt + Send> GenericScanDriver<R> {
+    /// Create a stream that is polled every time there is an available slot to perform I/O.
     pub fn io_driver(self) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> {
-        // Create a stream that yields every time there is more work to do in the segment queue.
         stream::unfold(self, move |mut this| async move {
             // If the segment queue is empty, then wait for the next notification.
             let Some(_) = this.segment_queue.next().await else {

@@ -28,7 +28,7 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<Rec
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex<T: VortexReadAt + Send + Sync>(
+async fn take_vortex<T: VortexReadAt + Send>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<ArrayRef> {

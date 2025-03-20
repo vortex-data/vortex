@@ -12,11 +12,7 @@ use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 ///
 /// This type of file reader performs no coalescing or other clever orchestration, simply
 /// zero-copy slicing the segments from the buffer.
-#[derive(Clone)]
-pub struct InMemoryVortexFile {
-    buffer: ByteBuffer,
-    footer: Footer,
-}
+pub struct InMemoryVortexFile;
 
 impl VortexOpenOptions<InMemoryVortexFile> {
     /// Open an in-memory file contained in the provided buffer.
@@ -32,7 +28,7 @@ impl FileType for InMemoryVortexFile {
     fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
         Ok(VortexFile {
             footer: footer.clone(),
-            segment_reader: Arc::new(InMemoryVortexFile {
+            segment_reader: Arc::new(InMemorySegmentReader {
                 buffer: options.read,
                 footer,
             }),
@@ -41,7 +37,12 @@ impl FileType for InMemoryVortexFile {
     }
 }
 
-impl AsyncSegmentReader for InMemoryVortexFile {
+struct InMemorySegmentReader {
+    buffer: ByteBuffer,
+    footer: Footer,
+}
+
+impl AsyncSegmentReader for InMemorySegmentReader {
     fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let segment_map = self.footer.segment_map().clone();
         let buffer = self.buffer.clone();
