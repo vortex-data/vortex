@@ -65,7 +65,7 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
             pin_mut!(io_stream);
             while let Some(r) = io_stream.next().await {
                 if r.is_err() {
-                    log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", r)
+                    log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", r);
                 }
             }
         })?;
@@ -112,7 +112,7 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             let Some(_) = this.segment_queue.next().await else {
                 // The segment queue has completed, meaning no more requests are possible.
                 // We're done!
-                log::info!("I/O driver finished");
+                println!("I/O driver finished");
                 return None;
             };
 

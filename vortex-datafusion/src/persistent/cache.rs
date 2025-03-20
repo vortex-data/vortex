@@ -11,7 +11,7 @@ use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_file::{Footer, SegmentSpec, VortexOpenOptions};
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{ObjectStoreReadAt, TokioFile};
 use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::SegmentId;
 
@@ -90,14 +90,26 @@ impl FooterCache {
     ) -> VortexResult<Footer> {
         self.inner
             .try_get_with(Key::from(object), async {
-                let os_read_at =
-                    ObjectStoreReadAt::new(object_store, object.location.clone(), None);
-                let vxf = VortexOpenOptions::file(os_read_at)
-                    .with_array_registry(self.array_registry.clone())
-                    .with_layout_registry(self.layout_registry.clone())
-                    .with_file_size(object.size as u64)
-                    .open()
-                    .await?;
+                let vxf = if let Some(file) =
+                    ObjectStoreReadAt::maybe_file(&object_store, &object.location)
+                {
+                    VortexOpenOptions::file(TokioFile::new(file))
+                        .with_array_registry(self.array_registry.clone())
+                        .with_layout_registry(self.layout_registry.clone())
+                        .with_file_size(object.size as u64)
+                        .open()
+                        .await?
+                } else {
+                    let os_read_at =
+                        ObjectStoreReadAt::new(object_store, object.location.clone(), None);
+                    VortexOpenOptions::file(os_read_at)
+                        .with_array_registry(self.array_registry.clone())
+                        .with_layout_registry(self.layout_registry.clone())
+                        .with_file_size(object.size as u64)
+                        .open()
+                        .await?
+                };
+
                 Ok(vxf.footer().clone())
             })
             .await

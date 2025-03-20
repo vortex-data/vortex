@@ -10,11 +10,12 @@ use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
-use vortex_io::{InstrumentedReadAt, ObjectStoreReadAt};
+use vortex_io::{ObjectStoreReadAt, TokioFile};
 use vortex_metrics::VortexMetrics;
 
 use super::cache::FooterCache;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
     pub scheme: ObjectStoreScheme,
@@ -57,14 +58,6 @@ impl FileOpener for VortexFileOpener {
         let file_metrics = self
             .metrics
             .child_with_tags([("filename", file_meta.location().to_string())]);
-        let read_at = InstrumentedReadAt::new(
-            ObjectStoreReadAt::new(
-                self.object_store.clone(),
-                file_meta.location().clone(),
-                Some(self.scheme.clone()),
-            ),
-            &file_metrics,
-        );
 
         let filter = self.filter.clone();
         let projection = self.projection.clone();
@@ -75,15 +68,34 @@ impl FileOpener for VortexFileOpener {
         let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
-            let vxf = VortexOpenOptions::file(read_at)
-                .with_metrics(file_metrics)
-                .with_footer(
-                    footer_cache
-                        .try_get(&file_meta.object_meta, object_store)
-                        .await?,
-                )
-                .open()
-                .await?;
+            let vxf = if let Some(file) =
+                ObjectStoreReadAt::maybe_file(&object_store, file_meta.location())
+            {
+                VortexOpenOptions::file(TokioFile::new(file))
+                    .with_metrics(file_metrics)
+                    .with_footer(
+                        footer_cache
+                            .try_get(&file_meta.object_meta, object_store)
+                            .await?,
+                    )
+                    .open()
+                    .await?
+            } else {
+                let os_read_at = ObjectStoreReadAt::new(
+                    object_store.clone(),
+                    file_meta.location().clone(),
+                    None,
+                );
+                VortexOpenOptions::file(os_read_at)
+                    .with_metrics(file_metrics)
+                    .with_footer(
+                        footer_cache
+                            .try_get(&file_meta.object_meta, object_store)
+                            .await?,
+                    )
+                    .open()
+                    .await?
+            };
 
             Ok(vxf
                 .scan()
@@ -102,6 +114,6 @@ impl FileOpener for VortexFileOpener {
                 })
                 .boxed())
         }
-        .boxed())
+            .boxed())
     }
 }

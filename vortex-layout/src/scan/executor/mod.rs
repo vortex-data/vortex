@@ -9,12 +9,11 @@ use futures::future::BoxFuture;
 pub use threads::*;
 #[cfg(feature = "tokio")]
 pub use tokio::*;
-use vortex_error::VortexResult;
 
 pub trait Executor {
     /// Spawns a future to run on a different runtime.
     /// The runtime will make progress on the future without being directly polled, returning its output.
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static;
@@ -30,7 +29,7 @@ pub enum TaskExecutor {
 
 #[async_trait::async_trait]
 impl Executor for TaskExecutor {
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,

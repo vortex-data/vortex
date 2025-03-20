@@ -29,7 +29,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{VortexExpr, and};
 use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexOpenOptions};
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{ObjectStoreReadAt, TokioFile};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
 use super::cache::FooterCache;
@@ -209,13 +209,20 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
         let footer = self.footer_cache.try_get(object, store.clone()).await?;
 
-        let vxf = VortexOpenOptions::file(read_at)
-            .with_footer(footer)
-            .open()
-            .await?;
+        let vxf = if let Some(file) = ObjectStoreReadAt::maybe_file(store, &object.location) {
+            VortexOpenOptions::file(TokioFile::new(file))
+                .with_footer(footer)
+                .open()
+                .await?
+        } else {
+            let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
+            VortexOpenOptions::file(os_read_at)
+                .with_footer(footer)
+                .open()
+                .await?
+        };
 
         let struct_dtype = vxf
             .dtype()
