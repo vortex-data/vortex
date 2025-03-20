@@ -1,3 +1,8 @@
+//
+// THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
+//
+
+
 // (c) Copyright 2025 SpiralDB Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
