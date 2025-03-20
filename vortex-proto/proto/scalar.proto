@@ -4,7 +4,6 @@ package vortex.scalar;
 
 import "dtype.proto";
 import "google/protobuf/struct.proto";
-import "google/protobuf/wrappers.proto";
 
 message Scalar {
   vortex.dtype.DType dtype = 1;

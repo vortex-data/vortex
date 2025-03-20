@@ -1,5 +1,6 @@
 {
   "dependencies": [
-    "openssl"
+    "openssl",
+    "protobuf"
   ]
 }

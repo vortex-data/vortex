@@ -6,6 +6,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
+// #include "dtype.pb.h"
 
 extern "C" {
 const char *vortex_duckdb_hello();
