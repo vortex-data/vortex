@@ -5,7 +5,6 @@ use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use futures::TryStreamExt;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};

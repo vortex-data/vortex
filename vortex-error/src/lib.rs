@@ -307,7 +307,10 @@ pub trait VortexExpect {
     fn vortex_expect(self, msg: &str) -> Self::Output;
 
     /// Returns the value of the result if it is Ok, otherwise panics with the error.
-    fn vortex_expect_fn(self, msg: impl FnOnce() -> String) -> Self::Output {
+    fn vortex_expect_fn(self, msg: impl FnOnce() -> String) -> Self::Output
+    where
+        Self: Sized,
+    {
         self.vortex_expect(msg().as_str())
     }
 }
