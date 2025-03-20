@@ -17,7 +17,6 @@ type Segments = Arc<RwLock<VecDeque<Weak<PendingSegment>>>>;
 /// Segments are prioritised by the order in which they are requested.
 pub struct SegmentQueue {
     segments: Segments,
-    send: mpsc::UnboundedSender<()>,
     recv: mpsc::UnboundedReceiver<()>,
 }
 
@@ -30,7 +29,6 @@ impl SegmentQueue {
         let (send, recv) = mpsc::unbounded();
         let this = Self {
             segments: segments.clone(),
-            send: send.clone(),
             recv,
         };
 
@@ -43,6 +41,10 @@ impl SegmentQueue {
         });
 
         (this, segment_reader)
+    }
+
+    pub fn num_pending(&self) -> usize {
+        self.with_pending_segments(|segments| segments.count())
     }
 
     /// Inspect all pending segments, in order of segment ID.

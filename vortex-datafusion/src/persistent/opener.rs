@@ -69,7 +69,7 @@ impl FileOpener for VortexFileOpener {
 
         Ok(async move {
             let vxf = if let Some(file) =
-                ObjectStoreReadAt::maybe_file(&object_store, file_meta.location())
+                ObjectStoreReadAt::maybe_file(&object_store, file_meta.location()).await
             {
                 VortexOpenOptions::file(TokioFile::new(file))
                     .with_metrics(file_metrics)
@@ -114,6 +114,6 @@ impl FileOpener for VortexFileOpener {
                 })
                 .boxed())
         }
-            .boxed())
+        .boxed())
     }
 }

@@ -91,7 +91,7 @@ impl FooterCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let vxf = if let Some(file) =
-                    ObjectStoreReadAt::maybe_file(&object_store, &object.location)
+                    ObjectStoreReadAt::maybe_file(&object_store, &object.location).await
                 {
                     VortexOpenOptions::file(TokioFile::new(file))
                         .with_array_registry(self.array_registry.clone())

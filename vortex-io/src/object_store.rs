@@ -5,7 +5,6 @@ use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::executor::block_on;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{
@@ -25,23 +24,21 @@ pub struct ObjectStoreReadAt {
 }
 
 impl ObjectStoreReadAt {
-    pub fn maybe_file(object_store: &dyn ObjectStore, location: &Path) -> Option<File> {
-        block_on(async move {
-            let response = object_store
-                .get_opts(
-                    &location,
-                    GetOptions {
-                        range: Some(GetRange::Bounded(0..1)),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .ok()?;
-            if let GetResultPayload::File(file, _path) = response.payload {
-                return Some(file);
-            }
-            None
-        })
+    pub async fn maybe_file(object_store: &dyn ObjectStore, location: &Path) -> Option<File> {
+        let response = object_store
+            .get_opts(
+                &location,
+                GetOptions {
+                    range: Some(GetRange::Bounded(0..1)),
+                    ..Default::default()
+                },
+            )
+            .await
+            .ok()?;
+        if let GetResultPayload::File(file, _path) = response.payload {
+            return Some(file);
+        }
+        None
     }
 
     pub fn new(

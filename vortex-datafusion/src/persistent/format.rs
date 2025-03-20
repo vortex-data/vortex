@@ -211,7 +211,7 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Statistics> {
         let footer = self.footer_cache.try_get(object, store.clone()).await?;
 
-        let vxf = if let Some(file) = ObjectStoreReadAt::maybe_file(store, &object.location) {
+        let vxf = if let Some(file) = ObjectStoreReadAt::maybe_file(store, &object.location).await {
             VortexOpenOptions::file(TokioFile::new(file))
                 .with_footer(footer)
                 .open()

@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll, ready};
 
-use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;

@@ -109,12 +109,14 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
     pub fn io_driver(self) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> {
         stream::unfold(self, move |mut this| async move {
             // If the segment queue is empty, then wait for the next notification.
+            println!("Awaiting I/O {}", this.segment_queue.num_pending());
             let Some(_) = this.segment_queue.next().await else {
                 // The segment queue has completed, meaning no more requests are possible.
                 // We're done!
                 println!("I/O driver finished");
                 return None;
             };
+            println!("AWAITED");
 
             // Using the pending segments, construct a single coalesced read.
             let request = this
@@ -144,7 +146,6 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                     };
 
                     let perf_hint = this.read.performance_hint();
-                    log::debug!("Using performance hint {:?}", perf_hint);
                     let window = perf_hint.coalescing_window();
                     let max_read = perf_hint.max_read().unwrap_or(2 << 24); // 16MB.
 
