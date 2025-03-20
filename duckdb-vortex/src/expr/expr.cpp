@@ -125,8 +125,6 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		return scalar;
 	}
 	case LogicalTypeId::BOOLEAN: {
-		auto boolean = new vortex::dtype::Bool();
-		boolean->set_nullable(nullable);
 		scalar->mutable_value()->set_bool_value(value.GetValue<bool>());
 		return scalar;
 	}
@@ -161,10 +159,9 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 
 void set_column(const string &s, vortex::expr::Expr *column) {
 	column->set_id(GET_ITEM_ID);
-	auto get_item = new vortex::expr::Kind_GetItem();
-	get_item->mutable_path()->assign(s);
 	auto kind = column->mutable_kind();
-	kind->set_allocated_get_item(get_item);
+	auto get_item = kind->mutable_get_item();
+	get_item->mutable_path()->assign(s);
 
 	auto id = column->add_children();
 	id->mutable_kind()->mutable_identity();
