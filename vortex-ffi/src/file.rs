@@ -73,6 +73,25 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
     Box::into_raw(Box::new(ffi_file))
 }
 
+/// Whole file statistics.
+#[repr(C)]
+pub struct FileStatistics {
+    /// The exact number of rows in the file.
+    pub num_rows: u64,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatistics {
+    Box::into_raw(Box::new(FileStatistics {
+        num_rows: (*file).inner.row_count(),
+    }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn File_statistics_destroy(stat: *mut FileStatistics) {
+    let _stat = unsafe { Box::from_raw(stat) };
+}
+
 /// Get a readonly pointer to the DType of the data inside of the file.
 ///
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
