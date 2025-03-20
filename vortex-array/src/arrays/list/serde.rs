@@ -1,38 +1,20 @@
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{ListArray, ListEncoding};
+use super::{ListArray, ListEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    RkyvMetadata,
+    EncodingId, RkyvMetadata,
 };
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct ListMetadata {
-    elements_len: usize,
-    offset_ptype: PType,
-}
-
-impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("elements", self.elements());
-        visitor.visit_child("offsets", self.offsets());
-        visitor.visit_validity(self.validity(), self.len());
+impl EncodingVTable for ListEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.list")
     }
 
-    fn _metadata(&self) -> RkyvMetadata<ListMetadata> {
-        RkyvMetadata(ListMetadata {
-            elements_len: self.elements().len(),
-            offset_ptype: PType::try_from(self.offsets().dtype())
-                .vortex_expect("Must be a valid PType"),
-        })
-    }
-}
-
-impl SerdeVTable<&ListArray> for ListEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -66,5 +48,27 @@ impl SerdeVTable<&ListArray> for ListEncoding {
         )?;
 
         Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+    }
+}
+
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct ListMetadata {
+    elements_len: usize,
+    offset_ptype: PType,
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("elements", self.elements());
+        visitor.visit_child("offsets", self.offsets());
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<ListMetadata> {
+        RkyvMetadata(ListMetadata {
+            elements_len: self.elements().len(),
+            offset_ptype: PType::try_from(self.offsets().dtype())
+                .vortex_expect("Must be a valid PType"),
+        })
     }
 }

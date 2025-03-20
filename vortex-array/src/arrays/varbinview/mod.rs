@@ -19,10 +19,10 @@ use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId, TryFromArrayRef, try_from_array_ref,
+    TryFromArrayRef, try_from_array_ref,
 };
 
 mod accessor;
@@ -278,12 +278,6 @@ pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
     type Array = VarBinViewArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for VarBinViewEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
-    }
 }
 
 impl VarBinViewArray {

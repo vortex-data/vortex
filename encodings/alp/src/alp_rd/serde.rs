@@ -1,16 +1,17 @@
 use serde::{Deserialize, Serialize};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerdeMetadata,
+    EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
-use crate::{ALPRDArray, ALPRDEncoding};
+use super::ALPRDEncoding;
+use crate::ALPRDArray;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPRDMetadata {
@@ -21,35 +22,11 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("left_parts", self.left_parts());
-        visitor.visit_child("right_parts", self.right_parts());
-        if let Some(patches) = self.left_parts_patches() {
-            visitor.visit_patches(patches);
-        }
+impl EncodingVTable for ALPRDEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.alprd")
     }
 
-    fn _metadata(&self) -> SerdeMetadata<ALPRDMetadata> {
-        let mut dict = [0u16; 8];
-        dict[0..self.left_parts_dictionary().len()].copy_from_slice(self.left_parts_dictionary());
-
-        SerdeMetadata(ALPRDMetadata {
-            right_bit_width: self.right_bit_width(),
-            dict_len: self.left_parts_dictionary().len() as u8,
-            dict,
-            left_parts_ptype: PType::try_from(self.left_parts().dtype())
-                .vortex_expect("Must be a valid PType"),
-            patches: self
-                .left_parts_patches()
-                .map(|p| p.to_metadata(self.len(), self.left_parts().dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        })
-    }
-}
-
-impl SerdeVTable<&ALPRDArray> for ALPRDEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -102,6 +79,35 @@ impl SerdeVTable<&ALPRDArray> for ALPRDEncoding {
         .into_array())
     }
 }
+
+impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("left_parts", self.left_parts());
+        visitor.visit_child("right_parts", self.right_parts());
+        if let Some(patches) = self.left_parts_patches() {
+            visitor.visit_patches(patches);
+        }
+    }
+
+    fn _metadata(&self) -> SerdeMetadata<ALPRDMetadata> {
+        let mut dict = [0u16; 8];
+        dict[0..self.left_parts_dictionary().len()].copy_from_slice(self.left_parts_dictionary());
+
+        SerdeMetadata(ALPRDMetadata {
+            right_bit_width: self.right_bit_width(),
+            dict_len: self.left_parts_dictionary().len() as u8,
+            dict,
+            left_parts_ptype: PType::try_from(self.left_parts().dtype())
+                .vortex_expect("Must be a valid PType"),
+            patches: self
+                .left_parts_patches()
+                .map(|p| p.to_metadata(self.len(), self.left_parts().dtype()))
+                .transpose()
+                .vortex_expect("Failed to create patches metadata"),
+        })
+    }
+}
+
 #[cfg(test)]
 mod test {
     use vortex_array::SerdeMetadata;

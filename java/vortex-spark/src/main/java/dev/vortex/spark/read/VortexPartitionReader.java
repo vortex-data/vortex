@@ -22,7 +22,7 @@ import dev.vortex.api.Array;
 import dev.vortex.api.ArrayStream;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
-import dev.vortex.impl.NativeFile;
+import dev.vortex.impl.Files;
 import dev.vortex.spark.VortexFilePartition;
 import java.util.Objects;
 import org.apache.spark.sql.connector.read.PartitionReader;
@@ -66,7 +66,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
      * Initialize the Vortex File and ArrayStream resources.
      */
     void initNativeResources() {
-        file = NativeFile.open(partition.getPath());
+        file = Files.open(partition.getPath());
         arrayStream = file.newScan(ScanOptions.of());
     }
 

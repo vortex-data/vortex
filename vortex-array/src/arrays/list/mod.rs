@@ -6,25 +6,23 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-#[cfg(feature = "test-harness")]
-use vortex_dtype::Nullability::{NonNullable, Nullable};
+use serde::ListMetadata;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
-use crate::arrays::list::serde::ListMetadata;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
+    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -40,12 +38,6 @@ pub struct ListEncoding;
 impl Encoding for ListEncoding {
     type Array = ListArray;
     type Metadata = RkyvMetadata<ListMetadata>;
-}
-
-impl EncodingVTable for ListEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.list")
-    }
 }
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
@@ -199,8 +191,11 @@ impl ListArray {
         <I::Item as IntoIterator>::Item: Into<Scalar>,
     {
         let iter = iter.into_iter();
-        let mut builder =
-            ListBuilder::<O>::with_capacity(dtype.clone(), NonNullable, iter.size_hint().0);
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            vortex_dtype::Nullability::NonNullable,
+            iter.size_hint().0,
+        );
 
         for v in iter {
             let elem = Scalar::list(
@@ -222,8 +217,11 @@ impl ListArray {
         T::Item: Into<Scalar>,
     {
         let iter = iter.into_iter();
-        let mut builder =
-            ListBuilder::<O>::with_capacity(dtype.clone(), Nullable, iter.size_hint().0);
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            vortex_dtype::Nullability::Nullable,
+            iter.size_hint().0,
+        );
 
         for v in iter {
             if let Some(v) = v {
@@ -247,7 +245,6 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -260,7 +257,7 @@ mod test {
 
     #[test]
     fn test_empty_list_array() {
-        let elements = PrimitiveArray::empty::<u32>(NonNullable);
+        let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
         let offsets = PrimitiveArray::from_iter([0]);
         let validity = Validity::AllValid;
 

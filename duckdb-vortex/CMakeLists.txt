@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
 set(TARGET_NAME vortex)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(EXTENSION_SOURCES src/vortex_extension.cpp src/expr/expr.cpp gen/dtype.pb.cc gen/expr.pb.cc gen/scalar.pb.cc)

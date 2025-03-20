@@ -8,14 +8,14 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, try_from_array_ref,
+    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
@@ -42,12 +42,6 @@ pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
     type Array = BitPackedArray;
     type Metadata = RkyvMetadata<BitPackedMetadata>;
-}
-
-impl EncodingVTable for BitPackedEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.bitpacked")
-    }
 }
 
 /// NB: All non-null values in the patches array are considered patches

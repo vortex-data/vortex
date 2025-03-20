@@ -1,43 +1,19 @@
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    RkyvMetadata,
+    EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-#[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[repr(C)]
-pub struct DateTimePartsMetadata {
-    // Validity lives in the days array
-    // TODO(ngates): we should actually model this with a Tuple array when we have one.
-    days_ptype: PType,
-    seconds_ptype: PType,
-    subseconds_ptype: PType,
-}
-
-impl ArrayVisitorImpl<RkyvMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("days", self.days());
-        visitor.visit_child("seconds", self.seconds());
-        visitor.visit_child("subseconds", self.subseconds());
+impl EncodingVTable for DateTimePartsEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.datetimeparts")
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DateTimePartsMetadata> {
-        RkyvMetadata(DateTimePartsMetadata {
-            days_ptype: PType::try_from(self.days().dtype()).vortex_expect("Must be a valid PType"),
-            seconds_ptype: PType::try_from(self.seconds().dtype())
-                .vortex_expect("Must be a valid PType"),
-            subseconds_ptype: PType::try_from(self.subseconds().dtype())
-                .vortex_expect("Must be a valid PType"),
-        })
-    }
-}
-
-impl SerdeVTable<&DateTimePartsArray> for DateTimePartsEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -70,6 +46,34 @@ impl SerdeVTable<&DateTimePartsArray> for DateTimePartsEncoding {
         )?;
 
         Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
+    }
+}
+
+#[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
+pub struct DateTimePartsMetadata {
+    // Validity lives in the days array
+    // TODO(ngates): we should actually model this with a Tuple array when we have one.
+    days_ptype: PType,
+    seconds_ptype: PType,
+    subseconds_ptype: PType,
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("days", self.days());
+        visitor.visit_child("seconds", self.seconds());
+        visitor.visit_child("subseconds", self.subseconds());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<DateTimePartsMetadata> {
+        RkyvMetadata(DateTimePartsMetadata {
+            days_ptype: PType::try_from(self.days().dtype()).vortex_expect("Must be a valid PType"),
+            seconds_ptype: PType::try_from(self.seconds().dtype())
+                .vortex_expect("Must be a valid PType"),
+            subseconds_ptype: PType::try_from(self.subseconds().dtype())
+                .vortex_expect("Must be a valid PType"),
+        })
     }
 }
 

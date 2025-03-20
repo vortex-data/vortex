@@ -1,16 +1,17 @@
 use std::fmt::Formatter;
 
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerializeMetadata,
+    EncodingId, SerializeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{FoRArray, FoREncoding};
+use super::FoREncoding;
+use crate::FoRArray;
 
 impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
@@ -22,7 +23,11 @@ impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
     }
 }
 
-impl SerdeVTable<&FoRArray> for FoREncoding {
+impl EncodingVTable for FoREncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.for")
+    }
+
     fn decode(
         &self,
         parts: &ArrayParts,

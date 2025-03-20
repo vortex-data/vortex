@@ -5,10 +5,10 @@ use vortex_array::compute::try_cast;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, RkyvMetadata,
+    Encoding, RkyvMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
@@ -29,12 +29,6 @@ pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
     type Array = DateTimePartsArray;
     type Metadata = RkyvMetadata<DateTimePartsMetadata>;
-}
-
-impl EncodingVTable for DateTimePartsEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.datetimeparts")
-    }
 }
 
 impl DateTimePartsArray {

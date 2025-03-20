@@ -1,9 +1,9 @@
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, RkyvMetadata,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -18,31 +18,11 @@ pub struct SparseMetadata {
     patches: PatchesMetadata,
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = self
-            .fill_value
-            .value()
-            .to_flexbytes::<ByteBufferMut>()
-            .freeze();
-        visitor.visit_buffer(&fill_value_buffer);
+impl EncodingVTable for SparseEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.sparse")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_patches(self.patches())
-    }
-
-    fn _metadata(&self) -> RkyvMetadata<SparseMetadata> {
-        RkyvMetadata(SparseMetadata {
-            patches: self
-                .patches()
-                .to_metadata(self.len(), self.dtype())
-                .vortex_expect("Failed to create patches metadata"),
-        })
-    }
-}
-
-impl SerdeVTable<&SparseArray> for SparseEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -78,5 +58,29 @@ impl SerdeVTable<&SparseArray> for SparseEncoding {
         let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
+    }
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        let fill_value_buffer = self
+            .fill_value
+            .value()
+            .to_flexbytes::<ByteBufferMut>()
+            .freeze();
+        visitor.visit_buffer(&fill_value_buffer);
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_patches(self.patches())
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<SparseMetadata> {
+        RkyvMetadata(SparseMetadata {
+            patches: self
+                .patches()
+                .to_metadata(self.len(), self.dtype())
+                .vortex_expect("Failed to create patches metadata"),
+        })
     }
 }

@@ -14,10 +14,10 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, try_from_array_ref,
+    Encoding, IntoArray, try_from_array_ref,
 };
 
 mod compute;
@@ -38,12 +38,6 @@ pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for PrimitiveEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.primitive")
-    }
 }
 
 impl PrimitiveArray {

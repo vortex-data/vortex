@@ -18,10 +18,8 @@ use crate::nbytes::NBytes;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId, IntoArray,
-};
+use crate::vtable::VTableRef;
+use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, IntoArray};
 
 mod canonical;
 mod compute;
@@ -41,12 +39,6 @@ pub struct ChunkedEncoding;
 impl Encoding for ChunkedEncoding {
     type Array = ChunkedArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for ChunkedEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.chunked")
-    }
 }
 
 impl ChunkedArray {

@@ -13,26 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.api;
+package dev.vortex.impl;
 
-import java.util.List;
-import org.immutables.value.Value;
+import dev.vortex.api.File;
+import java.net.URI;
+import java.util.Map;
 
-/**
- * Create a new set of options for configuring the scan.
- */
-@Value.Immutable
-public interface ScanOptions {
-    /**
-     * Columns to project out.
-     */
-    List<String> columns();
+public final class Files {
 
-    static ScanOptions of() {
-        return ImmutableScanOptions.builder().build();
+    private Files() {}
+
+    public static File open(String path) {
+        return open(URI.create(path), Map.of());
     }
 
-    static ImmutableScanOptions.Builder builder() {
-        return ImmutableScanOptions.builder();
+    public static File open(URI uri, Map<String, String> properties) {
+        return NativeFile.open(uri, properties);
     }
 }

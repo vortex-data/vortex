@@ -4,10 +4,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -29,12 +29,6 @@ pub struct ALPEncoding;
 impl Encoding for ALPEncoding {
     type Array = ALPArray;
     type Metadata = SerdeMetadata<ALPMetadata>;
-}
-
-impl EncodingVTable for ALPEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.alp")
-    }
 }
 
 impl ALPArray {

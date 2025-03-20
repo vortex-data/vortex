@@ -5,7 +5,7 @@ use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, EncodingId, SerdeMetadata,
+    Encoding, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -28,12 +28,6 @@ pub struct FSSTEncoding;
 impl Encoding for FSSTEncoding {
     type Array = FSSTArray;
     type Metadata = SerdeMetadata<FSSTMetadata>;
-}
-
-impl EncodingVTable for FSSTEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.fsst")
-    }
 }
 
 impl FSSTArray {

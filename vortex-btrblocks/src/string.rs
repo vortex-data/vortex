@@ -31,9 +31,7 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
     views.iter().for_each(|&view| {
-        // SAFETY: we're doing bitwise manipulations. Did you expect that to be safe??
-        let view_u128: u128 = unsafe { std::mem::transmute(view) };
-        let len_and_prefix = view_u128 as u64;
+        let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
     });
 

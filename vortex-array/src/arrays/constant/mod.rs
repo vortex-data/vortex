@@ -5,8 +5,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding, EncodingId};
+use crate::vtable::VTableRef;
+use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding};
 
 mod canonical;
 mod compute;
@@ -24,12 +24,6 @@ pub struct ConstantEncoding;
 impl Encoding for ConstantEncoding {
     type Array = ConstantArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for ConstantEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.constant")
-    }
 }
 
 impl ConstantArray {

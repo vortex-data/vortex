@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
-public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
+final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
 
     // Assumes no field name is > 1KiB
     private static final int MAX_FIELD_LEN = 1024;

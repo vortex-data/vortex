@@ -1,14 +1,15 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    RkyvMetadata,
+    EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::{DeltaArray, DeltaEncoding};
+use super::DeltaEncoding;
+use crate::DeltaArray;
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
@@ -18,22 +19,11 @@ pub struct DeltaMetadata {
     offset: u16, // must be <1024
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<DeltaMetadata>> for DeltaArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("bases", self.bases());
-        visitor.visit_child("deltas", self.deltas());
-        visitor.visit_validity(self.validity(), self.len());
+impl EncodingVTable for DeltaEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("fastlanes.delta")
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DeltaMetadata> {
-        RkyvMetadata(DeltaMetadata {
-            deltas_len: self.deltas().len() as u64,
-            offset: self.offset() as u16,
-        })
-    }
-}
-
-impl SerdeVTable<&DeltaArray> for DeltaEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -74,6 +64,21 @@ impl SerdeVTable<&DeltaArray> for DeltaEncoding {
             DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)?
                 .into_array(),
         )
+    }
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<DeltaMetadata>> for DeltaArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("bases", self.bases());
+        visitor.visit_child("deltas", self.deltas());
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<DeltaMetadata> {
+        RkyvMetadata(DeltaMetadata {
+            deltas_len: self.deltas().len() as u64,
+            offset: self.offset() as u16,
+        })
     }
 }
 

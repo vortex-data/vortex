@@ -1,24 +1,16 @@
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
-use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata,
-};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayContext, ArrayRef, EncodingId};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{ZigZagArray, ZigZagEncoding};
 
-impl ArrayVisitorImpl for ZigZagArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", self.encoded())
+impl EncodingVTable for ZigZagEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.zigzag")
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&ZigZagArray> for ZigZagEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,

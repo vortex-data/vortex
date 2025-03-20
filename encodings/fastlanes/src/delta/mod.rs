@@ -5,10 +5,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
+    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -36,12 +36,6 @@ pub struct DeltaEncoding;
 impl Encoding for DeltaEncoding {
     type Array = DeltaArray;
     type Metadata = RkyvMetadata<DeltaMetadata>;
-}
-
-impl EncodingVTable for DeltaEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.delta")
-    }
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.
