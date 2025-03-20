@@ -20,27 +20,28 @@ using duckdb::Value;
 using google::protobuf::Arena;
 using std::string;
 
+const string BINARY_ID = "binary";
+const string GET_ITEM_ID = "get_item";
+const string IDENTITY_ID = "identity";
+const string LITERAL_ID = "literal";
+
 vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
-	switch (type) {
-	case ExpressionType::COMPARE_EQUAL:
-		return vortex::expr::Kind_BinaryOp_Eq;
-	case ExpressionType::COMPARE_NOTEQUAL:
-		return vortex::expr::Kind_BinaryOp_NotEq;
-	case ExpressionType::COMPARE_LESSTHAN:
-		return vortex::expr::Kind_BinaryOp_Lt;
-	case ExpressionType::COMPARE_GREATERTHAN:
-		return vortex::expr::Kind_BinaryOp_Gt;
-	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-		return vortex::expr::Kind_BinaryOp_Lte;
-	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-		return vortex::expr::Kind_BinaryOp_Gte;
-	case ExpressionType::CONJUNCTION_AND:
-		return vortex::expr::Kind_BinaryOp_And;
-	case ExpressionType::CONJUNCTION_OR:
-		return vortex::expr::Kind_BinaryOp_Or;
-	default:
-		throw Exception(ExceptionType::NOT_IMPLEMENTED, "impl");
+	static const std::unordered_map<ExpressionType, vortex::expr::Kind_BinaryOp> op_map = {
+	    {ExpressionType::COMPARE_EQUAL, vortex::expr::Kind_BinaryOp_Eq},
+	    {ExpressionType::COMPARE_NOTEQUAL, vortex::expr::Kind_BinaryOp_NotEq},
+	    {ExpressionType::COMPARE_LESSTHAN, vortex::expr::Kind_BinaryOp_Lt},
+	    {ExpressionType::COMPARE_GREATERTHAN, vortex::expr::Kind_BinaryOp_Gt},
+	    {ExpressionType::COMPARE_LESSTHANOREQUALTO, vortex::expr::Kind_BinaryOp_Lte},
+	    {ExpressionType::COMPARE_GREATERTHANOREQUALTO, vortex::expr::Kind_BinaryOp_Gte},
+	    {ExpressionType::CONJUNCTION_AND, vortex::expr::Kind_BinaryOp_And},
+	    {ExpressionType::CONJUNCTION_OR, vortex::expr::Kind_BinaryOp_Or}};
+
+	auto value = op_map.find(type);
+	if (value == op_map.end()) {
+		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_binary_operation",
+		                {{"id", std::to_string(static_cast<uint8_t>(type))}});
 	}
+	return value->second;
 }
 
 vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, bool nullable) {
@@ -101,14 +102,13 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_binary()->set_nullable(nullable);
 		return dtype;
 	default:
-		break;
+		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
-	throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 }
 
-vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &type_) {
+vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type) {
 	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
-	scalar->set_allocated_dtype(into_vortex_dtype(arena, type_, true));
+	scalar->set_allocated_dtype(into_vortex_dtype(arena, logical_type, true));
 	scalar->mutable_value()->set_null_value(google::protobuf::NULL_VALUE);
 	return scalar;
 }
@@ -155,17 +155,20 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	default:
-		break;
+		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
-	throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 }
 
 void set_column(const string &s, vortex::expr::Expr *column) {
+	column->set_id(GET_ITEM_ID);
 	auto get_item = new vortex::expr::Kind_GetItem();
 	get_item->mutable_path()->assign(s);
 	auto kind = column->mutable_kind();
 	kind->set_allocated_get_item(get_item);
-	column->add_children()->mutable_kind()->set_allocated_identity(new vortex::expr::Kind_Identity());
+
+	auto id = column->add_children();
+	id->mutable_kind()->mutable_identity();
+	id->set_id(IDENTITY_ID);
 }
 
 vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, string &column_name) {
@@ -179,12 +182,13 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 		auto column = expr->add_children();
 		set_column(column_name, column);
 
-		auto constant = expr->add_children()->mutable_kind();
-		auto literal = constant->mutable_literal();
+		auto constant = expr->add_children();
+		constant->set_id(LITERAL_ID);
+		auto literal = constant->mutable_kind()->mutable_literal();
 		literal->set_allocated_value(value);
 
 		expr->mutable_kind()->set_binary_op(bin_op);
-		expr->set_id("binary");
+		expr->set_id(BINARY_ID);
 		return expr;
 	}
 	case TableFilterType::CONJUNCTION_AND: {
@@ -198,13 +202,8 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 
 		// Flatten the list of children into a linked list of AND values.
 		for (size_t i = 0; i < conjucts.child_filters.size(); i++) {
-			vortex::expr::Expr *new_and;
-			if (!tail) {
-				new_and = hd;
-			} else {
-				new_and = tail->add_children();
-			}
-			new_and->set_id("binary");
+			vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+			new_and->set_id(BINARY_ID);
 			new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
 			new_and->add_children()->Swap(table_expression_into_expr(arena, *conjucts.child_filters[i], column_name));
 
