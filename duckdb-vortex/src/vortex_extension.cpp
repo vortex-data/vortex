@@ -68,16 +68,17 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 /// Converts a Vortex data type to a DuckDB logical type.
 static LogicalType VortexTypeToDuckDBType(uint8_t dtype_tag) {
-    static const std::unordered_map<uint8_t, LogicalType> type_map = {
+	static const std::unordered_map<uint8_t, LogicalType> type_map = {
         {DTYPE_BOOL, LogicalType::BOOLEAN},
-        {DTYPE_PRIMITIVE_I8, LogicalType::INTEGER},
-        {DTYPE_PRIMITIVE_I16, LogicalType::INTEGER},
+        {DTYPE_PRIMITIVE_I8, LogicalType::TINYINT},
+        {DTYPE_PRIMITIVE_I16, LogicalType::SMALLINT},
         {DTYPE_PRIMITIVE_I32, LogicalType::INTEGER},
         {DTYPE_PRIMITIVE_I64, LogicalType::BIGINT},
-        {DTYPE_PRIMITIVE_U8, LogicalType::UINTEGER},
-        {DTYPE_PRIMITIVE_U16, LogicalType::UINTEGER},
+        {DTYPE_PRIMITIVE_U8, LogicalType::UTINYINT},
+        {DTYPE_PRIMITIVE_U16, LogicalType::USMALLINT},
         {DTYPE_PRIMITIVE_U32, LogicalType::UINTEGER},
         {DTYPE_PRIMITIVE_U64, LogicalType::UBIGINT},
+        {DTYPE_PRIMITIVE_F16, LogicalType::FLOAT},
         {DTYPE_PRIMITIVE_F32, LogicalType::FLOAT},
         {DTYPE_PRIMITIVE_F64, LogicalType::DOUBLE},
         {DTYPE_UTF8, LogicalType::VARCHAR},
