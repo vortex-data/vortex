@@ -42,6 +42,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
+rustc-hash = { workspace = true }
 rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }

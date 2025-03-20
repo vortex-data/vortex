@@ -4,7 +4,7 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
@@ -17,14 +17,14 @@ use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Debug, Clone)]
 pub struct DistinctValues<T> {
-    pub values: HashMap<T, u32, FxBuildHasher>,
+    pub values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ErasedDistinctValues {
-    F16(DistinctValues<u16>),
-    F32(DistinctValues<u32>),
-    F64(DistinctValues<u64>),
+    F16(DistinctValues<f16>),
+    F32(DistinctValues<f32>),
+    F64(DistinctValues<f64>),
 }
 
 macro_rules! impl_from_typed {
@@ -37,9 +37,9 @@ macro_rules! impl_from_typed {
     };
 }
 
-impl_from_typed!(u16, ErasedDistinctValues::F16);
-impl_from_typed!(u32, ErasedDistinctValues::F32);
-impl_from_typed!(u64, ErasedDistinctValues::F64);
+impl_from_typed!(f16, ErasedDistinctValues::F16);
+impl_from_typed!(f32, ErasedDistinctValues::F32);
+impl_from_typed!(f64, ErasedDistinctValues::F64);
 
 // We want to allow not rebuilding all of the stats every time.
 #[derive(Debug, Clone)]
@@ -53,28 +53,6 @@ pub struct FloatStats {
     pub(super) distinct_values: ErasedDistinctValues,
     pub(super) distinct_values_count: u32,
 }
-
-trait ToBits {
-    type Target: Eq + Hash;
-
-    fn to_bits(self) -> Self::Target;
-}
-
-macro_rules! impl_to_bits {
-    ($typ:ty, $uint:ty) => {
-        impl ToBits for $typ {
-            type Target = $uint;
-
-            fn to_bits(self) -> $uint {
-                <$typ>::to_bits(self)
-            }
-        }
-    };
-}
-
-impl_to_bits!(f16, u16);
-impl_to_bits!(f32, u32);
-impl_to_bits!(f64, u64);
 
 impl CompressorStats for FloatStats {
     type ArrayType = PrimitiveArray;
@@ -101,12 +79,13 @@ impl CompressorStats for FloatStats {
     }
 }
 
-fn typed_float_stats<T: NativePType + Float + ToBits>(
+fn typed_float_stats<T: NativePType + Float>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
 ) -> FloatStats
 where
-    DistinctValues<T::Target>: Into<ErasedDistinctValues>,
+    DistinctValues<T>: Into<ErasedDistinctValues>,
+    NativeValue<T>: Hash + Eq,
 {
     // Special case: empty array
     if array.is_empty() {
@@ -117,7 +96,7 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
@@ -129,7 +108,7 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
@@ -163,7 +142,7 @@ where
         AllOr::All => {
             for value in first_valid_buff {
                 if count_distinct_values {
-                    *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                 }
 
                 if value != prev {
@@ -180,7 +159,7 @@ where
             {
                 if valid {
                     if count_distinct_values {
-                        *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                        *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                     }
 
                     if value != prev {

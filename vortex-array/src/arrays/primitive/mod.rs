@@ -21,8 +21,12 @@ use crate::{
 };
 
 mod compute;
+mod native_value;
 mod patch;
 mod serde;
+mod top_value;
+
+pub use native_value::NativeValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
