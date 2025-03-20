@@ -47,6 +47,14 @@ impl EncodingVTable for DateTimePartsEncoding {
 
         Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 #[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

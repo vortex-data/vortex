@@ -59,6 +59,14 @@ impl EncodingVTable for SparseEncoding {
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {

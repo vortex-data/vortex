@@ -28,4 +28,12 @@ impl EncodingVTable for ZigZagEncoding {
         let encoded = parts.child(0).decode(ctx, encoded_type, len)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }

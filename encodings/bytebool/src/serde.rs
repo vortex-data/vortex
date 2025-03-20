@@ -38,6 +38,14 @@ impl EncodingVTable for ByteBoolEncoding {
 
         Ok(ByteBoolArray::new(buffer, validity).into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<EmptyMetadata> for ByteBoolArray {

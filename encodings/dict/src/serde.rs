@@ -45,6 +45,14 @@ impl EncodingVTable for DictEncoding {
 
         Ok(DictArray::try_new(codes, values)?.into_array())
     }
+
+    fn from_children(
+        &self,
+        _existing: ArrayRef,
+        _new_children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!()
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
