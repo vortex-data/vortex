@@ -39,7 +39,6 @@ find_package(protobuf CONFIG REQUIRED)
 target_link_libraries(${EXTENSION_NAME} protobuf::libprotoc protobuf::libprotobuf protobuf::libprotobuf-lite)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} protobuf::libprotoc protobuf::libprotobuf protobuf::libprotobuf-lite)
 
-#if (BUILD_TESTS)
 FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -47,7 +46,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 add_subdirectory(test)
-#endif ()
 
 install(
         TARGETS ${EXTENSION_NAME}
