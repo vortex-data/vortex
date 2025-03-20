@@ -150,6 +150,8 @@ pub unsafe extern "C" fn DType_field_name(
     let field_name = struct_dtype.names()[index as usize].as_ref();
     let bytes = field_name.as_bytes();
 
+    assert!(bytes.len() <= 512);
+
     let dst_slice = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
     dst_slice.copy_from_slice(bytes);
 
@@ -237,6 +239,7 @@ pub unsafe extern "C" fn DType_time_zone(dtype: *const DType, dst: *mut c_void, 
         TemporalMetadata::Timestamp(_, zone) => {
             if let Some(zone) = zone {
                 let bytes = zone.as_bytes();
+                assert!(bytes.len() <= 128);
                 let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
                 dst.copy_from_slice(bytes);
                 *len = bytes.len().try_into().vortex_unwrap();
