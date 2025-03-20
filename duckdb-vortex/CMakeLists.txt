@@ -23,6 +23,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml
+                       CRATES vortex-duckdb vortex-ffi
                        IMPORTED_CRATES vortex_ffi vortex_duckdb)
 
 project(${TARGET_NAME}_project)
@@ -31,8 +32,28 @@ include_directories(src/include)
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto vortex_duckdb-static vortex_ffi-static)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto vortex_duckdb-shared vortex_ffi-static)
+# if(APPLE)
+#     find_library(CORE_FOUNDATION_FRAMEWORK CoreFoundation)
+#     find_library(SECURITY_FRAMEWORK Security)
+# endif()
+
+target_link_libraries(${EXTENSION_NAME}
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    vortex_duckdb-static
+    vortex_ffi-static
+    ${CORE_FOUNDATION_FRAMEWORK}
+    ${SECURITY_FRAMEWORK}
+)
+
+target_link_libraries(${LOADABLE_EXTENSION_NAME}
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    vortex_duckdb-shared
+    vortex_ffi-static
+    ${CORE_FOUNDATION_FRAMEWORK}
+    ${SECURITY_FRAMEWORK}
+)
 
 install(
   TARGETS ${EXTENSION_NAME}
