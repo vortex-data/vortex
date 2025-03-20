@@ -52,7 +52,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_null();
 		return dtype;
 	case LogicalTypeId::BOOLEAN:
-		dtype->mutable_binary()->set_nullable(nullable);
+		dtype->mutable_bool_()->set_nullable(nullable);
 		return dtype;
 	case LogicalTypeId::TINYINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
@@ -201,7 +201,7 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 		auto hd = Arena::Create<vortex::expr::Expr>(&arena);
 
 		// Flatten the list of children into a linked list of AND values.
-		for (size_t i = 0; i < conjucts.child_filters.size(); i++) {
+		for (size_t i = 0; i < conjucts.child_filters.size() - 1; i++) {
 			vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
 			new_and->set_id(BINARY_ID);
 			new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
