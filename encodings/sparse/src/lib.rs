@@ -155,7 +155,10 @@ impl SparseArray {
             fill
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let (top_pvalue, _) = array.to_primitive()?.top_value()?;
+            let (top_pvalue, _) = array
+                .to_primitive()?
+                .top_value()?
+                .vortex_expect("Non empty or all null array");
             Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())
         };
 

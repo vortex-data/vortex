@@ -5,6 +5,7 @@ use vortex_dtype::{NativePType, half};
 /// Rust does not define Hash/Eq for any of the float types due to the presence of
 /// NaN and +/- 0. We don't care about storing multiple NaNs or zeros in our dictionaries,
 /// so we define simple bit-wise Hash/Eq for the Value-wrapped versions of these types.
+#[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct NativeValue<T>(pub T);
 

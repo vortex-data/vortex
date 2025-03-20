@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use rustc_hash::FxBuildHasher;
 use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::PValue;
 
@@ -12,40 +12,42 @@ use crate::arrays::{NativeValue, PrimitiveArray};
 use crate::variants::PrimitiveArrayTrait;
 
 impl PrimitiveArray {
-    pub fn top_value(&self) -> VortexResult<(PValue, u32)> {
+    /// Compute most common present value of this array
+    pub fn top_value(&self) -> VortexResult<Option<(PValue, usize)>> {
         if self.is_empty() {
-            vortex_bail!("Can't compute top value for empty array")
+            return Ok(None);
         }
 
         if self.all_invalid()? {
-            vortex_bail!("Can't compute top value for all null array")
+            return Ok(None);
         }
 
         match_each_native_ptype!(self.ptype(), |$P| {
-            typed_top_value(self.as_slice::<$P>(), self.validity_mask()?).map(|(v, c)|  (v.into(), c))
+            let (top, count) = typed_top_value(self.as_slice::<$P>(), self.validity_mask()?);
+            Ok(Some((top.into(), count)))
         })
     }
 }
 
-fn typed_top_value<T>(values: &[T], mask: Mask) -> VortexResult<(T, u32)>
+fn typed_top_value<T>(values: &[T], mask: Mask) -> (T, usize)
 where
     T: NativePType,
     NativeValue<T>: Eq + Hash,
 {
-    let mut distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher> =
+    let mut distinct_values: HashMap<NativeValue<T>, usize, FxBuildHasher> =
         HashMap::with_hasher(FxBuildHasher);
-    match mask.boolean_buffer() {
+    match mask.indices() {
         AllOr::All => {
             for value in values.iter().copied() {
                 *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
             }
         }
         AllOr::None => unreachable!("All invalid arrays should be handled earlier"),
-        AllOr::Some(b) => {
-            for (idx, value) in values.iter().copied().enumerate() {
-                if b.value(idx) {
-                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-                }
+        AllOr::Some(idxs) => {
+            for &i in idxs {
+                *distinct_values
+                    .entry(NativeValue(unsafe { *values.get_unchecked(i) }))
+                    .or_insert(0) += 1
             }
         }
     }
@@ -54,5 +56,5 @@ where
         .iter()
         .max_by_key(|&(_, &count)| count)
         .vortex_expect("non-empty");
-    Ok((top_value.0, top_count))
+    (top_value.0, top_count)
 }
