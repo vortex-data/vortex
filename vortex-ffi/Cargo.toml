@@ -27,7 +27,8 @@ url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["tokio", "object_store"] }
 
 [lib]
-crate-type = ["cdylib"]
+name = "vortex_ffi"
+crate-type = ["staticlib", "cdylib"]
 
 [lints]
 workspace = true
