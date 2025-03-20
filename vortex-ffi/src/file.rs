@@ -88,7 +88,7 @@ pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatist
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_statistics_destroy(stat: *mut FileStatistics) {
+pub unsafe extern "C" fn FileStatistics_free(stat: *mut FileStatistics) {
     drop(unsafe { Box::from_raw(stat) });
 }
 
