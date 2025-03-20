@@ -7,6 +7,8 @@
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
 
+#include "vortex.h"
+
 extern "C" {
 const char *vortex_duckdb_hello();
 }
@@ -64,6 +66,55 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
     state.finished = true;
 }
 
+/// Converts a Vortex data type to a DuckDB logical type.
+static LogicalType VortexTypeToDuckDBType(uint8_t dtype_tag) {
+    static const std::unordered_map<uint8_t, LogicalType> type_map = {
+        {DTYPE_BOOL, LogicalType::BOOLEAN},
+        {DTYPE_PRIMITIVE_I8, LogicalType::INTEGER},
+        {DTYPE_PRIMITIVE_I16, LogicalType::INTEGER},
+        {DTYPE_PRIMITIVE_I32, LogicalType::INTEGER},
+        {DTYPE_PRIMITIVE_I64, LogicalType::BIGINT},
+        {DTYPE_PRIMITIVE_U8, LogicalType::UINTEGER},
+        {DTYPE_PRIMITIVE_U16, LogicalType::UINTEGER},
+        {DTYPE_PRIMITIVE_U32, LogicalType::UINTEGER},
+        {DTYPE_PRIMITIVE_U64, LogicalType::UBIGINT},
+        {DTYPE_PRIMITIVE_F32, LogicalType::FLOAT},
+        {DTYPE_PRIMITIVE_F64, LogicalType::DOUBLE},
+        {DTYPE_UTF8, LogicalType::VARCHAR},
+        {DTYPE_BINARY, LogicalType::BLOB},
+    };
+
+    auto it = type_map.find(dtype_tag);
+    if (it != type_map.end()) {
+        return it->second;
+    }
+
+    // For unsupported types, default to VARCHAR.
+    return LogicalType::VARCHAR;
+}
+
+/// Extracts schema information from a Vortex file's data type.
+static void ExtractVortexSchema(const DType* file_dtype,
+                                vector<LogicalType>& column_types,
+                                vector<string>& column_names) {
+    uint32_t field_count = DType_field_count(file_dtype);
+    for (uint32_t idx = 0; idx < field_count; idx++) {
+        char name_buffer[512];
+        int name_len = 0;
+
+        DType_field_name(file_dtype, idx, name_buffer, &name_len);
+        std::string field_name(name_buffer, name_len);
+
+        DType* field_dtype = DType_field_dtype(file_dtype, idx);
+        LogicalType duckdb_type = VortexTypeToDuckDBType(DType_get(field_dtype));
+
+        column_names.push_back(field_name);
+        column_types.push_back(duckdb_type);
+
+        DType_free(field_dtype);
+    }
+}
+
 /// The bind function (for the Vortex table function) is called during query
 /// planning. The bind phase happens once per query and allows DuckDB to know
 /// the schema of the data before execution begins. This enables optimizations
@@ -76,14 +127,25 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
     auto filename = input.inputs[0].GetValue<string>();
     result->file_name = filename;
 
-    // TODO
-    // - Open the file
-    // - Read its schema
-    // - Define return_types and names based on the schema
+    // Set up options for opening the file
+    FileOpenOptions options;
+    options.uri = filename.c_str();
+    options.property_keys = nullptr;
+    options.property_vals = nullptr;
+    options.property_len = 0;
 
-    // Set a dummy schema.
-    column_names.push_back("vortex_sample_column");
-    column_types.push_back(LogicalType::VARCHAR);
+    File* file = File_open(&options);
+    if (!file) {
+        throw IOException("Failed to open Vortex file: " + filename);
+    }
+
+    const DType* file_dtype = File_dtype(file);
+    if (DType_get(file_dtype) != DTYPE_STRUCT) {
+        File_free(file);
+        throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
+    }
+    ExtractVortexSchema(file_dtype, column_types, column_names);
+    File_free(file);
 
     result->column_names = column_names;
     result->columns_types = column_types;

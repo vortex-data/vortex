@@ -5,6 +5,9 @@ set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(EXTENSION_SOURCES src/vortex_extension.cpp)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
+set(VORTEX_FFI_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../vortex-ffi/cinclude)
+include_directories(${VORTEX_FFI_INCLUDE_DIR})
+
 # DuckDB's extension distribution supports vcpkg. As such, dependencies can be
 # added in ./vcpkg.json and then used in cmake with find_package. Feel free to
 # remove or replace with other dependencies. Note that it should also be removed
