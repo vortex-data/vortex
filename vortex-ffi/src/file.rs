@@ -89,7 +89,7 @@ pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatist
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_statistics_destroy(stat: *mut FileStatistics) {
-    let _stat = unsafe { Box::from_raw(stat) };
+    drop(unsafe { Box::from_raw(stat) });
 }
 
 /// Get a readonly pointer to the DType of the data inside of the file.
