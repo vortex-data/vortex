@@ -96,7 +96,7 @@ impl RepartitionWriter {
 impl LayoutWriter for RepartitionWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         // We make sure the chunks are canonical so our nbytes measurement is accurate.
@@ -112,18 +112,18 @@ impl LayoutWriter for RepartitionWriter {
             self.chunks.push_back(c);
             offset = end;
 
-            self.flush(segments)?;
+            self.flush(segment_writer)?;
         }
 
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .to_canonical()?
                 .into_array();
-        self.writer.push_chunk(segments, chunk)?;
-        self.writer.finish(segments)
+        self.writer.push_chunk(segment_writer, chunk)?;
+        self.writer.finish(segment_writer)
     }
 }

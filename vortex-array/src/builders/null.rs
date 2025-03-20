@@ -55,6 +55,8 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
+    fn ensure_capacity(&mut self, _capacity: usize) {}
+
     fn set_validity(&mut self, validity: Mask) {
         self.length = validity.len();
     }

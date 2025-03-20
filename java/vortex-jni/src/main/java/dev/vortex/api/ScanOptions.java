@@ -15,6 +15,7 @@
  */
 package dev.vortex.api;
 
+import java.util.List;
 import org.immutables.value.Value;
 
 /**
@@ -22,6 +23,11 @@ import org.immutables.value.Value;
  */
 @Value.Immutable
 public interface ScanOptions {
+    /**
+     * Columns to project out.
+     */
+    List<String> columns();
+
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }

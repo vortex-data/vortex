@@ -4,19 +4,14 @@ mod stats;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use num_traits::PrimInt;
 pub use stats::IntegerStats;
-use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
-use vortex_array::compute::filter;
+use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
-use vortex_buffer::Buffer;
+use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width, for_compress};
-use vortex_mask::{AllOr, Mask};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -466,50 +461,8 @@ impl Scheme for SparseScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
-        let mask = stats.src.validity_mask()?;
-
-        if mask.all_false() {
-            // Array is constant NULL
-            return Ok(ConstantArray::new(
-                Scalar::null(stats.source().dtype().clone()),
-                stats.src.len(),
-            )
-            .into_array());
-        } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
-            // Array is dominated by NULL but has non-NULL values
-            let non_null_values = filter(stats.source(), &mask)?;
-            let non_null_indices = match mask.indices() {
-                AllOr::All => {
-                    // We already know that the mask is 90%+ false
-                    unreachable!()
-                }
-                AllOr::None => {
-                    // we know there are some non-NULL values
-                    unreachable!()
-                }
-                AllOr::Some(values) => {
-                    let buffer: Buffer<u32> = values
-                        .iter()
-                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
-                        .collect();
-
-                    buffer.into_array()
-                }
-            };
-
-            return Ok(SparseArray::try_new(
-                non_null_indices,
-                non_null_values,
-                stats.src.len(),
-                Scalar::null(stats.source().dtype().clone()),
-            )?
-            .into_array());
-        }
-
-        // Dominant value is non-null
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
-
-        if top_count == (stats.value_count + stats.null_count) {
+        if top_count as usize == stats.src.len() {
             // top_value is the only value, use ConstantScheme
             return Ok(ConstantArray::new(
                 Scalar::primitive_value(
@@ -522,73 +475,48 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let non_top_mask = match_each_integer_ptype!(stats.src.ptype(), |$T| {
-            let buffer = stats.src.buffer::<$T>();
-            let top_value: $T = top_pvalue.as_primitive::<$T>().vortex_expect("top value");
-            value_indices(top_value, buffer.as_ref(), &mask)
-        });
-
-        let non_top_values = filter(&stats.src, &non_top_mask)?.to_primitive()?;
-
-        // Compress the values
-        let mut new_excludes = vec![SparseScheme.code()];
-        new_excludes.extend_from_slice(excludes);
-
-        let compressed_values = IntCompressor::compress_no_dict(
-            &non_top_values,
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
-        )?;
-
-        // Compress the indices
-        let indices: Buffer<u64> = match non_top_mask {
-            Mask::AllTrue(count) => {
-                // all true -> complete slice
-                (0u64..count as u64).collect()
-            }
-            Mask::AllFalse(_) => {
-                // empty slice
-                Buffer::empty()
-            }
-            Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
-        };
-
-        let indices = downscale_integer_array(indices.into_array())?.to_primitive()?;
-
-        let compressed_indices = IntCompressor::compress_no_dict(
-            &indices,
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
-        )?;
-
-        Ok(SparseArray::try_new(
-            compressed_indices,
-            compressed_values,
-            stats.src.len(),
-            Scalar::primitive_value(
+        let sparse_encoded = SparseArray::encode(
+            &stats.src,
+            Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),
                 stats.src.dtype().nullability(),
-            ),
-        )?
-        .into_array())
-    }
-}
+            )),
+        )?;
 
-fn value_indices<T: PrimInt + Hash + Into<Scalar>>(
-    top_value: T,
-    values: &[T],
-    validity: &Mask,
-) -> Mask {
-    // Find all null and non-null positions that are not identical to the top value.
-    let mut buffer = BooleanBufferBuilder::new(values.len());
-    for (idx, &value) in values.iter().enumerate() {
-        buffer.append(!validity.value(idx) || top_value != value);
-    }
+        if let Some(sparse) = sparse_encoded.as_opt::<SparseArray>() {
+            // Compress the values
+            let mut new_excludes = vec![SparseScheme.code()];
+            new_excludes.extend_from_slice(excludes);
 
-    Mask::from_buffer(buffer.finish())
+            let compressed_values = IntCompressor::compress_no_dict(
+                &sparse.patches().values().to_primitive()?,
+                is_sample,
+                allowed_cascading - 1,
+                &new_excludes,
+            )?;
+
+            let indices =
+                downscale_integer_array(sparse.patches().indices().clone())?.to_primitive()?;
+
+            let compressed_indices = IntCompressor::compress_no_dict(
+                &indices,
+                is_sample,
+                allowed_cascading - 1,
+                &new_excludes,
+            )?;
+
+            SparseArray::try_new(
+                compressed_indices,
+                compressed_values,
+                sparse.len(),
+                sparse.fill_scalar().clone(),
+            )
+            .map(|a| a.into_array())
+        } else {
+            Ok(sparse_encoded)
+        }
+    }
 }
 
 impl Scheme for DictScheme {

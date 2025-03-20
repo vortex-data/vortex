@@ -8,7 +8,7 @@ use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{Footer, Segment, VortexOpenOptions};
+use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
@@ -36,7 +36,7 @@ pub struct LayoutCursor {
     footer: Footer,
     layout: Layout,
     #[allow(unused)]
-    segment_map: Arc<[Segment]>,
+    segment_map: Arc<[SegmentSpec]>,
 }
 
 impl LayoutCursor {
@@ -134,14 +134,14 @@ impl LayoutCursor {
         self.layout
             .segments()
             .last()
-            .map(|id| self.segment(id).length as usize)
+            .map(|id| self.segment_spec(id).length as usize)
             .unwrap_or_default()
     }
 
     pub fn segment_size(&self) -> usize {
         self.layout()
             .segments()
-            .map(|id| self.segment(id).length as usize)
+            .map(|id| self.segment_spec(id).length as usize)
             .sum()
     }
 
@@ -165,7 +165,7 @@ impl LayoutCursor {
         &self.layout
     }
 
-    pub fn segment(&self, id: SegmentId) -> &Segment {
+    pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
 }

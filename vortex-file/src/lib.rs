@@ -105,7 +105,7 @@ mod writer;
 use std::sync::{Arc, LazyLock};
 
 pub use file::*;
-pub use footer::{Footer, Segment};
+pub use footer::{Footer, SegmentSpec};
 pub use forever_constant::*;
 pub use generic::*;
 pub use memory::*;
@@ -159,7 +159,7 @@ mod forever_constant {
 /// A default registry containing the built-in Vortex encodings and layouts.
 pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
-    let mut registry = ArrayRegistry::default();
+    let mut registry = ArrayRegistry::canonical_only();
     registry.register_many([
         ALPEncoding.vtable(),
         ALPRDEncoding.vtable(),

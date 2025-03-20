@@ -1,22 +1,19 @@
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{ExtensionArray, ExtensionEncoding};
+use super::ExtensionEncoding;
+use crate::arrays::ExtensionArray;
 use crate::serde::ArrayParts;
-use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata};
+use crate::vtable::EncodingVTable;
+use crate::{
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
+};
 
-impl ArrayVisitorImpl for ExtensionArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("storage", self.storage())
+impl EncodingVTable for ExtensionEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.ext")
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&ExtensionArray> for ExtensionEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -31,5 +28,15 @@ impl SerdeVTable<&ExtensionArray> for ExtensionEncoding {
             .child(0)
             .decode(ctx, ext_dtype.storage_dtype().clone(), len)?;
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    }
+}
+
+impl ArrayVisitorImpl for ExtensionArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("storage", self.storage())
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

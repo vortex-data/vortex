@@ -14,15 +14,19 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, try_from_array_ref,
+    Encoding, IntoArray, try_from_array_ref,
 };
 
 mod compute;
+mod native_value;
 mod patch;
 mod serde;
+mod top_value;
+
+pub use native_value::NativeValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -38,12 +42,6 @@ pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for PrimitiveEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.primitive")
-    }
 }
 
 impl PrimitiveArray {
@@ -228,12 +226,6 @@ impl PrimitiveArray {
         debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
-    }
-
-    pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
-        match_each_native_ptype!(self.ptype(), |$P| {
-            T::from(self.as_slice::<$P>()[idx]).expect("failed to cast")
-        })
     }
 
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {

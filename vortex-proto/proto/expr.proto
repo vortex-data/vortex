@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+import "scalar.proto";
+
+package vortex.expr;
+
+message Expr {
+  string id = 1;
+  repeated Expr children = 2;
+  // See warning message below.
+  Kind kind = 3;
+}
+
+message Kind {
+  // This enum is very unstable, and will likely be replaced with something more extensible.
+  oneof kind {
+    Literal literal = 1;
+    BinaryOp binary_op = 2;
+    GetItem get_item = 3;
+    Identity identity = 4;
+    Merge merge = 5;
+    Not not = 6;
+    Pack pack = 7;
+  }
+
+  message Literal {
+    vortex.scalar.Scalar value = 1;
+  }
+
+  message Not {
+
+  }
+
+  message Identity {
+
+  }
+
+  message Merge {
+
+  }
+
+  message Pack {
+    repeated string paths = 1;
+  }
+
+  message GetItem {
+    string path = 1;
+  }
+
+  enum BinaryOp {
+    Eq = 0;
+    NotEq = 1;
+    Gt = 2;
+    Gte = 3;
+    Lt = 4;
+    Lte = 5;
+    And = 6;
+    Or = 7;
+  }
+}
+

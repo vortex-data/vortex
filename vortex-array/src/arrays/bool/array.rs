@@ -3,15 +3,15 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
+use super::serde::BoolMetadata;
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::bool;
-use crate::arrays::bool::serde::BoolMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, EncodingId, RkyvMetadata};
+use crate::vtable::VTableRef;
+use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -26,12 +26,6 @@ pub struct BoolEncoding;
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = RkyvMetadata<BoolMetadata>;
-}
-
-impl EncodingVTable for BoolEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.bool")
-    }
 }
 
 impl BoolArray {

@@ -14,6 +14,7 @@ use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
+use vortex_metrics::VortexMetrics;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
@@ -56,6 +57,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     // The number of splits to make progress on concurrently.
     concurrency: usize,
     prefetch_conjuncts: bool,
+    metrics: VortexMetrics,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -72,6 +74,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             canonicalize: false,
             prefetch_conjuncts: false,
             concurrency: 1024,
+            metrics: Default::default(),
         }
     }
 
@@ -129,6 +132,11 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
+    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
     pub fn build(self) -> VortexResult<Scan<D>> {
         let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
         let filter = self
@@ -146,7 +154,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             .collect();
 
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
-        let mut collector = SegmentCollector::default();
+        let mut collector = SegmentCollector::new(self.metrics.clone());
         self.layout
             .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
         let (mut row_range_pruner, segments) = collector.finish();

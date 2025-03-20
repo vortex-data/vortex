@@ -3,13 +3,14 @@ use std::fmt::Debug;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{VarBinArray, VarBinEncoding};
+use super::VarBinEncoding;
+use crate::arrays::VarBinArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, RkyvMetadata,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -17,25 +18,11 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: PType,
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
+impl EncodingVTable for VarBinEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.varbin")
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("offsets", self.offsets());
-        visitor.visit_validity(self.validity(), self.len());
-    }
-
-    fn _metadata(&self) -> RkyvMetadata<VarBinMetadata> {
-        RkyvMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(self.offsets().dtype())
-                .vortex_expect("Must be a valid PType"),
-        })
-    }
-}
-
-impl SerdeVTable<&VarBinArray> for VarBinEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -66,5 +53,23 @@ impl SerdeVTable<&VarBinArray> for VarBinEncoding {
         let bytes = parts.buffer(0)?;
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
+    }
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("offsets", self.offsets());
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<VarBinMetadata> {
+        RkyvMetadata(VarBinMetadata {
+            offsets_ptype: PType::try_from(self.offsets().dtype())
+                .vortex_expect("Must be a valid PType"),
+        })
     }
 }

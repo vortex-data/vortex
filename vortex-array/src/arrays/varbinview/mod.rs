@@ -11,7 +11,9 @@ use arrow_buffer::ScalarBuffer;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
+};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -19,10 +21,10 @@ use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId, TryFromArrayRef, try_from_array_ref,
+    TryFromArrayRef, try_from_array_ref,
 };
 
 mod accessor;
@@ -280,12 +282,6 @@ impl Encoding for VarBinViewEncoding {
     type Metadata = EmptyMetadata;
 }
 
-impl EncodingVTable for VarBinViewEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
-    }
-}
-
 impl VarBinViewArray {
     pub fn try_new(
         views: Buffer<BinaryView>,
@@ -403,6 +399,7 @@ impl VarBinViewArray {
                     &string_view_array,
                     nullability.into(),
                 ))
+                .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
                 .vortex_expect("StringViewArray to VarBinViewArray downcast")
             }
             DType::Binary(nullability) => {
@@ -414,6 +411,7 @@ impl VarBinViewArray {
                     &binary_view_array,
                     nullability.into(),
                 ))
+                .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
                 .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
             }
             other => vortex_panic!("VarBinViewArray must be Utf8 or Binary, was {other}"),
@@ -428,6 +426,7 @@ impl VarBinViewArray {
         }
         let array = ArrayRef::from_arrow(&builder.finish(), false);
         VarBinViewArray::try_from_array(array)
+            .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -440,6 +439,7 @@ impl VarBinViewArray {
 
         let array = ArrayRef::from_arrow(&builder.finish(), true);
         VarBinViewArray::try_from_array(array)
+            .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -451,6 +451,7 @@ impl VarBinViewArray {
         }
         let array = ArrayRef::from_arrow(&builder.finish(), false);
         VarBinViewArray::try_from_array(array)
+            .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -462,6 +463,7 @@ impl VarBinViewArray {
         builder.extend(iter);
         let array = ArrayRef::from_arrow(&builder.finish(), true);
         VarBinViewArray::try_from_array(array)
+            .map_err(|_| vortex_err!("Array was not a VarBinViewArray"))
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 }

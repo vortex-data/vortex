@@ -2,16 +2,17 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId,
 };
 
 mod compute;
-mod serde;
 
 #[derive(Clone, Debug)]
 pub struct NullArray {
@@ -28,6 +29,22 @@ impl Encoding for NullEncoding {
 impl EncodingVTable for NullEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.null")
+    }
+
+    fn decode(
+        &self,
+        _parts: &ArrayParts,
+        _ctx: &ArrayContext,
+        _dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(len).into_array())
+    }
+}
+
+impl ArrayVisitorImpl for NullArray {
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }
 

@@ -7,7 +7,7 @@ mod validity;
 mod variants;
 mod visitor;
 
-use std::any::{Any, type_name};
+use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{
@@ -228,22 +228,22 @@ impl ToOwned for dyn Array {
 }
 
 impl<A: Array + Clone + 'static> TryFromArrayRef for A {
-    fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
-        Ok(Arc::unwrap_or_clone(
-            array
-                .as_any_arc()
-                .downcast::<A>()
-                .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))?,
-        ))
+    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
+        let fallback = array.clone();
+        if let Ok(array) = array.as_any_arc().downcast::<A>() {
+            // manually drop the fallback value so `Arc::unwrap_or_clone` doesn't always have to clone
+            drop(fallback);
+            Ok(Arc::unwrap_or_clone(array))
+        } else {
+            Err(fallback)
+        }
     }
 }
 
 impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
-    fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
-        array
-            .as_any_arc()
-            .downcast::<A>()
-            .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))
+    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
+        let fallback = array.clone();
+        array.as_any_arc().downcast::<A>().map_err(|_| fallback)
     }
 }
 

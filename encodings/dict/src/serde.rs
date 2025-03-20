@@ -1,8 +1,8 @@
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    RkyvMetadata,
+    EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -16,23 +16,11 @@ pub struct DictMetadata {
     values_len: u32,
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", self.codes());
-        visitor.visit_child("values", self.values());
+impl EncodingVTable for DictEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.dict")
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DictMetadata> {
-        RkyvMetadata(DictMetadata {
-            codes_ptype: PType::try_from(self.codes().dtype())
-                .vortex_expect("Must be a valid PType"),
-            values_len: u32::try_from(self.values().len())
-                .vortex_expect("Values length cannot exceed u32"),
-        })
-    }
-}
-
-impl SerdeVTable<&DictArray> for DictEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -56,6 +44,22 @@ impl SerdeVTable<&DictArray> for DictEncoding {
             .decode(ctx, dtype, metadata.values_len as usize)?;
 
         Ok(DictArray::try_new(codes, values)?.into_array())
+    }
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("codes", self.codes());
+        visitor.visit_child("values", self.values());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<DictMetadata> {
+        RkyvMetadata(DictMetadata {
+            codes_ptype: PType::try_from(self.codes().dtype())
+                .vortex_expect("Must be a valid PType"),
+            values_len: u32::try_from(self.values().len())
+                .vortex_expect("Values length cannot exceed u32"),
+        })
     }
 }
 

@@ -46,6 +46,7 @@ fn execute_generate_proto() -> anyhow::Result<()> {
     let proto_files = vec![
         vortex_proto.join("proto").join("dtype.proto"),
         vortex_proto.join("proto").join("scalar.proto"),
+        vortex_proto.join("proto").join("expr.proto"),
     ];
 
     for file in &proto_files {

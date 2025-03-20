@@ -4,7 +4,7 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::half::f16;
@@ -17,14 +17,14 @@ use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Debug, Clone)]
 pub struct DistinctValues<T> {
-    pub values: HashMap<T, u32, FxBuildHasher>,
+    pub values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ErasedDistinctValues {
-    F16(DistinctValues<u16>),
-    F32(DistinctValues<u32>),
-    F64(DistinctValues<u64>),
+    F16(DistinctValues<f16>),
+    F32(DistinctValues<f32>),
+    F64(DistinctValues<f64>),
 }
 
 macro_rules! impl_from_typed {
@@ -37,9 +37,9 @@ macro_rules! impl_from_typed {
     };
 }
 
-impl_from_typed!(u16, ErasedDistinctValues::F16);
-impl_from_typed!(u32, ErasedDistinctValues::F32);
-impl_from_typed!(u64, ErasedDistinctValues::F64);
+impl_from_typed!(f16, ErasedDistinctValues::F16);
+impl_from_typed!(f32, ErasedDistinctValues::F32);
+impl_from_typed!(f64, ErasedDistinctValues::F64);
 
 // We want to allow not rebuilding all of the stats every time.
 #[derive(Debug, Clone)]
@@ -53,28 +53,6 @@ pub struct FloatStats {
     pub(super) distinct_values: ErasedDistinctValues,
     pub(super) distinct_values_count: u32,
 }
-
-trait ToBits {
-    type Target: Eq + Hash;
-
-    fn to_bits(self) -> Self::Target;
-}
-
-macro_rules! impl_to_bits {
-    ($typ:ty, $uint:ty) => {
-        impl ToBits for $typ {
-            type Target = $uint;
-
-            fn to_bits(self) -> $uint {
-                <$typ>::to_bits(self)
-            }
-        }
-    };
-}
-
-impl_to_bits!(f16, u16);
-impl_to_bits!(f32, u32);
-impl_to_bits!(f64, u64);
 
 impl CompressorStats for FloatStats {
     type ArrayType = PrimitiveArray;
@@ -101,12 +79,13 @@ impl CompressorStats for FloatStats {
     }
 }
 
-fn typed_float_stats<T: NativePType + Float + ToBits>(
+fn typed_float_stats<T: NativePType + Float>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
 ) -> FloatStats
 where
-    DistinctValues<T::Target>: Into<ErasedDistinctValues>,
+    DistinctValues<T>: Into<ErasedDistinctValues>,
+    NativeValue<T>: Hash + Eq,
 {
     // Special case: empty array
     if array.is_empty() {
@@ -117,7 +96,7 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
@@ -129,17 +108,18 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<T::Target, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
     }
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
-    let null_count = validity.false_count();
-    let value_count = validity.true_count();
-    let mut min = T::max_value();
-    let mut max = T::min_value();
+    let null_count = array
+        .statistics()
+        .compute_null_count()
+        .vortex_expect("null count");
+    let value_count = array.len() - null_count;
+
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is
     // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
@@ -147,6 +127,8 @@ where
     } else {
         HashMap::with_hasher(FxBuildHasher)
     };
+
+    let validity = array.validity_mask().vortex_expect("logical_validity");
 
     let mut runs = 1;
     let head_idx = validity
@@ -159,11 +141,8 @@ where
     match validity.boolean_buffer() {
         AllOr::All => {
             for value in first_valid_buff {
-                min = min.min(value);
-                max = max.max(value);
-
                 if count_distinct_values {
-                    *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                 }
 
                 if value != prev {
@@ -179,11 +158,8 @@ where
                 .zip_eq(v.slice(head_idx, array.len() - head_idx).iter())
             {
                 if valid {
-                    min = min.min(value);
-                    max = max.max(value);
-
                     if count_distinct_values {
-                        *distinct_values.entry(value.to_bits()).or_insert(0) += 1;
+                        *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                     }
 
                     if value != prev {

@@ -17,6 +17,8 @@ use vortex_layout::segments::SegmentWriter;
 use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
+const ROW_BLOCK_SIZE: usize = 8192;
+
 /// The default Vortex file layout strategy.
 #[derive(Clone, Debug, Default)]
 pub struct VortexLayoutStrategy;
@@ -25,8 +27,9 @@ impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return StructLayoutWriter::try_new_with_factory(ctx, dtype, self.clone())
-                .map(|w| w.boxed());
+            return Ok(
+                StructLayoutWriter::try_new_with_strategy(ctx, dtype, self.clone())?.boxed(),
+            );
         }
 
         // Otherwise, we finish with compressing the chunks
@@ -47,33 +50,35 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype.clone(),
             writer,
             RepartitionWriterOptions {
-                block_size_minimum: 8 * (1 << 20), // 1 MB
-                block_len_multiple: 8192,          // 8K rows
+                block_size_minimum: 8 * (1 << 20),  // 1 MB
+                block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
             },
         )
         .boxed();
 
         // Prior to repartitioning, we record statistics
+        let stats_writer = StatsLayoutWriter::try_new(
+            ctx.clone(),
+            dtype,
+            writer,
+            ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                child: ArcRef::new_ref(&FlatLayout),
+            })),
+            StatsLayoutOptions {
+                block_size: ROW_BLOCK_SIZE,
+                stats: PRUNING_STATS.into(),
+            },
+        )?
+        .boxed();
+
         let writer = RepartitionWriter::new(
             dtype.clone(),
-            StatsLayoutWriter::try_new(
-                ctx.clone(),
-                dtype,
-                writer,
-                ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
-                    child: ArcRef::new_ref(&FlatLayout),
-                })),
-                StatsLayoutOptions {
-                    block_size: 8192,
-                    stats: PRUNING_STATS.into(),
-                },
-            )?
-            .boxed(),
+            stats_writer,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
-                block_len_multiple: 8192,
+                block_len_multiple: ROW_BLOCK_SIZE,
             },
         )
         .boxed();
@@ -102,17 +107,17 @@ struct BtrBlocksCompressedWriter {
 impl LayoutWriter for BtrBlocksCompressedWriter {
     fn push_chunk(
         &mut self,
-        segments: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
         let compressed = BtrBlocksCompressor.compress(&chunk)?;
-        self.child.push_chunk(segments, compressed)
+        self.child.push_chunk(segment_writer, compressed)
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        self.child.finish(segments)
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+        self.child.finish(segment_writer)
     }
 }

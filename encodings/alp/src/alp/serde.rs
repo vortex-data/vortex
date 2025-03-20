@@ -1,43 +1,22 @@
 use serde::{Deserialize, Serialize};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::SerdeVTable;
+use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    SerdeMetadata,
+    EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 
-use crate::{ALPArray, ALPEncoding, Exponents};
+use super::ALPEncoding;
+use crate::{ALPArray, Exponents};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ALPMetadata {
-    pub(crate) exponents: Exponents,
-    pub(crate) patches: Option<PatchesMetadata>,
-}
-
-impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", self.encoded());
-        if let Some(patches) = self.patches() {
-            visitor.visit_patches(patches);
-        }
+impl EncodingVTable for ALPEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.alp")
     }
 
-    fn _metadata(&self) -> SerdeMetadata<ALPMetadata> {
-        SerdeMetadata(ALPMetadata {
-            exponents: self.exponents(),
-            patches: self
-                .patches()
-                .map(|p| p.to_metadata(self.len(), self.dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        })
-    }
-}
-
-impl SerdeVTable<&ALPArray> for ALPEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -64,5 +43,31 @@ impl SerdeVTable<&ALPArray> for ALPEncoding {
             .transpose()?;
 
         Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ALPMetadata {
+    pub(crate) exponents: Exponents,
+    pub(crate) patches: Option<PatchesMetadata>,
+}
+
+impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", self.encoded());
+        if let Some(patches) = self.patches() {
+            visitor.visit_patches(patches);
+        }
+    }
+
+    fn _metadata(&self) -> SerdeMetadata<ALPMetadata> {
+        SerdeMetadata(ALPMetadata {
+            exponents: self.exponents(),
+            patches: self
+                .patches()
+                .map(|p| p.to_metadata(self.len(), self.dtype()))
+                .transpose()
+                .vortex_expect("Failed to create patches metadata"),
+        })
     }
 }

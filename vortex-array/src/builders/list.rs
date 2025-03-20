@@ -11,7 +11,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -118,7 +118,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
         self.nulls.append_validity_mask(array.validity_mask()?);
 
-        let list = array.to_canonical()?.into_list()?;
+        let list = array.to_list()?;
 
         let cursor_usize = self.value_builder.len();
         let cursor = O::from_usize(cursor_usize).ok_or_else(|| {
@@ -141,14 +141,18 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         if !list.is_empty() {
             let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
-            self.value_builder.extend_from_array(&slice(
-                list.elements(),
-                0,
-                last_used_index.as_() - cursor_usize,
-            )?)?;
+            let sliced_values = slice(list.elements(), 0, last_used_index.as_() - cursor_usize)?;
+            self.value_builder.ensure_capacity(sliced_values.len());
+            self.value_builder.extend_from_array(&sliced_values)?;
         }
 
         Ok(())
+    }
+
+    fn ensure_capacity(&mut self, capacity: usize) {
+        self.index_builder.ensure_capacity(capacity);
+        self.value_builder.ensure_capacity(capacity);
+        self.nulls.ensure_capacity(capacity);
     }
 
     fn set_validity(&mut self, validity: Mask) {

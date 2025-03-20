@@ -23,7 +23,7 @@ futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future", "quanta"] }
+moka = { workspace = true, features = ["future"] }
 oneshot = { workspace = true, features = ["async"] }
 pin-project-lite = { workspace = true }
 rustc-hash = { workspace = true }

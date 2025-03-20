@@ -37,6 +37,50 @@ impl Display for Literal {
     }
 }
 
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use kind::Kind;
+    use vortex_error::{VortexResult, vortex_bail, vortex_err};
+    use vortex_proto::expr::kind;
+    use vortex_scalar::Scalar;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Literal};
+
+    pub(crate) struct LiteralSerde;
+
+    impl Id for LiteralSerde {
+        fn id(&self) -> &'static str {
+            "literal"
+        }
+    }
+
+    impl ExprDeserialize for LiteralSerde {
+        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Literal(value) = kind else {
+                vortex_bail!("Expected literal kind");
+            };
+            let scalar: Scalar = value
+                .value
+                .as_ref()
+                .ok_or_else(|| vortex_err!("empty literal scalar"))?
+                .try_into()?;
+            Ok(Literal::new_expr(scalar))
+        }
+    }
+
+    impl ExprSerializable for Literal {
+        fn id(&self) -> &'static str {
+            LiteralSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Literal(kind::Literal {
+                value: Some((&self.value).into()),
+            }))
+        }
+    }
+}
+
 impl VortexExpr for Literal {
     fn as_any(&self) -> &dyn Any {
         self

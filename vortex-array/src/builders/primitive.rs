@@ -12,7 +12,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {
@@ -89,7 +89,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),
-            "uninit_range of len {len} exceeds builder capacity"
+            "uninit_range of len {len} exceeds builder capacity {}",
+            self.values.capacity()
         );
 
         UninitRange {
@@ -166,7 +167,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?.into_primitive()?;
+        let array = array.to_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
         }
@@ -176,6 +177,13 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.extend_with_validity_mask(array.validity_mask()?);
 
         Ok(())
+    }
+
+    fn ensure_capacity(&mut self, capacity: usize) {
+        if capacity > self.values.capacity() {
+            self.values.reserve(capacity - self.values.len());
+            self.nulls.ensure_capacity(capacity);
+        }
     }
 
     fn set_validity(&mut self, validity: Mask) {

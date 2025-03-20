@@ -97,7 +97,7 @@ impl<'a> Layout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout>>>>(Layout::VT_CHILDREN, None)}
   }
-  /// Identifiers for each `Segment` of data required by this layout.
+  /// Identifiers for each `SegmentSpec` of data required by this layout.
   #[inline]
   pub fn segments(&self) -> Option<flatbuffers::Vector<'a, u32>> {
     // Safety:

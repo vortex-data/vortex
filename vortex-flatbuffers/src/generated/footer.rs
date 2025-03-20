@@ -3,29 +3,29 @@
 
 // @generated
 
-use crate::layout::*;
 use crate::scalar::*;
 use crate::array::*;
 use crate::dtype::*;
+use crate::layout::*;
 use core::mem;
 use core::cmp::Ordering;
 
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
-/// A `Segment` acts as the locator for a buffer within the file.
-// struct Segment, aligned to 8
+/// A `SegmentSpec` acts as the locator for a buffer within the file.
+// struct SegmentSpec, aligned to 8
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
-pub struct Segment(pub [u8; 16]);
-impl Default for Segment { 
+pub struct SegmentSpec(pub [u8; 16]);
+impl Default for SegmentSpec { 
   fn default() -> Self { 
     Self([0; 16])
   }
 }
-impl core::fmt::Debug for Segment {
+impl core::fmt::Debug for SegmentSpec {
   fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-    f.debug_struct("Segment")
+    f.debug_struct("SegmentSpec")
       .field("offset", &self.offset())
       .field("length", &self.length())
       .field("alignment_exponent", &self.alignment_exponent())
@@ -35,26 +35,26 @@ impl core::fmt::Debug for Segment {
   }
 }
 
-impl flatbuffers::SimpleToVerifyInSlice for Segment {}
-impl<'a> flatbuffers::Follow<'a> for Segment {
-  type Inner = &'a Segment;
+impl flatbuffers::SimpleToVerifyInSlice for SegmentSpec {}
+impl<'a> flatbuffers::Follow<'a> for SegmentSpec {
+  type Inner = &'a SegmentSpec;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    <&'a Segment>::follow(buf, loc)
+    <&'a SegmentSpec>::follow(buf, loc)
   }
 }
-impl<'a> flatbuffers::Follow<'a> for &'a Segment {
-  type Inner = &'a Segment;
+impl<'a> flatbuffers::Follow<'a> for &'a SegmentSpec {
+  type Inner = &'a SegmentSpec;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    flatbuffers::follow_cast_ref::<Segment>(buf, loc)
+    flatbuffers::follow_cast_ref::<SegmentSpec>(buf, loc)
   }
 }
-impl<'b> flatbuffers::Push for Segment {
-    type Output = Segment;
+impl<'b> flatbuffers::Push for SegmentSpec {
+    type Output = SegmentSpec;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const Segment as *const u8, <Self as flatbuffers::Push>::size());
+        let src = ::core::slice::from_raw_parts(self as *const SegmentSpec as *const u8, <Self as flatbuffers::Push>::size());
         dst.copy_from_slice(src);
     }
     #[inline]
@@ -63,7 +63,7 @@ impl<'b> flatbuffers::Push for Segment {
     }
 }
 
-impl<'a> flatbuffers::Verifiable for Segment {
+impl<'a> flatbuffers::Verifiable for SegmentSpec {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
@@ -73,7 +73,7 @@ impl<'a> flatbuffers::Verifiable for Segment {
   }
 }
 
-impl<'a> Segment {
+impl<'a> SegmentSpec {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     offset: u64,
@@ -288,11 +288,11 @@ impl<'a> Footer<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(Footer::VT_LAYOUT, None)}
   }
   #[inline]
-  pub fn segments(&self) -> Option<flatbuffers::Vector<'a, Segment>> {
+  pub fn segments(&self) -> Option<flatbuffers::Vector<'a, SegmentSpec>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Segment>>>(Footer::VT_SEGMENTS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(Footer::VT_SEGMENTS, None)}
   }
   #[inline]
   pub fn statistics(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>> {
@@ -325,7 +325,7 @@ impl flatbuffers::Verifiable for Footer<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Segment>>>("segments", Self::VT_SEGMENTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segments", Self::VT_SEGMENTS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("statistics", Self::VT_STATISTICS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayEncoding>>>>("array_encodings", Self::VT_ARRAY_ENCODINGS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutEncoding>>>>("layout_encodings", Self::VT_LAYOUT_ENCODINGS, false)?
@@ -335,7 +335,7 @@ impl flatbuffers::Verifiable for Footer<'_> {
 }
 pub struct FooterArgs<'a> {
     pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
-    pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Segment>>>,
+    pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, SegmentSpec>>>,
     pub statistics: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
     pub array_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding<'a>>>>>,
     pub layout_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding<'a>>>>>,
@@ -363,7 +363,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(Footer::VT_LAYOUT, layout);
   }
   #[inline]
-  pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Segment>>) {
+  pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , SegmentSpec>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_SEGMENTS, segments);
   }
   #[inline]
@@ -649,18 +649,18 @@ impl<'a> Postscript<'a> {
 
 
   #[inline]
-  pub fn dtype(&self) -> Option<&'a Segment> {
+  pub fn dtype(&self) -> Option<&'a SegmentSpec> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<Segment>(Postscript::VT_DTYPE, None)}
+    unsafe { self._tab.get::<SegmentSpec>(Postscript::VT_DTYPE, None)}
   }
   #[inline]
-  pub fn footer(&self) -> Option<&'a Segment> {
+  pub fn footer(&self) -> Option<&'a SegmentSpec> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<Segment>(Postscript::VT_FOOTER, None)}
+    unsafe { self._tab.get::<SegmentSpec>(Postscript::VT_FOOTER, None)}
   }
 }
 
@@ -671,15 +671,15 @@ impl flatbuffers::Verifiable for Postscript<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<Segment>("dtype", Self::VT_DTYPE, false)?
-     .visit_field::<Segment>("footer", Self::VT_FOOTER, false)?
+     .visit_field::<SegmentSpec>("dtype", Self::VT_DTYPE, false)?
+     .visit_field::<SegmentSpec>("footer", Self::VT_FOOTER, false)?
      .finish();
     Ok(())
   }
 }
 pub struct PostscriptArgs<'a> {
-    pub dtype: Option<&'a Segment>,
-    pub footer: Option<&'a Segment>,
+    pub dtype: Option<&'a SegmentSpec>,
+    pub footer: Option<&'a SegmentSpec>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
@@ -697,12 +697,12 @@ pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_dtype(&mut self, dtype: &Segment) {
-    self.fbb_.push_slot_always::<&Segment>(Postscript::VT_DTYPE, dtype);
+  pub fn add_dtype(&mut self, dtype: &SegmentSpec) {
+    self.fbb_.push_slot_always::<&SegmentSpec>(Postscript::VT_DTYPE, dtype);
   }
   #[inline]
-  pub fn add_footer(&mut self, footer: &Segment) {
-    self.fbb_.push_slot_always::<&Segment>(Postscript::VT_FOOTER, footer);
+  pub fn add_footer(&mut self, footer: &SegmentSpec) {
+    self.fbb_.push_slot_always::<&SegmentSpec>(Postscript::VT_FOOTER, footer);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {

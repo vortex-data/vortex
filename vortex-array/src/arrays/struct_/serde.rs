@@ -2,30 +2,21 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{StructArray, StructEncoding};
+use super::StructEncoding;
+use crate::arrays::StructArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata};
+use crate::vtable::EncodingVTable;
+use crate::{
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
+};
 
-impl ArrayVisitorImpl for StructArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len());
-        for (idx, name) in self.names().iter().enumerate() {
-            let child = self
-                .maybe_null_field_by_idx(idx)
-                .vortex_expect("no out of bounds");
-            visitor.visit_child(name.as_ref(), &child);
-        }
+impl EncodingVTable for StructEncoding {
+    fn id(&self) -> EncodingId {
+        EncodingId::new_ref("vortex.struct")
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
-impl SerdeVTable<&StructArray> for StructEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
@@ -66,5 +57,21 @@ impl SerdeVTable<&StructArray> for StructEncoding {
             StructArray::try_new(struct_dtype.names().clone(), children, len, validity)?
                 .into_array(),
         )
+    }
+}
+
+impl ArrayVisitorImpl for StructArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len());
+        for (idx, name) in self.names().iter().enumerate() {
+            let child = self
+                .maybe_null_field_by_idx(idx)
+                .vortex_expect("no out of bounds");
+            visitor.visit_child(name.as_ref(), &child);
+        }
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

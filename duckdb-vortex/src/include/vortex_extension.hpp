@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-class VortexDuckdbExtension : public Extension {
+class VortexExtension : public Extension {
 public:
 	void Load(DuckDB &db) override;
 	std::string Name() override;

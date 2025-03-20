@@ -2,15 +2,15 @@ use std::cmp::Ordering;
 use std::cmp::Ordering::Less;
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{
-    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
-    SearchSortedUsizeFn,
+    IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn,
 };
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -31,7 +31,7 @@ impl SearchSortedFn<&PrimitiveArray> for PrimitiveEncoding {
                 Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
                 Validity::Array(_) => {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
-                    Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
+                    Ok(SearchSortedNullsFirst::try_new(array)?.search_sorted(&pvalue, side))
                 }
             }
         })
@@ -56,7 +56,7 @@ impl SearchSortedUsizeFn<&PrimitiveArray> for PrimitiveEncoding {
                     Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
                     Validity::Array(_) => {
                         // null-aware search
-                        Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
+                        Ok(SearchSortedNullsFirst::try_new(array)?.search_sorted(&pvalue, side))
                     }
                 }
             } else {
@@ -85,9 +85,7 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitive<'_, T> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
         Some(unsafe { self.values.get_unchecked(idx) }.total_compare(*elem))
     }
-}
 
-impl<T> Len for SearchSortedPrimitive<'_, T> {
     fn len(&self) -> usize {
         self.values.len()
     }
@@ -95,34 +93,27 @@ impl<T> Len for SearchSortedPrimitive<'_, T> {
 
 struct SearchSortedNullsFirst<'a, T> {
     values: SearchSortedPrimitive<'a, T>,
-    validity: Validity,
+    mask: Mask,
 }
 
 impl<'a, T: NativePType> SearchSortedNullsFirst<'a, T> {
-    pub fn new(array: &'a PrimitiveArray) -> Self {
-        Self {
+    pub fn try_new(array: &'a PrimitiveArray) -> VortexResult<Self> {
+        Ok(Self {
             values: SearchSortedPrimitive::new(array),
-            validity: array.validity().clone(),
-        }
+            mask: array.validity_mask()?,
+        })
     }
 }
 
 impl<T: NativePType> IndexOrd<T> for SearchSortedNullsFirst<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
-        if self
-            .validity
-            .is_null(idx)
-            // TODO(ngates): SearchSortedPrimitive should hold canonical (logical) validity
-            .vortex_expect("Failed to check null validity")
-        {
+        if !self.mask.value(idx) {
             return Some(Less);
         }
 
         self.values.index_cmp(idx, elem)
     }
-}
 
-impl<T> Len for SearchSortedNullsFirst<'_, T> {
     fn len(&self) -> usize {
         self.values.len()
     }

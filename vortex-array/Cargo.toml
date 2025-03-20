@@ -43,6 +43,7 @@ paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
 rkyv = { workspace = true }
+rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }

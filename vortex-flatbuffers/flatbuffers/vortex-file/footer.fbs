@@ -5,14 +5,14 @@ include "vortex-layout/layout.fbs";
 /// The `Footer` stores the root `Layout` as well as location information for each referenced segment.
 table Footer {
     layout: Layout;
-    segments: [Segment];
+    segments: [SegmentSpec];
     statistics: [ArrayStats];
     array_encodings: [ArrayEncoding];
     layout_encodings: [LayoutEncoding];
 }
 
-/// A `Segment` acts as the locator for a buffer within the file.
-struct Segment {
+/// A `SegmentSpec` acts as the locator for a buffer within the file.
+struct SegmentSpec {
     offset: uint64;
     length: uint32;
     alignment_exponent: uint8;
@@ -48,8 +48,8 @@ table LayoutEncoding {
 /// The initial read of a Vortex file is always at least 64KB (u16::MAX bytes) and therefore
 /// is guaranteed to cover at least the Postscript.
 table Postscript {
-    dtype: Segment;
-    footer: Segment;
+    dtype: SegmentSpec;
+    footer: SegmentSpec;
 }
 // [postscript]
 

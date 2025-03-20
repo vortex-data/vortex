@@ -17,7 +17,6 @@ package dev.vortex.impl;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jakewharton.nopen.annotation.Open;
 import com.sun.jna.Memory;
 import com.sun.jna.ptr.IntByReference;
 import dev.vortex.api.Array;
@@ -28,15 +27,14 @@ import java.nio.charset.StandardCharsets;
 /**
  * Core Vortex array type that all logical arrays inherit from.
  */
-@Open
-public class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
+final class NativeArray extends BaseWrapped<FFI.FFIArray> implements Array {
     // Assume no strings larger than 1MiB.
     private static final int MAX_STRING_LEN = 1_024 * 1_024;
 
     private final boolean isDate;
     private final boolean isTimestamp;
 
-    public NativeArray(FFI.FFIArray inner) {
+    NativeArray(FFI.FFIArray inner) {
         super(inner);
         var dtype = FFI.FFIArray_dtype(inner);
         this.isDate = FFI.DType_is_date(dtype);

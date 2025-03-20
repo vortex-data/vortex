@@ -1,40 +1,73 @@
 mod data_chunk_adaptor;
 
-use duckdb::core::DataChunkHandle;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use duckdb::core::{DataChunkHandle, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
 use vortex_array::arrays::StructArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::compute::try_cast;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_dict::{DictArray, DictEncoding};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::PType::U32;
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::convert::array::data_chunk_adaptor::{
     DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
 };
+use crate::convert::scalar::ToDuckDBScalar;
 
 pub trait ToDuckDB {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()>;
 }
 
+pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+    if let Some(constant) = array.as_constant() {
+        let value = constant.to_duckdb_scalar();
+        chunk.flat_vector().assign_to_constant(&value);
+        Ok(())
+    } else if array.is_encoding(DictEncoding.id()) {
+        array
+            .as_any()
+            .downcast_ref::<DictArray>()
+            .vortex_expect("dict id checked")
+            .to_duckdb(chunk)
+    } else {
+        array.into_arrow_preferred()?.to_duckdb(chunk)
+    }
+}
+
+impl ToDuckDB for DictArray {
+    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+        to_duckdb(self.values().clone(), chunk)?;
+        let indices =
+            try_cast(self.codes(), &DType::Primitive(U32, NonNullable))?.to_primitive()?;
+        let indices = indices.as_slice::<u32>();
+        let sel = SelectionVector::new_copy(indices);
+        chunk.flat_vector().slice(sel);
+        Ok(())
+    }
+}
+
 pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
-) -> VortexResult<Vec<bool>> {
-    let mut nullable = vec![false; struct_array.len()];
-    for (idx, field) in struct_array.fields().iter().enumerate() {
-        field.to_duckdb(&mut DataChunkHandleSlice::new(chunk, idx))?;
-        nullable[idx] = field.dtype().is_nullable();
-    }
+) -> VortexResult<()> {
     chunk.set_len(struct_array.len());
-    Ok(nullable)
+    for (idx, field) in struct_array.fields().iter().enumerate() {
+        to_duckdb(field.clone(), &mut DataChunkHandleSlice::new(chunk, idx))?;
+    }
+    Ok(())
 }
 
-impl ToDuckDB for ArrayRef {
+impl ToDuckDB for ArrowArrayRef {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
-        let arrow = &self.clone().into_arrow_preferred()?;
-        write_arrow_array_to_vector(arrow, chunk)
+        write_arrow_array_to_vector(self, chunk)
             .map_err(|e| vortex_err!("Failed to convert vrotex duckdb array: {}", e.to_string()))
     }
 }
@@ -89,9 +122,11 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
-    use duckdb::core::DataChunkHandle;
-    use itertools::Itertools;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
+
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::arrays::{
+        BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray,
+    };
     use vortex_array::validity::Validity;
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -122,16 +157,16 @@ mod tests {
     #[test]
     fn test_vortex_to_duckdb() {
         let arr = data();
-        let ddb_type = arr
+        let (nullable, ddb_type): (Vec<_>, Vec<_>) = arr
             .dtype()
             .as_struct()
             .unwrap()
             .fields()
-            .map(|f| f.to_duckdb_type().unwrap())
-            .collect_vec();
+            .map(|f| (f.is_nullable(), f.to_duckdb_type().unwrap()))
+            .unzip();
         let struct_arr = arr.to_struct().unwrap();
         let mut output_chunk = DataChunkHandle::new(ddb_type.as_slice());
-        let nullable = to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
+        to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
 
         let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
             &output_chunk,
@@ -148,5 +183,22 @@ mod tests {
         }
         assert_eq!(vx_arr.len(), arr.len());
         assert_eq!(vx_arr.dtype(), arr.dtype());
+    }
+
+    #[test]
+    fn test_const_vortex_to_duckdb() {
+        let arr = ConstantArray::new::<i64>(23444233, 100).to_array();
+        let arr2 = ConstantArray::new::<i32>(234, 100).to_array();
+        let st = StructArray::from_fields(&[("1", arr.clone()), ("2", arr2.clone())]).unwrap();
+        let mut output_chunk = DataChunkHandle::new(&[
+            LogicalTypeHandle::from(LogicalTypeId::Bigint),
+            LogicalTypeHandle::from(LogicalTypeId::Integer),
+        ]);
+        to_duckdb_chunk(&st, &mut output_chunk).unwrap();
+
+        assert_eq!(
+            format!("{:?}", output_chunk),
+            "Chunk - [2 Columns]\n- CONSTANT BIGINT: 100 = [ 23444233]\n- CONSTANT INTEGER: 100 = [ 234]\n"
+        )
     }
 }
