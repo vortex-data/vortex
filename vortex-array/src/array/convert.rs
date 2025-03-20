@@ -1,4 +1,3 @@
-use arrow_array::Array;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -14,11 +13,6 @@ pub trait TryIntoArray {
 }
 
 /// Trait for converting a type from a Vortex [`ArrayRef`], returning an error if the conversion fails.
-pub trait TryFromArray: Sized {
-    fn try_from_array(array: &dyn Array) -> VortexResult<Self>;
-}
-
-/// Trait for converting a type from a Vortex [`ArrayRef`], returning an error if the conversion fails.
 pub trait TryFromArrayRef: Sized {
-    fn try_from_array(array: ArrayRef) -> VortexResult<Self>;
+    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef>;
 }
