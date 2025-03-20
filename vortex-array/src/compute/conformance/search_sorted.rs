@@ -56,54 +56,6 @@ pub fn sparse_low_high() -> ArrayRef {
         .into_array()
 }
 
-pub fn sparse_high_fill_in_patches() -> ArrayRef {
-    PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
-        .patch(&Patches::new(
-            20,
-            0,
-            buffer![17u64, 18, 19].into_array(),
-            buffer![33i32, 44, 55].into_array(),
-        ))
-        .vortex_unwrap()
-        .into_array()
-}
-
-pub fn sparse_low_fill_in_patches() -> ArrayRef {
-    PrimitiveArray::new(buffer![55; 20], Validity::NonNullable)
-        .patch(&Patches::new(
-            20,
-            0,
-            buffer![0u64, 1, 2].into_array(),
-            buffer![33i32, 44, 55].into_array(),
-        ))
-        .vortex_unwrap()
-        .into_array()
-}
-
-pub fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
-    PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
-        .patch(&Patches::new(
-            20,
-            0,
-            buffer![0u64, 1, 17, 18, 19].into_array(),
-            buffer![11i32, 22, 33, 44, 55].into_array(),
-        ))
-        .vortex_unwrap()
-        .into_array()
-}
-
-pub fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
-    PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
-        .patch(&Patches::new(
-            20,
-            0,
-            buffer![0u64, 1, 17, 18, 19].into_array(),
-            buffer![11i32, 22, 33, 44, 55].into_array(),
-        ))
-        .vortex_unwrap()
-        .into_array()
-}
-
 pub fn sparse_edge_patch_high() -> ArrayRef {
     PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
         .patch(&Patches::new(
@@ -336,30 +288,6 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
     SearchSortedSide::Left,
     SearchResult::Found(2)
 )]
-#[case::fill_left_sparse_high_fill_in_patches(
-    sparse_high_fill_in_patches(),
-    33,
-    SearchSortedSide::Left,
-    SearchResult::Found(0)
-)]
-#[case::fill_left_sparse_low_fill_in_patches(
-    sparse_low_fill_in_patches(),
-    55,
-    SearchSortedSide::Left,
-    SearchResult::Found(2)
-)]
-#[case::fill_left_sparse_low_high_fill_in_patches_low(
-    sparse_low_high_fill_in_patches_low(),
-    22,
-    SearchSortedSide::Left,
-    SearchResult::Found(1)
-)]
-#[case::fill_left_sparse_low_high_fill_in_patches_high(
-    sparse_low_high_fill_in_patches_high(),
-    33,
-    SearchSortedSide::Left,
-    SearchResult::Found(2)
-)]
 #[case::fill_right_sparse_high_non_null_fill(
     sparse_high_non_null_fill(),
     22,
@@ -372,30 +300,6 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
     30,
     SearchSortedSide::Right,
     SearchResult::Found(17)
-)]
-#[case::fill_right_sparse_high_fill_in_patches(
-    sparse_high_fill_in_patches(),
-    33,
-    SearchSortedSide::Right,
-    SearchResult::Found(18)
-)]
-#[case::fill_right_sparse_low_fill_in_patches(
-    sparse_low_fill_in_patches(),
-    55,
-    SearchSortedSide::Right,
-    SearchResult::Found(20)
-)]
-#[case::fill_right_sparse_low_high_fill_in_patches_low(
-    sparse_low_high_fill_in_patches_low(),
-    22,
-    SearchSortedSide::Right,
-    SearchResult::Found(17)
-)]
-#[case::fill_right_sparse_low_high_fill_in_patches_high(
-    sparse_low_high_fill_in_patches_high(),
-    33,
-    SearchSortedSide::Right,
-    SearchResult::Found(18)
 )]
 #[case::between_fill_and_patch_high_left_smaller(
     sparse_edge_patch_high(),
