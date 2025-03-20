@@ -7,8 +7,18 @@
 
 #include <duckdb/planner/filter/conjunction_filter.hpp>
 
+using duckdb::ConjunctionAndFilter;
+using duckdb::ConstantFilter;
+using duckdb::Exception;
+using duckdb::ExceptionType;
+using duckdb::ExpressionType;
+using duckdb::LogicalType;
+using duckdb::LogicalTypeId;
+using duckdb::TableFilter;
+using duckdb::TableFilterType;
+using duckdb::Value;
 using google::protobuf::Arena;
-using namespace duckdb;
+using std::string;
 
 vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
 	switch (type) {
