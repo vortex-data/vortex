@@ -14,8 +14,8 @@ use crate::compute::{ComputeFn, Filter, KernelRef};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding,
-    EncodingId,
+    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
+    Canonical, Encoding, EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -37,6 +37,9 @@ pub trait ArrayImpl:
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
+    fn _with_children(&self, children: &[&dyn Array]) -> VortexResult<Self>
+    where
+        Self: Sized;
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -199,5 +202,12 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self._stats_ref()
+    }
+
+    fn with_children(&self, children: &[&dyn Array]) -> VortexResult<ArrayRef> {
+        if self.nchildren() != children.len() {
+            vortex_bail!("Child count mismatch");
+        }
+        Ok(self._with_children(children)?.into_array())
     }
 }
