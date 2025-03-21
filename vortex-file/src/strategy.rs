@@ -164,6 +164,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                             prev.vtable().encode(&c.to_canonical()?, Some(prev))?
                         {
                             new_map.insert(k.clone(), new_encoded_child);
+                        } else {
+                            log::warn!(
+                                "Couldn't encode {} array as {}",
+                                c.encoding(),
+                                prev.encoding()
+                            )
                         }
                     }
 
