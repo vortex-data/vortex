@@ -1,5 +1,3 @@
-#![cfg(feature = "duckdb")]
-
 use std::cmp::min;
 use std::ffi::c_uint;
 
