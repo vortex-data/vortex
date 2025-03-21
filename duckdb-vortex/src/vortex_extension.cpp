@@ -26,6 +26,9 @@ struct VortexBindData : public TableFunctionData {
 	string file_name;
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
+	uint64_t num_columns;
+	File *file;
+	mutable ArrayStream *array_stream;
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<VortexBindData>();
@@ -47,17 +50,39 @@ struct VortexBindData : public TableFunctionData {
 struct VortexScanState : public LocalTableFunctionState {
 	idx_t current_row = 0;
 	bool finished = false;
+
+	optional_ptr<TableFilterSet> filter;
+	vector<idx_t> column_ids;
 };
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &bind_data = data.bind_data->Cast<VortexBindData>(); // NOLINT
-	auto &state = data.local_state->Cast<VortexScanState>();
+	auto &state = data.local_state->Cast<VortexScanState>();  // NOLINT
+
+	if (bind_data.array_stream == nullptr) {
+
+		const char **const column_names = new const char *[state.column_ids.size()];
+		auto idx = 0;
+		for (auto col_id : state.column_ids) {
+			auto &str = bind_data.column_names[col_id];
+
+			// Create new memory for each string (these will need to be freed later)
+			char *c_str = new char[str.length() + 1];
+			std::strcpy(c_str, str.c_str());
+			column_names[idx++] = c_str;
+		}
+		auto options = FileScanOptions {column_names, static_cast<int>(state.column_ids.size())};
+
+		bind_data.array_stream = File_scan(bind_data.file, &options);
+	}
 
 	if (state.finished) {
 		return;
 	}
 
-	// TODO: Read data from file into output chunk
+	auto c = FFIArrayStream_current(bind_data.array_stream);
+	auto len = FFIArray_len(c);
+	std::cout << "array len: " << len << std::endl;
 
 	// Set dummy value.
 	output.SetCardinality(0);
@@ -79,6 +104,7 @@ static LogicalType VortexTypeToDuckDBType(uint8_t dtype_tag) {
 	    {DTYPE_PRIMITIVE_U32, LogicalType::UINTEGER},
 	    {DTYPE_PRIMITIVE_U64, LogicalType::UBIGINT},
 	    {DTYPE_PRIMITIVE_F16, LogicalType::FLOAT},
+
 	    {DTYPE_PRIMITIVE_F32, LogicalType::FLOAT},
 	    {DTYPE_PRIMITIVE_F64, LogicalType::DOUBLE},
 	    {DTYPE_UTF8, LogicalType::VARCHAR},
@@ -115,6 +141,19 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 	}
 }
 
+std::string EnsureFileProtocol(const std::string &path) {
+	const std::string prefix = "file://";
+
+	// Check if the string already starts with "file://"
+	if (path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin())) {
+		// String already has the prefix, return as is
+		return path;
+	} else {
+		// String doesn't have the prefix, add it and return
+		return prefix + path;
+	}
+}
+
 /// The bind function (for the Vortex table function) is called during query
 /// planning. The bind phase happens once per query and allows DuckDB to know
 /// the schema of the data before execution begins. This enables optimizations
@@ -125,7 +164,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 
 	// Get the filename from the input.
 	auto filename = input.inputs[0].GetValue<string>();
-	result->file_name = filename;
+	result->file_name = EnsureFileProtocol(filename);
 
 	// Set up options for opening the file
 	FileOpenOptions options;
@@ -149,8 +188,15 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 
 	result->column_names = column_names;
 	result->columns_types = column_types;
+	result->file = file;
 
 	return std::move(result);
+}
+
+unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const FunctionData *bind_data) {
+	auto data = bind_data->Cast<VortexBindData>();
+
+	return make_uniq<NodeStatistics>(data.num_columns, data.num_columns);
 }
 
 /// Called when the extension is loaded by DuckDB.
@@ -164,11 +210,27 @@ void VortexExtension::Load(DuckDB &db) {
 
 	vortex_func.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
-		return duckdb::make_uniq<VortexScanState>();
+		auto state = make_uniq<VortexScanState>();
+		state->filter = input.filters;
+		state->column_ids = input.column_ids;
+
+		if (state->filter) {
+			for (auto &filter : state->filter->filters) {
+				std::cout << filter.first << ": " << filter.second->DebugToString() << '\n';
+			}
+		}
+
+		for (auto id : input.column_ids) {
+			std::cout << id << std::endl;
+		}
+
+		return state;
 	};
 
-	// vortex_func.projection_pushdown = true;
-	// vortex_func.filter_pushdown = true;
+	vortex_func.projection_pushdown = true;
+	vortex_func.cardinality = VortexCardinality;
+	vortex_func.filter_pushdown = true;
+	vortex_func.filter_prune = true;
 
 	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
