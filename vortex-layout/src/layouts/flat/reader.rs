@@ -63,7 +63,10 @@ impl FlatReader {
                     );
 
                     // Fetch all the array segment.
-                    let buffer = self.segment_reader.get(segment_id).await?;
+                    let buffer = self
+                        .segment_reader
+                        .get(segment_id, self.layout.name())
+                        .await?;
                     let row_count = usize::try_from(self.layout().row_count())
                         .vortex_expect("FlatLayout row count does not fit within usize");
 

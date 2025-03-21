@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
@@ -34,7 +35,7 @@ impl Display for SegmentId {
 pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
 
 pub trait AsyncSegmentReader: 'static + Send + Sync {
-    fn get(&self, id: SegmentId) -> SegmentFuture;
+    fn get(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture;
 }
 
 pub trait SegmentWriter {

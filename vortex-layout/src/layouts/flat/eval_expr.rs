@@ -41,7 +41,7 @@ impl ExprEvaluator for FlatReader {
                 let dtype = self.layout.dtype().clone();
 
                 // We create, but don't await, the segment request. This allows for prefetching.
-                let segment_fut = segment_reader.get(segment_id);
+                let segment_fut = segment_reader.get(segment_id, self.layout.name());
 
                 async move {
                     let segment = segment_fut.await?;

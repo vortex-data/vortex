@@ -102,10 +102,10 @@ impl Layout {
     }
 
     /// Returns the human-readable name of the layout.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &Arc<str> {
         match &self.0 {
-            Inner::Owned(owned) => owned.name.as_ref(),
-            Inner::Viewed(viewed) => viewed.name.as_ref(),
+            Inner::Owned(owned) => &owned.name,
+            Inner::Viewed(viewed) => &viewed.name,
         }
     }
 

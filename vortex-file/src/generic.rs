@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt, pin_mut, stream};
+use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
@@ -54,7 +55,7 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
             footer: footer.clone(),
             segment_cache: options.segment_cache,
             segment_queue,
-            metrics: CoalescingMetrics::from(options.metrics.clone()),
+            metrics: options.metrics.clone(),
         };
 
         options.options.io_dispatcher.dispatch(move || async move {
@@ -101,7 +102,7 @@ pub struct GenericScanDriver<R> {
     footer: Footer,
     segment_cache: Arc<dyn SegmentCache>,
     segment_queue: SegmentQueue,
-    metrics: CoalescingMetrics,
+    metrics: VortexMetrics,
 }
 
 impl<R: VortexReadAt + Send> GenericScanDriver<R> {
@@ -113,6 +114,8 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
 
             // Build up a coalesced read with other segments from the queue.
             let coalesced = this.coalesce(next);
+
+            this.metrics.counter("vortex.scan.generic.request").inc();
 
             // Launch the coalesced read.
             let read = this.read.clone();
@@ -241,8 +244,8 @@ async fn evaluate<R: VortexReadAt + Send>(
     segment_map: Arc<[SegmentSpec]>,
 ) -> VortexResult<()> {
     log::debug!(
-        "Reading byte range for {} requests {:?} size={}",
-        request.requests.len(),
+        "Reading byte range for [{}] requests {:?} size={}",
+        request.requests.iter().map(|r| r.id()).format(", "),
         request.byte_range,
         request.byte_range.end - request.byte_range.start,
     );

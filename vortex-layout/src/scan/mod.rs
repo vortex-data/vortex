@@ -20,8 +20,8 @@ use vortex_metrics::VortexMetrics;
 use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
 use crate::{
-    ExprEvaluator, LayoutReader, LayoutReaderExt, MaskFuture, RowMask, instrument,
-    mask_future_ready, range_intersection,
+    ExprEvaluator, LayoutReader, LayoutReaderExt, RowMask, instrument, mask_future_ready,
+    range_intersection,
 };
 
 pub mod executor;
@@ -52,7 +52,7 @@ impl ScanBuilder {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 100_000,
+            concurrency: 8,
             metrics: Default::default(),
         }
     }
@@ -240,41 +240,37 @@ impl Scan {
         // Create a single LayoutReader that is reused for the entire scan.
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
 
+        // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
+        let layout_reader = self.layout_reader.clone();
+        let filter_reader = FilterLayoutReader::new(layout_reader.clone());
+
         // Map each mask into a future that resolves the array for the row range.
-        let mut masks = self
+        let row_ranges: Vec<_> = self
             .row_masks
             .iter()
-            .map(|row_mask| {
+            .map(move |row_mask| {
                 let row_range = row_mask.begin()..row_mask.end();
-                let mask = mask_future_ready(row_mask.filter_mask().clone());
-                (row_range, mask)
-            })
-            .collect_vec();
+                let range_len = usize::try_from(
+                    row_range
+                        .end
+                        .checked_sub(row_range.start)
+                        .vortex_expect("row range overflow"),
+                )
+                .vortex_expect("row range overflow");
 
-        // Construct the filter expressions if necessary
-        if let Some(filter) = self.filter.as_ref() {
-            let filter_reader = FilterLayoutReader::new(self.layout_reader.clone());
-            masks = masks
-                .into_iter()
-                .map(|(row_range, mask_future)| {
-                    // FIXME(ngates): use the FilterEvaluator for conjunct short-circuiting.
+                // Set up an initial mask future that resolves to the row mask.
+                let mut mask = mask_future_ready(row_mask.filter_mask().clone());
 
-                    let range_len = usize::try_from(
-                        row_range
-                            .end
-                            .checked_sub(row_range.start)
-                            .vortex_expect("row range overflow"),
-                    )
-                    .vortex_expect("row range overflow");
-
-                    // NOTE that we currently pass an all-true mask to the filter expression.
-                    let mask_future: MaskFuture = filter_reader
+                if let Some(filter) = self.filter.as_ref() {
+                    // FIXME(ngates): we currently pass an all-true mask to the filter expression
+                    //  and then intersect it with the original row mask. This isn't ideal when the
+                    //  original row mask is very sparse.
+                    mask = filter_reader
                         .evaluate_expr2(
                             &row_range,
                             filter,
                             mask_future_ready(Mask::new_true(range_len)),
                         )?
-                        .map_err(VortexError::from)
                         .and_then(async move |array: Option<ArrayRef>| {
                             // The array is a boolean array, so we extract the mask.
                             let filter_result = array
@@ -282,29 +278,18 @@ impl Scan {
                                 .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
 
                             // Intersect the filter result with the original mask.
-                            let mask = mask_future.await?;
-                            Ok(mask.bitand(&filter_result))
+                            Ok(mask.await?.bitand(&filter_result))
                         })
                         .map_err(Arc::new)
                         .boxed()
                         .shared();
+                }
 
-                    Ok::<_, VortexError>((row_range, mask_future))
-                })
-                .try_collect()?;
-        }
-
-        // Project the masks into the final array futures.
-        let projection = self.projection.clone();
-        let should_canonicalize = self.canonicalize;
-        let arrays: Vec<_> = masks
-            .into_iter()
-            .map(move |(row_range, mask)| {
                 Ok::<_, VortexError>(
-                    self.layout_reader
-                        .evaluate_expr2(&row_range, &projection, mask)?
+                    layout_reader
+                        .evaluate_expr2(&row_range, &self.projection, mask)?
                         .map(move |array| {
-                            if should_canonicalize {
+                            if self.canonicalize {
                                 array?
                                     .map(|array| {
                                         let mut builder =
@@ -322,19 +307,11 @@ impl Scan {
             .try_collect()?;
 
         let task_executor = self.task_executor.clone();
-        let exec_stream = stream::iter(arrays)
+        let exec_stream = stream::iter(row_ranges)
             .map(move |task| task_executor.spawn(task))
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
-
         let exec_stream = instrument!("exec_stream", exec_stream);
-        //
-        // let io_stream = self.driver.io_stream(self.segments);
-        //
-        // let unified = UnifiedDriverStream {
-        //     exec_stream,
-        //     io_stream,
-        // };
 
         Ok(ArrayStreamAdapter::new(result_dtype, exec_stream))
     }

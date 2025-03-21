@@ -43,7 +43,11 @@ struct InMemorySegmentReader {
 }
 
 impl AsyncSegmentReader for InMemorySegmentReader {
-    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    fn get(
+        &self,
+        id: SegmentId,
+        _for_whom: &Arc<str>,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let segment_map = self.footer.segment_map().clone();
         let buffer = self.buffer.clone();
 

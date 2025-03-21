@@ -44,6 +44,15 @@ struct NeededSegments {
     need_later: LinkedHashSet<SegmentId>,
 }
 
+enum SegmentEvent {
+    /// The initial request for a segment.
+    Requested(PendingSegment),
+    /// A segment has been polled for the first time.
+    Polled(SegmentId),
+    /// A segment has been dropped.
+    Dropped(SegmentId),
+}
+
 impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
     /// populate it.
@@ -61,7 +70,7 @@ impl SegmentQueue {
         // and we can return `None` from the next function.
         let segment_reader = Arc::new(SegmentQueueSegmentReader {
             queue: inner.clone(),
-            notifier: Mutex::new(send),
+            notifier: send,
         });
 
         (Self { recv, inner }, segment_reader)
@@ -105,23 +114,23 @@ impl SegmentQueue {
             }
 
             // Otherwise, we start pre-fetching the need_later segments.
-            loop {
-                let Some(segment_id) = needed.need_later.pop_front() else {
-                    // No more need_later segments, break out of the loop.
-                    break;
-                };
-
-                if let Some(lease) = self
-                    .inner
-                    .segments
-                    .get(&segment_id)
-                    .and_then(|p| p.upgrade())
-                    .and_then(|p| p.lease())
-                {
-                    log::trace!("Fetching unrequested segment: {}", lease.id());
-                    return Some(lease);
-                };
-            }
+            // loop {
+            //     let Some(segment_id) = needed.need_later.pop_front() else {
+            //         // No more need_later segments, break out of the loop.
+            //         break;
+            //     };
+            //
+            //     if let Some(lease) = self
+            //         .inner
+            //         .segments
+            //         .get(&segment_id)
+            //         .and_then(|p| p.upgrade())
+            //         .and_then(|p| p.lease())
+            //     {
+            //         log::trace!("Fetching unrequested segment: {}", lease.id());
+            //         return Some(lease);
+            //     };
+            // }
 
             // Perform some cleanup and throw away any dropped segments (those whose weak
             // reference can no longer be upgraded).
@@ -178,11 +187,15 @@ impl SegmentQueue {
 /// Segment reader that creates a [`PendingSegment`] in the segment queue.
 struct SegmentQueueSegmentReader {
     queue: Arc<SegmentQueueInner>,
-    notifier: Mutex<mpsc::UnboundedSender<()>>,
+    notifier: mpsc::UnboundedSender<()>,
 }
 
 impl AsyncSegmentReader for SegmentQueueSegmentReader {
-    fn get(&self, id: SegmentId) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    fn get(
+        &self,
+        id: SegmentId,
+        for_whom: &Arc<str>,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let pending = loop {
             // Loop in case the pending segment has no strong references, in which case we clear it
             // out of the map and create a new one on the next iteration.
@@ -195,7 +208,7 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                     }
                 }
                 Entry::Vacant(e) => {
-                    let pending = PendingSegment::new(id, self.queue.clone());
+                    let pending = PendingSegment::new(id, for_whom.clone(), self.queue.clone());
                     // Insert the pending segment into the map, return the strong shared future to the caller.
                     e.insert(Arc::downgrade(&pending));
                     self.queue
@@ -204,27 +217,29 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                         .vortex_expect("poisoned lock")
                         .need_later
                         .insert_if_absent(id);
-
                     break pending;
                 }
             }
         };
 
-        // // Send a notification that there may be more work to do in the queue.
-        // self.notifier
-        //     .lock()
-        //     .vortex_expect("poisoned lock")
-        //     .unbounded_send(())
-        //     .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
-        //     .vortex_expect("Failed to notify segment queue");
+        // Send a notification that there may be more work to do in the queue.
+        self.notifier
+            .unbounded_send(())
+            .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
+            .vortex_expect("Failed to notify segment queue");
 
-        pending.new_future().boxed()
+        PendingSegmentFuture {
+            pending,
+            notifier: self.notifier.clone(),
+        }
+        .boxed()
     }
 }
 
 /// A pending segment returned by the [`AsyncSegmentReader`].
 pub struct PendingSegment {
     id: SegmentId,
+    for_whom: Arc<str>,
     inner: Mutex<PendingSegmentInner>,
     queue: Arc<SegmentQueueInner>,
     created_at: Instant,
@@ -253,8 +268,12 @@ impl Debug for PendingSegment {
 
 impl PendingSegment {
     /// Create a new [`PendingSegment`] that can be resolved later.
-    fn new(id: SegmentId, queue: Arc<SegmentQueueInner>) -> Arc<PendingSegment> {
-        log::debug!("Pending segment {}: REGISTERED", id);
+    fn new(
+        id: SegmentId,
+        for_whom: Arc<str>,
+        queue: Arc<SegmentQueueInner>,
+    ) -> Arc<PendingSegment> {
+        log::debug!("Pending segment {} for {}: REGISTERED", id, &for_whom);
         queue
             .metrics
             .counter("vortex.scan.segments.requested")
@@ -264,6 +283,7 @@ impl PendingSegment {
 
         Arc::new(Self {
             id,
+            for_whom,
             inner: Mutex::new(PendingSegmentInner {
                 send: Some(send),
                 recv: recv
@@ -282,10 +302,6 @@ impl PendingSegment {
         self.id
     }
 
-    pub fn new_future(self: Arc<Self>) -> PendingSegmentFuture {
-        PendingSegmentFuture { pending: self }
-    }
-
     /// Take a unique lease on the pending segment to resolve it some time later.
     pub fn lease(self: Arc<Self>) -> Option<PendingSegmentLease> {
         let mut this = self.inner.lock().vortex_expect("poisoned lock");
@@ -302,21 +318,33 @@ impl Drop for PendingSegment {
         let inner = self.inner.lock().vortex_expect("poisoned lock");
         match (inner.result.is_some(), inner.send.is_some()) {
             (false, true) => {
-                log::debug!("Pending segment {}: DROPPED BEFORE LAUNCH", self.id);
+                log::debug!(
+                    "Pending segment {} for {}: DROPPED BEFORE LAUNCH",
+                    self.id,
+                    &self.for_whom
+                );
                 self.queue
                     .metrics
                     .counter("vortex.scan.segments.dropped_before_launch")
                     .inc();
             }
             (false, false) => {
-                log::debug!("Pending segment {}: DROPPED AFTER LAUNCH", self.id);
+                log::debug!(
+                    "Pending segment {} for {}: DROPPED AFTER LAUNCH",
+                    self.id,
+                    &self.for_whom
+                );
                 self.queue
                     .metrics
                     .counter("vortex.scan.segments.dropped_after_launch")
                     .inc();
             }
             (true, _) => {
-                log::trace!("Pending segment {}: DROPPED AFTER RESOLUTION", self.id);
+                log::trace!(
+                    "Pending segment {} for {}: DROPPED AFTER RESOLUTION",
+                    self.id,
+                    &self.for_whom
+                );
                 self.queue
                     .metrics
                     .counter("vortex.scan.segments.dropped_after_resolution")
@@ -331,6 +359,7 @@ impl Drop for PendingSegment {
 /// It supports being polled multiple times, and will return the same result.
 pub struct PendingSegmentFuture {
     pending: Arc<PendingSegment>,
+    notifier: mpsc::UnboundedSender<()>,
 }
 
 impl Future for PendingSegmentFuture {
@@ -358,6 +387,9 @@ impl Future for PendingSegmentFuture {
             if needed.need_later.remove(&self.pending.id) {
                 needed.need_now.push_back(self.pending.id);
             }
+
+            // Notify the queue that there may be more work to do.
+            let _ = self.notifier.unbounded_send(());
         }
 
         // If the result is not resolved, poll the receiver.
