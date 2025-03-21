@@ -68,7 +68,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		for (auto col_id : state.column_ids) {
 			auto &str = bind_data.column_names[col_id];
 
-			// Create new memory for each string (these will need to be freed later)
 			char *c_str = new char[str.length() + 1];
 			std::strcpy(c_str, str.c_str());
 			column_names[idx++] = c_str;
@@ -126,10 +125,8 @@ std::string EnsureFileProtocol(const std::string &path) {
 
 	// Check if the string already starts with "file://"
 	if (path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin())) {
-		// String already has the prefix, return as is
 		return path;
 	} else {
-		// String doesn't have the prefix, add it and return
 		return prefix + path;
 	}
 }
