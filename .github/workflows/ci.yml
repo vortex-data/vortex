@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.6.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.7.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
