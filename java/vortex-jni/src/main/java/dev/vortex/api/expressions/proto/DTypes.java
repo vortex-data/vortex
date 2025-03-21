@@ -108,7 +108,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.date")
                         .setStorageDtype(DTypes.int32(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_DAYS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_DAYS.get()))
                         .build())
                 .build();
     }
@@ -118,7 +118,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.date")
                         .setStorageDtype(DTypes.int64(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_MILLIS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_MILLIS.get()))
                         .build())
                 .build();
     }
@@ -128,7 +128,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.time")
                         .setStorageDtype(DTypes.int32(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_SECONDS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_SECONDS.get()))
                         .build())
                 .build();
     }
@@ -138,7 +138,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.time")
                         .setStorageDtype(DTypes.int32(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MILLIS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MILLIS.get()))
                         .build())
                 .build();
     }
@@ -148,7 +148,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.time")
                         .setStorageDtype(DTypes.int64(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MICROS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MICROS.get()))
                         .build())
                 .build();
     }
@@ -158,7 +158,7 @@ final class DTypes {
                 .setExtension(DTypeProtos.Extension.newBuilder()
                         .setId("vortex.time")
                         .setStorageDtype(DTypes.int64(nullable))
-                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_NANOS))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_NANOS.get()))
                         .build())
                 .build();
     }

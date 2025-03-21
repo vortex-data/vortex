@@ -8,7 +8,6 @@ plugins {
     id("com.gradleup.shadow") version "8.3.6"
 }
 
-
 dependencies {
     api("net.java.dev.jna:jna-platform")
     api("com.google.protobuf:protobuf-java")
@@ -39,7 +38,7 @@ protobuf {
 }
 
 // shade guava and protobuf dependencies
-tasks.withType<ShadowJar>() {
+tasks.withType<ShadowJar> {
     archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
