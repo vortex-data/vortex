@@ -189,17 +189,6 @@ void VortexExtension::Load(DuckDB &db) {
 		auto state = make_uniq<VortexScanState>();
 		state->filter = input.filters;
 		state->column_ids = input.column_ids;
-
-		if (state->filter) {
-			for (auto &filter : state->filter->filters) {
-				std::cout << filter.first << ": " << filter.second->DebugToString() << '\n';
-			}
-		}
-
-		for (auto id : input.column_ids) {
-			std::cout << id << std::endl;
-		}
-
 		return state;
 	};
 
