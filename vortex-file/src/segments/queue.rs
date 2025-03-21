@@ -25,17 +25,11 @@ pub struct SegmentQueue {
 struct SegmentQueueInner {
     /// A map of pending segments, indexed by segment ID.
     segments: DashMap<SegmentId, Weak<PendingSegment>>,
-    /// A queue of segments by insertion order.
+    /// The set of outstanding segments, sorted by insertion order.
     inserted: Mutex<VecDeque<SegmentId>>,
     /// A queue of segments that have been explicitly requested (polled), but not yet resolved.
     requested: Mutex<VecDeque<SegmentId>>,
 }
-
-/// Pending segments are pre-fetched in roughly the order of priority.
-///
-/// When a pending segment future is polled, it should go into a requested queue. These should
-/// always be processed first.
-///
 
 impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
@@ -73,13 +67,29 @@ impl SegmentQueue {
     /// Returns `None` if the queue has been closed.
     pub async fn next(&mut self) -> Option<PendingSegmentLease> {
         loop {
+            // Perform some cleanup and throw away any dropped segments (those whose weak
+            // reference can no longer be upgraded).
+            self.inner.segments.retain(|_, v| v.upgrade().is_some());
+
             // Await a notification that there may be more work to do.
+            // FIXME(ngates): segment leasing might end up putting work back in the queue....?
+            //  Either we need to notify on PendingSegmentLease::drop, or we need to not allow
+            //  returning a lease to the queue. Probably this one honestly...
             if self.recv.next().await.is_none() {
-                // Or exit if the queue has been closed.
+                // Or exit if the queue has been closed, and we've consumed all notifications.
+                assert!(
+                    self.inner
+                        .requested
+                        .lock()
+                        .vortex_expect("poisoned lock")
+                        .is_empty(),
+                    "Segment queue closed with pending _requested_ segments"
+                );
                 return None;
             }
 
-            // First, we check the requested queue.
+            // First, check the requested queue. These segments have been explicitly polled
+            // and therefore there is CPU work waiting for them.
             if let Some(lease) = self.maybe_lease(
                 self.inner
                     .requested
@@ -87,11 +97,11 @@ impl SegmentQueue {
                     .vortex_expect("poisoned lock")
                     .pop_front(),
             ) {
-                log::info!("Using requested segment: {}", lease.id());
+                log::info!("Fetching requested segment: {}", lease.id());
                 return Some(lease);
             }
 
-            // Otherwise, we look at the next segment from the inserted queue.
+            // Otherwise, we start pre-fetching the remaining segments.
             if let Some(lease) = self.maybe_lease(
                 self.inner
                     .inserted
@@ -99,7 +109,7 @@ impl SegmentQueue {
                     .vortex_expect("poisoned lock")
                     .pop_front(),
             ) {
-                log::info!("Using enqueued segment: {}", lease.id());
+                log::info!("Fetching unrequested segment: {}", lease.id());
                 return Some(lease);
             }
         }
