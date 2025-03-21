@@ -42,7 +42,7 @@ target_link_libraries(${EXTENSION_NAME}
 )
 
 target_link_libraries(${LOADABLE_EXTENSION_NAME}
-        vortex_ffi-static
+        vortex_ffi-shared
         ${CORE_FOUNDATION_FRAMEWORK}
         ${SECURITY_FRAMEWORK}
 )
