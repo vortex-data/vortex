@@ -69,7 +69,6 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
         with:
           sync: false
-          version: 0.6.9
 
       - name: Compare results
         shell: bash
