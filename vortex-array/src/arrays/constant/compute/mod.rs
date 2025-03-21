@@ -154,7 +154,7 @@ mod test {
 
     use super::ConstantArray;
     use crate::array::Array;
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
 
     #[test]
     fn test_mask_constant() {

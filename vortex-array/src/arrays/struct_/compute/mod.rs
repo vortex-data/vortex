@@ -221,7 +221,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::compute::{filter, try_cast};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};

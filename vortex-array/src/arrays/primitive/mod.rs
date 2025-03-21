@@ -325,7 +325,7 @@ mod tests {
 
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
 
     #[test]

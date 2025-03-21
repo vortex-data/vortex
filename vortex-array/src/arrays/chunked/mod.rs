@@ -254,7 +254,7 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::compute::test_harness::test_binary_numeric;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
     use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
 

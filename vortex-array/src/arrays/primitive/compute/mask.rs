@@ -20,7 +20,7 @@ impl MaskFn<&PrimitiveArray> for PrimitiveEncoding {
 #[cfg(test)]
 mod test {
     use crate::arrays::PrimitiveArray;
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
 
     #[test]
     fn test_mask_non_nullable_array() {
