@@ -123,6 +123,20 @@ impl ArrayImpl for SparseArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&SparseEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let patch_indices = children[0].clone();
+        let patch_values = children[1].clone();
+
+        let patches = Patches::new(
+            self.patches().array_len(),
+            self.patches().offset(),
+            patch_indices,
+            patch_values,
+        );
+
+        Self::try_new_from_patches(patches, self.fill_value.clone())
+    }
 }
 
 impl ArrayStatisticsImpl for SparseArray {

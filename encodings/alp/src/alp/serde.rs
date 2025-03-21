@@ -72,36 +72,6 @@ impl EncodingVTable for ALPEncoding {
 
         Ok(alp.into_array())
     }
-
-    fn replace_children(
-        &self,
-        existing: ArrayRef,
-        new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        if existing.nchildren() != new_children.len() {
-            vortex_bail!("Children length doesn't match")
-        }
-
-        let mut children = new_children.into_iter();
-        let existing = existing.as_::<<Self as Encoding>::Array>();
-
-        let encoded = children.next().vortex_expect("");
-        let patches = (children.len() == 2).then(|| {
-            let existing_patches = existing.patches().vortex_expect("Must have patches");
-            let patches_indices = children.next().vortex_expect("");
-            let patches_values = children.next().vortex_expect("");
-            Patches::new(
-                existing_patches.array_len(),
-                existing_patches.offset(),
-                patches_indices,
-                patches_values,
-            )
-        });
-
-        let valid = ALPArray::try_new(encoded, existing.exponents(), patches)?;
-
-        Ok(valid.into_array())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

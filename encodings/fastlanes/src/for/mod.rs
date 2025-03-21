@@ -74,6 +74,10 @@ impl ArrayImpl for FoRArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&FoREncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        Self::try_new(children[0].clone(), self.reference.clone())
+    }
 }
 
 impl ArrayCanonicalImpl for FoRArray {

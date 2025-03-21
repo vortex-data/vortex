@@ -67,6 +67,12 @@ impl ArrayImpl for ExtensionArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ExtensionEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let mut this = self.clone();
+        this.storage = self.storage().with_children(children)?.into_array();
+        Ok(this)
+    }
 }
 
 impl ArrayStatisticsImpl for ExtensionArray {

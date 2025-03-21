@@ -84,14 +84,6 @@ impl EncodingVTable for BitPackedEncoding {
             .into_array()
         })
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<BitPackedMetadata>> for BitPackedArray {

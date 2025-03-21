@@ -49,14 +49,6 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
             self.id()
         )
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        vortex_bail!("{} arrays can't be build from children", self.id())
-    }
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {

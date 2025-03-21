@@ -98,6 +98,15 @@ impl ArrayImpl for DateTimePartsArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DateTimePartsEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        Self::try_new(
+            self.dtype.clone(),
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+        )
+    }
 }
 
 impl ArrayVariantsImpl for DateTimePartsArray {

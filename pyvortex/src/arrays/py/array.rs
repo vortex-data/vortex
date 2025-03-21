@@ -44,6 +44,10 @@ impl ArrayImpl for PyArrayInstance {
     fn _vtable(&self) -> VTableRef {
         self.cls.clone()
     }
+
+    fn _with_children(&self, _children: &[vortex::ArrayRef]) -> VortexResult<Self> {
+        todo!()
+    }
 }
 
 impl ArrayCanonicalImpl for PyArrayInstance {

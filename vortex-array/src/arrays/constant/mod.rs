@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::VTableRef;
-use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding};
+use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding};
 
 mod canonical;
 mod compute;
@@ -59,6 +59,10 @@ impl ArrayImpl for ConstantArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ConstantEncoding)
+    }
+
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+        Ok(self.clone())
     }
 }
 

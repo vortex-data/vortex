@@ -212,6 +212,35 @@ impl ArrayImpl for VarBinArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&VarBinEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let new = match children.len() {
+            // Only the offsets array is mandatory
+            1 => {
+                let offsets = children[0].clone();
+                Self::try_new(
+                    offsets,
+                    self.bytes().clone(),
+                    self.dtype().clone(),
+                    self.validity().clone(),
+                )?
+            }
+            // If are provided with both an offsets and validity arrays
+            2 => {
+                let offsets = children[0].clone();
+                let validity_array = children[1].clone();
+                Self::try_new(
+                    offsets,
+                    self.bytes().clone(),
+                    self.dtype().clone(),
+                    Validity::Array(validity_array),
+                )?
+            }
+            _ => vortex_bail!("unexpected number of new children"),
+        };
+
+        Ok(new)
+    }
 }
 
 impl ArrayStatisticsImpl for VarBinArray {

@@ -55,14 +55,6 @@ impl EncodingVTable for FoREncoding {
 
         Ok(FoRArray::try_new(encoded, reference)?.into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 #[derive(Clone, Debug)]

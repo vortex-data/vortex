@@ -140,6 +140,23 @@ impl ArrayImpl for StructArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&StructEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = match self.validity() {
+            Validity::Array(_) => Validity::Array(children[0].clone()),
+            other => other.clone(),
+        };
+
+        let fields = children[1..].to_vec();
+
+        if let Some(field_len) = fields.first().map(|a| a.len()) {
+            if fields.iter().any(|a| a.len() != field_len) {
+                vortex_bail!("all struct array field arrays must have the same length");
+            }
+        }
+
+        Self::try_new(self.names().clone(), fields, self.len(), validity)
+    }
 }
 
 impl ArrayStatisticsImpl for StructArray {

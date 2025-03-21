@@ -137,6 +137,10 @@ impl ArrayImpl for ListArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ListEncoding)
     }
+
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+        todo!()
+    }
 }
 
 impl ArrayStatisticsImpl for ListArray {

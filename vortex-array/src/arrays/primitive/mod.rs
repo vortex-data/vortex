@@ -258,6 +258,19 @@ impl ArrayImpl for PrimitiveArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&PrimitiveEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = match self.validity() {
+            Validity::Array(_) => Validity::Array(children[0].clone()),
+            other => other.clone(),
+        };
+
+        Ok(Self::from_byte_buffer(
+            self.byte_buffer().clone(),
+            self.ptype(),
+            validity,
+        ))
+    }
 }
 
 impl ArrayStatisticsImpl for PrimitiveArray {

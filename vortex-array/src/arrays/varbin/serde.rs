@@ -54,14 +54,6 @@ impl EncodingVTable for VarBinEncoding {
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {

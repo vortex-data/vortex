@@ -208,7 +208,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         self._stats_ref()
     }
 
-    fn with_children(&self, children: &[&dyn Array]) -> VortexResult<ArrayRef> {
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
         if self.nchildren() != children.len() {
             vortex_bail!("Child count mismatch");
         }

@@ -47,14 +47,6 @@ impl EncodingVTable for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(views, buffers, dtype, validity)?.into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {

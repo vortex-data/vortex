@@ -1,17 +1,14 @@
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    ToCanonical, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
 #[derive(Clone, Debug)]
@@ -65,6 +62,12 @@ impl ArrayImpl for ZigZagArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ZigZagEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let encoded = children[0].clone();
+
+        Self::try_new(encoded)
+    }
 }
 
 impl ArrayCanonicalImpl for ZigZagArray {
@@ -105,20 +108,11 @@ impl ArrayVariantsImpl for ZigZagArray {
 
 impl PrimitiveArrayTrait for ZigZagArray {}
 
-impl ArrayVisitorImpl for ZigZagArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", self.encoded())
-    }
-
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
-
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::compute::{scalar_at, slice};
+    use vortex_array::vtable::EncodingVTable;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
@@ -127,7 +121,8 @@ mod test {
     #[test]
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let zigzag = ZigZagArray::encode(&array).unwrap();
+        let canonical = array.to_canonical().unwrap();
+        let zigzag = ZigZagEncoding.encode(&canonical, None).unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

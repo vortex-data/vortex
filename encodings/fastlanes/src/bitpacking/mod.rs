@@ -233,6 +233,31 @@ impl ArrayImpl for BitPackedArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BitPackedEncoding)
     }
+
+    fn _with_children(&self, children: &[vortex_array::ArrayRef]) -> VortexResult<Self> {
+        let validity = match self.validity() {
+            Validity::Array(_) => Validity::Array(children[0].clone()),
+            other => other.clone(),
+        };
+
+        let patches = self.patches().map(|existing| {
+            let indices = children[1].clone();
+            let values = children[2].clone();
+            Patches::new(existing.array_len(), existing.offset(), indices, values)
+        });
+
+        unsafe {
+            Self::new_unchecked_with_offset(
+                self.packed().clone(),
+                self.ptype(),
+                validity,
+                patches,
+                self.bit_width(),
+                self.len(),
+                self.offset(),
+            )
+        }
+    }
 }
 
 impl ArrayCanonicalImpl for BitPackedArray {

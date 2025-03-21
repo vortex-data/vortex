@@ -30,14 +30,6 @@ impl EncodingVTable for ConstantEncoding {
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl for ConstantArray {

@@ -199,7 +199,7 @@ impl ArrayImpl for ChunkedArray {
         VTableRef::new_ref(&ChunkedEncoding)
     }
 
-    fn _with_children(&self, children: &[&dyn Array]) -> VortexResult<Self> {
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
         todo!()
     }
 }

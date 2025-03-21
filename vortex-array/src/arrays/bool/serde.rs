@@ -46,14 +46,6 @@ impl EncodingVTable for BoolEncoding {
 
         Ok(BoolArray::new(buffer, validity).into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

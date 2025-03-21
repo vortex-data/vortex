@@ -153,6 +153,13 @@ impl ArrayImpl for RunEndArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&RunEndEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let ends = children[0].clone();
+        let values = children[1].clone();
+
+        Self::try_new(ends, values)
+    }
 }
 
 impl ArrayVariantsImpl for RunEndArray {

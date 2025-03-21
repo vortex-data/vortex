@@ -1,7 +1,10 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, EncodingId};
+use vortex_array::{
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    EncodingId,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -45,12 +48,14 @@ impl EncodingVTable for ZigZagEncoding {
 
         Ok(zigzag_encode(parray.clone())?.into_array())
     }
+}
 
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
+impl ArrayVisitorImpl for ZigZagArray {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", self.encoded())
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }

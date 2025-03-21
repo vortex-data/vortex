@@ -40,14 +40,6 @@ impl EncodingVTable for NullEncoding {
     ) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(len).into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl for NullArray {
@@ -78,6 +70,10 @@ impl ArrayImpl for NullArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&NullEncoding)
+    }
+
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+        Ok(self.clone())
     }
 }
 

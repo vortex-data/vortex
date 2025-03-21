@@ -79,6 +79,18 @@ impl ArrayImpl for ALPArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ALPEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let encoded = children[0].clone();
+
+        let patches = self.patches().map(|existing| {
+            let indices = children[1].clone();
+            let values = children[2].clone();
+            Patches::new(existing.array_len(), existing.offset(), indices, values)
+        });
+
+        ALPArray::try_new(encoded, self.exponents(), patches)
+    }
 }
 
 impl ArrayCanonicalImpl for ALPArray {

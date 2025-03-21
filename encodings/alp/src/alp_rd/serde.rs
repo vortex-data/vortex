@@ -4,8 +4,8 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitor, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -116,54 +116,6 @@ impl EncodingVTable for ALPRDEncoding {
         };
 
         Ok(alprd_array.into_array())
-    }
-
-    fn replace_children(
-        &self,
-        existing: ArrayRef,
-        new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        if existing.nchildren() != new_children.len() {
-            vortex_bail!(
-                "Can't replace children if number of new children doesn't match existing array"
-            );
-        }
-
-        let existing = existing.as_::<<Self as Encoding>::Array>();
-
-        let mut new_children = new_children.into_iter();
-        let left_parts = new_children.next().vortex_expect("");
-        let right_parts = new_children.next().vortex_expect("");
-
-        let patches = (new_children.len() == 2).then(|| {
-            let existing_patches = existing
-                .left_parts_patches()
-                .vortex_expect("Must have patches");
-            let patches_indices = new_children.next().vortex_expect("");
-            let patches_values = new_children.next().vortex_expect("");
-            Patches::new(
-                existing_patches.array_len(),
-                existing_patches.offset(),
-                patches_indices,
-                patches_values,
-            )
-        });
-
-        assert!(
-            new_children.next().is_none(),
-            "Children iterator must be empty"
-        );
-
-        let valid = ALPRDArray::try_new(
-            existing.dtype().clone(),
-            left_parts,
-            existing.left_parts_dictionary().clone(),
-            right_parts,
-            existing.right_bit_width(),
-            patches,
-        )?;
-
-        Ok(valid.into_array())
     }
 }
 

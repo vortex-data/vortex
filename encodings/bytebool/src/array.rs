@@ -87,6 +87,16 @@ impl ArrayImpl for ByteBoolArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ByteBoolEncoding)
     }
+
+    fn _with_children(&self, children: &[vortex_array::ArrayRef]) -> VortexResult<Self> {
+        let mut this = self.clone();
+
+        if let Validity::Array(array) = &mut this.validity {
+            *array = children[0].clone();
+        }
+
+        Ok(this)
+    }
 }
 
 impl ArrayCanonicalImpl for ByteBoolArray {

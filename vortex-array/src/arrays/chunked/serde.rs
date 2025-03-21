@@ -58,14 +58,6 @@ impl EncodingVTable for ChunkedEncoding {
         // Unchecked because we just created each chunk with the same DType.
         Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
-
-    fn replace_children(
-        &self,
-        _existing: ArrayRef,
-        _new_children: Vec<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!()
-    }
 }
 
 impl ArrayVisitorImpl for ChunkedArray {
