@@ -111,8 +111,7 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
     file.inner.dtype()
 }
 
-/// Build a new Scan that will stream batches of `FFIArray` from the file.
-/// This takes ownership of the file and file options.
+/// Build a new scan that will stream batches of `FFIArray` from the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
