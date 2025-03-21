@@ -116,7 +116,7 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 
 		column_names.push_back(field_name);
 		column_types.push_back(*duckdb_type);
-		 DType_free(field_dtype);
+		DType_free(field_dtype);
 	}
 }
 
@@ -126,9 +126,8 @@ std::string EnsureFileProtocol(const std::string &path) {
 	// Check if the string already starts with "file://"
 	if (path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin())) {
 		return path;
-	} else {
-		return prefix + path;
 	}
+	return prefix + path;
 }
 
 /// The bind function (for the Vortex table function) is called during query
@@ -188,14 +187,16 @@ void VortexExtension::Load(DuckDB &db) {
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
 		auto state = make_uniq<VortexScanState>();
 		state->filter = input.filters;
-		state->column_ids = input.column_ids;
+		// These are the id that you projection just return,
+		// column_ids are all ids referenced in both the filter and projection.
+		state->column_ids = input.projection_ids;
 		return state;
 	};
 
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;
 	vortex_func.filter_pushdown = true;
-	// vortex_func.filter_prune = true;
+	vortex_func.filter_prune = true;
 
 	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
