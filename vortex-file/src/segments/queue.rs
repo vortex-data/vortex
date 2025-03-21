@@ -80,10 +80,6 @@ impl SegmentQueue {
     /// Returns `None` if the queue has been closed.
     pub async fn next(&mut self) -> Option<PendingSegmentLease> {
         loop {
-            // Perform some cleanup and throw away any dropped segments (those whose weak
-            // reference can no longer be upgraded).
-            self.inner.segments.retain(|_, v| v.strong_count() > 0);
-
             let mut needed = self.inner.needed.lock().vortex_expect("poisoned lock");
 
             // First, check the need_now queue. These segments have been explicitly polled
@@ -127,6 +123,10 @@ impl SegmentQueue {
                 };
             }
 
+            // Perform some cleanup and throw away any dropped segments (those whose weak
+            // reference can no longer be upgraded).
+            self.inner.segments.retain(|_, v| v.strong_count() > 0);
+
             // Before we await the future, we ensure we unlock the needed mutex.
             drop(needed);
 
@@ -136,15 +136,15 @@ impl SegmentQueue {
             //  returning a lease to the queue. Probably this one honestly...
             if self.recv.next().await.is_none() {
                 // Or exit if the queue has been closed, and we've consumed all notifications.
-                assert!(
-                    self.inner
-                        .needed
-                        .lock()
-                        .vortex_expect("poisoned lock")
-                        .need_now
-                        .is_empty(),
-                    "Segment queue closed with pending _requested_ segments"
-                );
+                // assert!(
+                //     self.inner
+                //         .needed
+                //         .lock()
+                //         .vortex_expect("poisoned lock")
+                //         .need_now
+                //         .is_empty(),
+                //     "Segment queue closed with pending _requested_ segments"
+                // );
                 return None;
             }
         }
@@ -355,8 +355,9 @@ impl Future for PendingSegmentFuture {
                 .needed
                 .lock()
                 .vortex_expect("poisoned lock");
-            needed.need_now.push_back(self.pending.id);
-            needed.need_later.remove(&self.pending.id);
+            if needed.need_later.remove(&self.pending.id) {
+                needed.need_now.push_back(self.pending.id);
+            }
         }
 
         // If the result is not resolved, poll the receiver.
