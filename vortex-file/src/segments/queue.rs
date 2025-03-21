@@ -319,8 +319,8 @@ impl Drop for PendingSegment {
                 log::trace!("Pending segment {}: DROPPED AFTER RESOLUTION", self.id);
                 self.queue
                     .metrics
-                    .timer("vortex.scan.segments.dropped_after_resolution")
-                    .update(Instant::now() - self.created_at);
+                    .counter("vortex.scan.segments.dropped_after_resolution")
+                    .inc();
             }
         }
     }
@@ -392,6 +392,14 @@ impl PendingSegmentLease {
             // This occurs when the recv end of the channel was dropped while the segment was
             // leased, in other words, while the request was "in-flight".
             log::trace!("Pending segment {}: DROPPED WHILE LEASED", self.id);
+        }
+
+        if let Some(pending) = self.pending.upgrade() {
+            pending
+                .queue
+                .metrics
+                .timer("vortex.scan.segments.resolve")
+                .update(Instant::now() - pending.created_at);
         }
     }
 }
