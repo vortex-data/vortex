@@ -17,8 +17,10 @@ package dev.vortex.api.expressions.proto;
 
 import com.google.common.base.Preconditions;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
+@SuppressWarnings("MutablePublicArray")
 public final class TemporalMetadatas {
     private TemporalMetadatas() {}
 
@@ -42,7 +44,7 @@ public final class TemporalMetadatas {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         baos.write(timeUnit);
         if (timeZone.isPresent()) {
-            byte[] timeZoneBytes = timeZone.get().getBytes();
+            byte[] timeZoneBytes = timeZone.get().getBytes(StandardCharsets.UTF_8);
             // Write length as little-endian uint16.
             int lenLow = timeZoneBytes.length & 0xFF;
             int lenHigh = (timeZoneBytes.length >> 8) & 0xFF;
@@ -81,7 +83,7 @@ public final class TemporalMetadatas {
         } else {
             byte[] timeZoneBytes = new byte[len];
             System.arraycopy(serializedMetadata, 3, timeZoneBytes, 0, len);
-            return Optional.of(new String(timeZoneBytes));
+            return Optional.of(new String(timeZoneBytes, StandardCharsets.UTF_8));
         }
     }
 }
