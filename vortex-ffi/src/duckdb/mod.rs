@@ -1,5 +1,3 @@
-#![cfg(feature = "duckdb")]
-
 use std::cmp::min;
 use std::ffi::c_uint;
 
@@ -37,9 +35,7 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
 
-    if array.len() <= offset {
-        panic!("offset out of bounds");
-    }
+    assert!(array.len() > offset, "offset out of bounds");
 
     let end = min(offset + CHUNK_SIZE, array.len());
     let is_end = end == array.len();
@@ -52,7 +48,11 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
     )
     .vortex_expect("to_duckdb");
 
-    if is_end { 0 } else { end as u32 }
+    if is_end {
+        0
+    } else {
+        u32::try_from(end).vortex_expect("end overruns u32")
+    }
 }
 
 #[cfg(test)]
