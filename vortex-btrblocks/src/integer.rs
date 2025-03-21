@@ -264,7 +264,7 @@ impl Scheme for FORScheme {
         _allowed_cascading: usize,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let for_array = for_compress(stats.src.clone())?;
+        let for_array = FoRArray::encode(stats.src.clone())?;
         let biased = for_array.encoded().to_primitive()?;
         let biased_stats = IntegerStats::generate_opts(
             &biased,

@@ -1,6 +1,7 @@
+pub use rstest::rstest;
 pub use rstest_reuse;
 use rstest_reuse::template;
-use vortex_buffer::buffer;
+use vortex_buffer::{Buffer, buffer};
 use vortex_error::VortexUnwrap;
 
 use crate::array::IntoArray;
@@ -8,6 +9,10 @@ use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
+
+pub fn all_null() -> ArrayRef {
+    PrimitiveArray::new(Buffer::<i32>::zeroed(20), Validity::AllInvalid).into_array()
+}
 
 pub fn sparse_high_null_fill() -> ArrayRef {
     PrimitiveArray::new(buffer![0; 20], Validity::AllInvalid)
@@ -84,6 +89,8 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
 #[template]
 #[export]
 #[rstest]
+#[case::all_null_left(all_null(), 33, SearchSortedSide::Left, SearchResult::NotFound(20))]
+#[case::all_null_right(all_null(), 33, SearchSortedSide::Right, SearchResult::NotFound(20))]
 #[case::larger_than_left_sparse_high_null_fill(
     sparse_high_null_fill(),
     66,
