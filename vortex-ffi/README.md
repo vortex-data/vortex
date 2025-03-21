@@ -50,3 +50,10 @@ Because C and Rust have different string representations, functions that return 
 a pointer to a buffer, and a pointer to an integer. Any `str` or `String` from Rust will be copied into the output
 buffer,
 
+## Updating
+
+To rebuild the header run
+
+```shell
+cbindgen --config cbindgen.toml --crate vortex-ffi --output cinclude/vortex.h
+```

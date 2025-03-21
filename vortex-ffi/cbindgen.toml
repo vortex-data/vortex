@@ -37,7 +37,7 @@ trailer = """
 "FFIFile" = "File"
 
 [defines]
-"feature = duckdb" = "DEFINE_DUCKDB"
+"feature = duckdb" = "ENABLE_DUCKDB_FFI"
 
 
 [parse]

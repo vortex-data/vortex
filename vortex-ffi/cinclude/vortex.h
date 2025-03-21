@@ -253,11 +253,11 @@ uint8_t DType_time_unit(const struct DType *dtype);
 
 void DType_time_zone(const struct DType *dtype, void *dst, int *len);
 
-#if defined(DEFINE_DUCKDB)
+#if defined(ENABLE_DUCKDB_FFI)
 duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype);
 #endif
 
-#if defined(DEFINE_DUCKDB)
+#if defined(ENABLE_DUCKDB_FFI)
 /**
  * Back a single chunk of the array as a duckdb data chunk.
  * The initial call should pass offset = 0.
@@ -287,8 +287,7 @@ void FileStatistics_free(struct FileStatistics *stat);
 const struct DType *File_dtype(const struct File *file);
 
 /**
- * Build a new Scan that will stream batches of `FFIArray` from the file.
- * This takes ownership of the file and file options.
+ * Build a new scan that will stream batches of `FFIArray` from the file.
  */
 struct ArrayStream *File_scan(const struct File *file, const struct FileScanOptions *opts);
 

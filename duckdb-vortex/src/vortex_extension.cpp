@@ -1,6 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#define DEFINE_DUCKDB
+#define ENABLE_DUCKDB_FFI
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/helper.hpp"
