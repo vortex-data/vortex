@@ -210,13 +210,13 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
             }
         };
 
-        // Send a notification that there may be more work to do in the queue.
-        self.notifier
-            .lock()
-            .vortex_expect("poisoned lock")
-            .unbounded_send(())
-            .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
-            .vortex_expect("Failed to notify segment queue");
+        // // Send a notification that there may be more work to do in the queue.
+        // self.notifier
+        //     .lock()
+        //     .vortex_expect("poisoned lock")
+        //     .unbounded_send(())
+        //     .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
+        //     .vortex_expect("Failed to notify segment queue");
 
         pending.new_future().boxed()
     }

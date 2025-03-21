@@ -254,8 +254,6 @@ impl Scan {
         // Construct the filter expressions if necessary
         if let Some(filter) = self.filter.as_ref() {
             let filter_reader = FilterLayoutReader::new(self.layout_reader.clone());
-            let task_executor = self.task_executor.clone();
-
             masks = masks
                 .into_iter()
                 .map(|(row_range, mask_future)| {
@@ -270,26 +268,23 @@ impl Scan {
                     .vortex_expect("row range overflow");
 
                     // NOTE that we currently pass an all-true mask to the filter expression.
-                    let mask_future: MaskFuture = task_executor
-                        .spawn(
-                            filter_reader
-                                .evaluate_expr2(
-                                    &row_range,
-                                    filter,
-                                    mask_future_ready(Mask::new_true(range_len)),
-                                )?
-                                .map_err(VortexError::from)
-                                .and_then(async move |array: Option<ArrayRef>| {
-                                    // The array is a boolean array, so we extract the mask.
-                                    let filter_result = array
-                                        .map(|array| Mask::try_from(&array.to_bool()?))
-                                        .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
+                    let mask_future: MaskFuture = filter_reader
+                        .evaluate_expr2(
+                            &row_range,
+                            filter,
+                            mask_future_ready(Mask::new_true(range_len)),
+                        )?
+                        .map_err(VortexError::from)
+                        .and_then(async move |array: Option<ArrayRef>| {
+                            // The array is a boolean array, so we extract the mask.
+                            let filter_result = array
+                                .map(|array| Mask::try_from(&array.to_bool()?))
+                                .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
 
-                                    // Intersect the filter result with the original mask.
-                                    let mask = mask_future.await?;
-                                    Ok(mask.bitand(&filter_result))
-                                }),
-                        )
+                            // Intersect the filter result with the original mask.
+                            let mask = mask_future.await?;
+                            Ok(mask.bitand(&filter_result))
+                        })
                         .map_err(Arc::new)
                         .boxed()
                         .shared();
@@ -300,36 +295,35 @@ impl Scan {
         }
 
         // Project the masks into the final array futures.
-        let task_executor = self.task_executor.clone();
         let projection = self.projection.clone();
         let should_canonicalize = self.canonicalize;
         let arrays: Vec<_> = masks
             .into_iter()
             .map(move |(row_range, mask)| {
                 Ok::<_, VortexError>(
-                    task_executor.spawn(
-                        self.layout_reader
-                            .evaluate_expr2(&row_range, &projection, mask)?
-                            .map(move |array| {
-                                if should_canonicalize {
-                                    array?
-                                        .map(|array| {
-                                            let mut builder =
-                                                builder_with_capacity(array.dtype(), array.len());
-                                            array.append_to_builder(builder.as_mut())?;
-                                            Ok(builder.finish())
-                                        })
-                                        .transpose()
-                                } else {
-                                    array
-                                }
-                            }),
-                    ),
+                    self.layout_reader
+                        .evaluate_expr2(&row_range, &projection, mask)?
+                        .map(move |array| {
+                            if should_canonicalize {
+                                array?
+                                    .map(|array| {
+                                        let mut builder =
+                                            builder_with_capacity(array.dtype(), array.len());
+                                        array.append_to_builder(builder.as_mut())?;
+                                        Ok(builder.finish())
+                                    })
+                                    .transpose()
+                            } else {
+                                array
+                            }
+                        }),
                 )
             })
             .try_collect()?;
 
+        let task_executor = self.task_executor.clone();
         let exec_stream = stream::iter(arrays)
+            .map(move |task| task_executor.spawn(task))
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
 
