@@ -63,9 +63,7 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     assert!(!options.uri.is_null(), "File_open: null uri");
     let uri = CStr::from_ptr(options.uri).to_string_lossy();
-    let uri: Url = uri
-        .parse()
-        .vortex_expect_fn(|| format!("File_open: parse uri {uri}"));
+    let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
 
     let prop_keys = to_string_vec(options.property_keys, options.property_len);
     let prop_vals = to_string_vec(options.property_vals, options.property_len);
