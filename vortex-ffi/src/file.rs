@@ -30,6 +30,7 @@ pub struct FFIFile {
 #[repr(C)]
 pub struct FileOpenOptions {
     /// URI for opening the file.
+    /// This must be a valid URI, even the files (file:///path/to/file)
     pub uri: *const c_char,
     /// Additional configuration for the file source (e.g. "s3.accessKey").
     /// This may be null, in which case it is treated as empty.

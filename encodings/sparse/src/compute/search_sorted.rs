@@ -73,19 +73,30 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
         array.len()
     } else {
         // [patch, fill, ..., fill, patch]
-        // If fill value is present in patches this would be the index of the next value after the fill value
         let fill_index = array.patches().search_index(fill_result_index)?.to_index();
-        if fill_index < array.patches().num_patches() {
-            let next_index = usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?;
-            // fill value search result is dense with a next patch value we want to return the original fill_index,
-            // i.e. the fill value cannot exist between fill_index and next_index
-            if fill_index + 1 == next_index {
-                fill_index
-            } else {
-                next_index
+        match fill_result {
+            // If fill value is present in patches this would be the index of the next or previous value after the fill value depending on the side
+            SearchResult::Found(_) => match side {
+                SearchSortedSide::Left => {
+                    usize::try_from(&scalar_at(array.patches().indices(), fill_index - 1)?)? + 1
+                }
+                SearchSortedSide::Right => {
+                    if fill_index < array.patches().num_patches() {
+                        usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?
+                    } else {
+                        fill_result_index
+                    }
+                }
+            },
+            // If the fill value is not in patches but falls in between two patch values we want to take the right most index of that will match the fill value
+            // This will then be min/maxed with result of searching for value in patches
+            SearchResult::NotFound(_) => {
+                if fill_index < array.patches().num_patches() {
+                    usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?
+                } else {
+                    fill_result_index
+                }
             }
-        } else {
-            fill_index
         }
     })
 }
@@ -107,62 +118,31 @@ impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
-    use vortex_array::arrays::PrimitiveArray;
+    use rstest::rstest;
+    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
+    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
-    use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
-    fn sparse_high_null_fill() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![17u64, 18, 19].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
-            20,
-            Scalar::null_typed::<i32>(),
-        )
-        .unwrap()
-        .into_array()
+    #[apply(search_sorted_conformance)]
+    fn sparse_search_sorted(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let sparse_array = SparseArray::encode(&array, None).vortex_unwrap();
+        let res = search_sorted(&sparse_array, value, side).unwrap();
+        assert_eq!(res, expected);
     }
 
-    fn sparse_high_non_null_fill() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![17u64, 18, 19].into_array(),
-            buffer![33_i32, 44, 55].into_array(),
-            20,
-            Scalar::primitive(22, Nullability::NonNullable),
-        )
-        .unwrap()
-        .into_array()
-    }
-
-    fn sparse_low() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![0u64, 1, 2].into_array(),
-            buffer![33_i32, 44, 55].into_array(),
-            20,
-            Scalar::primitive(60, Nullability::NonNullable),
-        )
-        .unwrap()
-        .into_array()
-    }
-
-    fn sparse_low_high() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![0u64, 1, 17, 18, 19].into_array(),
-            buffer![11i32, 22, 33, 44, 55].into_array(),
-            20,
-            Scalar::primitive(30, Nullability::NonNullable),
-        )
-        .unwrap()
-        .into_array()
-    }
-
-    fn sparse_high_fill_in_patches() -> ArrayRef {
+    fn high_fill_in_patches() -> ArrayRef {
         SparseArray::try_new(
             buffer![17u64, 18, 19].into_array(),
             buffer![33_i32, 44, 55].into_array(),
@@ -173,7 +153,7 @@ mod tests {
         .into_array()
     }
 
-    fn sparse_low_fill_in_patches() -> ArrayRef {
+    fn low_fill_in_patches() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 1, 2].into_array(),
             buffer![33_i32, 44, 55].into_array(),
@@ -184,7 +164,7 @@ mod tests {
         .into_array()
     }
 
-    fn sparse_low_high_fill_in_patches_low() -> ArrayRef {
+    fn low_high_fill_in_patches_low() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 1, 17, 18, 19].into_array(),
             buffer![11i32, 22, 33, 44, 55].into_array(),
@@ -195,7 +175,7 @@ mod tests {
         .into_array()
     }
 
-    fn sparse_low_high_fill_in_patches_high() -> ArrayRef {
+    fn low_high_fill_in_patches_high() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 1, 17, 18, 19].into_array(),
             buffer![11i32, 22, 33, 44, 55].into_array(),
@@ -206,249 +186,62 @@ mod tests {
         .into_array()
     }
 
-    #[fixture]
-    fn sparse_edge_patch_high() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![0u64, 1, 2, 19].into_array(),
-            buffer![11i32, 22, 23, 55].into_array(),
-            20,
-            Scalar::primitive(33, Nullability::NonNullable),
-        )
-        .unwrap()
-        .into_array()
-    }
-
-    #[fixture]
-    fn sparse_edge_patch_low() -> ArrayRef {
-        SparseArray::try_new(
-            buffer![0u64, 17, 18, 19].into_array(),
-            buffer![11i32, 33, 44, 55].into_array(),
-            20,
-            Scalar::primitive(22, Nullability::NonNullable),
-        )
-        .unwrap()
-        .into_array()
-    }
-
     #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(20))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(20))]
-    #[case(sparse_low(), SearchResult::NotFound(20))]
-    #[case(sparse_low_high(), SearchResult::NotFound(20))]
-    fn search_larger_than_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 66, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(20))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(20))]
-    #[case(sparse_low(), SearchResult::NotFound(20))]
-    #[case(sparse_low_high(), SearchResult::NotFound(20))]
-    fn search_larger_than_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 66, SearchSortedSide::Right).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(17))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(0))]
-    #[case(sparse_low(), SearchResult::NotFound(0))]
-    #[case(sparse_low_high(), SearchResult::NotFound(1))]
-    fn search_less_than_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 21, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(17))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(0))]
-    #[case(sparse_low(), SearchResult::NotFound(0))]
-    #[case(sparse_low_high(), SearchResult::NotFound(1))]
-    fn search_less_than_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 21, SearchSortedSide::Right).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::Found(18))]
-    #[case(sparse_high_non_null_fill(), SearchResult::Found(18))]
-    #[case(sparse_low(), SearchResult::Found(1))]
-    #[case(sparse_low_high(), SearchResult::Found(18))]
-    fn search_patches_found_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 44, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::Found(19))]
-    #[case(sparse_high_non_null_fill(), SearchResult::Found(19))]
-    #[case(sparse_low(), SearchResult::Found(2))]
-    #[case(sparse_low_high(), SearchResult::Found(19))]
-    fn search_patches_found_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 44, SearchSortedSide::Right).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(19))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(19))]
-    #[case(sparse_low(), SearchResult::NotFound(2))]
-    #[case(sparse_low_high(), SearchResult::NotFound(19))]
-    fn search_mid_patches_not_found_left(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 45, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(sparse_high_null_fill(), SearchResult::NotFound(19))]
-    #[case(sparse_high_non_null_fill(), SearchResult::NotFound(19))]
-    #[case(sparse_low(), SearchResult::NotFound(2))]
-    #[case(sparse_low_high(), SearchResult::NotFound(19))]
-    fn search_mid_patches_not_found_right(#[case] array: ArrayRef, #[case] expected: SearchResult) {
-        let res = search_sorted(&array, 45, SearchSortedSide::Right).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[should_panic]
-    #[case(sparse_high_null_fill(), Scalar::null_typed::<i32>(), SearchResult::Found(18))]
     #[case(
-        sparse_high_non_null_fill(),
-        Scalar::primitive(22, Nullability::NonNullable),
+        high_fill_in_patches(),
+        33,
+        SearchSortedSide::Left,
         SearchResult::Found(0)
     )]
     #[case(
-        sparse_low(),
-        Scalar::primitive(60, Nullability::NonNullable),
-        SearchResult::Found(3)
-    )]
-    #[case(
-        sparse_low_high(),
-        Scalar::primitive(30, Nullability::NonNullable),
+        low_fill_in_patches(),
+        55,
+        SearchSortedSide::Left,
         SearchResult::Found(2)
     )]
     #[case(
-        sparse_high_fill_in_patches(),
-        Scalar::primitive(33, Nullability::NonNullable),
-        SearchResult::Found(0)
-    )]
-    #[case(
-        sparse_low_fill_in_patches(),
-        Scalar::primitive(55, Nullability::NonNullable),
-        SearchResult::Found(2)
-    )]
-    #[case(
-        sparse_low_high_fill_in_patches_low(),
-        Scalar::primitive(22, Nullability::NonNullable),
+        low_high_fill_in_patches_low(),
+        22,
+        SearchSortedSide::Left,
         SearchResult::Found(1)
     )]
     #[case(
-        sparse_low_high_fill_in_patches_high(),
-        Scalar::primitive(33, Nullability::NonNullable),
-        SearchResult::Found(17)
-    )]
-    fn search_fill_left(
-        #[case] array: ArrayRef,
-        #[case] search: Scalar,
-        #[case] expected: SearchResult,
-    ) {
-        let res = search_sorted(&array, search, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[should_panic]
-    #[case(sparse_high_null_fill(), Scalar::null_typed::<i32>(), SearchResult::Found(18))]
-    #[case(
-        sparse_high_non_null_fill(),
-        Scalar::primitive(22, Nullability::NonNullable),
-        SearchResult::Found(17)
+        low_high_fill_in_patches_high(),
+        33,
+        SearchSortedSide::Left,
+        SearchResult::Found(2)
     )]
     #[case(
-        sparse_low(),
-        Scalar::primitive(60, Nullability::NonNullable),
-        SearchResult::Found(20)
-    )]
-    #[case(
-        sparse_low_high(),
-        Scalar::primitive(30, Nullability::NonNullable),
-        SearchResult::Found(17)
-    )]
-    #[case(
-        sparse_high_fill_in_patches(),
-        Scalar::primitive(33, Nullability::NonNullable),
+        high_fill_in_patches(),
+        33,
+        SearchSortedSide::Right,
         SearchResult::Found(18)
     )]
     #[case(
-        sparse_low_fill_in_patches(),
-        Scalar::primitive(55, Nullability::NonNullable),
+        low_fill_in_patches(),
+        55,
+        SearchSortedSide::Right,
         SearchResult::Found(20)
     )]
     #[case(
-        sparse_low_high_fill_in_patches_low(),
-        Scalar::primitive(22, Nullability::NonNullable),
+        low_high_fill_in_patches_low(),
+        22,
+        SearchSortedSide::Right,
         SearchResult::Found(17)
     )]
     #[case(
-        sparse_low_high_fill_in_patches_high(),
-        Scalar::primitive(33, Nullability::NonNullable),
+        low_high_fill_in_patches_high(),
+        33,
+        SearchSortedSide::Right,
         SearchResult::Found(18)
     )]
-    fn search_fill_right(
+    fn search_fill(
         #[case] array: ArrayRef,
-        #[case] search: Scalar,
+        #[case] search: i32,
+        #[case] side: SearchSortedSide,
         #[case] expected: SearchResult,
     ) {
-        let res = search_sorted(&array, search, SearchSortedSide::Right).unwrap();
+        let res = search_sorted(&array, search, side).vortex_unwrap();
         assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    fn search_between_fill_and_patch_high_left(#[from(sparse_edge_patch_high)] array: ArrayRef) {
-        assert_eq!(
-            search_sorted(&array, 25, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(3)
-        );
-        assert_eq!(
-            search_sorted(&array, 44, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(19)
-        );
-    }
-
-    #[rstest]
-    fn search_between_fill_and_patch_high_right(#[from(sparse_edge_patch_high)] array: ArrayRef) {
-        assert_eq!(
-            search_sorted(&array, 25, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(3)
-        );
-        assert_eq!(
-            search_sorted(&array, 44, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(19)
-        );
-    }
-
-    #[rstest]
-    fn search_between_fill_and_patch_low_left(#[from(sparse_edge_patch_low)] array: ArrayRef) {
-        assert_eq!(
-            search_sorted(&array, 20, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&array, 28, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(17)
-        );
-    }
-
-    #[rstest]
-    fn search_between_fill_and_patch_low_right(#[from(sparse_edge_patch_low)] array: ArrayRef) {
-        assert_eq!(
-            search_sorted(&array, 20, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&array, 28, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(17)
-        );
     }
 }

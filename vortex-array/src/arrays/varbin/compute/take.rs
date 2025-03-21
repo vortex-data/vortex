@@ -2,12 +2,12 @@ use arrow_buffer::NullBuffer;
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
+use vortex_mask::Mask;
 
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::TakeFn;
-use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
@@ -23,7 +23,7 @@ impl TakeFn<&VarBinArray> for VarBinEncoding {
                     offsets.as_slice::<$O>(),
                     data.as_slice(),
                     indices.as_slice::<$I>(),
-                    array.validity().clone(),
+                    array.validity_mask()?,
                 )?.into_array())
             })
         })
@@ -35,9 +35,8 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     offsets: &[O],
     data: &[u8],
     indices: &[I],
-    validity: Validity,
+    validity_mask: Mask,
 ) -> VortexResult<VarBinArray> {
-    let validity_mask = validity.to_logical(offsets.len() - 1)?;
     if let Some(v) = validity_mask.to_null_buffer() {
         return Ok(take_nullable(dtype, offsets, data, indices, v));
     }

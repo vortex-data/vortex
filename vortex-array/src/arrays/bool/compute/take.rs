@@ -1,12 +1,12 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
+use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{TakeFn, fill_null};
 use crate::variants::PrimitiveArrayTrait;
@@ -27,7 +27,7 @@ impl TakeFn<&BoolArray> for BoolEncoding {
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {
-            take_valid_indices::<$I>(array, &indices_nulls_zeroed)
+            take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<$I>())
         });
 
         Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
@@ -43,30 +43,30 @@ impl TakeFn<&BoolArray> for BoolEncoding {
     }
 }
 
-fn take_valid_indices<I: AsPrimitive<usize> + NativePType>(
-    array: &BoolArray,
-    indices: &PrimitiveArray,
+fn take_valid_indices<I: AsPrimitive<usize>>(
+    bools: &BooleanBuffer,
+    indices: &[I],
 ) -> BooleanBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
     // the overhead to convert to a Vec<bool>.
-    if array.len() <= 4096 {
-        let bools = array.boolean_buffer().into_iter().collect_vec();
-        take_byte_bool(bools, indices.as_slice::<I>())
+    if bools.len() <= 4096 {
+        let bools = bools.into_iter().collect_vec();
+        take_byte_bool(bools, indices)
     } else {
-        take_bool(array.boolean_buffer(), indices.as_slice::<I>())
+        take_bool(bools, indices)
     }
 }
 
 fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BooleanBuffer {
     BooleanBuffer::collect_bool(indices.len(), |idx| {
-        bools[unsafe { (*indices.get_unchecked(idx)).as_() }]
+        bools[unsafe { indices.get_unchecked(idx).as_() }]
     })
 }
 
 fn take_bool<I: AsPrimitive<usize>>(bools: &BooleanBuffer, indices: &[I]) -> BooleanBuffer {
     BooleanBuffer::collect_bool(indices.len(), |idx| {
         // We can always take from the indices unchecked since collect_bool just iterates len.
-        bools.value(unsafe { (*indices.get_unchecked(idx)).as_() })
+        bools.value(unsafe { indices.get_unchecked(idx).as_() })
     })
 }
 

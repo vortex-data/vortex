@@ -121,7 +121,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
     use crate::canonical::ToCanonical;
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::compute::{take, take_into};
 
     #[test]

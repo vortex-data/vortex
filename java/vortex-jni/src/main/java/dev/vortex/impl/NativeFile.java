@@ -15,16 +15,16 @@
  */
 package dev.vortex.impl;
 
+import com.sun.jna.Memory;
 import com.sun.jna.StringArray;
-import dev.vortex.api.ArrayStream;
-import dev.vortex.api.DType;
-import dev.vortex.api.File;
-import dev.vortex.api.ScanOptions;
+import dev.vortex.api.*;
+import dev.vortex.api.expressions.proto.ExpressionProtoSerializer;
 import dev.vortex.jni.FFI;
 import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 
 final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     private NativeFile(FFI.FFIFile inner) {
@@ -68,13 +68,31 @@ final class NativeFile extends BaseWrapped<FFI.FFIFile> implements File {
     public ArrayStream newScan(ScanOptions options) {
         String[] columns = options.columns().toArray(new String[0]);
         try (StringArray columnsPtr = new StringArray(columns)) {
-            var scan = FFI.File_scan(inner, new FFI.FileScanOptions(columnsPtr, columns.length));
-            return new NativeArrayStream(scan);
+            // Serialize protobuf filter to native memory so we can initialize the scan on Rust side.
+            // This memory is ok to free after File_scan returns, Rust makes a copy of it.
+            Optional<byte[]> protoFilter = options.predicate().map(this::toProtobuf);
+            if (protoFilter.isPresent()) {
+                try (Memory nativeMem = new Memory(protoFilter.get().length)) {
+                    nativeMem.write(0, protoFilter.get(), 0, protoFilter.get().length);
+                    FFI.FFIArrayStream scan = FFI.File_scan(
+                            inner,
+                            new FFI.FileScanOptions(
+                                    columnsPtr, columns.length, Optional.of(nativeMem), protoFilter.get().length));
+                    return new NativeArrayStream(scan);
+                }
+            } else {
+                FFI.FFIArrayStream scan = FFI.File_scan(inner, new FFI.FileScanOptions(columnsPtr, columns.length));
+                return new NativeArrayStream(scan);
+            }
         }
     }
 
     @Override
     public void close() {
         FFI.File_free(inner);
+    }
+
+    private byte[] toProtobuf(Expression predicate) {
+        return ExpressionProtoSerializer.serialize(predicate).toByteArray();
     }
 }

@@ -1,18 +1,19 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::BooleanBufferBuilder;
-use vortex_array::compute::{scalar_at, sub_scalar};
+use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
+use vortex_array::compute::{Operator, compare, filter, scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, RkyvMetadata,
-    ToCanonical, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
+    RkyvMetadata, ToCanonical, try_from_array_ref,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_mask::Mask;
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::serde::SparseMetadata;
@@ -106,6 +107,90 @@ impl SparseArray {
     #[inline]
     pub fn fill_scalar(&self) -> &Scalar {
         &self.fill_value
+    }
+
+    /// Encode given array as a SparseArray.
+    ///
+    /// Optionally provided fill value will be respected if the array is less than 90% null.
+    pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+        let mask = array.validity_mask()?;
+
+        if mask.all_false() {
+            // Array is constant NULL
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+            );
+        } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
+            // Array is dominated by NULL but has non-NULL values
+            let non_null_values = filter(array, &mask)?;
+            let non_null_indices = match mask.indices() {
+                AllOr::All => {
+                    // We already know that the mask is 90%+ false
+                    unreachable!("Mask is mostly null")
+                }
+                AllOr::None => {
+                    // we know there are some non-NULL values
+                    unreachable!("Mask is mostly null but not all null")
+                }
+                AllOr::Some(values) => {
+                    let buffer: Buffer<u32> = values
+                        .iter()
+                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
+                        .collect();
+
+                    buffer.into_array()
+                }
+            };
+
+            return Ok(SparseArray::try_new(
+                non_null_indices,
+                non_null_values,
+                array.len(),
+                Scalar::null(array.dtype().clone()),
+            )?
+            .into_array());
+        }
+
+        let fill = if let Some(fill) = fill_value {
+            fill
+        } else {
+            // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
+            let (top_pvalue, _) = array
+                .to_primitive()?
+                .top_value()?
+                .vortex_expect("Non empty or all null array");
+            Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())
+        };
+
+        let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
+        let non_top_mask = Mask::from_buffer(
+            compare(array, &fill_array, Operator::NotEq)?
+                .to_bool()?
+                .boolean_buffer()
+                .clone(),
+        );
+
+        let non_top_values = filter(array, &non_top_mask)?.to_primitive()?;
+
+        let indices: Buffer<u64> = match non_top_mask {
+            Mask::AllTrue(count) => {
+                // all true -> complete slice
+                (0u64..count as u64).collect()
+            }
+            Mask::AllFalse(_) => {
+                // All values are equal to the top value
+                return Ok(fill_array);
+            }
+            Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
+        };
+
+        SparseArray::try_new(
+            indices.into_array(),
+            non_top_values.into_array(),
+            array.len(),
+            fill,
+        )
+        .map(|a| a.into_array())
     }
 }
 

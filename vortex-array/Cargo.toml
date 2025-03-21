@@ -43,6 +43,9 @@ paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
 rkyv = { workspace = true }
+rstest = { workspace = true, optional = true }
+rstest_reuse = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
@@ -63,7 +66,7 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
-test-harness = ["dep:goldenfile"]
+test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
 divan = { workspace = true }

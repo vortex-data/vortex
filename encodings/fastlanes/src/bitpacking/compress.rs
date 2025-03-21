@@ -16,7 +16,7 @@ use vortex_dtype::{
     match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_mask::AllOr;
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -274,17 +274,18 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
 
     let indices = indices.to_primitive()?;
     let values = values.to_primitive()?;
-    let validity = values.validity();
+    let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-        insert_values_and_validity_at_indices::<T, $P>(
+        insert_values_and_validity_at_indices::<T, _>(
             dst,
-            indices,
+            indices.as_slice::<$P>(),
             values,
-            validity.clone(),
+            validity,
             indices_offset,
         )
-    })
+    });
+    Ok(())
 }
 
 fn insert_values_and_validity_at_indices<
@@ -292,34 +293,33 @@ fn insert_values_and_validity_at_indices<
     IndexT: NativePType + AsPrimitive<usize>,
 >(
     dst: &mut UninitRange<T>,
-    indices: PrimitiveArray,
+    indices: &[IndexT],
     values: &[T],
-    validity: Validity,
+    values_validity: Mask,
     indices_offset: usize,
-) -> VortexResult<()> {
-    match validity {
-        Validity::NonNullable => {
-            for (compressed_index, decompressed_index) in
-                indices.as_slice::<IndexT>().iter().enumerate()
-            {
+) {
+    match values_validity {
+        Mask::AllTrue(_) => {
+            for (compressed_index, decompressed_index) in indices.iter().enumerate() {
                 dst[decompressed_index.as_() - indices_offset] =
                     MaybeUninit::new(values[compressed_index]);
             }
         }
-        _ => {
-            let validity = validity.to_logical(indices.len())?;
-            for (compressed_index, decompressed_index) in
-                indices.as_slice::<IndexT>().iter().enumerate()
-            {
+        Mask::AllFalse(_) => {
+            for (compressed_index, decompressed_index) in indices.iter().enumerate() {
                 let out_index = decompressed_index.as_() - indices_offset;
-                dst[decompressed_index.as_() - indices_offset] =
-                    MaybeUninit::new(values[compressed_index]);
-                dst.set_bit(out_index, validity.value(out_index));
+                dst[out_index] = MaybeUninit::new(values[compressed_index]);
+                dst.set_bit(out_index, false);
+            }
+        }
+        Mask::Values(vb) => {
+            for (compressed_index, decompressed_index) in indices.iter().enumerate() {
+                let out_index = decompressed_index.as_() - indices_offset;
+                dst[out_index] = MaybeUninit::new(values[compressed_index]);
+                dst.set_bit(out_index, vb.value(out_index));
             }
         }
     }
-
-    Ok(())
 }
 
 fn unpack_values_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(

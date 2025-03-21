@@ -52,6 +52,8 @@ mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
+#[cfg(feature = "test-harness")]
+pub mod conformance;
 mod fill_forward;
 mod fill_null;
 mod filter;
@@ -208,9 +210,3 @@ pub trait Kernel {
 }
 
 pub type KernelRef = ArcRef<dyn Kernel>;
-
-#[cfg(feature = "test-harness")]
-pub mod test_harness {
-    pub use crate::compute::binary_numeric::test_harness::test_binary_numeric;
-    pub use crate::compute::mask::test_harness::test_mask;
-}

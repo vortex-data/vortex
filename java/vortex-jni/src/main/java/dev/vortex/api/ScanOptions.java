@@ -16,6 +16,7 @@
 package dev.vortex.api;
 
 import java.util.List;
+import java.util.Optional;
 import org.immutables.value.Value;
 
 /**
@@ -27,6 +28,11 @@ public interface ScanOptions {
      * Columns to project out.
      */
     List<String> columns();
+
+    /**
+     * Optional pruning expression that is pushed down to the scan.
+     */
+    Optional<Expression> predicate();
 
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();

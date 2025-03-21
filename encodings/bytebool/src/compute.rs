@@ -148,7 +148,7 @@ impl FillForwardFn<&ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::test_harness::test_mask;
+    use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{Operator, compare, scalar_at, slice};
 
     use super::*;

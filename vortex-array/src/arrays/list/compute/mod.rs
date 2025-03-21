@@ -125,7 +125,7 @@ impl IsSortedFn<&ListArray> for ListEncoding {
 mod test {
     use crate::array::Array;
     use crate::arrays::{ListArray, PrimitiveArray};
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
 
     #[test]

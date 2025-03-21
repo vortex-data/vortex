@@ -17,6 +17,7 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+duckdb = { workspace = true, optional = true }
 futures = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
@@ -27,7 +28,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["tokio", "object_store", "proto"] }
 vortex-duckdb = { workspace = true, optional = true }
-duckdb = { workspace = true, optional = true }
 
 [features]
 duckdb = ["dep:vortex-duckdb", "dep:duckdb"]

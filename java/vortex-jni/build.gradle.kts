@@ -1,10 +1,13 @@
 plugins {
     `java-library`
+    `jvm-test-suite`
     `maven-publish`
+    id("com.google.protobuf")
 }
 
 dependencies {
     api("net.java.dev.jna:jna-platform")
+    api("com.google.protobuf:protobuf-java")
 
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
@@ -15,6 +18,20 @@ dependencies {
     implementation("com.google.guava:guava")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
+}
+
+testing {
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            useJUnitJupiter()
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:4.30.1"
+    }
 }
 
 publishing {

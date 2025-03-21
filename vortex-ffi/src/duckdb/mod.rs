@@ -13,6 +13,10 @@ use vortex_duckdb::{ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
 
+/// This is the default chunk size for duckdb.
+/// It is best to return data chunks of this size to duckdb.
+const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
     let dtype = unsafe { &*dtype };
@@ -37,21 +41,24 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
 
-    if array.len() <= offset {
-        panic!("offset out of bounds");
-    }
+    assert!(array.len() > offset, "offset out of bounds");
 
-    let end = min(offset + CHUNK_SIZE, array.len());
+    let end = min(offset + DUCKDB_STANDARD_VECTOR_SIZE, array.len());
     let is_end = end == array.len();
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+    to_duckdb_chunk(
+        &slice.to_struct().vortex_expect("must be a struct"),
+        &mut data_chunk_handle,
+    )
+    .vortex_expect("to_duckdb");
 
-    let slice_struct = slice.to_struct().vortex_expect("must be a struct");
-
-    to_duckdb_chunk(&slice_struct, &mut data_chunk_handle).vortex_expect("to_duckdb");
-
-    if is_end { 0 } else { end as u32 }
+    if is_end {
+        0
+    } else {
+        u32::try_from(end).vortex_expect("end overruns u32")
+    }
 }
 
 #[cfg(test)]

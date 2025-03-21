@@ -52,7 +52,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_null();
 		return dtype;
 	case LogicalTypeId::BOOLEAN:
-		dtype->mutable_binary()->set_nullable(nullable);
+		dtype->mutable_bool_()->set_nullable(nullable);
 		return dtype;
 	case LogicalTypeId::TINYINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
@@ -125,8 +125,6 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		return scalar;
 	}
 	case LogicalTypeId::BOOLEAN: {
-		auto boolean = new vortex::dtype::Bool();
-		boolean->set_nullable(nullable);
 		scalar->mutable_value()->set_bool_value(value.GetValue<bool>());
 		return scalar;
 	}
@@ -161,10 +159,9 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 
 void set_column(const string &s, vortex::expr::Expr *column) {
 	column->set_id(GET_ITEM_ID);
-	auto get_item = new vortex::expr::Kind_GetItem();
-	get_item->mutable_path()->assign(s);
 	auto kind = column->mutable_kind();
-	kind->set_allocated_get_item(get_item);
+	auto get_item = kind->mutable_get_item();
+	get_item->mutable_path()->assign(s);
 
 	auto id = column->add_children();
 	id->mutable_kind()->mutable_identity();
@@ -201,7 +198,7 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 		auto hd = Arena::Create<vortex::expr::Expr>(&arena);
 
 		// Flatten the list of children into a linked list of AND values.
-		for (size_t i = 0; i < conjucts.child_filters.size(); i++) {
+		for (size_t i = 0; i < conjucts.child_filters.size() - 1; i++) {
 			vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
 			new_and->set_id(BINARY_ID);
 			new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
