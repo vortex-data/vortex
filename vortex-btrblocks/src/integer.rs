@@ -11,7 +11,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width, for_compress};
+use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
