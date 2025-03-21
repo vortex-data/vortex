@@ -9,7 +9,7 @@ use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    EmptyMetadata, EncodingId,
+    Canonical, EmptyMetadata, EncodingId,
 };
 
 impl EncodingVTable for PrimitiveEncoding {
@@ -61,6 +61,17 @@ impl EncodingVTable for PrimitiveEncoding {
             let buffer = Buffer::<$P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity).into_array())
         })
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        match input {
+            Canonical::Primitive(parray) => Ok(Some(parray.to_array())),
+            _ => vortex_bail!("Can only encode primitive arrays into {}", self.id()),
+        }
     }
 }
 

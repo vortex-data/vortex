@@ -1,16 +1,16 @@
-use fsst::Symbol;
+use fsst::{Compressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, SerdeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FSSTMetadata {
@@ -56,6 +56,30 @@ impl EncodingVTable for FSSTEncoding {
             FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)?
                 .into_array(),
         )
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Canonical::VarBinView(array) = input else {
+            vortex_bail!("Only varbinview arrays can be encoded into {}", self.id())
+        };
+
+        let compressor = match like {
+            Some(like) => {
+                let like = like
+                    .as_opt::<FSSTArray>()
+                    .ok_or_else(|| vortex_err!("Like must be {} encoded array", self.id()))?;
+                Compressor::rebuild_from(like.symbols(), like.symbol_lengths())
+            }
+            None => fsst_train_compressor(array)?,
+        };
+
+        let fsst = fsst_compress(array, &compressor)?;
+
+        Ok(Some(fsst.into_array()))
     }
 }
 

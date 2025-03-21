@@ -1,16 +1,17 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
-use super::BitPackedEncoding;
-use crate::BitPackedArray;
+use super::{BitPackedEncoding, find_best_bit_width};
+use crate::{BitPackedArray, bitpack_encode};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
@@ -83,6 +84,28 @@ impl EncodingVTable for BitPackedEncoding {
             )?
             .into_array()
         })
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Canonical::Primitive(parray) = input else {
+            vortex_bail!(
+                "{} only supports encoding primitive arrays, got {}",
+                self.id(),
+                input.as_ref().encoding()
+            )
+        };
+
+        let bit_width = find_best_bit_width(parray)?;
+
+        if bit_width as usize == parray.ptype().bit_width() {
+            return Ok(Some(parray.to_array()));
+        }
+
+        Ok(Some(bitpack_encode(parray, bit_width)?.into_array()))
     }
 }
 

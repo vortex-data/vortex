@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
+use crate::compress::runend_encode;
 use crate::{RunEndArray, RunEndEncoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,22 @@ impl EncodingVTable for RunEndEncoding {
         let values = parts.child(1).decode(ctx, dtype, metadata.num_runs)?;
 
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Canonical::Primitive(parray) = input else {
+            vortex_bail!("{} only supports encoding primitive arrays", self.id());
+        };
+
+        let (ends, values) = runend_encode(parray)?;
+
+        Ok(Some(
+            RunEndArray::try_new(ends.to_array(), values)?.to_array(),
+        ))
     }
 }
 

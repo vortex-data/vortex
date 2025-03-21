@@ -116,6 +116,7 @@ mod tests {
                 &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
                 None,
             )
+            .unwrap()
             .unwrap();
         assert_eq!(
             search_sorted(&zigzag, -169, SearchSortedSide::Right).unwrap(),
@@ -132,6 +133,7 @@ mod tests {
                     .unwrap(),
                 None,
             )
+            .unwrap()
             .unwrap();
         assert_eq!(
             scalar_at(&zigzag, 1).unwrap(),
@@ -146,12 +148,14 @@ mod tests {
                 &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
                 None,
             )
+            .unwrap()
             .unwrap();
 
         let indices = buffer![0, 2].into_array();
         let actual = take(&zigzag, &indices).unwrap().to_primitive().unwrap();
         let expected = ZigZagEncoding
             .encode(&buffer![-189, 1].into_array().to_canonical().unwrap(), None)
+            .unwrap()
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -165,6 +169,7 @@ mod tests {
                 &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
                 None,
             )
+            .unwrap()
             .unwrap();
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
         let actual = filter(&zigzag, &filter_mask)
@@ -173,6 +178,7 @@ mod tests {
             .unwrap();
         let expected = ZigZagEncoding
             .encode(&buffer![-189, 1].into_array().to_canonical().unwrap(), None)
+            .unwrap()
             .unwrap()
             .to_primitive()
             .unwrap();

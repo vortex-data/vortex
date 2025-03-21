@@ -10,7 +10,7 @@ use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -53,6 +53,18 @@ impl EncodingVTable for VarBinEncoding {
         let bytes = parts.buffer(0)?;
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if matches!(input, Canonical::VarBinView(_)) {
+            Ok(None)
+        } else {
+            vortex_bail!("Can't encode non-varbin array into {}", self.id())
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -58,6 +58,16 @@ impl EncodingVTable for SparseEncoding {
         let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        _input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(adam): This is just a placeholder, seems like a bunch of code needs to go here
+        // Ok(input.as_ref().to_array())
+        Ok(None)
     }
 }
 

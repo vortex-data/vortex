@@ -3,14 +3,14 @@ use std::fmt::Formatter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerializeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, SerializeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::FoREncoding;
+use super::{FoREncoding, for_compress};
 use crate::FoRArray;
 
 impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
@@ -54,6 +54,18 @@ impl EncodingVTable for FoREncoding {
         let reference = Scalar::new(dtype, reference);
 
         Ok(FoRArray::try_new(encoded, reference)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Canonical::Primitive(parray) = input else {
+            vortex_bail!("FoREncoding only supports encoding primitive arrays")
+        };
+
+        Ok(Some(for_compress(parray.clone())?.to_array()))
     }
 }
 

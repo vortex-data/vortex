@@ -5,6 +5,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use super::ConstantEncoding;
 use crate::arrays::ConstantArray;
+use crate::compute::scalar_at;
 use crate::serde::ArrayParts;
 use crate::vtable::EncodingVTable;
 use crate::{
@@ -29,6 +30,22 @@ impl EncodingVTable for ConstantEncoding {
         let sv = ScalarValue::from_flexbytes(&parts.buffer(0)?)?;
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &crate::Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = input.as_ref();
+        if array_ref.is_constant() {
+            let scalar = scalar_at(array_ref, 0)?;
+            Ok(Some(
+                ConstantArray::new(scalar, array_ref.len()).into_array(),
+            ))
+        } else {
+            Ok(None)
+        }
     }
 }
 

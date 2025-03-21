@@ -235,16 +235,16 @@ impl ArrayImpl for BitPackedArray {
     }
 
     fn _with_children(&self, children: &[vortex_array::ArrayRef]) -> VortexResult<Self> {
-        let validity = match self.validity() {
-            Validity::Array(_) => Validity::Array(children[0].clone()),
-            other => other.clone(),
-        };
-
         let patches = self.patches().map(|existing| {
-            let indices = children[1].clone();
-            let values = children[2].clone();
+            let indices = children[0].clone();
+            let values = children[1].clone();
             Patches::new(existing.array_len(), existing.offset(), indices, values)
         });
+
+        let validity = match self.validity() {
+            Validity::Array(_) => Validity::Array(children[children.len() - 1].clone()),
+            other => other.clone(),
+        };
 
         unsafe {
             Self::new_unchecked_with_offset(

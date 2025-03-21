@@ -122,7 +122,7 @@ mod test {
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let canonical = array.to_canonical().unwrap();
-        let zigzag = ZigZagEncoding.encode(&canonical, None).unwrap();
+        let zigzag = ZigZagEncoding.encode(&canonical, None).unwrap().unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

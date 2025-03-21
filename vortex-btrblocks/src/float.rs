@@ -202,7 +202,9 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = ALPEncoding.encode(&stats.source().to_canonical()?, None)?;
+        let alp_encoded = ALPEncoding
+            .encode(&stats.source().to_canonical()?, None)?
+            .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPArray>();
         let alp_ints = alp.encoded().to_primitive()?;
 

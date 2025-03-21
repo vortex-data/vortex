@@ -2,7 +2,6 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
 
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
@@ -137,25 +136,6 @@ pub trait ArrayVisitorImpl<
     }
 
     fn _metadata(&self) -> Metadata;
-}
-
-pub fn replace_patches(patches: &Patches, like_patches: &Patches) -> VortexResult<Patches> {
-    let values = like_patches.values().vtable().encode(
-        &patches.values().to_canonical()?,
-        Some(like_patches.values()),
-    )?;
-
-    let indices = like_patches.values().vtable().encode(
-        &patches.indices().to_canonical()?,
-        Some(like_patches.indices()),
-    )?;
-
-    Ok(Patches::new(
-        patches.array_len(),
-        patches.offset(),
-        indices,
-        values,
-    ))
 }
 
 pub trait ArrayBufferVisitor {

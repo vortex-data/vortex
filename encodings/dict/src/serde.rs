@@ -7,6 +7,7 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
+use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -44,6 +45,14 @@ impl EncodingVTable for DictEncoding {
             .decode(ctx, dtype, metadata.values_len as usize)?;
 
         Ok(DictArray::try_new(codes, values)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &vortex_array::Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(dict_encode(input.as_ref())?.into_array()))
     }
 }
 

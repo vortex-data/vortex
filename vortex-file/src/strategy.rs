@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arcref::ArcRef;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
@@ -132,30 +134,59 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev = prev_compression.chunk.clone();
             let prev_vtable = prev.vtable();
+            // dbg!(prev.encoding());
+            // dbg!(chunk.encoding());
             let canonical = chunk.to_canonical()?;
-            let encoded = prev_vtable.encode(&canonical, Some(&prev))?;
+            // let encoded = ;
 
-            let prev_children = prev.children();
-            let encoded_children = encoded.children();
+            // dbg!(encoded.encoding());
 
-            let new_children = prev_children
-                .into_iter()
-                .zip(encoded_children.into_iter())
-                .map(|(prev, encoded)| {
-                    let encoded = encoded.to_canonical()?;
-                    let encoded = prev.vtable().encode(&encoded, Some(&prev))?;
+            // let prev_children = prev.children();
+            // let encoded_children = encoded.children();
 
-                    Ok(encoded)
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
+            // If the encoding didn't have to fallback here
+            if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev))? {
+                let prev_children = prev
+                    .children_names()
+                    .into_iter()
+                    .zip_eq(prev.children())
+                    .collect::<HashMap<_, _>>();
+                let encoded_children = encoded
+                    .children_names()
+                    .into_iter()
+                    .zip_eq(encoded.children())
+                    .collect::<HashMap<_, _>>();
 
-            let new_array = encoded.with_children(&new_children)?;
-            let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
+                let mut new_map = HashMap::new();
+                for (k, c) in encoded_children {
+                    if let Some(prev) = prev_children.get(&k) {
+                        if let Some(new_encoded_child) =
+                            prev.vtable().encode(&c.to_canonical()?, Some(prev))?
+                        {
+                            new_map.insert(k.clone(), new_encoded_child);
+                        }
+                    }
 
-            // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-            // If it isn't we  fall back to the compressor.
-            if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
-                compressed_array = Some(new_array);
+                    if !new_map.contains_key(&k) {
+                        new_map.insert(k, c);
+                    }
+                }
+
+                let new_children = encoded
+                    .children_names()
+                    .iter()
+                    .map(|name| new_map[name].clone())
+                    .collect_vec();
+
+                let new_array = encoded.with_children(&new_children)?;
+
+                let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
+
+                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
+                // If it isn't we  fall back to the compressor.
+                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                    compressed_array = Some(new_array);
+                }
             }
         }
 

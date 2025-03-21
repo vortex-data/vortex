@@ -147,6 +147,7 @@ fn enc_impls() -> Vec<ArrayRef> {
                 None,
             )
             .unwrap()
+            .unwrap()
             .into_array(),
     ]
 }

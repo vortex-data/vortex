@@ -42,7 +42,15 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
         )
     }
 
-    fn encode(&self, input: &Canonical, _like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if self.id() == input.as_ref().encoding() {
+            return Ok(Some(input.as_ref().to_array()));
+        }
+
         vortex_bail!(
             "Encoding {} into {} is not supported",
             input.as_ref().vtable().id(),

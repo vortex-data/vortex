@@ -47,7 +47,11 @@ impl EncodingVTable for ALPEncoding {
         Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
     }
 
-    fn encode(&self, input: &Canonical, like: Option<&dyn Array>) -> VortexResult<ArrayRef> {
+    fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
         let Canonical::Primitive(parray) = input else {
             vortex_bail!("Expected a primitive input")
         };
@@ -70,7 +74,7 @@ impl EncodingVTable for ALPEncoding {
             None => alp_encode(parray)?,
         };
 
-        Ok(alp.into_array())
+        Ok(Some(alp.into_array()))
     }
 }
 

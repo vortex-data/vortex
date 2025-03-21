@@ -1,8 +1,9 @@
+use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -46,6 +47,20 @@ impl EncodingVTable for DateTimePartsEncoding {
         )?;
 
         Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
+    }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Canonical::Extension(ext_array) = input else {
+            vortex_bail!("Only extension arrays can be encoded into {}", self.id());
+        };
+
+        let temporal = TemporalArray::try_from(ext_array.clone())?;
+
+        Ok(Some(DateTimePartsArray::try_from(temporal)?.into_array()))
     }
 }
 
