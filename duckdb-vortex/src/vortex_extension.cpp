@@ -55,6 +55,7 @@ struct VortexScanState : public LocalTableFunctionState {
 	mutable Array *array;
 
 	optional_ptr<TableFilterSet> filter;
+	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
 };
 
@@ -186,19 +187,19 @@ void VortexExtension::Load(DuckDB &db) {
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
 		auto state = make_uniq<VortexScanState>();
 		state->filter = input.filters;
-		// These are the ids required only by projection.
-		// column_ids are all ids referenced in both the filter and projection.
-		state->column_ids = input.column_ids;
-		// TODO(joe): fixme support filter_prune
-		// state->column_ids = input.projection_ids;
+
+		state->column_ids = vector<column_t>(input.projection_ids.size());
+		auto idx = 0;
+		for (auto proj_id : input.projection_ids) {
+			state->column_ids[idx++] = input.column_ids[proj_id];
+		}
 		return state;
 	};
 
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;
 	vortex_func.filter_pushdown = true;
-	// TODO(joe): fixme
-	// vortex_func.filter_prune = true;
+	vortex_func.filter_prune = true;
 
 	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
