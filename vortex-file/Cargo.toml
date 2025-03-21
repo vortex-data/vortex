@@ -22,6 +22,7 @@ futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
+linked_hash_set = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 oneshot = { workspace = true, features = ["async"] }

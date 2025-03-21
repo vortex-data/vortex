@@ -1,5 +1,4 @@
 mod cache;
-pub(crate) mod pending;
 pub(crate) mod queue;
 pub(crate) mod writer;
 

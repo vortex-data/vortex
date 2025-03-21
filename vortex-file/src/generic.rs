@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
@@ -12,8 +13,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{Footer, SegmentSpec};
-use crate::segments::pending::PendingSegmentLease;
-use crate::segments::queue::SegmentQueue;
+use crate::segments::queue::{PendingSegmentLease, SegmentQueue};
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexFile, VortexOpenOptions};
 
@@ -46,7 +46,7 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
     type Read = R;
 
     fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
-        let (segment_queue, segment_reader) = SegmentQueue::new();
+        let (segment_queue, segment_reader) = SegmentQueue::new(options.metrics.clone());
 
         // Spawn an I/O driver to serve requests while this file is open.
         let driver = GenericScanDriver {
@@ -193,10 +193,17 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
     }
 }
 
-#[derive(Debug)]
 struct SegmentRequest {
     spec: SegmentSpec,
     lease: PendingSegmentLease,
+}
+
+impl Debug for SegmentRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SegmentRequest")
+            .field("spec", &self.spec)
+            .finish()
+    }
 }
 
 impl SegmentRequest {

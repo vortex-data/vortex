@@ -12,7 +12,7 @@ use vortex::expr::Identity;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
+use vortex_layout::{LayoutReaderExt, LayoutVTable, RowMask};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
