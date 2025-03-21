@@ -11,6 +11,10 @@ use vortex_duckdb::{ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
 
+/// This is the default chunk size for duckdb.
+/// It is best to return data chunks of this size to duckdb.
+const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
     let dtype = unsafe { &*dtype };
@@ -31,13 +35,12 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
 ) -> c_uint {
-    const CHUNK_SIZE: usize = 2048;
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
 
     assert!(array.len() > offset, "offset out of bounds");
 
-    let end = min(offset + CHUNK_SIZE, array.len());
+    let end = min(offset + DUCKDB_DEFAULT_CHUNK_SIZE, array.len());
     let is_end = end == array.len();
 
     let slice = slice(array, offset, end).vortex_expect("slice");
