@@ -68,10 +68,9 @@ impl EncodingVTable for SparseEncoding {
         // TODO(adam): This is just a placeholder, seems like a bunch of code needs to go here
         let fill_value = like
             .and_then(|arr| arr.as_opt::<SparseArray>())
-            .map(|arr| arr.fill_scalar().cast(input.as_ref().dtype()))
-            .transpose()?;
+            .and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
 
-        SparseArray::encode(input.as_ref(), fill_value).map(Some)
+        Ok(Some(SparseArray::encode(input.as_ref(), fill_value)?))
     }
 }
 
