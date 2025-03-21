@@ -10,7 +10,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::{FoREncoding, for_compress};
+use super::FoREncoding;
 use crate::FoRArray;
 
 impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
@@ -65,7 +65,7 @@ impl EncodingVTable for FoREncoding {
             vortex_bail!("FoREncoding only supports encoding primitive arrays")
         };
 
-        Ok(Some(for_compress(parray.clone())?.to_array()))
+        Ok(Some(FoRArray::encode(parray.clone())?.to_array()))
     }
 }
 
