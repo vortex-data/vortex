@@ -37,7 +37,6 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
 ) -> c_uint {
-    const CHUNK_SIZE: usize = 2048;
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
 
