@@ -19,10 +19,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml
-        CRATES vortex-duckdb
-        IMPORTED_CRATES vortex_duckdb)
-
-corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml
         CRATES vortex-ffi
         FEATURES duckdb
         IMPORTED_CRATES vortex_ffi)
@@ -40,14 +36,12 @@ if (APPLE)
 endif ()
 
 target_link_libraries(${EXTENSION_NAME}
-        vortex_duckdb-static
         vortex_ffi-static
         ${CORE_FOUNDATION_FRAMEWORK}
         ${SECURITY_FRAMEWORK}
 )
 
 target_link_libraries(${LOADABLE_EXTENSION_NAME}
-        vortex_duckdb-shared
         vortex_ffi-static
         ${CORE_FOUNDATION_FRAMEWORK}
         ${SECURITY_FRAMEWORK}

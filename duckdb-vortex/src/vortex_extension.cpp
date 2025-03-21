@@ -66,20 +66,13 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		const char **const column_names = new const char *[state.column_ids.size()];
 		auto idx = 0;
 		for (auto col_id : state.column_ids) {
-			auto &str = bind_data.column_names[col_id];
-
-			char *c_str = new char[str.length() + 1];
-			std::strcpy(c_str, str.c_str());
-			column_names[idx++] = c_str;
+			column_names[idx++] = bind_data.column_names[col_id].c_str();
 		}
 		auto options = FileScanOptions {column_names, static_cast<int>(state.column_ids.size())};
 
 		bind_data.array_stream = File_scan(bind_data.file, &options);
 
-		for (auto col_id : state.column_ids) {
-			delete[] column_names[col_id];
-		}
-		delete column_names;
+		delete[] column_names;
 	}
 
 	if (state.finished) {
@@ -195,14 +188,17 @@ void VortexExtension::Load(DuckDB &db) {
 		state->filter = input.filters;
 		// These are the id that you projection just return,
 		// column_ids are all ids referenced in both the filter and projection.
-		state->column_ids = input.projection_ids;
+		state->column_ids = input.column_ids;
+		// TODO(joe): fixme support filter_prune
+		// state->column_ids = input.projection_ids;
 		return state;
 	};
 
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;
 	vortex_func.filter_pushdown = true;
-	vortex_func.filter_prune = true;
+	// TODO(joe): fixme
+	// vortex_func.filter_prune = true;
 
 	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
