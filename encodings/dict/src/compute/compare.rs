@@ -84,7 +84,7 @@ fn dict_equal_to(
                 result_builder.set_validity(
                     Validity::from_mask(result_validity, bool_result.dtype().nullability())
                         .take(codes)?
-                        .to_logical(codes.len())?,
+                        .to_mask(codes.len())?,
                 );
                 result_builder.finish()
             }
