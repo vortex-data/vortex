@@ -2,8 +2,8 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -62,12 +62,15 @@ impl EncodingVTable for SparseEncoding {
 
     fn encode(
         &self,
-        _input: &Canonical,
-        _like: Option<&dyn Array>,
+        input: &Canonical,
+        like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(adam): This is just a placeholder, seems like a bunch of code needs to go here
-        // Ok(input.as_ref().to_array())
-        Ok(None)
+        let fill_value = like
+            .and_then(|arr| arr.as_opt::<SparseArray>())
+            .map(|arr| arr.fill_scalar().clone());
+
+        SparseArray::encode(input.as_ref(), fill_value).map(Some)
     }
 }
 
