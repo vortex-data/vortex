@@ -17,6 +17,7 @@ package dev.vortex.api.expressions;
 
 import com.google.common.base.Objects;
 import dev.vortex.api.Expression;
+import java.util.Optional;
 
 public abstract class Literal<T> implements Expression {
     private final T value;
@@ -86,6 +87,42 @@ public abstract class Literal<T> implements Expression {
         return new BytesLiteral(value);
     }
 
+    public static Literal<Integer> timeSeconds(Integer value) {
+        return new TimeSeconds(value);
+    }
+
+    public static Literal<Integer> timeMillis(Integer value) {
+        return new TimeMillis(value);
+    }
+
+    public static Literal<Long> timeMicros(Long value) {
+        return new TimeMicros(value);
+    }
+
+    public static Literal<Long> timeNanos(Long value) {
+        return new TimeNanos(value);
+    }
+
+    public static Literal<Integer> dateDays(Integer value) {
+        return new DateDays(value);
+    }
+
+    public static Literal<Long> dateMillis(Long value) {
+        return new DateMillis(value);
+    }
+
+    public static Literal<Long> timestampMillis(Long value, Optional<String> timeZone) {
+        return new TimestampMillis(value, timeZone);
+    }
+
+    public static Literal<Long> timestampMicros(Long value, Optional<String> timeZone) {
+        return new TimestampMicros(value, timeZone);
+    }
+
+    public static Literal<Long> timestampNanos(Long value, Optional<String> timeZone) {
+        return new TimestampNanos(value, timeZone);
+    }
+
     @Override
     public <R> R accept(Expression.Visitor<R> visitor) {
         return visitor.visitLiteral(this);
@@ -105,6 +142,24 @@ public abstract class Literal<T> implements Expression {
         U visitInt32(Integer literal);
 
         U visitInt64(Long literal);
+
+        U visitDateDays(Integer days);
+
+        U visitDateMillis(Long millis);
+
+        U visitTimeSeconds(Integer seconds);
+
+        U visitTimeMillis(Integer seconds);
+
+        U visitTimeMicros(Long seconds);
+
+        U visitTimeNanos(Long seconds);
+
+        U visitTimestampMillis(Long epochMillis, Optional<String> timeZone);
+
+        U visitTimestampMicros(Long epochMicros, Optional<String> timeZone);
+
+        U visitTimestampNanos(Long epochNanos, Optional<String> timeZone);
 
         U visitFloat32(Float literal);
 
@@ -224,6 +279,114 @@ public abstract class Literal<T> implements Expression {
         @Override
         public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
             return visitor.visitBytes(getValue());
+        }
+    }
+
+    static final class TimeSeconds extends Literal<Integer> {
+        TimeSeconds(Integer value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimeSeconds(getValue());
+        }
+    }
+
+    static final class TimeMillis extends Literal<Integer> {
+        TimeMillis(Integer value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimeMillis(getValue());
+        }
+    }
+
+    static final class TimeMicros extends Literal<Long> {
+        TimeMicros(Long value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimeMicros(getValue());
+        }
+    }
+
+    static final class TimeNanos extends Literal<Long> {
+        TimeNanos(Long value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimeNanos(getValue());
+        }
+    }
+
+    static final class DateDays extends Literal<Integer> {
+        DateDays(Integer value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitDateDays(getValue());
+        }
+    }
+
+    static final class DateMillis extends Literal<Long> {
+        DateMillis(Long value) {
+            super(value);
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitDateMillis(getValue());
+        }
+    }
+
+    static final class TimestampMillis extends Literal<Long> {
+        private final Optional<String> timeZone;
+
+        TimestampMillis(Long value, Optional<String> timeZone) {
+            super(value);
+            this.timeZone = timeZone;
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimestampMillis(getValue(), timeZone);
+        }
+    }
+
+    static final class TimestampMicros extends Literal<Long> {
+        private final Optional<String> timeZone;
+
+        TimestampMicros(Long value, Optional<String> timeZone) {
+            super(value);
+            this.timeZone = timeZone;
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimestampMicros(getValue(), timeZone);
+        }
+    }
+
+    static final class TimestampNanos extends Literal<Long> {
+        private final Optional<String> timeZone;
+
+        TimestampNanos(Long value, Optional<String> timeZone) {
+            super(value);
+            this.timeZone = timeZone;
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitTimestampNanos(getValue(), timeZone);
         }
     }
 }

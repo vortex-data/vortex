@@ -18,6 +18,7 @@ package dev.vortex.api.expressions.proto;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import dev.vortex.proto.ScalarProtos;
+import java.util.Optional;
 
 final class Scalars {
     private Scalars() {}
@@ -188,6 +189,168 @@ final class Scalars {
                         .setNullValue(NullValue.NULL_VALUE)
                         .build())
                 .setDtype(DTypes.binary(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar dateDays(int value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt32Value(value)
+                        .build())
+                .setDtype(DTypes.dateDays(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullDateDays() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.dateDays(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar dateMillis(long value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.dateMillis(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullDateMillis() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.dateMillis(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timeSeconds(int value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt32Value(value)
+                        .build())
+                .setDtype(DTypes.timeSeconds(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimeSeconds() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timeSeconds(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timeMillis(int value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt32Value(value)
+                        .build())
+                .setDtype(DTypes.timeMillis(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimeMillis() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timeMillis(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timeMicros(long value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.timeMicros(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimeMicros() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timeMicros(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timeNanos(long value) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.timeNanos(false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimeNanos() {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timeNanos(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timestampMillis(long value, Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.timestampMillis(timeZone, false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimestampMillis(Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timestampMillis(timeZone, true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timestampMicros(long value, Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.timestampMicros(timeZone, false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimestampMicros(Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timestampMicros(timeZone, true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar timestampNanos(long value, Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setInt64Value(value)
+                        .build())
+                .setDtype(DTypes.timestampNanos(timeZone, false))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullTimestampNanos(Optional<String> timeZone) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE)
+                        .build())
+                .setDtype(DTypes.timestampNanos(timeZone, true))
                 .build();
     }
 }

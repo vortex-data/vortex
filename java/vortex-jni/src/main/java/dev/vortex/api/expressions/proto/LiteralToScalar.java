@@ -18,6 +18,7 @@ package dev.vortex.api.expressions.proto;
 import dev.vortex.api.expressions.Literal;
 import dev.vortex.proto.ScalarProtos;
 import java.util.Objects;
+import java.util.Optional;
 
 final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scalar> {
     static final LiteralToScalar INSTANCE = new LiteralToScalar();
@@ -71,6 +72,87 @@ final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scala
             return Scalars.nullInt64();
         } else {
             return Scalars.int64(literal);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitDateDays(Integer days) {
+        if (Objects.isNull(days)) {
+            return Scalars.nullDateDays();
+        } else {
+            return Scalars.dateDays(days);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitDateMillis(Long millis) {
+        if (Objects.isNull(millis)) {
+            return Scalars.nullDateMillis();
+        } else {
+            return Scalars.dateMillis(millis);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimeSeconds(Integer seconds) {
+        if (Objects.isNull(seconds)) {
+            return Scalars.nullTimeSeconds();
+        } else {
+            return Scalars.timeSeconds(seconds);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimeMillis(Integer seconds) {
+        if (Objects.isNull(seconds)) {
+            return Scalars.nullTimeMillis();
+        } else {
+            return Scalars.timeMillis(seconds);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimeMicros(Long seconds) {
+        if (Objects.isNull(seconds)) {
+            return Scalars.nullTimeMicros();
+        } else {
+            return Scalars.timeMicros(seconds);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimeNanos(Long seconds) {
+        if (Objects.isNull(seconds)) {
+            return Scalars.nullTimeNanos();
+        } else {
+            return Scalars.timeNanos(seconds);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimestampMillis(Long epochMillis, Optional<String> timeZone) {
+        if (Objects.isNull(epochMillis)) {
+            return Scalars.nullTimestampMillis(timeZone);
+        } else {
+            return Scalars.timestampMillis(epochMillis, timeZone);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimestampMicros(Long epochMicros, Optional<String> timeZone) {
+        if (Objects.isNull(epochMicros)) {
+            return Scalars.nullTimestampMicros(timeZone);
+        } else {
+            return Scalars.timestampMicros(epochMicros, timeZone);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitTimestampNanos(Long epochNanos, Optional<String> timeZone) {
+        if (Objects.isNull(epochNanos)) {
+            return Scalars.nullTimestampNanos(timeZone);
+        } else {
+            return Scalars.timestampNanos(epochNanos, timeZone);
         }
     }
 
