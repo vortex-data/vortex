@@ -75,6 +75,11 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		auto options = FileScanOptions {column_names, static_cast<int>(state.column_ids.size())};
 
 		bind_data.array_stream = File_scan(bind_data.file, &options);
+
+		for (auto col_id : state.column_ids) {
+			delete[] column_names[col_id];
+		}
+		delete column_names;
 	}
 
 	if (state.finished) {
@@ -84,6 +89,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	if (state.array == nullptr) {
 		auto next = FFIArrayStream_next(bind_data.array_stream);
 		if (!next) {
+			FFIArrayStream_free(bind_data.array_stream);
 			state.finished = true;
 			return;
 		}
