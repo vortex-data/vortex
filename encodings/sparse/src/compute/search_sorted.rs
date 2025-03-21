@@ -119,8 +119,8 @@ impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::compute::test_harness::rstest_reuse::apply;
-    use vortex_array::compute::test_harness::{search_sorted_conformance, *};
+    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
+    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_buffer::buffer;

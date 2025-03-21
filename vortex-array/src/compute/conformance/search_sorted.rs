@@ -1,3 +1,4 @@
+pub use rstest_reuse;
 use rstest_reuse::template;
 use vortex_buffer::buffer;
 use vortex_error::VortexUnwrap;

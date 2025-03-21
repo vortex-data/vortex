@@ -33,7 +33,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
-    use vortex_array::compute::test_harness::test_binary_numeric;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric;
 
     use crate::builders::dict_encode;
 
