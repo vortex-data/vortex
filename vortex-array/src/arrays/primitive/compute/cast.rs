@@ -22,9 +22,7 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
             array.validity().clone().into_nullable()
-        } else if new_nullability == Nullability::NonNullable
-            && array.validity().to_logical(array.len())?.all_true()
-        {
+        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid()? {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
         } else {

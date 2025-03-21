@@ -194,7 +194,7 @@ impl ArrayValidityImpl for VarBinArray {
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_logical(self.len())
+        self.validity.to_mask(self.len())
     }
 }
 

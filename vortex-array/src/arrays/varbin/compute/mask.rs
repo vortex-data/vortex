@@ -23,7 +23,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::VarBinArray;
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
 
     #[test]
     fn test_mask_var_bin_array() {

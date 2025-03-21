@@ -2,9 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::compute::{
-    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide, scalar_at,
-};
+use vortex_array::compute::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide, scalar_at};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
@@ -18,9 +16,7 @@ impl<T: PartialOrd + Debug> IndexOrd<Option<T>> for SearchNullableSlice<T> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
         unsafe { self.0.get_unchecked(idx) }.partial_cmp(elem)
     }
-}
 
-impl<T> Len for SearchNullableSlice<T> {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -41,9 +37,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
             }
         }
     }
-}
 
-impl<T> Len for SearchPrimitiveSlice<T> {
     fn len(&self) -> usize {
         self.0.len()
     }

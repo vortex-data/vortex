@@ -131,7 +131,7 @@ mod test {
 
         assert_eq!(
             date_times.validity_mask().unwrap(),
-            validity.to_logical(date_times.len()).unwrap()
+            validity.to_mask(date_times.len()).unwrap()
         );
 
         let primitive_values = decode_to_temporal(&date_times)

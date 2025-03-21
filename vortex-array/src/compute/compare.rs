@@ -262,21 +262,12 @@ mod tests {
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();
-        let null_buffer = indices_bits
-            .validity()
-            .to_logical(indices_bits.len())
-            .unwrap()
-            .to_null_buffer();
-        let is_valid = |idx: usize| match null_buffer.as_ref() {
-            None => true,
-            Some(buffer) => buffer.is_valid(idx),
-        };
-        let filtered = buffer
+        let mask = indices_bits.validity_mask().unwrap();
+        buffer
             .iter()
             .enumerate()
-            .flat_map(|(idx, v)| (v && is_valid(idx)).then_some(idx as u64))
-            .collect_vec();
-        filtered
+            .filter_map(|(idx, v)| (v && mask.value(idx)).then_some(idx as u64))
+            .collect_vec()
     }
 
     #[test]

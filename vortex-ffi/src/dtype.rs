@@ -233,15 +233,20 @@ pub unsafe extern "C" fn DType_time_zone(dtype: *const DType, dst: *mut c_void, 
         panic!("DType_time_unit: not a time dtype")
     };
 
-    if let Ok(TemporalMetadata::Timestamp(_, Some(zone))) = TemporalMetadata::try_from(ext_dtype) {
-        let bytes = zone.as_bytes();
-        let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
-        dst.copy_from_slice(bytes);
-        *len = bytes.len().try_into().vortex_unwrap();
-        return;
+    match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {
+        TemporalMetadata::Timestamp(_, zone) => {
+            if let Some(zone) = zone {
+                let bytes = zone.as_bytes();
+                let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+                dst.copy_from_slice(bytes);
+                *len = bytes.len().try_into().vortex_unwrap();
+            } else {
+                // No time zone, using local timestamps.
+                *len = 0;
+            }
+        }
+        _ => panic!("DType_time_zone: not a timestamp metadata: {:?}", ext_dtype),
     }
-
-    panic!("DType_time_zone: not a timestamp metadata")
 }
 
 pub const DTYPE_NULL: u8 = 0;

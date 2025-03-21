@@ -21,8 +21,12 @@ use crate::{
 };
 
 mod compute;
+mod native_value;
 mod patch;
 mod serde;
+mod top_value;
+
+pub use native_value::NativeValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -224,12 +228,6 @@ impl PrimitiveArray {
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
     }
 
-    pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
-        match_each_native_ptype!(self.ptype(), |$P| {
-            T::from(self.as_slice::<$P>()[idx]).expect("failed to cast")
-        })
-    }
-
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         if self.ptype() == ptype {
             return self.clone();
@@ -330,7 +328,7 @@ impl ArrayValidityImpl for PrimitiveArray {
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_logical(self.len())
+        self.validity.to_mask(self.len())
     }
 }
 
@@ -340,7 +338,7 @@ mod tests {
 
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
 
     #[test]

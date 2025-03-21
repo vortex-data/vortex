@@ -20,17 +20,23 @@ pub struct BytesDictBuilder {
     values: ByteBufferMut,
     hasher: RandomState,
     dtype: DType,
+    max_dict_bytes: usize,
 }
 
 impl BytesDictBuilder {
-    pub fn new(dtype: DType) -> Self {
+    pub fn new(dtype: DType, max_dict_bytes: usize) -> Self {
         Self {
             lookup: Some(HashTable::new()),
             views: BufferMut::<BinaryView>::empty(),
             values: BufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
+            max_dict_bytes,
         }
+    }
+
+    fn dict_bytes(&self) -> usize {
+        self.views.len() * size_of::<BinaryView>() + self.values.len()
     }
 
     #[inline]
@@ -84,6 +90,9 @@ impl BytesDictBuilder {
                         .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
+                    if self.dict_bytes() >= self.max_dict_bytes {
+                        break;
+                    }
                 }
             })?;
             (
@@ -101,6 +110,9 @@ impl BytesDictBuilder {
                         value.vortex_expect("Dict encode null value in non-nullable array"),
                     );
                     unsafe { codes.push_unchecked(code) }
+                    if self.dict_bytes() >= self.max_dict_bytes {
+                        break;
+                    }
                 }
             })?;
             (codes, Validity::NonNullable)
@@ -123,15 +135,13 @@ impl DictEncoder for BytesDictBuilder {
         }
 
         let len = array.len();
-        let codes = if let Some(varbinview) = array.as_opt::<VarBinViewArray>() {
-            self.encode_bytes(varbinview, len)?
+        if let Some(varbinview) = array.as_opt::<VarBinViewArray>() {
+            self.encode_bytes(varbinview, len)
         } else if let Some(varbin) = array.as_opt::<VarBinArray>() {
-            self.encode_bytes(varbin, len)?
+            self.encode_bytes(varbin, len)
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
-        };
-
-        Ok(codes)
+        }
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {

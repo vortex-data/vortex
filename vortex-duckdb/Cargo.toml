@@ -18,7 +18,7 @@ readme = { workspace = true }
 name = "vortex_duckdb"
 path = "src/lib.rs"
 bench = false
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 arrow-array = { workspace = true }

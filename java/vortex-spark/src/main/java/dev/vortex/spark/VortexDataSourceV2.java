@@ -19,7 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
-import dev.vortex.impl.NativeFile;
+import dev.vortex.impl.Files;
 import dev.vortex.spark.read.VortexTable;
 import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
@@ -51,7 +51,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         // TODO(aduffy): support schema evolution/merging?
         var pathToInfer = Iterables.getLast(getPaths(options));
 
-        try (File file = NativeFile.open(pathToInfer)) {
+        try (File file = Files.open(pathToInfer)) {
             var columns = SparkTypes.toColumns(file.getDType());
             return CatalogV2Util.v2ColumnsToStructType(columns);
         }

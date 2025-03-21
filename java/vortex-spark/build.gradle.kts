@@ -1,5 +1,6 @@
 plugins {
     `java-library`
+    `jvm-test-suite`
     `maven-publish`
 }
 
@@ -12,7 +13,14 @@ dependencies {
     annotationProcessor("org.immutables:value")
 
     implementation("com.google.guava:guava")
-    testImplementation("org.junit.jupiter:junit-jupiter")
+}
+
+testing {
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            useJUnitJupiter()
+        }
+    }
 }
 
 publishing {

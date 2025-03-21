@@ -5,7 +5,7 @@ use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -16,19 +16,20 @@ use crate::builders::DictEncoder;
 
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
-    private::Value<T>: Hash + Eq,
+    NativeValue<T>: Hash + Eq,
 {
-    pub fn new(nullability: Nullability) -> Self {
+    pub fn new(nullability: Nullability, max_dict_bytes: usize) -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
             nullability,
+            max_dict_len: max_dict_bytes / T::PTYPE.byte_width(),
         }
     }
 
     #[inline]
     fn encode_value(&mut self, v: T) -> u64 {
-        match self.lookup.entry(private::Value(v)) {
+        match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(vac) => {
                 let next_code = self.values.len() as u64;
@@ -43,20 +44,20 @@ where
 /// Dictionary encode primitive array with given PType.
 /// Null values in the original array are encoded in the dictionary.
 pub struct PrimitiveDictBuilder<T> {
-    lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
+    lookup: HashMap<NativeValue<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
     nullability: Nullability,
+    max_dict_len: usize,
 }
 
 impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
-    private::Value<T>: Hash + Eq,
+    NativeValue<T>: Hash + Eq,
 {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
-
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
         let primitive = array.to_primitive()?;
 
@@ -69,6 +70,9 @@ where
                         .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
+                    if self.values.len() >= self.max_dict_len {
+                        break;
+                    }
                 }
             })?;
             PrimitiveArray::new(
@@ -85,6 +89,9 @@ where
                         *value.vortex_expect("Dict encode null value in non-nullable array"),
                     );
                     unsafe { codes.push_unchecked(code) }
+                    if self.values.len() >= self.max_dict_len {
+                        break;
+                    }
                 }
             })?;
             PrimitiveArray::new(codes, Validity::NonNullable)
@@ -98,60 +105,6 @@ where
     }
 }
 
-mod private {
-    use vortex_dtype::{NativePType, half};
-
-    /// Value serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.
-    ///
-    /// Rust does not define Hash/Eq for any of the float types due to the presence of
-    /// NaN and +/- 0. We don't care about storing multiple NaNs or zeros in our dictionaries,
-    /// so we define simple bit-wise Hash/Eq for the Value-wrapped versions of these types.
-    #[derive(Debug)]
-    pub struct Value<T>(pub T);
-
-    impl<T> PartialEq<Value<T>> for Value<T>
-    where
-        T: NativePType,
-    {
-        fn eq(&self, other: &Value<T>) -> bool {
-            self.0.is_eq(other.0)
-        }
-    }
-
-    impl<T> Eq for Value<T> where T: NativePType {}
-
-    macro_rules! prim_value {
-        ($typ:ty) => {
-            impl core::hash::Hash for Value<$typ> {
-                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-                    self.0.hash(state);
-                }
-            }
-        };
-    }
-
-    macro_rules! float_value {
-        ($typ:ty) => {
-            impl core::hash::Hash for Value<$typ> {
-                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-                    self.0.to_bits().hash(state);
-                }
-            }
-        };
-    }
-
-    prim_value!(u8);
-    prim_value!(u16);
-    prim_value!(u32);
-    prim_value!(u64);
-    prim_value!(i8);
-    prim_value!(i16);
-    prim_value!(i32);
-    prim_value!(i64);
-    float_value!(half::f16);
-    float_value!(f32);
-    float_value!(f64);
-}
 #[cfg(test)]
 mod test {
     use vortex_array::ToCanonical;

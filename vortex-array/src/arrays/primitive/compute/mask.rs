@@ -16,3 +16,15 @@ impl MaskFn<&PrimitiveArray> for PrimitiveEncoding {
         )
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::mask::test_mask;
+
+    #[test]
+    fn test_mask_non_nullable_array() {
+        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
+        test_mask(&non_nullable_array);
+    }
+}

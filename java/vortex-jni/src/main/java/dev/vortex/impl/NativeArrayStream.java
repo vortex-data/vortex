@@ -19,11 +19,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import dev.vortex.api.Array;
 import dev.vortex.api.ArrayStream;
+import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 
-public final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> implements ArrayStream {
+final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> implements ArrayStream {
 
-    public NativeArrayStream(FFI.FFIArrayStream inner) {
+    NativeArrayStream(FFI.FFIArrayStream inner) {
         super(inner);
     }
 
@@ -32,6 +33,12 @@ public final class NativeArrayStream extends BaseWrapped<FFI.FFIArrayStream> imp
         checkNotNull(inner, "inner");
         var array = FFI.FFIArrayStream_current(inner);
         return new NativeArray(array);
+    }
+
+    @Override
+    public DType getDataType() {
+        checkNotNull(inner, "inner");
+        return new NativeDType(FFI.FFIArrayStream_dtype(inner));
     }
 
     @Override

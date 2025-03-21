@@ -21,13 +21,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.collect.ImmutableList;
 import com.sun.jna.Memory;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.LongByReference;
 import dev.vortex.api.DType;
 import dev.vortex.jni.FFI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
-public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
+final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DType {
 
     // Assumes no field name is > 1KiB
     private static final int MAX_FIELD_LEN = 1024;
@@ -90,6 +91,7 @@ public final class NativeDType extends BaseWrapped<FFI.FFIDType> implements DTyp
             var fieldCount = FFI.DType_field_count(inner);
             for (int i = 0; i < fieldCount; i++) {
                 var lenRef = new IntByReference();
+                LongByReference memoryPtr = new LongByReference();
                 FFI.DType_field_name(inner, i, memory, lenRef);
                 var data = memory.getByteArray(0, lenRef.getValue());
                 var name = new String(data, StandardCharsets.UTF_8);

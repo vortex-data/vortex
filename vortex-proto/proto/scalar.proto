@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package vortex.scalar;
 
+option java_package = "dev.vortex.proto";
+option java_outer_classname = "ScalarProtos";
+
 import "dtype.proto";
 import "google/protobuf/struct.proto";
-import "google/protobuf/wrappers.proto";
 
 message Scalar {
   vortex.dtype.DType dtype = 1;

@@ -4,6 +4,9 @@ Vortex is a file format that can be used by any execution engine. Nearly every p
 the C ABI (Application Binary Interface), so by providing an FFI interface to work with Vortex objects we can
 make it easy to support a variety of languages.
 
+Check out the [`examples`](./examples/) directory to see an example of how to use the API to build
+a real native application.
+
 ## Design
 
 The FFI is designed to be very simple and follows a very object-oriented approach:
@@ -46,3 +49,4 @@ This means that we can actually request a pointer instead
 Because C and Rust have different string representations, functions that return Strings must instead receive
 a pointer to a buffer, and a pointer to an integer. Any `str` or `String` from Rust will be copied into the output
 buffer,
+

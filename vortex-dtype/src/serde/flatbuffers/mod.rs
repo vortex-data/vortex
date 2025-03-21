@@ -43,7 +43,7 @@ impl ViewedDType {
 
 impl StructDType {
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
-    pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
+    fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
         let names = fb_struct
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
