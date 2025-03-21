@@ -40,7 +40,7 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
 
     assert!(array.len() > offset, "offset out of bounds");
 
-    let end = min(offset + DUCKDB_DEFAULT_CHUNK_SIZE, array.len());
+    let end = min(offset + DUCKDB_STANDARD_VECTOR_SIZE, array.len());
     let is_end = end == array.len();
 
     let slice = slice(array, offset, end).vortex_expect("slice");
