@@ -17,7 +17,6 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
-use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
 use crate::{
     ExprEvaluator, LayoutReader, LayoutReaderExt, RowMask, instrument, mask_future_ready,
@@ -242,7 +241,8 @@ impl Scan {
 
         // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
         let layout_reader = self.layout_reader.clone();
-        let filter_reader = FilterLayoutReader::new(layout_reader.clone());
+        let filter_reader = self.layout_reader.clone();
+        //let filter_reader = FilterLayoutReader::new(layout_reader.clone());
 
         // Map each mask into a future that resolves the array for the row range.
         let row_ranges: Vec<_> = self

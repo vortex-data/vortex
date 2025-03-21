@@ -229,7 +229,7 @@ pub async fn register_vortex_files(
     schema: &Schema,
 ) -> anyhow::Result<()> {
     let vortex_dir = input_path.join("vortex/")?;
-    let vortex_dir = vortex_dir.join("hits_0.vortex")?;
+    // let vortex_dir = vortex_dir.join("hits_0.vortex")?;
 
     let format = Arc::new(VortexFormat::default());
 
