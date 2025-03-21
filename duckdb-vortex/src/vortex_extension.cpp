@@ -50,6 +50,7 @@ struct VortexBindData : public TableFunctionData {
 struct VortexScanState : public LocalTableFunctionState {
 	idx_t current_row = 0;
 	bool finished = false;
+	mutable Array *array;
 
 	optional_ptr<TableFilterSet> filter;
 	vector<idx_t> column_ids;
@@ -60,7 +61,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &state = data.local_state->Cast<VortexScanState>();  // NOLINT
 
 	if (bind_data.array_stream == nullptr) {
-
 		const char **const column_names = new const char *[state.column_ids.size()];
 		auto idx = 0;
 		for (auto col_id : state.column_ids) {
@@ -80,15 +80,22 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		return;
 	}
 
-	auto c = FFIArrayStream_current(bind_data.array_stream);
-	auto len = FFIArray_len(c);
+	if (state.array == nullptr) {
+		auto next = FFIArrayStream_next(bind_data.array_stream);
+		if (!next) {
+			state.finished = true;
+			return;
+		}
+		state.array = FFIArrayStream_current(bind_data.array_stream);
+	}
+	auto len = FFIArray_len(state.array);
 	std::cout << "array len: " << len << std::endl;
 
-	// Set dummy value.
-	output.SetCardinality(0);
-
-	// When done reading, set finished to true
-	state.finished = true;
+	// auto pos = FFIArray_to_duckdb_chunk(state.array, 0, output);
+	// if (pos == 0) {
+	// FFIArray_free(state.array);
+	// state.array = nullptr;
+	// }
 }
 
 /// Converts a Vortex data type to a DuckDB logical type.
