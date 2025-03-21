@@ -6029,6 +6029,8 @@ dependencies = [
  "num-traits",
  "rand 0.9.0",
  "rkyv 0.8.10",
+ "rstest",
+ "rstest_reuse",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",

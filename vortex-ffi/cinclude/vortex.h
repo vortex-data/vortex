@@ -105,6 +105,7 @@ typedef struct File File;
 typedef struct FileOpenOptions {
   /**
    * URI for opening the file.
+   * This must be a valid URI, even the files (file:///path/to/file)
    */
   const char *uri;
   /**
@@ -123,6 +124,16 @@ typedef struct FileOpenOptions {
 } FileOpenOptions;
 
 /**
+ * Whole file statistics.
+ */
+typedef struct FileStatistics {
+  /**
+   * The exact number of rows in the file.
+   */
+  uint64_t num_rows;
+} FileStatistics;
+
+/**
  * Scan options provided by an FFI client calling the `File_scan` function.
  */
 typedef struct FileScanOptions {
@@ -134,6 +145,8 @@ typedef struct FileScanOptions {
    * Number of columns in `projection`.
    */
   int projection_len;
+  const char *filter_expression;
+  int filter_expression_len;
 } FileScanOptions;
 
 
@@ -240,10 +253,30 @@ uint8_t DType_time_unit(const struct DType *dtype);
 
 void DType_time_zone(const struct DType *dtype, void *dst, int *len);
 
+#if defined(ENABLE_DUCKDB_FFI)
+duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Back a single chunk of the array as a duckdb data chunk.
+ * The initial call should pass offset = 0.
+ * The offset is returned to the caller, which can be used to request the next chunk.
+ * 0 is returned when the stream is finished.
+ */
+unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
+                                      unsigned int offset,
+                                      duckdb_data_chunk data_chunk_ptr);
+#endif
+
 /**
  * Open a file at the given path on the file system.
  */
 struct File *File_open(const struct FileOpenOptions *options);
+
+struct FileStatistics *File_statistics(struct File *file);
+
+void FileStatistics_free(struct FileStatistics *stat);
 
 /**
  * Get a readonly pointer to the DType of the data inside of the file.
@@ -254,7 +287,7 @@ struct File *File_open(const struct FileOpenOptions *options);
 const struct DType *File_dtype(const struct File *file);
 
 /**
- * Build a new Scan that will stream batches of `FFIArray` from the file.
+ * Build a new scan that will stream batches of `FFIArray` from the file.
  */
 struct ArrayStream *File_scan(const struct File *file, const struct FileScanOptions *opts);
 

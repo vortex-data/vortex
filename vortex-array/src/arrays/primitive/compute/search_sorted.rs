@@ -121,74 +121,19 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedNullsFirst<'_, T> {
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
-    use vortex_buffer::buffer;
+    use crate::ArrayRef;
+    use crate::compute::conformance::search_sorted::rstest_reuse::apply;
+    use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
+    use crate::compute::{SearchResult, SearchSortedSide, search_sorted};
 
-    use super::*;
-    use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::compute::search_sorted;
-
-    #[test]
-    fn test_search_sorted_primitive() {
-        let values = buffer![1u16, 2, 3].into_array();
-
-        assert_eq!(
-            search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
-        assert_eq!(
-            search_sorted(&values, 1, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(0)
-        );
-        assert_eq!(
-            search_sorted(&values, 1, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(1)
-        );
-        assert_eq!(
-            search_sorted(&values, 4, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(3)
-        );
-    }
-
-    #[test]
-    fn search_sorted_nulls_first() {
-        let values = PrimitiveArray::new(
-            buffer![1u16, 2, 3],
-            Validity::Array(
-                BoolArray::new(
-                    BooleanBuffer::collect_bool(3, |idx| idx != 0),
-                    Validity::NonNullable,
-                )
-                .into_array(),
-            ),
-        );
-
-        assert_eq!(
-            search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&values, 1, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&values, 2, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(2)
-        );
-        assert_eq!(
-            search_sorted(&values, 4, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(3)
-        );
-    }
-
-    #[test]
-    fn search_sorted_all_nulls() {
-        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid);
-
-        assert_eq!(
-            search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(3)
-        );
+    #[apply(search_sorted_conformance)]
+    fn primitive_search_sorted(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let res = search_sorted(&array, value, side).unwrap();
+        assert_eq!(res, expected);
     }
 }

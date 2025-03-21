@@ -19,8 +19,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml
-                       CRATES vortex-duckdb vortex-ffi
-                       IMPORTED_CRATES vortex_ffi vortex_duckdb)
+        CRATES vortex-ffi
+        FEATURES duckdb
+        IMPORTED_CRATES vortex_ffi)
 
 project(${TARGET_NAME}_project)
 include_directories(src/include)
@@ -29,23 +30,21 @@ include_directories(gen/include)
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-if(APPLE)
+if (APPLE)
     find_library(CORE_FOUNDATION_FRAMEWORK CoreFoundation)
     find_library(SECURITY_FRAMEWORK Security)
-endif()
+endif ()
 
 target_link_libraries(${EXTENSION_NAME}
-    vortex_duckdb-static
-    vortex_ffi-static
-    ${CORE_FOUNDATION_FRAMEWORK}
-    ${SECURITY_FRAMEWORK}
+        vortex_ffi-static
+        ${CORE_FOUNDATION_FRAMEWORK}
+        ${SECURITY_FRAMEWORK}
 )
 
 target_link_libraries(${LOADABLE_EXTENSION_NAME}
-    vortex_duckdb-shared
-    vortex_ffi-static
-    ${CORE_FOUNDATION_FRAMEWORK}
-    ${SECURITY_FRAMEWORK}
+        vortex_ffi-shared
+        ${CORE_FOUNDATION_FRAMEWORK}
+        ${SECURITY_FRAMEWORK}
 )
 
 find_package(protobuf CONFIG REQUIRED)

@@ -10,20 +10,22 @@ use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 
-pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
-    let min = array
-        .statistics()
-        .compute_stat(Stat::Min)?
-        .ok_or_else(|| vortex_err!("Min stat not found"))?;
+impl FoRArray {
+    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
+        let min = array
+            .statistics()
+            .compute_stat(Stat::Min)?
+            .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
-    let dtype = array.dtype().clone();
-    let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
-        let unsigned_ptype = array.ptype().to_unsigned();
-        compress_primitive::<$T>(array, $T::try_from(&min)?)?
-            .reinterpret_cast(unsigned_ptype)
-            .into_array()
-    });
-    FoRArray::try_new(encoded, Scalar::new(dtype, min))
+        let dtype = array.dtype().clone();
+        let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
+            let unsigned_ptype = array.ptype().to_unsigned();
+            compress_primitive::<$T>(array, $T::try_from(&min)?)?
+                .reinterpret_cast(unsigned_ptype)
+                .into_array()
+        });
+        FoRArray::try_new(encoded, Scalar::new(dtype, min))
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -89,7 +91,7 @@ mod test {
             (0u32..10_000).map(|v| v + 1_000_000).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
-        let compressed = for_compress(array).unwrap();
+        let compressed = FoRArray::encode(array).unwrap();
         assert_eq!(
             u32::try_from(compressed.reference_scalar()).unwrap(),
             1_000_000u32
@@ -101,8 +103,9 @@ mod test {
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
         assert!(array.statistics().to_owned().into_iter().next().is_none());
 
-        let compressed = for_compress(array.clone()).unwrap();
-        assert_eq!(compressed.dtype(), array.dtype());
+        let dtype = array.dtype().clone();
+        let compressed = FoRArray::encode(array).unwrap();
+        assert_eq!(compressed.dtype(), &dtype);
         assert!(compressed.dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_unsigned_int());
 
@@ -114,7 +117,7 @@ mod test {
     fn test_decompress() {
         // Create a range offset by a million
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
-        let compressed = for_compress(array.clone()).unwrap();
+        let compressed = FoRArray::encode(array.clone()).unwrap();
         let decompressed = compressed.to_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
@@ -122,7 +125,7 @@ mod test {
     #[test]
     fn test_overflow() {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = for_compress(array.clone()).unwrap();
+        let compressed = FoRArray::encode(array.clone()).unwrap();
         assert_eq!(
             i8::MIN,
             compressed

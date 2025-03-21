@@ -200,36 +200,33 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
 mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
+    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use vortex_array::compute::{
         SearchResult, SearchSortedSide, search_sorted, search_sorted_many, slice,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
+    use vortex_error::VortexUnwrap;
 
-    use crate::BitPackedArray;
+    use crate::{BitPackedArray, find_best_bit_width};
 
-    #[test]
-    fn search_with_patches() {
-        let bitpacked = BitPackedArray::encode(&buffer![1u32, 2, 3, 4, 5].into_array(), 2).unwrap();
-        assert_eq!(
-            search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(3)
-        );
-        assert_eq!(
-            search_sorted(&bitpacked, 5, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(4)
-        );
-        assert_eq!(
-            search_sorted(&bitpacked, 6, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(5)
-        );
-        assert_eq!(
-            search_sorted(&bitpacked, 0, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
+    #[apply(search_sorted_conformance)]
+    fn bitpacking_search_sorted(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let primitive_array = array.to_primitive().vortex_unwrap();
+        // force patches
+        let width = find_best_bit_width(&primitive_array)
+            .vortex_unwrap()
+            .saturating_sub(2);
+        let bitpacked = BitPackedArray::encode(&primitive_array, width).vortex_unwrap();
+        let res = search_sorted(&bitpacked, value, side).unwrap();
+        assert_eq!(res, expected);
     }
 
     #[test]
@@ -248,40 +245,6 @@ mod test {
             search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(1)
         );
-    }
-
-    #[test]
-    fn test_search_sorted_nulls() {
-        let bitpacked = BitPackedArray::encode(
-            &PrimitiveArray::from_option_iter([None, None, Some(1u64)]),
-            2,
-        )
-        .unwrap();
-
-        let found = search_sorted(
-            &bitpacked,
-            Scalar::primitive(1u64, Nullability::Nullable),
-            SearchSortedSide::Left,
-        )
-        .unwrap();
-        assert_eq!(found, SearchResult::Found(2));
-    }
-
-    #[test]
-    fn test_search_sorted_nulls_not_found() {
-        let bitpacked = BitPackedArray::encode(
-            &PrimitiveArray::from_option_iter([None, None, Some(0u8), Some(107u8)]),
-            0,
-        )
-        .unwrap();
-
-        let found = search_sorted(
-            &bitpacked,
-            Scalar::primitive(127u8, Nullability::Nullable),
-            SearchSortedSide::Left,
-        )
-        .unwrap();
-        assert_eq!(found, SearchResult::NotFound(4));
     }
 
     #[test]

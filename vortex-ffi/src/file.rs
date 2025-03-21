@@ -111,7 +111,7 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
     file.inner.dtype()
 }
 
-/// Build a new Scan that will stream batches of `FFIArray` from the file.
+/// Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
