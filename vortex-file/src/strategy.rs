@@ -91,6 +91,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
     }
 }
 
+#[allow(dead_code)]
 struct BtrBlocksCompressedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
 }
@@ -132,24 +133,16 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         let mut compressed_array = None;
 
         if let Some(prev_compression) = self.previous_chunk.as_ref() {
-            let prev = prev_compression.chunk.clone();
-            let prev_vtable = prev.vtable();
-            // dbg!(prev.encoding());
-            // dbg!(chunk.encoding());
+            let prev_chunk = prev_compression.chunk.clone();
+            let prev_vtable = prev_chunk.vtable();
             let canonical = chunk.to_canonical()?;
-            // let encoded = ;
-
-            // dbg!(encoded.encoding());
-
-            // let prev_children = prev.children();
-            // let encoded_children = encoded.children();
 
             // If the encoding didn't have to fallback here
-            if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev))? {
-                let prev_children = prev
+            if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev_chunk))? {
+                let prev_children = prev_chunk
                     .children_names()
                     .into_iter()
-                    .zip_eq(prev.children())
+                    .zip_eq(prev_chunk.children())
                     .collect::<HashMap<_, _>>();
                 let encoded_children = encoded
                     .children_names()
@@ -158,23 +151,23 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                     .collect::<HashMap<_, _>>();
 
                 let mut new_map = HashMap::new();
-                for (k, c) in encoded_children {
+                for (k, child) in encoded_children {
                     if let Some(prev) = prev_children.get(&k) {
                         if let Some(new_encoded_child) =
-                            prev.vtable().encode(&c.to_canonical()?, Some(prev))?
+                            prev.vtable().encode(&child.to_canonical()?, Some(prev))?
                         {
                             new_map.insert(k.clone(), new_encoded_child);
-                        } else if prev.encoding() != c.encoding() {
+                        } else if prev.encoding() != child.encoding() {
                             log::warn!(
                                 "Couldn't encode {} array as {}",
-                                c.encoding(),
+                                child.encoding(),
                                 prev.encoding()
                             )
                         }
                     }
 
                     if !new_map.contains_key(&k) {
-                        new_map.insert(k, c);
+                        new_map.insert(k, child);
                     }
                 }
 
@@ -193,6 +186,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
                     compressed_array = Some(new_array);
                 }
+            } else {
+                self.previous_chunk.take();
             }
         }
 
