@@ -1,13 +1,15 @@
+#![cfg(feature = "duckdb")]
+
 use std::cmp::min;
 use std::ffi::c_uint;
 
 use duckdb::core::DataChunkHandle;
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
-use vortex::Array;
 use vortex::compute::slice;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
-use vortex_duckdb::ToDuckDBType;
+use vortex::{Array, ToCanonical};
+use vortex_duckdb::{ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
 
@@ -31,7 +33,6 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
 ) -> c_uint {
-    let data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
     const CHUNK_SIZE: usize = 2048;
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
@@ -44,7 +45,41 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
     let is_end = end == array.len();
 
     let slice = slice(array, offset, end).vortex_expect("slice");
-    slice.to_duckdb(&data_chunk_handle);
+    let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+    to_duckdb_chunk(
+        &slice.to_struct().vortex_expect("must be a struct"),
+        &mut data_chunk_handle,
+    )
+    .vortex_expect("to_duckdb");
 
-    if is_end { 0 } else { end }
+    if is_end { 0 } else { end as u32 }
+}
+
+#[cfg(test)]
+mod tests {
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex::Array;
+    use vortex::arrays::{PrimitiveArray, StructArray};
+    use vortex::error::VortexExpect;
+
+    use crate::array::FFIArray;
+    use crate::duckdb::Array_to_duckdb_chunk;
+
+    #[test]
+    fn test_long_array() {
+        let vortex: PrimitiveArray = (0i32..4095).collect();
+        let vortex = StructArray::from_fields(&[("a", vortex.to_array())]).vortex_expect("str");
+
+        let ffi_array: *mut FFIArray = Box::into_raw(Box::new(FFIArray {
+            inner: vortex.to_array(),
+        }));
+
+        let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
+        let offset = unsafe { Array_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
+        assert_eq!(offset, 2048);
+        assert_eq!(handle.len(), 2048);
+        let offset = unsafe { Array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };
+        assert_eq!(offset, 0);
+        assert_eq!(handle.len(), 2047);
+    }
 }
