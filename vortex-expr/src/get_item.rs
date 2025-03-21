@@ -56,14 +56,14 @@ impl Display for GetItem {
 }
 
 #[cfg(feature = "proto")]
-mod proto {
+pub(crate) mod proto {
     use vortex_error::{VortexResult, vortex_bail};
     use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
 
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, GetItem, Id};
 
-    struct GetItemSerde;
+    pub(crate) struct GetItemSerde;
 
     impl Id for GetItemSerde {
         fn id(&self) -> &'static str {

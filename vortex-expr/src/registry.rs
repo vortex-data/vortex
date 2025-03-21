@@ -6,6 +6,7 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr;
 
 use crate::binary::proto::BinarySerde;
+use crate::get_item::proto::GetItemSerde;
 use crate::identity::proto::IdentitySerde;
 use crate::literal::proto::LiteralSerde;
 use crate::merge::proto::MergeSerde;
@@ -17,6 +18,7 @@ use crate::{ExprDeserialize, ExprRef};
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
     &BinarySerde,
     &LiteralSerde,
+    &GetItemSerde,
     &IdentitySerde,
     &NotSerde,
     &SelectSerde,
