@@ -201,8 +201,6 @@ void VortexExtension::Load(DuckDB &db) {
 		}
 		return state;
 	};
-	// typedef unique_ptr<GlobalTableFunctionState> (*table_function_init_global_t)(ClientContext &context,
-	// TableFunctionInitInput &inpu
 
 	vortex_func.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
