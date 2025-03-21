@@ -145,17 +145,19 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
 
         let perf_hint = self.read.performance_hint();
         let window = perf_hint.coalescing_window();
-        let max_read = perf_hint.max_read().unwrap_or(2 << 24); // 16MB.
+        let max_read = perf_hint.max_read();
 
         for pending in self.segment_queue.pending() {
             // If the coalesced request has reached the maximum size, ship it.
-            if coalesced.size_bytes() > max_read {
-                log::debug!(
-                    "Coalesced read {:?} reached max size {}",
-                    coalesced,
-                    max_read
-                );
-                break;
+            if let Some(max_read) = max_read {
+                if coalesced.size_bytes() > max_read {
+                    log::debug!(
+                        "Coalesced read {:?} reached max size {}",
+                        coalesced,
+                        max_read
+                    );
+                    break;
+                }
             }
 
             // Otherwise, try to include the pending segment in the request.

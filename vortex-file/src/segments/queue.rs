@@ -203,7 +203,7 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                         .lock()
                         .vortex_expect("poisoned lock")
                         .need_later
-                        .insert(id);
+                        .insert_if_absent(id);
 
                     break pending;
                 }
