@@ -38,9 +38,9 @@ impl EncodingVTable for ZigZagEncoding {
             vortex_bail!("doesn't work")
         };
 
-        if !parray.ptype().is_unsigned_int() {
+        if !parray.ptype().is_signed_int() {
             vortex_bail!(
-                "only unsigned integers can be encoded into {}, got {}",
+                "only signed integers can be encoded into {}, got {}",
                 self.id(),
                 parray.ptype()
             )

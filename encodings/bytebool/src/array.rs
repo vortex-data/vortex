@@ -89,13 +89,12 @@ impl ArrayImpl for ByteBoolArray {
     }
 
     fn _with_children(&self, children: &[vortex_array::ArrayRef]) -> VortexResult<Self> {
-        let mut this = self.clone();
+        let validity = match self.validity() {
+            Validity::Array(_) => Validity::Array(children[0].clone()),
+            other => other.clone(),
+        };
 
-        if let Validity::Array(array) = &mut this.validity {
-            *array = children[0].clone();
-        }
-
-        Ok(this)
+        Ok(Self::new(self.buffer().clone(), validity))
     }
 }
 
