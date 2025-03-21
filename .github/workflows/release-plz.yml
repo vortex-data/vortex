@@ -85,7 +85,7 @@ jobs:
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
           args: --release --interpreter python3.10
       - name: Install UV
-        uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
           sync: false
       - name: test wheel
@@ -116,10 +116,9 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install UV
-        uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
           sync: false
-          version: 0.6.9
       - name: rust-toolchain
         shell: bash
         run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT

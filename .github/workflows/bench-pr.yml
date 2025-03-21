@@ -66,7 +66,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.6.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
           sync: false
 
