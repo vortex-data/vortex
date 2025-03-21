@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
-use vortex_array::compute::{Operator, compare, filter, scalar_at, sub_scalar};
+use vortex_array::compute::{Operator, compare, fill_null, filter, scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -11,7 +11,7 @@ use vortex_array::{
     RkyvMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
@@ -164,13 +164,16 @@ impl SparseArray {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
-            compare(array, &fill_array, Operator::NotEq)?
-                .to_bool()?
-                .boolean_buffer()
-                .clone(),
+            fill_null(
+                &compare(array, &fill_array, Operator::NotEq)?,
+                Scalar::bool(true, Nullability::NonNullable),
+            )?
+            .to_bool()?
+            .boolean_buffer()
+            .clone(),
         );
 
-        let non_top_values = filter(array, &non_top_mask)?.to_primitive()?;
+        let non_top_values = filter(array, &non_top_mask)?;
 
         let indices: Buffer<u64> = match non_top_mask {
             Mask::AllTrue(count) => {
