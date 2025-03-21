@@ -20,7 +20,7 @@ pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duck
     dtype
         .to_duckdb_type()
         .vortex_expect("convert to duckdb")
-        .get_ptr()
+        .into_owning_ptr()
 }
 
 /// Back a single chunk of the array as a duckdb data chunk.
@@ -28,7 +28,7 @@ pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duck
 /// The offset is returned to the caller, which can be used to request the next chunk.
 /// 0 is returned when the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Array_to_duckdb_chunk(
+pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     stream: *mut FFIArray,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
@@ -46,11 +46,10 @@ pub unsafe extern "C" fn Array_to_duckdb_chunk(
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
-    to_duckdb_chunk(
-        &slice.to_struct().vortex_expect("must be a struct"),
-        &mut data_chunk_handle,
-    )
-    .vortex_expect("to_duckdb");
+
+    let slice_struct = slice.to_struct().vortex_expect("must be a struct");
+
+    to_duckdb_chunk(&slice_struct, &mut data_chunk_handle).vortex_expect("to_duckdb");
 
     if is_end { 0 } else { end as u32 }
 }
@@ -63,7 +62,7 @@ mod tests {
     use vortex::error::VortexExpect;
 
     use crate::array::FFIArray;
-    use crate::duckdb::Array_to_duckdb_chunk;
+    use crate::duckdb::FFIArray_to_duckdb_chunk;
 
     #[test]
     fn test_long_array() {
@@ -75,7 +74,7 @@ mod tests {
         }));
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let offset = unsafe { Array_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
+        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
         let offset = unsafe { Array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };

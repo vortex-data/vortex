@@ -1,5 +1,7 @@
 #define DUCKDB_EXTENSION_MAIN
 
+#define DEFINE_DUCKDB
+
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/common/multi_file_reader.hpp"
@@ -87,44 +89,16 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			return;
 		}
 		state.array = FFIArrayStream_current(bind_data.array_stream);
-	}
-	auto len = FFIArray_len(state.array);
-	std::cout << "array len: " << len << std::endl;
-
-	// auto pos = FFIArray_to_duckdb_chunk(state.array, 0, output);
-	// if (pos == 0) {
-	// FFIArray_free(state.array);
-	// state.array = nullptr;
-	// }
-}
-
-/// Converts a Vortex data type to a DuckDB logical type.
-static LogicalType VortexTypeToDuckDBType(uint8_t dtype_tag) {
-	static const std::unordered_map<uint8_t, LogicalType> type_map = {
-	    {DTYPE_BOOL, LogicalType::BOOLEAN},
-	    {DTYPE_PRIMITIVE_I8, LogicalType::TINYINT},
-	    {DTYPE_PRIMITIVE_I16, LogicalType::SMALLINT},
-	    {DTYPE_PRIMITIVE_I32, LogicalType::INTEGER},
-	    {DTYPE_PRIMITIVE_I64, LogicalType::BIGINT},
-	    {DTYPE_PRIMITIVE_U8, LogicalType::UTINYINT},
-	    {DTYPE_PRIMITIVE_U16, LogicalType::USMALLINT},
-	    {DTYPE_PRIMITIVE_U32, LogicalType::UINTEGER},
-	    {DTYPE_PRIMITIVE_U64, LogicalType::UBIGINT},
-	    {DTYPE_PRIMITIVE_F16, LogicalType::FLOAT},
-
-	    {DTYPE_PRIMITIVE_F32, LogicalType::FLOAT},
-	    {DTYPE_PRIMITIVE_F64, LogicalType::DOUBLE},
-	    {DTYPE_UTF8, LogicalType::VARCHAR},
-	    {DTYPE_BINARY, LogicalType::BLOB},
-	};
-
-	auto it = type_map.find(dtype_tag);
-	if (it != type_map.end()) {
-		return it->second;
+		state.current_row = 0;
 	}
 
-	// For unsupported types, default to VARCHAR.
-	return LogicalType::VARCHAR;
+	state.current_row =
+	    FFIArray_to_duckdb_chunk(state.array, state.current_row, reinterpret_cast<duckdb_data_chunk>(&output));
+
+	if (state.current_row == 0) {
+		FFIArray_free(state.array);
+		state.array = nullptr;
+	}
 }
 
 /// Extracts schema information from a Vortex file's data type.
@@ -139,12 +113,11 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 		std::string field_name(name_buffer, name_len);
 
 		DType *field_dtype = DType_field_dtype(file_dtype, idx);
-		LogicalType duckdb_type = VortexTypeToDuckDBType(DType_get(field_dtype));
+		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype));
 
 		column_names.push_back(field_name);
-		column_types.push_back(duckdb_type);
-
-		DType_free(field_dtype);
+		column_types.push_back(*duckdb_type);
+		 DType_free(field_dtype);
 	}
 }
 
@@ -191,7 +164,6 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 	ExtractVortexSchema(file_dtype, column_types, column_names);
-	File_free(file);
 
 	result->column_names = column_names;
 	result->columns_types = column_types;
@@ -237,7 +209,7 @@ void VortexExtension::Load(DuckDB &db) {
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;
 	vortex_func.filter_pushdown = true;
-	vortex_func.filter_prune = true;
+	// vortex_func.filter_prune = true;
 
 	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
