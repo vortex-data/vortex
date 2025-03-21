@@ -58,6 +58,8 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
             metrics: options.metrics.clone(),
         };
 
+        // When this wakes, does it cause the CPU tasks to wake too? Surely not... only when
+        // the segment is resolved.
         options.options.io_dispatcher.dispatch(move || async move {
             let io_stream = driver
                 .io_driver()

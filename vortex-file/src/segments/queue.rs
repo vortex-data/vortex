@@ -155,6 +155,11 @@ impl SegmentQueue {
                 //     "Segment queue closed with pending _requested_ segments"
                 // );
                 return None;
+            } else {
+                self.inner
+                    .metrics
+                    .counter("vortex.scan.segments.notified")
+                    .inc();
             }
         }
     }
