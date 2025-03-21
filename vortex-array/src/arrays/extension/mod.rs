@@ -69,9 +69,8 @@ impl ArrayImpl for ExtensionArray {
     }
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let mut this = self.clone();
-        this.storage = self.storage().with_children(children)?.into_array();
-        Ok(this)
+        let storage = self.storage().with_children(children)?.into_array();
+        Ok(Self::new(self.ext_dtype().clone(), storage))
     }
 }
 
