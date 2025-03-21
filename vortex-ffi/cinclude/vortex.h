@@ -105,6 +105,7 @@ typedef struct File File;
 typedef struct FileOpenOptions {
   /**
    * URI for opening the file.
+   * This must be a valid URI, even the files (file:///path/to/file)
    */
   const char *uri;
   /**
@@ -287,6 +288,7 @@ const struct DType *File_dtype(const struct File *file);
 
 /**
  * Build a new Scan that will stream batches of `FFIArray` from the file.
+ * This takes ownership of the file and file options.
  */
 struct ArrayStream *File_scan(const struct File *file, const struct FileScanOptions *opts);
 
