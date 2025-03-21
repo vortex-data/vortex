@@ -20,7 +20,7 @@ pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duck
     dtype
         .to_duckdb_type()
         .vortex_expect("convert to duckdb")
-        .into_ptr()
+        .get_ptr()
 }
 
 /// Back a single chunk of the array as a duckdb data chunk.
