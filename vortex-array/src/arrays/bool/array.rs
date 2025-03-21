@@ -1,6 +1,6 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 
 use super::serde::BoolMetadata;
@@ -113,6 +113,14 @@ impl ArrayImpl for BoolArray {
     #[inline]
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BoolEncoding)
+    }
+
+    fn _with_children(&self, children: &[&dyn Array]) -> VortexResult<Self> {
+        let mut this = self.clone();
+        if let Validity::Array(array) = &mut this.validity {
+            *array = children[0].to_array();
+        }
+        Ok(this)
     }
 }
 

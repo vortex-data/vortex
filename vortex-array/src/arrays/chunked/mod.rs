@@ -198,6 +198,10 @@ impl ArrayImpl for ChunkedArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ChunkedEncoding)
     }
+
+    fn _with_children(&self, children: &[&dyn Array]) -> VortexResult<Self> {
+        todo!()
+    }
 }
 
 impl ArrayStatisticsImpl for ChunkedArray {

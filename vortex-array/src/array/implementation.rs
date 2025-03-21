@@ -37,9 +37,13 @@ pub trait ArrayImpl:
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
-    fn _with_children(&self, children: &[&dyn Array]) -> VortexResult<Self>
-    where
-        Self: Sized;
+
+    /// Replace the children of this array with the given arrays.
+    ///
+    /// ## Pre-conditions
+    ///
+    /// - The number of given children matches the current number of children of the array.
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
