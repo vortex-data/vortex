@@ -160,8 +160,8 @@ impl ArrayImpl for ALPRDArray {
         let right_parts = children[1].clone();
 
         let left_part_patches = self.left_parts_patches().map(|existing| {
-            let indices = children[1].clone();
-            let values = children[2].clone();
+            let indices = children[2].clone();
+            let values = children[3].clone();
             Patches::new(existing.array_len(), existing.offset(), indices, values)
         });
 
