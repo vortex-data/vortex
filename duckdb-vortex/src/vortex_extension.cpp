@@ -186,7 +186,7 @@ void VortexExtension::Load(DuckDB &db) {
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
 		auto state = make_uniq<VortexScanState>();
 		state->filter = input.filters;
-		// These are the id that you projection just return,
+		// These are the ids required only by projection.
 		// column_ids are all ids referenced in both the filter and projection.
 		state->column_ids = input.column_ids;
 		// TODO(joe): fixme support filter_prune
