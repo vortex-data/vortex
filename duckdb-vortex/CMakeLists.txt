@@ -48,8 +48,8 @@ target_link_libraries(${LOADABLE_EXTENSION_NAME}
 )
 
 find_package(protobuf CONFIG REQUIRED)
-target_link_libraries(${EXTENSION_NAME} protobuf::libprotoc protobuf::libprotobuf protobuf::libprotobuf-lite)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} protobuf::libprotoc protobuf::libprotobuf protobuf::libprotobuf-lite)
+target_link_libraries(${EXTENSION_NAME} protobuf::libprotobuf)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} protobuf::libprotobuf)
 
 FetchContent_Declare(
         Catch2
