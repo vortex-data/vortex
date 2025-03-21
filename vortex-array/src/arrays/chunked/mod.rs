@@ -18,7 +18,10 @@ use crate::nbytes::NBytes;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::VTableRef;
-use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, IntoArray};
+use crate::{
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
+    IntoArray,
+};
 
 mod canonical;
 mod compute;
@@ -27,6 +30,7 @@ mod variants;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
+    id: String,
     dtype: DType,
     len: usize,
     chunk_offsets: Buffer<u64>,
@@ -64,6 +68,10 @@ impl ChunkedArray {
         assert_eq!(chunk_offsets.len(), nchunks + 1);
 
         Self {
+            id: format!(
+                "chunked {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             len: curr_offset.try_into().vortex_unwrap(),
             chunk_offsets: chunk_offsets.freeze(),
@@ -196,6 +204,10 @@ impl ArrayImpl for ChunkedArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ChunkedEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

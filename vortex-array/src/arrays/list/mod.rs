@@ -21,12 +21,13 @@ use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, TryFromArrayRef,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
+    id: String,
     dtype: DType,
     elements: ArrayRef,
     offsets: ArrayRef,
@@ -72,6 +73,10 @@ impl ListArray {
         }
 
         Ok(Self {
+            id: format!(
+                "list {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype: DType::List(Arc::new(elements.dtype().clone()), nullability),
             elements,
             offsets,
@@ -136,6 +141,10 @@ impl ArrayImpl for ListArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ListEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

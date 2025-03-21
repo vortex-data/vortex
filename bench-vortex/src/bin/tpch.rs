@@ -18,6 +18,7 @@ use itertools::Itertools;
 use log::{info, warn};
 use tokio::runtime::Builder;
 use url::Url;
+use vortex::CANONICAL_COUNTER;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
@@ -341,6 +342,17 @@ async fn bench_main(
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();
+        }
+    }
+
+    {
+        let counter = CANONICAL_COUNTER.lock();
+        for (k, v) in counter
+            .clone()
+            .into_iter()
+            .sorted_unstable_by_key(|(_, v)| *v)
+        {
+            println!("{k} = {v}");
         }
     }
 

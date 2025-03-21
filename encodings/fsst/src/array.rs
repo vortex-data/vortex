@@ -4,8 +4,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{EncodingVTable, VTableRef};
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, SerdeMetadata,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Encoding, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -16,6 +16,7 @@ use crate::serde::FSSTMetadata;
 
 #[derive(Clone, Debug)]
 pub struct FSSTArray {
+    id: String,
     dtype: DType,
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
@@ -75,6 +76,10 @@ impl FSSTArray {
         }
 
         Ok(Self {
+            id: format!(
+                "fsst {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             symbols,
             symbol_lengths,
@@ -138,6 +143,10 @@ impl ArrayImpl for FSSTArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&FSSTEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

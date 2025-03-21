@@ -7,15 +7,16 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
 };
 
 mod compute;
 
 #[derive(Clone, Debug)]
 pub struct NullArray {
+    id: String,
     len: usize,
     stats_set: ArrayStats,
 }
@@ -51,6 +52,10 @@ impl ArrayVisitorImpl for NullArray {
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self {
+            id: format!(
+                "null {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             len,
             stats_set: Default::default(),
         }
@@ -70,6 +75,10 @@ impl ArrayImpl for NullArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&NullEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

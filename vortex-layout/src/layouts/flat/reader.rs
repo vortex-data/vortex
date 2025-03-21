@@ -63,11 +63,13 @@ impl FlatReader {
                     let row_count = usize::try_from(self.layout().row_count())
                         .vortex_expect("FlatLayout row count does not fit within usize");
 
-                    ArrayParts::try_from(buffer)?.decode(
+                    let array = ArrayParts::try_from(buffer)?.decode(
                         self.ctx(),
                         self.dtype().clone(),
                         row_count,
-                    )
+                    )?;
+                    Ok(array)
+                    // Ok(CachedCanonicalArray::from(array))
                 }
             ))
             .await

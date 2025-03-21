@@ -9,12 +9,14 @@ mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, LazyLock};
 
 pub use canonical::*;
 pub use compute::*;
 pub use convert::*;
 pub use implementation::*;
+use parking_lot::Mutex;
 pub use statistics::*;
 pub use validity::*;
 pub use variants::*;
@@ -23,6 +25,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
+use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
@@ -33,12 +36,22 @@ use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
 
+pub static CANONICAL_COUNTER: LazyLock<Arc<Mutex<HashMap<String, usize>>>> =
+    LazyLock::new(|| Default::default());
+
+pub static ALL_KNOWING_CACHE: LazyLock<Arc<Mutex<HashMap<String, Canonical>>>> =
+    LazyLock::new(|| Default::default());
+
+pub static ARRAY_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
 /// The base trait for all Vortex arrays.
 ///
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
 pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVisitor {
+    fn id(&self) -> &str;
+
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -126,7 +139,30 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     fn validity_mask(&self) -> VortexResult<Mask>;
 
     /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> VortexResult<Canonical>;
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        {
+            let cache = ALL_KNOWING_CACHE.lock();
+            if let Some(canon) = cache.get(self.id()) {
+                return Ok(canon.clone());
+            }
+        }
+
+        if !self.is_canonical() {
+            let mut counter = CANONICAL_COUNTER.lock();
+            *counter.entry(self.id().to_string()).or_insert(0) += 1;
+        }
+
+        let canon = self.to_canonical_impl()?;
+
+        {
+            let mut cache = ALL_KNOWING_CACHE.lock();
+            cache.insert(self.id().to_string(), canon.clone());
+        }
+
+        Ok(canon)
+    }
+
+    fn to_canonical_impl(&self) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.
     ///
@@ -203,16 +239,20 @@ impl Array for Arc<dyn Array> {
         self.as_ref().validity_mask()
     }
 
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.as_ref().to_canonical()
-    }
-
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
+    }
+
+    fn id(&self) -> &str {
+        self.as_ref().id()
+    }
+
+    fn to_canonical_impl(&self) -> VortexResult<Canonical> {
+        self.as_ref().to_canonical_impl()
     }
 }
 

@@ -18,7 +18,8 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, RkyvMetadata, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, RkyvMetadata,
+    try_from_array_ref,
 };
 
 mod accessor;
@@ -30,6 +31,7 @@ mod variants;
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
+    id: String,
     dtype: DType,
     bytes: ByteBuffer,
     offsets: ArrayRef,
@@ -63,6 +65,10 @@ impl VarBinArray {
         }
 
         Ok(Self {
+            id: format!(
+                "varbin {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             bytes,
             offsets,
@@ -211,6 +217,10 @@ impl ArrayImpl for VarBinArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&VarBinEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

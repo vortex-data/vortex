@@ -10,8 +10,8 @@ use vortex::mask::Mask;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
-    ArrayCanonicalImpl, ArrayComputeImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    ARRAY_COUNTER, ArrayCanonicalImpl, ArrayComputeImpl, ArrayImpl, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
 use crate::arrays::py::PyEncodingClass;
@@ -24,6 +24,7 @@ use crate::dtype::PyDType;
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PyArrayInstance {
+    id: String,
     obj: Arc<Py<PyAny>>,
     cls: VTableRef,
     len: usize,
@@ -43,6 +44,10 @@ impl ArrayImpl for PyArrayInstance {
 
     fn _vtable(&self) -> VTableRef {
         self.cls.clone()
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 
@@ -108,6 +113,10 @@ impl<'py> FromPyObject<'py> for PyArrayInstance {
         let cls = PyEncodingClass::extract_bound(&ob.get_type())?;
 
         Ok(Self {
+            id: format!(
+                "py {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             obj: Arc::new(ob.clone().unbind()),
             cls: ArcRef::new_arc(Arc::new(cls) as _),
             len,

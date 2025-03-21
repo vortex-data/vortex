@@ -34,6 +34,7 @@ pub trait ArrayImpl:
 {
     type Encoding: Encoding;
 
+    fn _id(&self) -> &str;
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
@@ -158,23 +159,6 @@ impl<A: ArrayImpl + 'static> Array for A {
         Ok(mask)
     }
 
-    /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
-        assert_eq!(
-            canonical.as_ref().len(),
-            self.len(),
-            "Canonical length mismatch"
-        );
-        assert_eq!(
-            canonical.as_ref().dtype(),
-            self.dtype(),
-            "Canonical dtype mismatch"
-        );
-        canonical.as_ref().statistics().inherit(self.statistics());
-        Ok(canonical)
-    }
-
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
@@ -199,5 +183,25 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self._stats_ref()
+    }
+
+    fn id(&self) -> &str {
+        self._id()
+    }
+
+    fn to_canonical_impl(&self) -> VortexResult<Canonical> {
+        let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
+        assert_eq!(
+            canonical.as_ref().len(),
+            self.len(),
+            "Canonical length mismatch"
+        );
+        assert_eq!(
+            canonical.as_ref().dtype(),
+            self.dtype(),
+            "Canonical dtype mismatch"
+        );
+        canonical.as_ref().statistics().inherit(self.statistics());
+        Ok(canonical)
     }
 }

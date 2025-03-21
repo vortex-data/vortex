@@ -6,8 +6,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, SerdeMetadata, ToCanonical,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, Canonical, Encoding, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -19,6 +19,7 @@ use crate::alp_rd::serde::ALPRDMetadata;
 
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
+    id: String,
     dtype: DType,
     left_parts: ArrayRef,
     left_parts_patches: Option<Patches>,
@@ -84,6 +85,10 @@ impl ALPRDArray {
             .transpose()?;
 
         Ok(Self {
+            id: format!(
+                "alprd {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             left_parts,
             left_parts_patches,
@@ -149,6 +154,10 @@ impl ArrayImpl for ALPRDArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ALPRDEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

@@ -8,9 +8,9 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, IntoArray, SerdeMetadata, ToCanonical,
-    try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, IntoArray, SerdeMetadata,
+    ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -22,6 +22,7 @@ use crate::serde::RunEndMetadata;
 
 #[derive(Clone, Debug)]
 pub struct RunEndArray {
+    id: String,
     ends: ArrayRef,
     values: ArrayRef,
     offset: usize,
@@ -75,6 +76,10 @@ impl RunEndArray {
         }
 
         Ok(Self {
+            id: format!(
+                "runend {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             ends,
             values,
             offset,
@@ -152,6 +157,10 @@ impl ArrayImpl for RunEndArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&RunEndEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

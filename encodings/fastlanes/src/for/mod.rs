@@ -5,8 +5,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -21,6 +21,7 @@ mod serde;
 
 #[derive(Clone, Debug)]
 pub struct FoRArray {
+    id: String,
     encoded: ArrayRef,
     reference: Scalar,
     stats_set: ArrayStats,
@@ -43,6 +44,10 @@ impl FoRArray {
                 .with_nullability(encoded.dtype().nullability()),
         )?;
         Ok(Self {
+            id: format!(
+                "for {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             encoded,
             reference,
             stats_set: Default::default(),
@@ -73,6 +78,10 @@ impl ArrayImpl for FoRArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&FoREncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

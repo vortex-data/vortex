@@ -11,8 +11,8 @@ use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding,
 };
 
 mod compute;
@@ -20,6 +20,7 @@ mod serde;
 
 #[derive(Clone, Debug)]
 pub struct StructArray {
+    id: String,
     len: usize,
     dtype: DType,
     fields: Vec<ArrayRef>,
@@ -67,6 +68,10 @@ impl StructArray {
         let dtype = DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability);
 
         Ok(Self {
+            id: format!(
+                "struct {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             len: length,
             dtype,
             fields,
@@ -139,6 +144,10 @@ impl ArrayImpl for StructArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&StructEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

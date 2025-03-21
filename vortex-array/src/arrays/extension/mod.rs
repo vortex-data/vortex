@@ -9,14 +9,15 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding,
 };
 mod compute;
 mod serde;
 
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
+    id: String,
     dtype: DType,
     storage: ArrayRef,
     stats_set: ArrayStats,
@@ -36,6 +37,10 @@ impl ExtensionArray {
             "ExtensionArray: storage_dtype must match storage array DType",
         );
         Self {
+            id: format!(
+                "extension {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype: DType::Extension(ext_dtype),
             storage,
             stats_set: ArrayStats::default(),
@@ -66,6 +71,10 @@ impl ArrayImpl for ExtensionArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ExtensionEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

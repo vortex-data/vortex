@@ -7,8 +7,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
-    RkyvMetadata, ToCanonical, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding,
+    IntoArray, RkyvMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_integer_ptype};
@@ -25,6 +25,7 @@ mod variants;
 
 #[derive(Clone, Debug)]
 pub struct SparseArray {
+    id: String,
     patches: Patches,
     fill_value: Scalar,
     stats_set: ArrayStats,
@@ -85,6 +86,10 @@ impl SparseArray {
             );
         }
         Ok(Self {
+            id: format!(
+                "sparse {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             patches,
             fill_value,
             stats_set: Default::default(),
@@ -207,6 +212,10 @@ impl ArrayImpl for SparseArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&SparseEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

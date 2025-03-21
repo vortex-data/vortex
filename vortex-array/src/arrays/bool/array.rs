@@ -11,10 +11,11 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
+use crate::{ARRAY_COUNTER, ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    id: String,
     dtype: DType,
     buffer: BooleanBuffer,
     pub(crate) validity: Validity,
@@ -46,6 +47,10 @@ impl BoolArray {
         let buffer = buffer.shrink_offset();
 
         Self {
+            id: format!(
+                "bool {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype: DType::Bool(validity.nullability()),
             buffer,
             validity,
@@ -113,6 +118,10 @@ impl ArrayImpl for BoolArray {
     #[inline]
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BoolEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::VTableRef;
-use crate::{Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding};
+use crate::{ARRAY_COUNTER, Array, ArrayImpl, ArrayStatisticsImpl, EmptyMetadata, Encoding};
 
 mod canonical;
 mod compute;
@@ -15,6 +15,7 @@ mod variants;
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
+    id: String,
     scalar: Scalar,
     len: usize,
     stats_set: ArrayStats,
@@ -34,6 +35,10 @@ impl ConstantArray {
         let scalar = scalar.into();
         let stats = StatsSet::constant(scalar.clone(), len);
         Self {
+            id: format!(
+                "constant {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             scalar,
             len,
             stats_set: ArrayStats::from(stats),
@@ -59,6 +64,10 @@ impl ArrayImpl for ConstantArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ConstantEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

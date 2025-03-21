@@ -3,9 +3,9 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    ToCanonical, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayChildVisitor, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -16,6 +16,7 @@ use crate::zigzag_decode;
 
 #[derive(Clone, Debug)]
 pub struct ZigZagArray {
+    id: String,
     dtype: DType,
     encoded: ArrayRef,
     stats_set: ArrayStats,
@@ -40,6 +41,10 @@ impl ZigZagArray {
             .with_nullability(encoded_dtype.nullability());
 
         Ok(Self {
+            id: format!(
+                "zigzag {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             encoded,
             stats_set: Default::default(),
@@ -70,6 +75,10 @@ impl ArrayImpl for ZigZagArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ZigZagEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

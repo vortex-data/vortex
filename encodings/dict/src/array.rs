@@ -7,8 +7,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, IntoArray, RkyvMetadata, ToCanonical,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, Canonical, Encoding, IntoArray, RkyvMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -18,6 +18,7 @@ use crate::serde::DictMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DictArray {
+    id: String,
     codes: ArrayRef,
     values: ArrayRef,
     stats_set: ArrayStats,
@@ -52,6 +53,10 @@ impl DictArray {
         );
 
         Ok(Self {
+            id: format!(
+                "dict {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             codes,
             values,
             stats_set: Default::default(),
@@ -82,6 +87,10 @@ impl ArrayImpl for DictArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DictEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

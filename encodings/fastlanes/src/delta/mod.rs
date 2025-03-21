@@ -7,8 +7,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -23,6 +23,7 @@ mod serde;
 
 #[derive(Clone, Debug)]
 pub struct DeltaArray {
+    id: String,
     offset: usize,
     len: usize,
     dtype: DType,
@@ -139,6 +140,10 @@ impl DeltaArray {
         }
 
         let delta = Self {
+            id: format!(
+                "delta {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             offset,
             len: logical_len,
             dtype,
@@ -221,6 +226,10 @@ impl ArrayImpl for DeltaArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DeltaEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

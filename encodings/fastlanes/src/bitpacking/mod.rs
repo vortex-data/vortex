@@ -10,8 +10,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
@@ -26,6 +26,7 @@ mod serde;
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
+    id: String,
     offset: u16,
     len: usize,
     dtype: DType,
@@ -134,6 +135,10 @@ impl BitPackedArray {
         // let packed = ByteBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
 
         Ok(Self {
+            id: format!(
+                "bitpacked {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             offset,
             len: length,
             dtype,
@@ -232,6 +237,10 @@ impl ArrayImpl for BitPackedArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BitPackedEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

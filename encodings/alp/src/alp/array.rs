@@ -6,7 +6,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
@@ -18,6 +18,7 @@ use crate::alp::{Exponents, alp_encode, decompress};
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
+    id: String,
     dtype: DType,
     encoded: ArrayRef,
     exponents: Exponents,
@@ -44,6 +45,10 @@ impl ALPArray {
             d => vortex_bail!(MismatchedTypes: "int32 or int64", d),
         };
         Ok(Self {
+            id: format!(
+                "alp {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             encoded,
             exponents,
@@ -87,6 +92,10 @@ impl ArrayImpl for ALPArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ALPEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

@@ -23,8 +23,8 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
-    TryFromArrayRef, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
+    Encoding, TryFromArrayRef, try_from_array_ref,
 };
 
 mod accessor;
@@ -267,6 +267,7 @@ impl Debug for BinaryView {
 
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
+    id: String,
     dtype: DType,
     buffers: Vec<ByteBuffer>,
     views: Buffer<BinaryView>,
@@ -302,6 +303,10 @@ impl VarBinViewArray {
         }
 
         Ok(Self {
+            id: format!(
+                "varbinview {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             buffers,
             views,
@@ -500,6 +505,10 @@ impl ArrayImpl for VarBinViewArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&VarBinViewEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

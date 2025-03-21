@@ -7,8 +7,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, RkyvMetadata,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Encoding, RkyvMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
@@ -18,6 +18,7 @@ use crate::serde::DateTimePartsMetadata;
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArray {
+    id: String,
     dtype: DType,
     days: ArrayRef,
     seconds: ArrayRef,
@@ -63,6 +64,10 @@ impl DateTimePartsArray {
         }
 
         Ok(Self {
+            id: format!(
+                "datetimeparts {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype,
             days,
             seconds,
@@ -97,6 +102,10 @@ impl ArrayImpl for DateTimePartsArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DateTimePartsEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

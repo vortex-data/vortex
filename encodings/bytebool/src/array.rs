@@ -7,7 +7,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ARRAY_COUNTER, Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
@@ -17,6 +17,7 @@ use vortex_mask::Mask;
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
+    id: String,
     dtype: DType,
     buffer: ByteBuffer,
     validity: Validity,
@@ -44,6 +45,10 @@ impl ByteBoolArray {
             }
         }
         Self {
+            id: format!(
+                "bytebool {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype: DType::Bool(validity.nullability()),
             buffer,
             validity,
@@ -86,6 +91,10 @@ impl ArrayImpl for ByteBoolArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ByteBoolEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

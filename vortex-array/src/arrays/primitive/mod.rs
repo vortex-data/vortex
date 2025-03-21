@@ -16,8 +16,8 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, IntoArray, try_from_array_ref,
+    ARRAY_COUNTER, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding, IntoArray, try_from_array_ref,
 };
 
 mod compute;
@@ -30,6 +30,7 @@ pub use native_value::NativeValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
+    id: String,
     dtype: DType,
     buffer: ByteBuffer,
     validity: Validity,
@@ -57,6 +58,10 @@ impl PrimitiveArray {
             }
         }
         Self {
+            id: format!(
+                "primitive {}",
+                ARRAY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            ),
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),
             validity,
@@ -255,6 +260,10 @@ impl ArrayImpl for PrimitiveArray {
     }
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&PrimitiveEncoding)
+    }
+
+    fn _id(&self) -> &str {
+        &self.id
     }
 }
 

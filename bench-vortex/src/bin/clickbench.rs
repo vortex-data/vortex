@@ -18,6 +18,7 @@ use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
 use url::Url;
+use vortex::CANONICAL_COUNTER;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
@@ -270,6 +271,17 @@ fn main() -> anyhow::Result<()> {
             render_table(all_measurements, &args.formats, RatioMode::Time).unwrap()
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
+    }
+
+    {
+        let counter = CANONICAL_COUNTER.lock();
+        for (k, v) in counter
+            .clone()
+            .into_iter()
+            .sorted_unstable_by_key(|(_, v)| *v)
+        {
+            println!("{k} = {v}");
+        }
     }
 
     Ok(())
