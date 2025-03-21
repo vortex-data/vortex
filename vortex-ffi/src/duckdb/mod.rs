@@ -83,7 +83,7 @@ mod tests {
         let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
-        let offset = unsafe { Array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };
+        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
     }
