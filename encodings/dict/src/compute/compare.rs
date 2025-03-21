@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::compute::{CompareFn, Operator, compare, take, try_cast};
+use vortex_array::compute::{CompareFn, Operator, compare, try_cast};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, Nullability};
@@ -28,7 +28,9 @@ impl CompareFn<&DictArray> for DictEncoding {
             return if operator == Operator::Eq {
                 dict_equal_to(compare_result, lhs.codes(), lhs.dtype().nullability()).map(Some)
             } else {
-                take(&compare_result, lhs.codes()).map(Some)
+                DictArray::try_new(lhs.codes().clone(), compare_result)
+                    .map(|a| a.into_array())
+                    .map(Some)
             };
         }
 
@@ -100,7 +102,7 @@ fn dict_equal_to(
             &DType::Bool(nullability),
         )?,
         // more than one value matches
-        _ => take(&bool_result, codes)?,
+        _ => DictArray::try_new(codes.clone(), bool_result.into_array())?.into_array(),
     })
 }
 
