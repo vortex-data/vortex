@@ -26,6 +26,11 @@ simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["tokio", "object_store", "proto"] }
+vortex-duckdb = { workspace = true, optional = true }
+duckdb = { workspace = true, optional = true }
+
+[features]
+duckdb = ["dep:vortex-duckdb", "dep:duckdb"]
 
 [lib]
 name = "vortex_ffi"

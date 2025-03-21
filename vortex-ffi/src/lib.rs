@@ -4,6 +4,8 @@
 
 mod array;
 mod dtype;
+#[cfg(feature = "duckdb")]
+mod duckdb;
 mod file;
 mod log;
 mod stream;

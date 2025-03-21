@@ -1,0 +1,50 @@
+use std::cmp::min;
+use std::ffi::c_uint;
+
+use duckdb::core::DataChunkHandle;
+use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
+use vortex::Array;
+use vortex::compute::slice;
+use vortex::dtype::DType;
+use vortex::error::VortexExpect;
+use vortex_duckdb::ToDuckDBType;
+
+use crate::array::FFIArray;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
+    let dtype = unsafe { &*dtype };
+
+    dtype
+        .to_duckdb_type()
+        .vortex_expect("convert to duckdb")
+        .into_ptr()
+}
+
+/// Back a single chunk of the array as a duckdb data chunk.
+/// The initial call should pass offset = 0.
+/// The offset is returned to the caller, which can be used to request the next chunk.
+/// 0 is returned when the stream is finished.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Array_to_duckdb_chunk(
+    stream: *mut FFIArray,
+    offset: c_uint,
+    data_chunk_ptr: duckdb_data_chunk,
+) -> c_uint {
+    let data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+    const CHUNK_SIZE: usize = 2048;
+    let offset = offset as usize;
+    let array = unsafe { &(*stream).inner };
+
+    if array.len() <= offset {
+        panic!("offset out of bounds");
+    }
+
+    let end = min(offset + CHUNK_SIZE, array.len());
+    let is_end = end == array.len();
+
+    let slice = slice(array, offset, end).vortex_expect("slice");
+    slice.to_duckdb(&data_chunk_handle);
+
+    if is_end { 0 } else { end }
+}
