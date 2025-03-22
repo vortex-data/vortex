@@ -10,7 +10,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::reader::LayoutReaderExt;
+use crate::reader::LayoutReader;
 use crate::{ExprEvaluator, MaskFuture, RowMask};
 
 #[async_trait]

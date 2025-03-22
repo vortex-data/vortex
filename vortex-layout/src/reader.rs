@@ -20,6 +20,16 @@ use crate::Layout;
 pub trait LayoutReader: 'static + Send + Sync + ExprEvaluator {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;
+
+    /// Returns the row count of the layout.
+    fn row_count(&self) -> u64 {
+        self.layout().row_count()
+    }
+
+    /// Returns the DType of the layout.
+    fn dtype(&self) -> &DType {
+        self.layout().dtype()
+    }
 }
 
 impl LayoutReader for Arc<dyn LayoutReader> {
@@ -27,6 +37,18 @@ impl LayoutReader for Arc<dyn LayoutReader> {
         self.as_ref().layout()
     }
 }
+
+pub trait LayoutReaderExt: LayoutReader {
+    /// Box the layout scan.
+    fn into_arc(self) -> Arc<dyn LayoutReader>
+    where
+        Self: Sized + 'static,
+    {
+        Arc::new(self) as _
+    }
+}
+
+impl<L: LayoutReader> LayoutReaderExt for L {}
 
 pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
 
@@ -56,10 +78,34 @@ pub trait ExprEvaluator: Send + Sync {
     ///    the segment reader to cancel any in-flight or upcoming requests.
     fn evaluate_expr2(
         &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>;
+
+    fn pruning_evaluation(
+        &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-        _mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>;
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        todo!()
+    }
+
+    fn filter_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        todo!()
+    }
+
+    fn projection_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -72,26 +118,38 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
     ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         self.as_ref().evaluate_expr2(row_range, expr, mask)
     }
+
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        self.as_ref().pruning_evaluation(row_range, expr)
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        self.as_ref().filter_evaluation(row_range, expr)
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        self.as_ref().projection_evaluation(row_range, expr)
+    }
 }
 
-pub trait LayoutReaderExt: LayoutReader {
-    /// Box the layout scan.
-    fn into_arc(self) -> Arc<dyn LayoutReader>
-    where
-        Self: Sized + 'static,
-    {
-        Arc::new(self) as _
-    }
-
-    /// Returns the row count of the layout.
-    fn row_count(&self) -> u64 {
-        self.layout().row_count()
-    }
-
-    /// Returns the DType of the layout.
-    fn dtype(&self) -> &DType {
-        self.layout().dtype()
-    }
+#[async_trait]
+pub trait MaskEvaluation {
+    fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
-impl<L: LayoutReader> LayoutReaderExt for L {}
+#[async_trait]
+pub trait ArrayEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+}

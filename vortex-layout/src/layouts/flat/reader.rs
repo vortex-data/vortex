@@ -9,7 +9,7 @@ use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err, v
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReaderExt, LayoutVTable, instrument};
+use crate::{Layout, LayoutVTable, instrument};
 
 pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 

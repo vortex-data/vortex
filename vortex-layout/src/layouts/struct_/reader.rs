@@ -10,7 +10,7 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
+use crate::{Layout, LayoutReader, LayoutVTable};
 
 pub struct StructReader {
     layout: Layout,

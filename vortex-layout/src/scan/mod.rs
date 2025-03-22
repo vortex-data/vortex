@@ -19,8 +19,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::scan::executor::Executor;
 use crate::{
-    ExprEvaluator, LayoutReader, LayoutReaderExt, RowMask, instrument, mask_future_ready,
-    range_intersection,
+    ExprEvaluator, LayoutReader, RowMask, instrument, mask_future_ready, range_intersection,
 };
 
 pub mod executor;
