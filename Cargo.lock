@@ -3839,7 +3839,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -3964,9 +3964,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-log"
-version = "0.12.1"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be5bb22b77965a7b5394e9aae9897a0607b51df5167561ffc3b02643b4200bc7"
+checksum = "4b78e4983ba15bc62833a0e0941d965bc03690163f1127864f1408db25063466"
 dependencies = [
  "arc-swap",
  "log",
@@ -4935,7 +4935,7 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03c3c6b7927ffe7ecaa769ee0e3994da3b8cafc8f444578982c83ecb161af917"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
