@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+moka = { workspace = true, features = ["sync"] }
 arbitrary = { workspace = true, optional = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }

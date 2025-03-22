@@ -16,6 +16,7 @@ pub use canonical::*;
 pub use compute::*;
 pub use convert::*;
 pub use implementation::*;
+use moka::sync::Cache;
 use parking_lot::Mutex;
 pub use statistics::*;
 pub use validity::*;
@@ -39,8 +40,8 @@ use crate::{Canonical, EncodingId};
 pub static CANONICAL_COUNTER: LazyLock<Arc<Mutex<HashMap<String, usize>>>> =
     LazyLock::new(|| Default::default());
 
-pub static ALL_KNOWING_CACHE: LazyLock<Arc<Mutex<HashMap<String, Canonical>>>> =
-    LazyLock::new(|| Default::default());
+pub static ALL_KNOWING_CACHE: LazyLock<Cache<String, Canonical>> =
+    LazyLock::new(|| Cache::builder().max_capacity(1000).build());
 
 pub static ARRAY_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
@@ -140,24 +141,22 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Returns the canonical representation of the array.
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        {
-            let cache = ALL_KNOWING_CACHE.lock();
-            if let Some(canon) = cache.get(self.id()) {
-                return Ok(canon.clone());
-            }
+        if self.is_canonical() {
+            return self.to_canonical_impl();
         }
 
-        if !self.is_canonical() {
+        if let Some(canon) = ALL_KNOWING_CACHE.get(self.id()) {
+            return Ok(canon.clone());
+        }
+
+        {
             let mut counter = CANONICAL_COUNTER.lock();
             *counter.entry(self.id().to_string()).or_insert(0) += 1;
         }
 
         let canon = self.to_canonical_impl()?;
 
-        {
-            let mut cache = ALL_KNOWING_CACHE.lock();
-            cache.insert(self.id().to_string(), canon.clone());
-        }
+        ALL_KNOWING_CACHE.insert(self.id().to_string(), canon.clone());
 
         Ok(canon)
     }
