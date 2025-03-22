@@ -338,21 +338,21 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{}", m);
             }
+            {
+                let counter = CANONICAL_COUNTER.lock();
+                for (k, v) in counter
+                    .clone()
+                    .into_iter()
+                    .sorted_unstable_by_key(|(_, v)| *v)
+                {
+                    println!("{k} = {v}");
+                }
+            }
+
             render_table(measurements, &formats, RatioMode::Time).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();
-        }
-    }
-
-    {
-        let counter = CANONICAL_COUNTER.lock();
-        for (k, v) in counter
-            .clone()
-            .into_iter()
-            .sorted_unstable_by_key(|(_, v)| *v)
-        {
-            println!("{k} = {v}");
         }
     }
 

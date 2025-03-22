@@ -268,20 +268,19 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            {
+                let counter = CANONICAL_COUNTER.lock();
+                for (k, v) in counter
+                    .clone()
+                    .into_iter()
+                    .sorted_unstable_by_key(|(_, v)| *v)
+                {
+                    println!("{k} = {v}");
+                }
+            }
             render_table(all_measurements, &args.formats, RatioMode::Time).unwrap()
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
-    }
-
-    {
-        let counter = CANONICAL_COUNTER.lock();
-        for (k, v) in counter
-            .clone()
-            .into_iter()
-            .sorted_unstable_by_key(|(_, v)| *v)
-        {
-            println!("{k} = {v}");
-        }
     }
 
     Ok(())
