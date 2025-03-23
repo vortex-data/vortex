@@ -48,6 +48,56 @@ tasks.build {
     dependsOn("shadowJar")
 }
 
+tasks.register("generateJniHeaders") {
+    description = "Generates JNI header files for Java classes with native methods"
+    group = "build"
+
+    // Define input and output properties
+    val jniClasses =
+        fileTree("src/main/java") {
+            // Adjust this include pattern to match only files that need JNI headers
+            include("**/JNI*.java")
+        }
+
+    println("JINI classes: ${jniClasses.files.joinToString(",")}")
+
+    inputs.files(jniClasses)
+    outputs.dir("$buildDir/generated/jni")
+
+    doLast {
+        // Create output directory if it doesn't exist
+        val headerDir = file("$buildDir/generated/jni")
+        headerDir.mkdirs()
+
+        val classesDir =
+            sourceSets["main"]
+                .java.destinationDirectory
+                .get()
+                .asFile
+
+        // Compile only the selected files with -h option
+        ant.withGroovyBuilder {
+            "javac"(
+                "classpath" to sourceSets["main"].compileClasspath.asPath,
+                "srcdir" to "src/main/java",
+                "includes" to jniClasses.includes.joinToString(","),
+                "destdir" to classesDir,
+                "includeantruntime" to false,
+                "debug" to true,
+                "source" to java.sourceCompatibility,
+                "target" to java.targetCompatibility,
+            ) {
+                "compilerarg"("line" to "-h ${headerDir.absolutePath}")
+            }
+        }
+
+        println("JNI headers generated in ${headerDir.absolutePath}")
+    }
+
+    // Make this task run after the compileJava task
+    dependsOn("compileJava")
+}
+
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {

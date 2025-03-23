@@ -17,7 +17,7 @@ members = [
     "vortex-file",
     "vortex-flatbuffers",
     "vortex-io",
-    "vortex-ipc",
+    "vortex-ipc", "vortex-jni",
     "vortex-layout",
     "vortex-mask",
     "vortex-metrics",

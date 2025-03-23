@@ -1,0 +1,354 @@
+use std::mem::ManuallyDrop;
+
+use jni::JNIEnv;
+use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jdouble, jfloat, jint, jlong, jshort};
+use vortex::compute::{scalar_at, slice};
+use vortex::dtype::DType;
+use vortex::error::vortex_err;
+use vortex::{Array, ArrayRef};
+
+use crate::errors::Throwable;
+
+pub struct NativeArray {
+    inner: ManuallyDrop<ArrayRef>,
+}
+
+impl NativeArray {
+    pub fn new(array_ref: ArrayRef) -> Box<Self> {
+        Box::new(NativeArray {
+            inner: ManuallyDrop::new(array_ref),
+        })
+    }
+
+    pub fn into_raw(self: Box<Self>) -> jlong {
+        Box::into_raw(self) as jlong
+    }
+
+    /// Reconstruct a boxed `NativeArray` from a raw heap pointer.
+    pub unsafe fn from_raw(pointer: jlong) -> Box<Self> {
+        // SAFETY: caller must ensure that the pointer is valid and points to a `NativeArray`.
+        unsafe { Box::from_raw(pointer as *mut NativeArray) }
+    }
+
+    pub fn deallocate(self: Box<Self>) {
+        let this = *self;
+        drop(ManuallyDrop::into_inner(this.inner));
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_free(
+    _env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+) {
+    unsafe { NativeArray::from_raw(array_ptr) }.deallocate();
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getLen(
+    _env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    array_ref.inner.len() as jlong
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getDataType(
+    _env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    let dtype_ptr = array_ref.inner.dtype();
+    let ptr: *const DType = &*dtype_ptr;
+    // Return a pointer to the DType.
+    ptr.addr() as jlong
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    let Some(struct_array) = array_ref.inner.as_struct_typed() else {
+        vortex_err!("getField expected struct array").throw_illegal_argument(&mut env);
+        return -1;
+    };
+
+    match struct_array.maybe_null_field_by_idx(index as usize) {
+        Ok(field) => NativeArray::new(field).into_raw(),
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    start: jint,
+    end: jint,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    // Create a new sliced copy of this array.
+    match slice(array_ref.inner.as_ref(), start as usize, end as usize) {
+        Ok(sliced_array) => NativeArray::new(sliced_array).into_raw(),
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNull(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jboolean {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match array_ref.inner.is_invalid(index as usize) {
+        Ok(is_null) => {
+            if is_null {
+                JNI_TRUE
+            } else {
+                JNI_FALSE
+            }
+        }
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            JNI_FALSE
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+) -> jint {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match array_ref.inner.invalid_count() {
+        Ok(count) => count as jint,
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getByte(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jbyte {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().as_::<i8>() {
+            Ok(None) => 0,
+            Ok(Some(b)) => b,
+            Err(err) => {
+                err.throw_illegal_argument(&mut env);
+                -1
+            }
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getShort(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jshort {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().as_::<i16>() {
+            Ok(None) => 0,
+            Ok(Some(s)) => s,
+            Err(err) => {
+                err.throw_illegal_argument(&mut env);
+                -1
+            }
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getInt(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jint {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().as_::<i32>() {
+            Ok(None) => 0,
+            Ok(Some(i)) => i,
+            Err(err) => {
+                err.throw_illegal_argument(&mut env);
+                -1
+            }
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getLong(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().as_::<i64>() {
+            Ok(None) => 0,
+            Ok(Some(val)) => val,
+            Err(err) => {
+                err.throw_illegal_argument(&mut env);
+                -1
+            }
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jboolean {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_bool().value() {
+            None => JNI_FALSE,
+            Some(b) => {
+                if b {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            JNI_FALSE
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getFloat(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jfloat {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().typed_value::<f32>() {
+            None => 0.0,
+            Some(f) => f,
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0.0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getDouble(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jdouble {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_primitive().typed_value::<f64>() {
+            None => 0.0,
+            Some(val) => val,
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            0.0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    array_ptr: jlong,
+    index: jint,
+) -> JString<'local> {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_utf8().value() {
+            None => JObject::null().into(),
+            Some(buf_str) => env.new_string(buf_str.as_str()).expect("create new string"),
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            JObject::null().into()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    array_ptr: jlong,
+    index: jint,
+) -> JByteArray<'local> {
+    let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
+    match scalar_at(array_ref.inner.as_ref(), index as usize) {
+        Ok(value) => match value.as_binary().value() {
+            None => JObject::null().into(),
+            Some(buf) => env
+                .byte_array_from_slice(buf.as_slice())
+                .expect("create new byte array"),
+        },
+        Err(err) => {
+            err.throw_illegal_argument(&mut env);
+            JObject::null().into()
+        }
+    }
+}

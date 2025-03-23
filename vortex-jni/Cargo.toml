@@ -1,0 +1,28 @@
+[package]
+name = "vortex-jni"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+jni = "0.21.1"
+log = { workspace = true }
+object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+url = { workspace = true }
+vortex = { workspace = true, features = ["object_store", "files", "tokio", "proto"] }
+
+[lints]
+workspace = true
