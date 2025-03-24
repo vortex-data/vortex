@@ -91,19 +91,12 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 
 		if (g_state.array_stream == nullptr) {
-			const char **const column_names = new const char *[g_state.projection_ids.size()];
-			auto idx = 0;
+			auto column_names = std::vector<char *>();
 			for (auto col_id : g_state.projection_ids) {
-				column_names[idx++] = bind_data.column_names[col_id].c_str();
+				column_names.push_back(const_cast<char *>(bind_data.column_names[col_id].c_str()));
 			}
 
-			auto options = FileScanOptions {
-			    .projection = column_names,
-			    .projection_len = static_cast<int>(g_state.projection_ids.size()),
-			    .filter_expression = "",
-			    .filter_expression_len = 0,
-			    .split_by_row_count = 2048 * 32 * 4,
-			};
+			auto str = std::string("");
 
 			if (g_state.filter != nullptr) {
 				google::protobuf::Arena arena;
@@ -114,18 +107,18 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 					exprs.push_back(conj);
 				}
 				auto expr = flatten_exprs(arena, exprs);
-
-				auto str = expr->SerializeAsString();
-				char *buffer = new char[str.size()];
-				std::ranges::copy(str, buffer);
-
-				options.filter_expression = buffer;
-				options.filter_expression_len = str.size();
+				str = expr->SerializeAsString();
 			}
 
-			g_state.array_stream = File_scan(bind_data.file, &options);
+			auto options = FileScanOptions {
+			    .projection = column_names.data(),
+			    .projection_len = static_cast<int>(g_state.projection_ids.size()),
+			    .filter_expression = str.data(),
+			    .filter_expression_len = static_cast<int>(str.length()),
+			    .split_by_row_count = 2048 * 32 * 4,
+			};
 
-			delete[] column_names;
+			g_state.array_stream = File_scan(bind_data.file, &options);
 		}
 
 		auto next = FFIArrayStream_next(g_state.array_stream);
