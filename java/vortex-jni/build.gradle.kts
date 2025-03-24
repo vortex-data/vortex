@@ -57,8 +57,6 @@ tasks.register("generateJniHeaders") {
             include("**/JNI*.java")
         }
 
-    println("JINI classes: ${jniClasses.files.joinToString(",")}")
-
     inputs.files(jniClasses)
     outputs.dir("$buildDir/generated/jni")
 
@@ -99,8 +97,7 @@ tasks.register("generateJniHeaders") {
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
-            from(components["java"]) // Publishes the compiled JAR
-            artifact(tasks["shadowJar"])
+            artifact(tasks.shadowJar.get())
             artifactId = "vortex-jni"
         }
     }

@@ -16,9 +16,6 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 categories = { workspace = true }
 
-[lib]
-crate-type = ["staticlib", "cdylib"]
-
 [dependencies]
 futures = { workspace = true }
 jni = "0.21.1"
@@ -27,10 +24,18 @@ object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "files", "tokio", "proto"] }
+vortex = { workspace = true, features = [
+    "object_store",
+    "files",
+    "tokio",
+    "proto",
+] }
 
 [dev-dependencies]
 jni = { version = "0.21.1", features = ["invocation"] }
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
 
 [lints]
 workspace = true
