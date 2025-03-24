@@ -4,7 +4,7 @@ use num_traits::WrappingSub;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareFn, Operator, compare};
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
@@ -20,7 +20,7 @@ impl CompareFn<&FoRArray> for FoREncoding {
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {
-                    return compare_constant(lhs, constant.typed_value::<$T>().vortex_expect("null scalar handled in top-level"), operator);
+                    return compare_constant(lhs, constant.typed_value::<$T>().vortex_expect("null scalar handled in top-level"), rhs.dtype().nullability(), operator);
                 })
             }
         }
@@ -32,12 +32,13 @@ impl CompareFn<&FoRArray> for FoREncoding {
 fn compare_constant<T>(
     lhs: &FoRArray,
     mut rhs: T,
+    nullability: Nullability,
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>>
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
-    Scalar: From<T>,
+    PValue: From<T>,
 {
     // For now, we only support equals and not equals. Comparisons are a little more fiddly to
     // get right regarding how to handle overflow and the wrapping subtraction.
@@ -55,7 +56,7 @@ where
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
-    let rhs = Scalar::from(rhs).reinterpret_cast(T::PTYPE.to_unsigned());
+    let rhs = Scalar::primitive(rhs, nullability).reinterpret_cast(T::PTYPE.to_unsigned());
 
     compare(lhs.encoded(), &ConstantArray::new(rhs, lhs.len()), operator).map(Some)
 }
@@ -67,6 +68,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
 
     use super::*;
 
@@ -81,16 +83,46 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, 30i32, Operator::Eq),
+            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq),
             [false, true, false],
         );
         assert_result(
-            compare_constant(&lhs, 12i32, Operator::NotEq),
+            compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq),
             [true, true, false],
         );
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
-            assert!(compare_constant(&lhs, 30i32, op).unwrap().is_none());
+            assert!(
+                compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
+                    .unwrap()
+                    .is_none()
+            );
         }
+    }
+
+    #[test]
+    fn test_compare_nullable_constant() {
+        let reference = Scalar::from(0);
+        // 10, 30, 12
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::NonNullable).into_array(),
+            reference,
+        )
+        .unwrap();
+
+        assert_eq!(
+            compare_constant(&lhs, 30i32, Nullability::Nullable, Operator::Eq)
+                .unwrap()
+                .unwrap()
+                .dtype(),
+            &DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+                .unwrap()
+                .unwrap()
+                .dtype(),
+            &DType::Bool(Nullability::NonNullable)
+        );
     }
 
     #[test]
@@ -104,11 +136,11 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, -1i32, Operator::Eq),
+            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq),
             [false, false, false],
         );
         assert_result(
-            compare_constant(&lhs, -1i32, Operator::NotEq),
+            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq),
             [true, true, true],
         );
     }
@@ -124,11 +156,21 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, 435090932899640449i64, Operator::Eq),
+            compare_constant(
+                &lhs,
+                435090932899640449i64,
+                Nullability::NonNullable,
+                Operator::Eq,
+            ),
             [false, true],
         );
         assert_result(
-            compare_constant(&lhs, 435090932899640449i64, Operator::NotEq),
+            compare_constant(
+                &lhs,
+                435090932899640449i64,
+                Nullability::NonNullable,
+                Operator::NotEq,
+            ),
             [true, false],
         );
     }

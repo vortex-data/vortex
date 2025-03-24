@@ -15,7 +15,7 @@ use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
+use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
 use vortex::proto::expr::Expr;
 
@@ -52,6 +52,9 @@ pub struct FileScanOptions {
     pub filter_expression: *const c_char,
     // The len in bytes of the filter expression
     pub filter_expression_len: c_int,
+
+    /// Splits the file into chunks of this size, if zero then we use the write layout.
+    pub split_by_row_count: c_int,
 }
 
 /// Open a file at the given path on the file system.
@@ -139,6 +142,10 @@ pub unsafe extern "C" fn File_scan(
             let expr = deserialize_expr(&expr_proto).vortex_expect("deserialize filter expression");
             stream = stream.with_filter(expr)
         }
+        if opts.split_by_row_count > 0 {
+            stream = stream.with_split_by(SplitBy::RowCount(opts.split_by_row_count as usize));
+        }
+
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
