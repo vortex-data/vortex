@@ -67,12 +67,12 @@ impl PerformanceHint {
 
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
-        Self::new(8192, Some(16 << 20))
+        Self::new(0, None)
     }
 
     pub fn object_storage() -> Self {
         Self::new(
-            2 << 20,        // 2MB,
+            1 << 20,        // 1MB,
             Some(16 << 20), // 16MB,
         )
     }
