@@ -6,6 +6,7 @@
 #include "duckdb/common/exception.hpp"
 
 #include <duckdb/planner/filter/conjunction_filter.hpp>
+#include <duckdb/planner/filter/optional_filter.hpp>
 
 using duckdb::ConjunctionAndFilter;
 using duckdb::ConstantFilter;
@@ -128,7 +129,6 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		return dtype;
 	}
 	default:
-		std::cout << "Unsupported type: " << type_.ToString() << std::endl;
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
 }
@@ -179,10 +179,18 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 	case LogicalTypeId::UBIGINT:
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
+	case LogicalTypeId::FLOAT:
+		scalar->mutable_value()->set_uint64_value(value.GetValue<float32_t>());
+		return scalar;
+	case LogicalTypeId::DOUBLE:
+		scalar->mutable_value()->set_uint64_value(value.GetValue<float64_t>());
+		return scalar;
+	case LogicalTypeId::VARCHAR:
+		scalar->mutable_value()->set_string_value(value.GetValue<string>());
+		return scalar;
 	case LogicalTypeId::DATE:
 		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
 		return scalar;
-
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
@@ -278,10 +286,16 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 	case TableFilterType::IS_NOT_NULL: {
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "null checks");
 	}
+	case TableFilterType::OPTIONAL_FILTER: {
+		expr->set_id(LITERAL_ID);
+		auto lit = expr->mutable_kind()->mutable_literal();
+		lit->mutable_value()->mutable_value()->set_bool_value(true);
+		lit->mutable_value()->mutable_dtype()->mutable_bool_()->set_nullable(false);
+		return expr;
+	}
 	default:
 		break;
 	}
-
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
 }

@@ -32,7 +32,6 @@ struct VortexBindData : public TableFunctionData {
 	vector<string> column_names;
 	uint64_t num_columns;
 	File *file;
-	// mutable ArrayStream *array_stream;
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<VortexBindData>();
@@ -58,7 +57,6 @@ struct VortexScanLocalState : public LocalTableFunctionState {
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
-
 	ArrayStream *array_stream;
 	std::mutex stream_lock;
 	bool finished;
