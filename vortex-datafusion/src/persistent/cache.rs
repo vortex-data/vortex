@@ -82,7 +82,6 @@ impl FooterCache {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     pub async fn try_get(
         &self,
         object: &ObjectMeta,

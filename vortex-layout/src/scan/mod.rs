@@ -17,6 +17,7 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
+use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
 use crate::{
     ExprEvaluator, LayoutReader, RowMask, instrument, mask_future_ready, range_intersection,
@@ -50,7 +51,7 @@ impl ScanBuilder {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 8,
+            concurrency: 1,
             metrics: Default::default(),
         }
     }
@@ -235,13 +236,14 @@ impl Scan {
     /// The returned stream should be considered to perform I/O-bound operations and requires
     /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+        log::error!("LAYNCHING SCAN {} {:?}", self.projection, self.filter);
         // Create a single LayoutReader that is reused for the entire scan.
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
 
         // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
         let layout_reader = self.layout_reader.clone();
-        let filter_reader = self.layout_reader.clone();
-        //let filter_reader = FilterLayoutReader::new(layout_reader.clone());
+        // let filter_reader = self.layout_reader.clone();
+        let filter_reader = FilterLayoutReader::new(layout_reader.clone());
 
         // Map each mask into a future that resolves the array for the row range.
         let row_ranges: Vec<_> = self
@@ -264,50 +266,58 @@ impl Scan {
                     // FIXME(ngates): we currently pass an all-true mask to the filter expression
                     //  and then intersect it with the original row mask. This isn't ideal when the
                     //  original row mask is very sparse.
-                    mask = filter_reader
-                        .evaluate_expr2(
-                            &row_range,
-                            filter,
-                            mask_future_ready(Mask::new_true(range_len)),
-                        )?
-                        .and_then(async move |array: Option<ArrayRef>| {
-                            // The array is a boolean array, so we extract the mask.
-                            let filter_result = array
-                                .map(|array| Mask::try_from(&array.to_bool()?))
-                                .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
+                    mask = instrument!(
+                        "filter_expr",
+                        filter_reader
+                            .evaluate_expr2(
+                                &row_range,
+                                filter,
+                                mask_future_ready(Mask::new_true(range_len)),
+                            )?
+                            .and_then(async move |array: Option<ArrayRef>| {
+                                // The array is a boolean array, so we extract the mask.
+                                let filter_result = array
+                                    .map(|array| Mask::try_from(&array.to_bool()?))
+                                    .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
 
-                            // Intersect the filter result with the original mask.
-                            Ok(mask.await?.bitand(&filter_result))
-                        })
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared();
+                                // Intersect the filter result with the original mask.
+                                Ok(mask.await?.bitand(&filter_result))
+                            })
+                    )
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared();
                 }
 
                 Ok::<_, VortexError>(
-                    layout_reader
-                        .evaluate_expr2(&row_range, &self.projection, mask)?
-                        .map(move |array| {
-                            if self.canonicalize {
-                                array?
-                                    .map(|array| {
-                                        let mut builder =
-                                            builder_with_capacity(array.dtype(), array.len());
-                                        array.append_to_builder(builder.as_mut())?;
-                                        Ok(builder.finish())
-                                    })
-                                    .transpose()
-                            } else {
-                                array
-                            }
-                        }),
+                    instrument!(
+                        "project_expr",
+                        layout_reader.evaluate_expr2(&row_range, &self.projection, mask)?
+                    )
+                    .map(move |array| {
+                        if self.canonicalize {
+                            array?
+                                .map(|array| {
+                                    let mut builder =
+                                        builder_with_capacity(array.dtype(), array.len());
+                                    array.append_to_builder(builder.as_mut())?;
+                                    Ok(builder.finish())
+                                })
+                                .transpose()
+                        } else {
+                            array
+                        }
+                    }),
                 )
             })
             .try_collect()?;
 
         let task_executor = self.task_executor.clone();
         let exec_stream = stream::iter(row_ranges)
-            .map(move |task| task_executor.spawn(task))
+            .map(move |task| {
+                log::info!("Spawning task");
+                task_executor.spawn(task)
+            })
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
         let exec_stream = instrument!("exec_stream", exec_stream);

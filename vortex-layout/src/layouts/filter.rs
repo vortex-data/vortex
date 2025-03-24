@@ -205,12 +205,15 @@ impl FilterExpr {
             log::debug!("Evaluating filter conjunctions for {:?}", &row_range);
 
             // Now we poll the conjuncts in any order, and if any return all false, we can exit early.
+            // FIXME(ngates): we need to spawn these in order to actually make concurrent progress.
             let mut conjunct_futures =
                 FuturesUnordered::from_iter(self.ordering.read()?.iter().map(|&i| {
+                    //task_executor.spawn(
                     conjunct_futures[i]
                         .take()
                         .vortex_expect("duplicate conjunct in ordering")
                         .map(move |r| (i, r))
+                    //)
                 }));
 
             let mut acc = Mask::new_true(range_len);

@@ -75,7 +75,7 @@ mod test {
     use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, Layout, RowMask};
+    use crate::{Layout, RowMask};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
