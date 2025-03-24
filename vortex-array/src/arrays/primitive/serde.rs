@@ -68,10 +68,7 @@ impl EncodingVTable for PrimitiveEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        match input {
-            Canonical::Primitive(parray) => Ok(Some(parray.to_array())),
-            _ => vortex_bail!("Can only encode primitive arrays into {}", self.id()),
-        }
+        Ok(Some(input.clone().into_primitive()?.into_array()))
     }
 }
 

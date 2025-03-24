@@ -4,7 +4,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, EncodingId, SerdeMetadata,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -63,15 +63,22 @@ impl EncodingVTable for FSSTEncoding {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
+        let like = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.encoding()
+                    )
+                })
+            })
+            .transpose()?;
+
         let array = input.clone().into_varbinview()?;
 
         let compressor = match like {
-            Some(like) => {
-                let like = like
-                    .as_opt::<FSSTArray>()
-                    .ok_or_else(|| vortex_err!("Like must be {} encoded array", self.id()))?;
-                Compressor::rebuild_from(like.symbols(), like.symbol_lengths())
-            }
+            Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),
             None => fsst_train_compressor(&array)?,
         };
 
