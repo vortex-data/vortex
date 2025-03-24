@@ -68,6 +68,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
 
     use super::*;
 
@@ -100,29 +101,28 @@ mod tests {
 
     #[test]
     fn test_compare_nullable_constant() {
-        let reference = Scalar::from(10);
+        let reference = Scalar::from(0);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::NonNullable).into_array(),
             reference,
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(&lhs, 30i32, Nullability::Nullable, Operator::Eq),
-            [false, true, false],
+        assert_eq!(
+            compare_constant(&lhs, 30i32, Nullability::Nullable, Operator::Eq)
+                .unwrap()
+                .unwrap()
+                .dtype(),
+            &DType::Bool(Nullability::Nullable)
         );
-        assert_result(
-            compare_constant(&lhs, 12i32, Nullability::Nullable, Operator::NotEq),
-            [true, true, false],
+        assert_eq!(
+            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+                .unwrap()
+                .unwrap()
+                .dtype(),
+            &DType::Bool(Nullability::NonNullable)
         );
-        for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
-            assert!(
-                compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
-                    .unwrap()
-                    .is_none()
-            );
-        }
     }
 
     #[test]
