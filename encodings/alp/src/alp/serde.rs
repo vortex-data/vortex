@@ -9,7 +9,7 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
-use super::{ALPEncoding, alp_encode, alp_encode_with_exponents};
+use super::{ALPEncoding, alp_encode};
 use crate::{ALPArray, Exponents};
 
 impl EncodingVTable for ALPEncoding {
@@ -64,11 +64,7 @@ impl EncodingVTable for ALPEncoding {
             })
             .transpose()?;
         let exponents = like_alp.map(|a| a.exponents());
-
-        let alp = match exponents {
-            Some(e) => alp_encode_with_exponents(&parray, e)?,
-            None => alp_encode(&parray)?,
-        };
+        let alp = alp_encode(&parray, exponents)?;
 
         Ok(Some(alp.into_array()))
     }

@@ -58,7 +58,7 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     bencher
         .with_inputs(|| (values.clone(), validity.clone()))
         .bench_values(|(values, validity)| {
-            alp_encode(&PrimitiveArray::new(values, validity)).unwrap()
+            alp_encode(&PrimitiveArray::new(values, validity), None).unwrap()
         })
 }
 
@@ -80,7 +80,7 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
         Validity::NonNullable
     };
     let values = values.freeze();
-    let array = alp_encode(&PrimitiveArray::new(values, validity)).unwrap();
+    let array = alp_encode(&PrimitiveArray::new(values, validity), None).unwrap();
     bencher
         .with_inputs(|| array.clone())
         .bench_values(|array| array.to_canonical().unwrap());
