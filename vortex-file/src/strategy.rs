@@ -111,7 +111,7 @@ struct PreviousCompression {
     ratio: f64,
 }
 
-const COMPRESSION_DRIFT_THRESHOLD: f64 = 2.0;
+const COMPRESSION_DRIFT_THRESHOLD: f64 = 1.2;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
 /// compressed chunk as a hint for the next.
