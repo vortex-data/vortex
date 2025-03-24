@@ -142,12 +142,14 @@ impl ArrayImpl for StructArray {
     }
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = match self.validity() {
-            Validity::Array(_) => Validity::Array(children[0].clone()),
-            other => other.clone(),
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            self.validity().clone()
         };
 
-        let fields = children[1..].to_vec();
+        let fields_idx = validity.is_array() as usize;
+        let fields = children[fields_idx..].to_vec();
 
         if let Some(field_len) = fields.first().map(|a| a.len()) {
             if fields.iter().any(|a| a.len() != field_len) {

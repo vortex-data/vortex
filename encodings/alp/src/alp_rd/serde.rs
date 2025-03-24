@@ -95,7 +95,7 @@ impl EncodingVTable for ALPRDEncoding {
                     vortex_err!(
                         "Expected {} encoded array but got {}",
                         self.id(),
-                        like.vtable().id()
+                        like.encoding()
                     )
                 })
             })

@@ -364,6 +364,10 @@ impl Validity {
             0
         }
     }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Validity::Array(_))
+    }
 }
 
 impl PartialEq for Validity {

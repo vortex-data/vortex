@@ -18,6 +18,9 @@ pub trait ArrayVisitor {
     /// Returns the names of the children of the array.
     fn children_names(&self) -> Vec<String>;
 
+    /// Returns the array's children with their names.
+    fn named_children(&self) -> Vec<(String, ArrayRef)>;
+
     /// Returns the buffers of the array.
     fn buffers(&self) -> Vec<ByteBuffer>;
 
@@ -42,6 +45,10 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn children_names(&self) -> Vec<String> {
         self.as_ref().children_names()
+    }
+
+    fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        self.as_ref().named_children()
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {
@@ -99,10 +106,7 @@ pub trait ArrayVisitorExt: Array {
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
 // TODO(ngates): rename to ArraySerdeImpl?
-pub trait ArrayVisitorImpl<
-    Metadata: SerializeMetadata + DeserializeMetadata + Debug = EmptyMetadata,
->
-{
+pub trait ArrayVisitorImpl<M: SerializeMetadata + DeserializeMetadata + Debug = EmptyMetadata> {
     fn _visit_buffers(&self, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn _nbuffers(&self) -> usize {
@@ -135,7 +139,7 @@ pub trait ArrayVisitorImpl<
         visitor.0
     }
 
-    fn _metadata(&self) -> Metadata;
+    fn _metadata(&self) -> M;
 }
 
 pub trait ArrayBufferVisitor {
@@ -213,6 +217,25 @@ impl<A: ArrayImpl> ArrayVisitor for A {
         let mut collector = ChildNameCollector { names: Vec::new() };
         ArrayVisitorImpl::_visit_children(self, &mut collector);
         collector.names
+    }
+
+    fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        struct NamedChildrenCollector {
+            children: Vec<(String, ArrayRef)>,
+        }
+
+        impl ArrayChildVisitor for NamedChildrenCollector {
+            fn visit_child(&mut self, name: &str, array: &dyn Array) {
+                self.children.push((name.to_string(), array.to_array()));
+            }
+        }
+
+        let mut collector = NamedChildrenCollector {
+            children: Vec::new(),
+        };
+
+        ArrayVisitorImpl::_visit_children(self, &mut collector);
+        collector.children
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {

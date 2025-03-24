@@ -132,73 +132,83 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
 
         let mut compressed_array = None;
 
+        // If we have information about the previous chunk
         if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
             let prev_vtable = prev_chunk.vtable();
             let canonical = chunk.to_canonical()?;
 
-            // If the encoding didn't have to fallback here
-            if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev_chunk))? {
-                let prev_children = prev_chunk
-                    .children_names()
-                    .into_iter()
-                    .zip_eq(prev_chunk.children())
-                    .collect::<HashMap<_, _>>();
-                let encoded_children = encoded
-                    .children_names()
-                    .into_iter()
-                    .zip_eq(encoded.children())
-                    .collect::<HashMap<_, _>>();
+            log::debug!(
+                "Trying to encode {} array into {}",
+                canonical.as_ref().encoding(),
+                prev_vtable.id()
+            );
+            match prev_vtable.encode(&canonical, Some(&prev_chunk))? {
+                // Encoding isn't supported, so we remove the previous chunk state to let the compressor to try again.
+                None => {
+                    self.previous_chunk.take();
+                }
+                Some(encoded) => {
+                    let prev_children = prev_compression.chunk.named_children();
+                    let encoded_children_names = encoded.named_children();
 
-                let mut new_map = HashMap::new();
-                for (k, child) in encoded_children {
-                    if let Some(prev) = prev_children.get(&k) {
-                        if let Some(new_encoded_child) =
-                            prev.vtable().encode(&child.to_canonical()?, Some(prev))?
+                    let mut new_map = HashMap::new();
+                    for (child_name, child) in encoded_children_names.into_iter() {
+                        // If there's a matching child, we try and encode the child
+                        if let Some((_, prev_child)) =
+                            prev_children.iter().find(|(name, _)| name == &child_name)
                         {
-                            new_map.insert(k.clone(), new_encoded_child);
-                        } else if prev.encoding() != child.encoding() {
-                            log::warn!(
-                                "Couldn't encode {} array as {}",
-                                child.encoding(),
-                                prev.encoding()
-                            )
+                            if let Some(new_encoded_child) = prev_child
+                                .vtable()
+                                .encode(&child.to_canonical()?, Some(prev_child))?
+                            {
+                                new_map.insert(child_name.clone(), new_encoded_child);
+                            } else if prev_child.encoding() != child.encoding() {
+                                log::warn!(
+                                    "Couldn't encode {} array as {}",
+                                    child.encoding(),
+                                    prev_child.encoding()
+                                )
+                            }
+                        }
+
+                        // If we didn't encode the child, we keep the existing one.
+                        if !new_map.contains_key(&child_name) {
+                            new_map.insert(child_name, child);
                         }
                     }
 
-                    if !new_map.contains_key(&k) {
-                        new_map.insert(k, child);
+                    // We turn the map into a children vec, keeping the order of children.
+                    let new_children = encoded
+                        .children_names()
+                        .iter()
+                        .map(|name| new_map[name].clone())
+                        .collect_vec();
+
+                    let new_array = encoded.with_children(&new_children)?;
+                    let ratio = new_array.nbytes() as f64 / canonical.as_ref().nbytes() as f64;
+
+                    log::debug!("Array compressed with compression ratio of {ratio}");
+
+                    if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                        compressed_array = Some(new_array);
+                    } else {
+                        log::debug!(
+                            "Compression ratio of {ratio} which is above the accepted threshold of {accepted}, falling back to the compressor.",
+                            accepted = prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
+                        );
                     }
                 }
-
-                let new_children = encoded
-                    .children_names()
-                    .iter()
-                    .map(|name| new_map[name].clone())
-                    .collect_vec();
-
-                let new_array = encoded.with_children(&new_children)?;
-
-                let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
-
-                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-                // If it isn't we  fall back to the compressor.
-                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
-                    compressed_array = Some(new_array);
-                }
-            } else {
-                self.previous_chunk.take();
             }
         }
 
         let compressed = match compressed_array {
             Some(array) => array,
             None => {
-                let original_size = chunk.nbytes() as f64;
                 let compressed = BtrBlocksCompressor.compress(&chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
-                    ratio: compressed.nbytes() as f64 / original_size,
+                    ratio: compressed.nbytes() as f64 / chunk.nbytes() as f64,
                 });
                 compressed
             }
