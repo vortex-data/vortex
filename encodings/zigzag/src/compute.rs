@@ -42,7 +42,7 @@ impl ScalarAtFn<&ZigZagArray> for ZigZagEncoding {
     fn scalar_at(&self, array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = scalar_at(array.encoded(), index)?;
         if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype(), array.dtype().nullability()));
+            return Ok(scalar.reinterpret_cast(array.ptype()));
         }
 
         let pscalar = PrimitiveScalar::try_from(&scalar)?;

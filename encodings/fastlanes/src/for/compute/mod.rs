@@ -64,8 +64,7 @@ impl FilterKernel for FoREncoding {
 
 impl ScalarAtFn<&FoRArray> for FoREncoding {
     fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
-        let encoded_pvalue = scalar_at(array.encoded(), index)?
-            .reinterpret_cast(array.ptype(), array.dtype().nullability());
+        let encoded_pvalue = scalar_at(array.encoded(), index)?.reinterpret_cast(array.ptype());
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();
         let reference = reference.as_primitive();
@@ -134,7 +133,7 @@ where
     // space. Multiple different search values can translate to same value in the compressed space.
     let target = primitive_value.wrapping_sub(&min);
     let target_scalar = Scalar::primitive(target, value.dtype().nullability())
-        .reinterpret_cast(array.ptype().to_unsigned(), value.dtype().nullability());
+        .reinterpret_cast(array.ptype().to_unsigned());
 
     search_sorted(array.encoded(), target_scalar, side)
 }
