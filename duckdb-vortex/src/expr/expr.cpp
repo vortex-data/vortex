@@ -102,6 +102,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_binary()->set_nullable(nullable);
 		return dtype;
 	default:
+		std::cout << "Unsupported type: " << type_.ToString() << std::endl;
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
 }
@@ -152,8 +153,9 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 	case LogicalTypeId::UBIGINT:
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
-	default:
-		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
+	case LogicalTypeId::DATE:
+		scalar->mutable_value()->set_e default
+		    : throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
 }
 
@@ -168,7 +170,48 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 	id->set_id(IDENTITY_ID);
 }
 
-vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, string &column_name) {
+vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
+                                          const string &column_name) {
+	D_ASSERT(child_filters.size() > 1);
+
+	// Start with the first expression
+	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
+	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+
+	// Flatten the list of children into a linked list of AND values.
+	for (size_t i = 0; i < child_filters.size() - 1; i++) {
+		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		new_and->set_id(BINARY_ID);
+		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->add_children()->Swap(table_expression_into_expr(arena, *child_filters[i], column_name));
+
+		tail = new_and;
+	}
+	tail->add_children()->Swap(table_expression_into_expr(arena, *child_filters.back(), column_name));
+	return hd;
+}
+
+vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
+	D_ASSERT(child_filters.size() > 1);
+
+	// Start with the first expression
+	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
+	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+
+	// Flatten the list of children into a linked list of AND values.
+	for (size_t i = 0; i < child_filters.size() - 1; i++) {
+		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		new_and->set_id(BINARY_ID);
+		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->add_children()->Swap(child_filters[i]);
+
+		tail = new_and;
+	}
+	tail->add_children()->Swap(child_filters.back());
+	return hd;
+}
+
+vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
 	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
@@ -191,23 +234,7 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjucts = filter.Cast<ConjunctionAndFilter>();
 
-		D_ASSERT(conjucts.child_filters.size() > 1);
-
-		// Start with the first expression
-		auto tail = static_cast<vortex::expr::Expr *>(nullptr);
-		auto hd = Arena::Create<vortex::expr::Expr>(&arena);
-
-		// Flatten the list of children into a linked list of AND values.
-		for (size_t i = 0; i < conjucts.child_filters.size() - 1; i++) {
-			vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
-			new_and->set_id(BINARY_ID);
-			new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
-			new_and->add_children()->Swap(table_expression_into_expr(arena, *conjucts.child_filters[i], column_name));
-
-			tail = new_and;
-		}
-		tail->add_children()->Swap(table_expression_into_expr(arena, *conjucts.child_filters.back(), column_name));
-		return hd;
+		return flatten_table_filters(arena, conjucts.child_filters, column_name);
 	}
 	case TableFilterType::IS_NULL:
 	case TableFilterType::IS_NOT_NULL: {

@@ -11,6 +11,8 @@
 
 #include "vortex.h"
 
+#include <expr/expr.hpp>
+
 extern "C" {
 const char *vortex_duckdb_hello();
 }
@@ -30,7 +32,7 @@ struct VortexBindData : public TableFunctionData {
 	vector<string> column_names;
 	uint64_t num_columns;
 	File *file;
-	mutable ArrayStream *array_stream;
+	// mutable ArrayStream *array_stream;
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<VortexBindData>();
@@ -49,7 +51,7 @@ struct VortexBindData : public TableFunctionData {
 /// Local state for the Vortex table function that tracks the progress of a scan
 /// operation. In DuckDB's execution model, a query reading from a file can be
 /// parallelized by dividing it into ranges, each handled by a different scan.
-struct VortexScanState : public LocalTableFunctionState {
+struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t current_row = 0;
 	bool finished = false;
 	mutable Array *array;
@@ -59,41 +61,70 @@ struct VortexScanState : public LocalTableFunctionState {
 	vector<idx_t> column_ids;
 };
 
-struct VortexScanSharedState : public GlobalTableFunctionState {
+struct VortexScanGlobalState : public GlobalTableFunctionState {
+
+	ArrayStream *array_stream;
+	std::mutex stream_lock;
+	bool finished;
+
 	idx_t MaxThreads() const override {
-		return 1;
+		return 100000;
 	}
 };
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &bind_data = data.bind_data->Cast<VortexBindData>(); // NOLINT
-	auto &state = data.local_state->Cast<VortexScanState>();  // NOLINT
-
-	if (bind_data.array_stream == nullptr) {
-		const char **const column_names = new const char *[state.column_ids.size()];
-		auto idx = 0;
-		for (auto col_id : state.column_ids) {
-			column_names[idx++] = bind_data.column_names[col_id].c_str();
-		}
-		auto options = FileScanOptions {column_names, static_cast<int>(state.column_ids.size())};
-
-		bind_data.array_stream = File_scan(bind_data.file, &options);
-
-		delete[] column_names;
-	}
+	auto &bind_data = data.bind_data->Cast<VortexBindData>();         // NOLINT
+	auto &state = data.local_state->Cast<VortexScanLocalState>();     // NOLINT
+	auto &g_state = data.global_state->Cast<VortexScanGlobalState>(); // NOLINT
 
 	if (state.finished) {
 		return;
 	}
 
 	if (state.array == nullptr) {
-		auto next = FFIArrayStream_next(bind_data.array_stream);
-		if (!next) {
-			FFIArrayStream_free(bind_data.array_stream);
-			state.finished = true;
+		std::lock_guard l(g_state.stream_lock);
+
+		if (g_state.finished) {
 			return;
 		}
-		state.array = FFIArrayStream_current(bind_data.array_stream);
+
+		if (g_state.array_stream == nullptr) {
+			const char **const column_names = new const char *[state.column_ids.size()];
+			auto idx = 0;
+			for (auto col_id : state.column_ids) {
+				column_names[idx++] = bind_data.column_names[col_id].c_str();
+			}
+
+			auto options = FileScanOptions {
+			    column_names, static_cast<int>(state.column_ids.size()), "", 0, 2048 * 32,
+			};
+
+			if (state.filter != nullptr) {
+				google::protobuf::Arena arena;
+				vector<vortex::expr::Expr *> exprs;
+				for (const auto &[col_id, value] : state.filter->filters) {
+					auto col_name = bind_data.column_names[col_id];
+					auto conj = table_expression_into_expr(arena, *value, col_name);
+					exprs.push_back(conj);
+				}
+				auto expr = flatten_exprs(arena, exprs);
+				auto str = expr->SerializeAsString();
+				options.filter_expression = expr->SerializeAsString().c_str();
+				options.filter_expression_len = str.size() + 1;
+			}
+
+			g_state.array_stream = File_scan(bind_data.file, &options);
+
+			delete[] column_names;
+		}
+
+		auto next = FFIArrayStream_next(g_state.array_stream);
+		if (!next) {
+			FFIArrayStream_free(g_state.array_stream);
+			g_state.finished = true;
+			return;
+		}
+		state.array = FFIArrayStream_current(g_state.array_stream);
 		state.current_row = 0;
 	}
 
@@ -191,7 +222,7 @@ void VortexExtension::Load(DuckDB &db) {
 
 	vortex_func.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
-		auto state = make_uniq<VortexScanState>();
+		auto state = make_uniq<VortexScanLocalState>();
 		state->filter = input.filters;
 
 		state->column_ids = vector<column_t>(input.projection_ids.size());
@@ -204,7 +235,7 @@ void VortexExtension::Load(DuckDB &db) {
 
 	vortex_func.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
-		auto state = make_uniq<VortexScanSharedState>();
+		auto state = make_uniq<VortexScanGlobalState>();
 		return state;
 	};
 
