@@ -42,6 +42,9 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
         )
     }
 
+    /// Encode the canonical array into this encoding implementation.
+    ///
+    /// Should error if `like` is encoded with a different encoding.
     fn encode(
         &self,
         input: &Canonical,
