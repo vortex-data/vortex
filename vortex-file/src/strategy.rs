@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arcref::ArcRef;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
@@ -145,10 +143,9 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             // If the encoding didn't have to fallback here
             if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev_chunk))? {
                 let prev_chunk_children = prev_chunk.named_children();
-
                 let encoded_children = encoded.named_children();
 
-                let mut new_map = HashMap::new();
+                let mut new_children = Vec::new();
                 for (k, child) in encoded_children.into_iter() {
                     let new_encoded_child = prev_chunk_children
                         .iter()
@@ -161,14 +158,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                         .transpose()?
                         .flatten();
 
-                    new_map.insert(k, new_encoded_child.unwrap_or(child));
+                    new_children.push(new_encoded_child.unwrap_or(child));
                 }
-
-                let new_children = encoded
-                    .children_names()
-                    .iter()
-                    .map(|name| new_map[name].clone())
-                    .collect_vec();
 
                 let new_array = encoded.with_children(&new_children)?;
 
