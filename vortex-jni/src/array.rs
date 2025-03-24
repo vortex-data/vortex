@@ -1,10 +1,11 @@
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::objects::{JByteArray, JClass, JIntArray, JLongArray, JObject, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jdouble, jfloat, jint, jlong, jshort};
+use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
-use vortex::error::vortex_err;
-use vortex::{Array, ArrayRef};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::{Array, ArrayRef, ArrayVariants};
 
 use crate::errors::Throwable;
 
@@ -341,6 +342,45 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    array_ptr: jlong,
+    index: jint,
+    out_ptr: JLongArray<'local>,
+    out_len: JIntArray<'local>,
+) {
+    let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
+    if array_ref.inner.as_utf8_typed().is_none() {
+        vortex_err!("getUTF8_ptr_len expected UTF8 array").throw_illegal_argument(&mut env);
+        return;
+    }
+
+    if let Some(varbin) = array_ref.inner.as_any().downcast_ref::<VarBinArray>() {
+        match get_ptr_len_varbin(index, varbin) {
+            Ok((ptr, len)) => {
+                env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])
+                    .expect("set_long_array_region");
+                env.set_int_array_region(&out_len, 0, &[len as jint])
+                    .expect("set_int_array_region");
+            }
+            Err(err) => {
+                err.throw_runtime(&mut env, "get_ptr_len_varbin");
+            }
+        }
+    } else if let Some(varbinview) = array_ref.inner.as_any().downcast_ref::<VarBinViewArray>() {
+        let (ptr, len) = get_ptr_len_view(index, varbinview);
+        env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])
+            .expect("set_long_array_region");
+        env.set_int_array_region(&out_len, 0, &[len as jint])
+            .expect("set_int_array_region");
+    } else {
+        vortex_err!("getUTF8_ptr_len expected VarBin or VarBinView")
+            .throw_illegal_argument(&mut env);
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -360,4 +400,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
             JObject::null().into()
         }
     }
+}
+
+/// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
+fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> VortexResult<(*const u8, u32)> {
+    let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"))?;
+    Ok((
+        bytes.as_ptr(),
+        u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
+    ))
+}
+
+/// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
+fn get_ptr_len_view(index: jint, array: &VarBinViewArray) -> (*const u8, u32) {
+    let bytes = array.bytes_at(usize::try_from(index).expect("index must fit in usize"));
+    (
+        bytes.as_ptr(),
+        u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
+    )
 }
