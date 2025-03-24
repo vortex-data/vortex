@@ -25,6 +25,24 @@ const string GET_ITEM_ID = "get_item";
 const string IDENTITY_ID = "identity";
 const string LITERAL_ID = "literal";
 
+// Temporal ids
+const string VORTEX_DATE_ID = "vortex.date";
+const string VORTEX_TIME_ID = "vortex.time";
+const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
+
+enum TimeUnit : uint8_t {
+	/// Nanoseconds
+	Ns = 0,
+	/// Microseconds
+	Us = 1,
+	/// Milliseconds
+	Ms = 2,
+	/// Seconds
+	S = 3,
+	/// Days
+	D = 4,
+};
+
 vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
 	static const std::unordered_map<ExpressionType, vortex::expr::Kind_BinaryOp> op_map = {
 	    {ExpressionType::COMPARE_EQUAL, vortex::expr::Kind_BinaryOp_Eq},
@@ -101,6 +119,14 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 	case LogicalTypeId::BLOB:
 		dtype->mutable_binary()->set_nullable(nullable);
 		return dtype;
+	case LogicalTypeId::DATE: {
+		dtype->mutable_extension()->set_id(VORTEX_DATE_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::D)}));
+		return dtype;
+	}
 	default:
 		std::cout << "Unsupported type: " << type_.ToString() << std::endl;
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
@@ -154,8 +180,11 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::DATE:
-		scalar->mutable_value()->set_e default
-		    : throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
+		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
+
+	default:
+		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
 }
 
@@ -172,7 +201,11 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 
 vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
                                           const string &column_name) {
-	D_ASSERT(child_filters.size() > 1);
+	D_ASSERT(child_filters.size() >= 1);
+
+	if (child_filters.size() == 1) {
+		return table_expression_into_expr(arena, *child_filters[0], column_name);
+	}
 
 	// Start with the first expression
 	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
@@ -192,7 +225,12 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 }
 
 vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
-	D_ASSERT(child_filters.size() > 1);
+
+	D_ASSERT(child_filters.size() >= 1);
+
+	if (child_filters.size() == 1) {
+		return child_filters[0];
+	}
 
 	// Start with the first expression
 	auto tail = static_cast<vortex::expr::Expr *>(nullptr);

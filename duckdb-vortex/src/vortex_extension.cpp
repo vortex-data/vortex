@@ -55,10 +55,6 @@ struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t current_row = 0;
 	bool finished = false;
 	mutable Array *array;
-
-	optional_ptr<TableFilterSet> filter;
-	// The column idx that must be returned by the scan.
-	vector<idx_t> column_ids;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
@@ -67,8 +63,14 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	std::mutex stream_lock;
 	bool finished;
 
+	optional_ptr<TableFilterSet> filter;
+	// The column idx that must be returned by the scan.
+	vector<idx_t> column_ids;
+
+	vector<idx_t> projection_ids;
+
 	idx_t MaxThreads() const override {
-		return 100000;
+		return 99999;
 	}
 };
 
@@ -89,28 +91,36 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 
 		if (g_state.array_stream == nullptr) {
-			const char **const column_names = new const char *[state.column_ids.size()];
+			const char **const column_names = new const char *[g_state.projection_ids.size()];
 			auto idx = 0;
-			for (auto col_id : state.column_ids) {
+			for (auto col_id : g_state.projection_ids) {
 				column_names[idx++] = bind_data.column_names[col_id].c_str();
 			}
 
 			auto options = FileScanOptions {
-			    column_names, static_cast<int>(state.column_ids.size()), "", 0, 2048 * 32,
+			    .projection = column_names,
+			    .projection_len = static_cast<int>(g_state.projection_ids.size()),
+			    .filter_expression = "",
+			    .filter_expression_len = 0,
+			    .split_by_row_count = 2048 * 32 * 4,
 			};
 
-			if (state.filter != nullptr) {
+			if (g_state.filter != nullptr) {
 				google::protobuf::Arena arena;
 				vector<vortex::expr::Expr *> exprs;
-				for (const auto &[col_id, value] : state.filter->filters) {
-					auto col_name = bind_data.column_names[col_id];
+				for (const auto &[col_id, value] : g_state.filter->filters) {
+					auto col_name = bind_data.column_names[g_state.column_ids[col_id]];
 					auto conj = table_expression_into_expr(arena, *value, col_name);
 					exprs.push_back(conj);
 				}
 				auto expr = flatten_exprs(arena, exprs);
+
 				auto str = expr->SerializeAsString();
-				options.filter_expression = expr->SerializeAsString().c_str();
-				options.filter_expression_len = str.size() + 1;
+				char *buffer = new char[str.size()];
+				std::ranges::copy(str, buffer);
+
+				options.filter_expression = buffer;
+				options.filter_expression_len = str.size();
 			}
 
 			g_state.array_stream = File_scan(bind_data.file, &options);
@@ -223,25 +233,24 @@ void VortexExtension::Load(DuckDB &db) {
 	vortex_func.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
 		auto state = make_uniq<VortexScanLocalState>();
-		state->filter = input.filters;
 
-		state->column_ids = vector<column_t>(input.projection_ids.size());
-		auto idx = 0;
-		for (auto proj_id : input.projection_ids) {
-			state->column_ids[idx++] = input.column_ids[proj_id];
-		}
 		return state;
 	};
 
 	vortex_func.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
 		auto state = make_uniq<VortexScanGlobalState>();
-		return state;
-	};
 
-	vortex_func.init_global = [](ClientContext &context,
-	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
-		auto state = make_uniq<VortexScanSharedState>();
+		state->filter = input.filters;
+
+		state->projection_ids = vector<column_t>(input.projection_ids.size());
+		auto idx = 0;
+		for (auto proj_id : input.projection_ids) {
+			state->projection_ids[idx++] = input.column_ids[proj_id];
+		}
+
+		state->column_ids = input.column_ids;
+
 		return state;
 	};
 
