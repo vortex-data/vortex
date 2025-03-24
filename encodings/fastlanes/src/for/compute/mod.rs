@@ -140,6 +140,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
     use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};

@@ -65,7 +65,7 @@ impl EncodingVTable for SparseEncoding {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(adam): This is just a placeholder, seems like a bunch of code needs to go here
+        // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
         let fill_value = like
             .and_then(|arr| arr.as_opt::<SparseArray>())
             .and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
