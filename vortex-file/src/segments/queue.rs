@@ -299,51 +299,9 @@ impl PendingSegment {
             .vortex_expect("poisoned lock")
             .take()
             .map(|send| PendingSegmentLease {
-                id: self.id,
-                pending: Arc::downgrade(&self),
+                pending: self,
                 send: Some(send),
             })
-    }
-}
-
-impl Drop for PendingSegment {
-    fn drop(&mut self) {
-        // let inner = self.inner.lock().vortex_expect("poisoned lock");
-        // match (inner.result.is_some(), inner.send.is_some()) {
-        //     (false, true) => {
-        //         log::debug!(
-        //             "Pending segment {} for {}: DROPPED BEFORE LAUNCH",
-        //             self.id,
-        //             &self.for_whom
-        //         );
-        //         self.queue
-        //             .metrics
-        //             .counter("vortex.scan.segments.dropped_before_launch")
-        //             .inc();
-        //     }
-        //     (false, false) => {
-        //         log::debug!(
-        //             "Pending segment {} for {}: DROPPED AFTER LAUNCH",
-        //             self.id,
-        //             &self.for_whom
-        //         );
-        //         self.queue
-        //             .metrics
-        //             .counter("vortex.scan.segments.dropped_after_launch")
-        //             .inc();
-        //     }
-        //     (true, _) => {
-        //         log::trace!(
-        //             "Pending segment {} for {}: DROPPED AFTER RESOLUTION",
-        //             self.id,
-        //             &self.for_whom
-        //         );
-        //         self.queue
-        //             .metrics
-        //             .counter("vortex.scan.segments.dropped_after_resolution")
-        //             .inc();
-        //     }
-        // }
     }
 }
 
@@ -365,9 +323,11 @@ impl Future for SegmentFuture {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.polled.fetch_or(true, Ordering::Relaxed) {
             // Bump the segment to the front of the queue.
-            let mut needed = self.queue.needed.lock().vortex_expect("poisoned lock");
-            if needed.need_later.remove(&self.id) {
-                needed.need_now.push_back(self.id);
+            {
+                let mut needed = self.queue.needed.lock().vortex_expect("poisoned lock");
+                if needed.need_later.remove(&self.id) {
+                    needed.need_now.push_back(self.id);
+                }
             }
 
             // Notify the queue that there may be more work to do.
@@ -402,14 +362,13 @@ impl Drop for SegmentFuture {
 
 /// Lease the pending segment such that we know there is only one resolver at a time.
 pub struct PendingSegmentLease {
-    id: SegmentId,
-    pending: Weak<PendingSegment>,
+    pending: Arc<PendingSegment>,
     send: Option<oneshot::Sender<VortexResult<ByteBuffer>>>,
 }
 
 impl PendingSegmentLease {
     pub fn id(&self) -> SegmentId {
-        self.id
+        self.pending.id
     }
 
     pub fn resolve(mut self, buffer: VortexResult<ByteBuffer>) {
@@ -424,20 +383,16 @@ impl PendingSegmentLease {
             log::trace!("Pending segment {}: DROPPED WHILE LEASED", self.id);
         }
 
-        if let Some(pending) = self.pending.upgrade() {
-            pending
-                .queue
-                .metrics
-                .timer("vortex.scan.segments.resolve")
-                .update(Instant::now() - pending.created_at);
-        }
+        self.pending
+            .queue
+            .metrics
+            .timer("vortex.scan.segments.resolve")
+            .update(Instant::now() - self.pending.created_at);
     }
 }
 
 impl Drop for PendingSegmentLease {
     fn drop(&mut self) {
-        if let Some(pending) = self.pending.upgrade() {
-            *pending.send.lock().vortex_expect("poisoned lock") = self.send.take();
-        }
+        *self.pending.send.lock().vortex_expect("poisoned lock") = self.send.take();
     }
 }
