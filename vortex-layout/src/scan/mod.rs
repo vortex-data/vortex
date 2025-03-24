@@ -242,7 +242,8 @@ impl Scan {
         // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
         let layout_reader = self.layout_reader.clone();
         // let filter_reader = self.layout_reader.clone();
-        let filter_reader = FilterLayoutReader::new(layout_reader.clone());
+        let filter_reader =
+            FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
 
         // Map each mask into a future that resolves the array for the row range.
         let row_ranges: Vec<_> = self

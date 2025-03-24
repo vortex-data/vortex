@@ -18,6 +18,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
+use crate::scan::executor::{Executor, TaskExecutor};
 use crate::{ExprEvaluator, Layout, LayoutReader, MaskFuture};
 
 /// Perform a filter before evaluating the expression if the mask drops below this density.
@@ -36,13 +37,15 @@ const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 pub struct FilterLayoutReader {
     child: Arc<dyn LayoutReader>,
     cache: RwLock<HashMap<ExprRef, Option<Arc<FilterExpr>>>>,
+    task_executor: TaskExecutor,
 }
 
 impl FilterLayoutReader {
-    pub fn new(child: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(child: Arc<dyn LayoutReader>, task_executor: TaskExecutor) -> Self {
         Self {
             child,
             cache: Default::default(),
+            task_executor,
         }
     }
 }
@@ -85,7 +88,12 @@ impl ExprEvaluator for FilterLayoutReader {
 
         // Otherwise, we create a new evaluation of the filter expression for this particular
         // row range.
-        filter_expr.new_evaluation(self.child.clone(), row_range, mask)
+        filter_expr.new_evaluation(
+            self.child.clone(),
+            row_range,
+            mask,
+            self.task_executor.clone(),
+        )
     }
 }
 
@@ -188,6 +196,7 @@ impl FilterExpr {
         reader: Arc<dyn LayoutReader>,
         row_range: &Range<u64>,
         mask_future: MaskFuture,
+        task_executor: TaskExecutor,
     ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
         // We construct the conjunct evaluations now to ensure that pre-fetching has full visibility.
         let mut conjunct_futures: Vec<_> = self
@@ -208,12 +217,12 @@ impl FilterExpr {
             // FIXME(ngates): we need to spawn these in order to actually make concurrent progress.
             let mut conjunct_futures =
                 FuturesUnordered::from_iter(self.ordering.read()?.iter().map(|&i| {
-                    //task_executor.spawn(
-                    conjunct_futures[i]
-                        .take()
-                        .vortex_expect("duplicate conjunct in ordering")
-                        .map(move |r| (i, r))
-                    //)
+                    task_executor.spawn(
+                        conjunct_futures[i]
+                            .take()
+                            .vortex_expect("duplicate conjunct in ordering")
+                            .map(move |r| (i, r)),
+                    )
                 }));
 
             let mut acc = Mask::new_true(range_len);
