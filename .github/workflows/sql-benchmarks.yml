@@ -89,7 +89,9 @@ jobs:
 
       - name: Install uv
         if: inputs.mode == 'pr'
-        uses: astral-sh/setup-uv@v5
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with:
+          sync: false
       - name: Compare results
 
         if: inputs.mode == 'pr'

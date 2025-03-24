@@ -43,7 +43,7 @@ fn filter_select_var_bin_by_slice(
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity().clone(),
+            values.validity_mask()?,
             selection_count
         )
     })
@@ -54,14 +54,13 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     offsets: &[O],
     data: &[u8],
     mask_slices: &[(usize, usize)],
-    validity: Validity,
+    logical_validity: Mask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
     O: NativePType + PrimInt + Zero,
     usize: AsPrimitive<O>,
 {
-    let logical_validity = validity.to_logical(offsets.len() - 1)?;
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     match logical_validity.boolean_buffer() {
         AllOr::All => {

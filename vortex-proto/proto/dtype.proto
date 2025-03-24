@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package vortex.dtype;
 
+option java_package = "dev.vortex.proto";
+option java_outer_classname = "DTypeProtos";
+
 enum PType {
   U8 = 0;
   U16 = 1;

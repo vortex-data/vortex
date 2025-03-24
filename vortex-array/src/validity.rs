@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 use std::ops::{BitAnd, Not};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use arrow_buffer::{BooleanBuffer, NullBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskValues};
@@ -189,8 +189,7 @@ impl Validity {
         }
     }
 
-    // TODO(ngates): rename to to_mask
-    pub fn to_logical(&self, length: usize) -> VortexResult<Mask> {
+    pub fn to_mask(&self, length: usize) -> VortexResult<Mask> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
             Self::AllInvalid => Mask::AllFalse(length),
@@ -407,30 +406,7 @@ impl From<NullBuffer> for Validity {
 
 impl FromIterator<Mask> for Validity {
     fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
-        let validities: Vec<Mask> = iter.into_iter().collect();
-
-        // If they're all valid, then return a single validity.
-        if validities.iter().all(|v| v.all_true()) {
-            return Self::AllValid;
-        }
-        // If they're all invalid, then return a single invalidity.
-        if validities.iter().all(|v| v.all_false()) {
-            return Self::AllInvalid;
-        }
-
-        // Else, construct the boolean buffer
-        let mut buffer = BooleanBufferBuilder::new(validities.iter().map(|v| v.len()).sum());
-        for validity in validities {
-            match validity {
-                Mask::AllTrue(count) => buffer.append_n(count, true),
-                Mask::AllFalse(count) => buffer.append_n(count, false),
-                Mask::Values(values) => {
-                    buffer.append_buffer(values.boolean_buffer());
-                }
-            };
-        }
-        let bool_array = BoolArray::from(buffer.finish());
-        Self::Array(bool_array.into_array())
+        Validity::from_mask(iter.into_iter().collect(), Nullability::Nullable)
     }
 }
 

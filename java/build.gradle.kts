@@ -7,6 +7,7 @@ plugins {
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     id("net.ltgt.errorprone") version "4.1.0" apply false
     id("org.inferred.processors") version "3.7.0" apply false
+    id("com.google.protobuf") version "0.9.4" apply false
 }
 
 val gitVersion: groovy.lang.Closure<String> by extra
@@ -33,16 +34,6 @@ allprojects {
         mavenCentral()
     }
 
-    tasks.withType<Test> {
-        useJUnitPlatform()
-
-        maxHeapSize = "1G"
-
-        testLogging {
-            events("passed")
-        }
-    }
-
     plugins.withType<JavaLibraryPlugin> {
         apply(plugin = "net.ltgt.errorprone")
         apply(plugin = "org.inferred.processors")
@@ -57,14 +48,17 @@ allprojects {
             java {
                 palantirJavaFormat()
                 licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
+                targetExclude("**/generated/**")
             }
         }
 
         tasks.withType<JavaCompile> {
             options.errorprone.disable("UnusedVariable")
+            options.errorprone.disableWarningsInGeneratedCode = true
+            // ignore protobuf generated files
+            options.errorprone.excludedPaths = ".*/build/generated/.*"
             options.release = 11
 
-            // Needed to make sure that the barista-annotations emits to the correct directory
             options.generatedSourceOutputDirectory = projectDir.resolve("generated_src")
         }
 

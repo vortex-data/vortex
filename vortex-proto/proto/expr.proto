@@ -1,8 +1,11 @@
 syntax = "proto3";
 
+package vortex.expr;
+
 import "scalar.proto";
 
-package vortex.expr;
+option java_package = "dev.vortex.proto";
+option java_outer_classname = "ExprProtos";
 
 message Expr {
   string id = 1;

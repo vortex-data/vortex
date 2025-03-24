@@ -1,8 +1,6 @@
 mod compare;
 
-use std::ops::AddAssign;
-
-use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
+use num_traits::WrappingSub;
 use vortex_array::compute::{
     CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SearchResult,
     SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at, search_sorted, slice,
@@ -117,11 +115,7 @@ where
     T: NativePType
         + for<'a> TryFrom<&'a Scalar, Error = VortexError>
         + TryFrom<PValue, Error = VortexError>
-        + CheckedShr
-        + CheckedShl
         + WrappingSub
-        + WrappingAdd
-        + AddAssign
         + Into<PValue>,
 {
     let min: T = array
@@ -147,69 +141,35 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
+    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at, search_sorted};
+    use vortex_array::{Array, ArrayRef, ToCanonical};
+    use vortex_error::VortexUnwrap;
 
-    use crate::for_compress;
+    use crate::FoRArray;
 
     #[test]
     fn for_scalar_at() {
-        let for_arr = for_compress(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
+        let for_arr =
+            FoRArray::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
         assert_eq!(scalar_at(&for_arr, 0).unwrap(), (-100).into());
         assert_eq!(scalar_at(&for_arr, 1).unwrap(), 1100.into());
         assert_eq!(scalar_at(&for_arr, 2).unwrap(), 1500.into());
         assert_eq!(scalar_at(&for_arr, 3).unwrap(), 1900.into());
     }
 
-    #[test]
-    fn for_search() {
-        let for_arr = for_compress(PrimitiveArray::from_iter([1100, 1500, 1900])).unwrap();
-        assert_eq!(
-            search_sorted(&for_arr, 1500, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(1)
-        );
-        assert_eq!(
-            search_sorted(&for_arr, 2000, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(3)
-        );
-        assert_eq!(
-            search_sorted(&for_arr, 1000, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
-    }
-
-    #[test]
-    fn search_with_shift_notfound() {
-        let for_arr = for_compress(PrimitiveArray::from_iter([62, 114])).unwrap();
-        assert_eq!(
-            search_sorted(&for_arr, 63, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&for_arr, 61, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
-        assert_eq!(
-            search_sorted(&for_arr, 113, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(1)
-        );
-        assert_eq!(
-            search_sorted(&for_arr, 115, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(2)
-        );
-    }
-
-    #[test]
-    fn search_with_nulls() {
-        let for_arr = for_compress(PrimitiveArray::from_option_iter([
-            None,
-            None,
-            Some(-8739),
-            Some(-29),
-        ]))
-        .unwrap();
-        assert_eq!(
-            search_sorted(&for_arr, -22360, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(2)
-        );
+    #[apply(search_sorted_conformance)]
+    fn for_search_sorted(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let for_array = FoRArray::encode(array.to_primitive().vortex_unwrap())
+            .map(|a| a.into_array())
+            .unwrap_or_else(|_| array);
+        let res = search_sorted(&for_array, value, side).unwrap();
+        assert_eq!(res, expected);
     }
 }

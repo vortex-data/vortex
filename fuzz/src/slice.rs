@@ -1,10 +1,11 @@
-use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{
+    DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
+};
 use vortex_error::VortexResult;
 
 pub fn slice_canonical_array(
@@ -61,13 +62,14 @@ pub fn slice_canonical_array(
             let offsets =
                 slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
 
-            let elements = slice_canonical_array(
-                list_array.elements(),
-                usize::try_from(offsets.get_as_cast::<u64>(0))?,
-                usize::try_from(offsets.get_as_cast::<u64>(offsets.len() - 1))?,
-            )?;
-            let offsets = match_each_native_ptype!(offsets.ptype(), |$P| {
-                shift_offsets::<$P>(offsets)
+            let (start, end) = match_each_integer_ptype!(offsets.ptype(), |$P| {
+                let offset_slice = offsets.as_slice::<$P>();
+                (usize::try_from(offset_slice[0])?, usize::try_from(offset_slice[offsets.len() - 1])?)
+            });
+
+            let elements = slice_canonical_array(list_array.elements(), start, end)?;
+            let offsets = match_each_integer_ptype!(offsets.ptype(), |$P| {
+                shift_offsets(offsets.as_slice::<$P>())
             })
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
@@ -76,11 +78,16 @@ pub fn slice_canonical_array(
     }
 }
 
-fn shift_offsets<O: NativePType + ArrowNativeType>(offsets: PrimitiveArray) -> PrimitiveArray {
+fn shift_offsets<O: NativePType>(offsets: &[O]) -> PrimitiveArray {
     if offsets.is_empty() {
-        return offsets;
+        return PrimitiveArray::empty::<O>(Nullability::NonNullable);
     }
-    let offsets: Vec<O> = offsets.as_slice().to_vec();
     let start = offsets[0];
-    PrimitiveArray::from_iter(offsets.into_iter().map(|o| o - start).collect::<Vec<_>>())
+    PrimitiveArray::from_iter(
+        offsets
+            .iter()
+            .copied()
+            .map(|o| o - start)
+            .collect::<Vec<_>>(),
+    )
 }

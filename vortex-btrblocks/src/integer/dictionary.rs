@@ -12,7 +12,7 @@ use crate::integer::stats::ErasedStats;
 
 macro_rules! typed_encode {
     ($stats:ident, $typed:ident, $validity:ident, $typ:ty) => {{
-        let values: Buffer<$typ> = $typed.distinct_values.keys().copied().collect();
+        let values: Buffer<$typ> = $typed.distinct_values.keys().map(|x| x.0).collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {
@@ -104,9 +104,9 @@ impl_encode!(i64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
+    use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
 
     use crate::CompressorStats;
@@ -126,9 +126,9 @@ mod tests {
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
-        let undict = dict_array.to_canonical().unwrap().into_primitive().unwrap();
+        let undict = dict_array.to_primitive().unwrap();
 
-        // We just use code zero but it doesn't really matter.
+        // We just use code zero, but it doesn't really matter.
         // We can just shove a whole validity buffer in there instead.
         assert_eq!(undict.as_slice::<i32>(), &[100i32, 200, 100, 100, 100]);
     }

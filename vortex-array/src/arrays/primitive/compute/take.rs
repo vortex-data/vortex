@@ -59,28 +59,24 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         let indices = indices.to_primitive()?;
-        // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
-        let validity = array.validity().take(&indices)?;
-        let mask = validity.to_logical(indices.len())?;
+        let mask = array.validity().take(&indices)?.to_mask(indices.len())?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_into_impl::<$T, $I>(array, &indices, mask, builder)
+                take_into_impl(array.as_slice::<$T>(), indices.as_slice::<$I>(), mask, builder)
             })
         })
     }
 }
 
 fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &PrimitiveArray,
-    indices: &PrimitiveArray,
+    array: &[T],
+    indices: &[I],
     mask: Mask,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
     assert_eq!(indices.len(), mask.len());
 
-    let array = array.as_slice::<T>();
-    let indices = indices.as_slice::<I>();
     let builder = builder
         .as_any_mut()
         .downcast_mut::<PrimitiveBuilder<T>>()

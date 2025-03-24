@@ -512,6 +512,35 @@ impl FromIterator<bool> for Mask {
     }
 }
 
+impl FromIterator<Mask> for Mask {
+    fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
+        let masks = iter.into_iter().collect::<Vec<_>>();
+        let total_length = masks.iter().map(|v| v.len()).sum();
+
+        // If they're all valid, then return a single validity.
+        if masks.iter().all(|v| v.all_true()) {
+            return Self::AllTrue(total_length);
+        }
+        // If they're all invalid, then return a single invalidity.
+        if masks.iter().all(|v| v.all_false()) {
+            return Self::AllFalse(total_length);
+        }
+
+        // Else, construct the boolean buffer
+        let mut buffer = BooleanBufferBuilder::new(total_length);
+        for mask in masks {
+            match mask {
+                Mask::AllTrue(count) => buffer.append_n(count, true),
+                Mask::AllFalse(count) => buffer.append_n(count, false),
+                Mask::Values(values) => {
+                    buffer.append_buffer(values.boolean_buffer());
+                }
+            };
+        }
+        Self::from_buffer(buffer.finish())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

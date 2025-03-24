@@ -4,7 +4,7 @@ use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
@@ -22,7 +22,7 @@ pub struct TypedStats<T> {
     pub max: T,
     pub top_value: T,
     pub top_count: u32,
-    pub distinct_values: HashMap<T, u32, FxBuildHasher>,
+    pub distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
 }
 
 /// Type-erased container for one of the [TypedStats] variants.
@@ -153,8 +153,9 @@ impl CompressorStats for IntegerStats {
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + Hash + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
+    NativeValue<T>: Eq + Hash,
 {
     // Special case: empty array
     if array.is_empty() {
@@ -266,7 +267,7 @@ where
             .iter()
             .max_by_key(|&(_, &count)| count)
             .vortex_expect("non-empty");
-        (top_value, top_count)
+        (top_value.0, top_count)
     } else {
         (T::default(), 0)
     };
@@ -316,18 +317,20 @@ where
 struct LoopState<T> {
     prev: T,
     runs: u32,
-    distinct_values: HashMap<T, u32, FxBuildHasher>,
+    distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
 }
 
 #[inline(always)]
-fn inner_loop_nonnull<T: PrimInt + Hash>(
+fn inner_loop_nonnull<T: NativePType>(
     values: &[T; 64],
     count_distinct_values: bool,
     state: &mut LoopState<T>,
-) {
+) where
+    NativeValue<T>: Eq + Hash,
+{
     for &value in values {
         if count_distinct_values {
-            *state.distinct_values.entry(value).or_insert(0) += 1;
+            *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
         }
 
         if value != state.prev {
@@ -338,16 +341,18 @@ fn inner_loop_nonnull<T: PrimInt + Hash>(
 }
 
 #[inline(always)]
-fn inner_loop_nullable<T: PrimInt + Hash>(
+fn inner_loop_nullable<T: NativePType>(
     values: &[T; 64],
     count_distinct_values: bool,
     is_valid: &BooleanBuffer,
     state: &mut LoopState<T>,
-) {
+) where
+    NativeValue<T>: Eq + Hash,
+{
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
             if count_distinct_values {
-                *state.distinct_values.entry(value).or_insert(0) += 1;
+                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
             }
 
             if value != state.prev {
@@ -359,16 +364,18 @@ fn inner_loop_nullable<T: PrimInt + Hash>(
 }
 
 #[inline(always)]
-fn inner_loop_naive<T: PrimInt + Hash>(
+fn inner_loop_naive<T: NativePType>(
     values: &[T],
     count_distinct_values: bool,
     is_valid: &BooleanBuffer,
     state: &mut LoopState<T>,
-) {
+) where
+    NativeValue<T>: Eq + Hash,
+{
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
             if count_distinct_values {
-                *state.distinct_values.entry(value).or_insert(0) += 1;
+                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
             }
 
             if value != state.prev {

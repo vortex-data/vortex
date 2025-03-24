@@ -78,7 +78,8 @@ impl FilterKernel for SparseEncoding {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric;
+    use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{filter, try_cast};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};

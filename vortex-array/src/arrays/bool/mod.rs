@@ -58,7 +58,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::test_harness::test_mask;
+    use crate::compute::conformance::mask::test_mask;
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;

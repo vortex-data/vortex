@@ -1,6 +1,6 @@
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;
@@ -21,6 +21,7 @@ impl ArrayCanonicalImpl for VarBinArray {
         };
         VarBinViewArray::try_from_array(ArrayRef::from_arrow(array, nullable))
             .map(Canonical::VarBinView)
+            .map_err(|_| vortex_err!("Array wasn't a VarBinViewArray"))
     }
 }
 
