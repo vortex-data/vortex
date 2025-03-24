@@ -56,10 +56,7 @@ where
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
-    let rhs = Scalar::from(rhs);
-    let rhs = rhs
-        .cast(&rhs.dtype().with_nullability(nullability))?
-        .reinterpret_cast(T::PTYPE.to_unsigned());
+    let rhs = Scalar::primitive(rhs, nullability).reinterpret_cast(T::PTYPE.to_unsigned());
 
     compare(lhs.encoded(), &ConstantArray::new(rhs, lhs.len()), operator).map(Some)
 }
