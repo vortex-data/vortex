@@ -230,7 +230,7 @@ impl Scalar {
         }
     }
 
-    pub fn reinterpret_cast(&self, ptype: PType, nullability: Nullability) -> Self {
+    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
             vortex_panic!(e, "Failed to reinterpret cast {} to {}", self.dtype, ptype)
         });
@@ -245,7 +245,7 @@ impl Scalar {
         );
 
         Scalar::new(
-            DType::Primitive(ptype, self.dtype.nullability().bitor(nullability)),
+            DType::Primitive(ptype, self.dtype.nullability()),
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
