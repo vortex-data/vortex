@@ -1,7 +1,7 @@
 use std::any::type_name;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
-use std::ops::{Add, BitOr, Sub};
+use std::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
