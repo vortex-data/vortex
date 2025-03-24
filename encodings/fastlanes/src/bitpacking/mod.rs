@@ -241,9 +241,10 @@ impl ArrayImpl for BitPackedArray {
             Patches::new(existing.array_len(), existing.offset(), indices, values)
         });
 
-        let validity = match self.validity() {
-            Validity::Array(_) => Validity::Array(children[children.len() - 1].clone()),
-            other => other.clone(),
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[children.len() - 1].clone())
+        } else {
+            self.validity().clone()
         };
 
         unsafe {

@@ -63,9 +63,7 @@ impl EncodingVTable for FSSTEncoding {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::VarBinView(array) = input else {
-            vortex_bail!("Only varbinview arrays can be encoded into {}", self.id())
-        };
+        let array = input.clone().into_varbinview()?;
 
         let compressor = match like {
             Some(like) => {
@@ -74,10 +72,10 @@ impl EncodingVTable for FSSTEncoding {
                     .ok_or_else(|| vortex_err!("Like must be {} encoded array", self.id()))?;
                 Compressor::rebuild_from(like.symbols(), like.symbol_lengths())
             }
-            None => fsst_train_compressor(array)?,
+            None => fsst_train_compressor(&array)?,
         };
 
-        let fsst = fsst_compress(array, &compressor)?;
+        let fsst = fsst_compress(&array, &compressor)?;
 
         Ok(Some(fsst.into_array()))
     }

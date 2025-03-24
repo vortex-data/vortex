@@ -224,9 +224,10 @@ impl ArrayImpl for DeltaArray {
     }
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = match self.validity() {
-            Validity::Array(_) => Validity::Array(children[2].clone()),
-            other => other.clone(),
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[2].clone())
+        } else {
+            self.validity().clone()
         };
 
         Self::try_new(

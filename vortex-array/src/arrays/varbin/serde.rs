@@ -60,7 +60,7 @@ impl EncodingVTable for VarBinEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        if matches!(input, Canonical::VarBinView(_)) {
+        if input.clone().into_varbinview().is_ok() {
             Ok(None)
         } else {
             vortex_bail!("Can't encode non-varbin array into {}", self.id())

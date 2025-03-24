@@ -54,11 +54,9 @@ impl EncodingVTable for DateTimePartsEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Extension(ext_array) = input else {
-            vortex_bail!("Only extension arrays can be encoded into {}", self.id());
-        };
+        let ext_array = input.clone().into_extension()?;
 
-        let temporal = TemporalArray::try_from(ext_array.clone())?;
+        let temporal = TemporalArray::try_from(ext_array)?;
 
         Ok(Some(DateTimePartsArray::try_from(temporal)?.into_array()))
     }
