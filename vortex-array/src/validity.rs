@@ -76,6 +76,21 @@ impl Validity {
         }
     }
 
+    pub fn merge_nullability(self, nullability: Nullability) -> Self {
+        match self {
+            Self::NonNullable => {
+                if nullability == Nullability::NonNullable {
+                    Self::NonNullable
+                } else {
+                    Self::AllValid
+                }
+            }
+            Self::AllValid => Self::AllValid,
+            Self::AllInvalid => Self::AllInvalid,
+            Self::Array(array) => Self::Array(array),
+        }
+    }
+
     pub fn all_valid(&self) -> VortexResult<bool> {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => true,

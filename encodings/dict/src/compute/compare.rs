@@ -1,3 +1,5 @@
+use std::ops::BitOr;
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::{CompareFn, Operator, compare, try_cast};
@@ -24,9 +26,13 @@ impl CompareFn<&DictArray> for DictEncoding {
                 &ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
+            let nullability = lhs
+                .dtype()
+                .nullability()
+                .bitor(compare_result.dtype().nullability());
 
             return if operator == Operator::Eq {
-                dict_equal_to(compare_result, lhs.codes(), lhs.dtype().nullability()).map(Some)
+                dict_equal_to(compare_result, lhs.codes(), nullability).map(Some)
             } else {
                 DictArray::try_new(lhs.codes().clone(), compare_result)
                     .map(|a| a.into_array())
@@ -45,6 +51,7 @@ fn dict_equal_to(
     codes: &ArrayRef,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
+    let nullability = nullability.bitor(codes.dtype().nullability());
     let bool_result = values_compare.to_bool()?;
     let result_validity = bool_result.validity_mask()?;
     let bool_buffer = bool_result.boolean_buffer();
