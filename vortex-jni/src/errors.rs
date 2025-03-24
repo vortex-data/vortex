@@ -27,7 +27,7 @@ impl Throwable for VortexError {
     }
 
     fn throw_with_msg(self, env: &mut JNIEnv, throw_class: &str, msg: &str) {
-        let error_string = format!("{msg}: {}", self.to_string());
+        let error_string = format!("{msg}: {self}");
         env.throw_new(throw_class, error_string.as_str())
             .expect("ThrowFailed");
     }

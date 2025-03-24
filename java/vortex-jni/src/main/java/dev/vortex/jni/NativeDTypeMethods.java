@@ -18,6 +18,9 @@ package dev.vortex.jni;
 import java.util.List;
 
 public final class NativeDTypeMethods {
+    static {
+        NativeLoader.loadJni();
+    }
     private NativeDTypeMethods() {}
 
     public static native void free(long pointer);

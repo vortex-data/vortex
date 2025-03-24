@@ -27,7 +27,8 @@ import org.apache.spark.sql.types.TimestampType$;
  * Helpers for converting between Spark and Vortex type systems.
  */
 public final class SparkTypes {
-    private SparkTypes() {}
+    private SparkTypes() {
+    }
 
     /**
      * Convert a STRUCT Vortex type to a Spark {@link DataType}.
@@ -63,9 +64,6 @@ public final class SparkTypes {
             case STRUCT:
                 // For each of the inner struct fields, we capture them together here.
                 var struct = new StructType();
-
-                // TODO(aduffy): FieldTypes leaks. DType_field_dtype will box a new value, we need to iterate
-                //  and free each of the boxed values.
 
                 Streams.forEachPair(
                         dType.getFieldNames().stream(),

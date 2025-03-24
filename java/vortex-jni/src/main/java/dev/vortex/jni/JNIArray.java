@@ -15,6 +15,7 @@
  */
 package dev.vortex.jni;
 
+import com.google.common.base.Preconditions;
 import com.jakewharton.nopen.annotation.Open;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
@@ -29,6 +30,7 @@ public class JNIArray implements Array {
     private OptionalLong pointer;
 
     public JNIArray(long pointer) {
+        Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
         this.pointer = OptionalLong.of(pointer);
     }
 

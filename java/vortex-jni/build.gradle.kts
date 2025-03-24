@@ -107,7 +107,7 @@ publishing {
     }
 }
 
-val vortexFFI = projectDir.parentFile.parentFile.resolve("vortex-ffi")
+val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
 
 val platformLibSuffix =
     if (System.getProperty("os.name").contains("Mac")) {
@@ -117,15 +117,15 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-val libraryFile = targetDir.resolve("release/libvortex_ffi.$platformLibSuffix")
+val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine("cargo", "check")
 }
 
 val cargoBuild by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine(
         "cargo",
         "build",
@@ -140,7 +140,7 @@ val cargoBuild by tasks.registering(Exec::class) {
 }
 
 val cargoClean by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine("cargo", "clean")
 }
 
@@ -173,7 +173,7 @@ val copySharedLibrary by tasks.registering(Copy::class) {
     dependsOn(cargoBuild)
 
     from(libraryFile)
-    into(projectDir.resolve("src/main/resources/$resourceDir"))
+    into(projectDir.resolve("src/main/resources/native/$resourceDir"))
 
     doLast {
         println("Copied $libraryFile into resource directory")
@@ -182,4 +182,9 @@ val copySharedLibrary by tasks.registering(Copy::class) {
 
 tasks.withType<ProcessResources>().configureEach {
     dependsOn(copySharedLibrary)
+}
+
+// Remove the JAR task, replace it with shadowJar
+tasks.named("jar").configure {
+    enabled = false
 }

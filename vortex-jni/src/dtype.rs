@@ -96,7 +96,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames<'loc
     let array_list = env
         .new_object("java/util/ArrayList", "()V", &[])
         .expect("Failed to create ArrayList");
-    let field_names = JList::from_env(&mut env, &array_list).unwrap();
+    let field_names = JList::from_env(&mut env, &array_list).expect("ArrayList as JList");
     let Some(struct_dtype) = dtype.as_struct() else {
         vortex_err!("DType should be STRUCT, was {dtype}").throw_illegal_argument(&mut env);
         return array_list;
@@ -122,7 +122,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes<'loc
     let array_list = env
         .new_object("java/util/ArrayList", "()V", &[])
         .expect("Failed to create ArrayList");
-    let field_types = JList::from_env(&mut env, &array_list).unwrap();
+    let field_types = JList::from_env(&mut env, &array_list).expect("JList.from_env");
     let Some(struct_dtype) = dtype.as_struct() else {
         vortex_err!("DType should be STRUCT, was {dtype}").throw_illegal_argument(&mut env);
         return array_list;

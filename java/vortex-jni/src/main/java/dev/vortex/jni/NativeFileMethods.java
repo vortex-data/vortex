@@ -19,6 +19,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class NativeFileMethods {
+    static {
+        NativeLoader.loadJni();
+    }
     private NativeFileMethods() {}
 
     /**

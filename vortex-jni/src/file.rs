@@ -1,4 +1,3 @@
-use std::mem::ManuallyDrop;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -13,6 +12,7 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
@@ -25,14 +25,12 @@ use crate::array_stream::NativeArrayStream;
 use crate::errors::Throwable;
 
 pub struct NativeFile {
-    inner: ManuallyDrop<VortexFile<GenericVortexFile<ObjectStoreReadAt>>>,
+    inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
 }
 
 impl NativeFile {
     pub fn new(file: VortexFile<GenericVortexFile<ObjectStoreReadAt>>) -> Box<Self> {
-        Box::new(NativeFile {
-            inner: ManuallyDrop::new(file),
-        })
+        Box::new(NativeFile { inner: file })
     }
 
     pub fn into_raw(self: Box<Self>) -> jlong {
@@ -43,9 +41,12 @@ impl NativeFile {
         unsafe { Box::from_raw(pointer as *mut NativeFile) }
     }
 
-    pub fn deallocate(self: Box<Self>) {
-        let this = *self;
-        drop(ManuallyDrop::into_inner(this.inner));
+    pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
+        unsafe {
+            (pointer as *const NativeFile)
+                .as_ref()
+                .expect("Pointer should never be null")
+        }
     }
 }
 
@@ -71,7 +72,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
     // Convert the options map to a hashmap
     let mut properties: HashMap<String, String> = HashMap::new();
     if !env
-        .is_same_object(&options, &JObject::null())
+        .is_same_object(&options, JObject::null())
         .expect("same_object")
     {
         env.with_local_frame(1_024, |env| {
@@ -86,7 +87,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
 
             Ok::<(), jni::errors::Error>(())
         })
-        .expect_err("Failed to read properties");
+        .expect("Failed to read properties");
     }
 
     match make_object_store(&url, &properties) {
@@ -96,12 +97,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             match open_file {
                 Ok(open_file) => NativeFile::new(open_file).into_raw(),
                 Err(err) => {
+                    println!("throwing path");
                     err.throw_runtime(&mut env, "open_file");
                     0
                 }
             }
         }
         Err(err) => {
+            println!("throwing path2");
             err.throw_illegal_argument(&mut env);
             0
         }
@@ -114,7 +117,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_close(
     _class: JClass,
     pointer: jlong,
 ) {
-    unsafe { NativeFile::from_raw(pointer) }.deallocate();
+    drop(unsafe { NativeFile::from_raw(pointer) });
 }
 
 #[unsafe(no_mangle)]
@@ -123,7 +126,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_dtype(
     _class: JClass,
     _pointer: jlong,
 ) -> jlong {
-    todo!()
+    let file = unsafe { NativeFile::from_ptr(_pointer) };
+    file.inner.dtype() as *const DType as jlong
 }
 
 #[unsafe(no_mangle)]
@@ -135,12 +139,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     predicate: JByteArray,
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
-    let file = unsafe { NativeFile::from_raw(pointer) };
+    let file = unsafe { NativeFile::from_ptr(pointer) };
     let mut scan_builder = file.inner.scan();
 
     // Apply the projection if provided
     if !env
-        .is_same_object(&project_cols, &JObject::null())
+        .is_same_object(&project_cols, JObject::null())
         .expect("same_object")
     {
         // Convert the JList to a Vec<String>
@@ -165,7 +169,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 
     // Apply predicate if one was provided
     if !env
-        .is_same_object(&predicate, &JObject::null())
+        .is_same_object(&predicate, JObject::null())
         .expect("same_object")
     {
         let proto_vec = env

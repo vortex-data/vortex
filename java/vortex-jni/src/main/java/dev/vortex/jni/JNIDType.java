@@ -15,6 +15,7 @@
  */
 package dev.vortex.jni;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import dev.vortex.api.DType;
 import java.util.List;
@@ -26,6 +27,7 @@ public final class JNIDType implements DType {
     private OptionalLong pointer;
 
     public JNIDType(long pointer, boolean shouldFree) {
+        Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
         this.pointer = OptionalLong.of(pointer);
         this.shouldFree = shouldFree;
     }

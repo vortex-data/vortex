@@ -15,19 +15,10 @@
  */
 package dev.vortex.api;
 
-public interface ArrayStream extends AutoCloseable {
-    Array getCurrent();
+import java.util.Iterator;
 
+public interface ArrayStream extends AutoCloseable, Iterator<Array> {
     DType getDataType();
-
-    /**
-     * Fetch the next element of the stream.
-     * <p>
-     * The value will be available via {@link #getCurrent()}. If the stream is finished, this will return false.
-     * <p>
-     * It is an error to call this method if a previous invocation returned false.
-     */
-    boolean next();
 
     @Override
     void close();

@@ -17,6 +17,7 @@ package dev.vortex.jni;
 
 import com.google.common.io.ByteStreams;
 import java.io.*;
+import java.util.Locale;
 
 public final class NativeLoader {
     private static boolean loaded = false;
@@ -29,15 +30,19 @@ public final class NativeLoader {
         }
 
         // Load the native library
-        String osName = System.getProperty("os.name").toLowerCase();
-        String osArch = System.getProperty("os.arch").toLowerCase();
-        String libName = "vortex_jni";
+        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        String osArch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
+        String libName = "libvortex_jni";
 
+        String osShortName;
         if (osName.contains("win")) {
+            osShortName = "win";
             libName += ".dll";
         } else if (osName.contains("mac")) {
+            osShortName = "darwin";
             libName += ".dylib";
         } else if (osName.contains("nix") || osName.contains("nux")) {
+            osShortName = "linux";
             libName += ".so";
         } else {
             throw new UnsupportedOperationException("Unsupported OS: " + osName);
@@ -45,12 +50,12 @@ public final class NativeLoader {
 
         // Extract the library from classpath
         // This assumes the library is in the same package as this class
-        String libPath = "/native/" + osArch + "/" + libName;
+        String libPath = "/native/" + osShortName + "-" + osArch + "/" + libName;
         try (InputStream in = NativeLoader.class.getResourceAsStream(libPath)) {
             if (in == null) {
                 throw new FileNotFoundException("Library not found: " + libPath);
             }
-            File tempFile = File.createTempFile("vortex_jni", null);
+            File tempFile = File.createTempFile("libvortex_jni", ".dylib");
             tempFile.deleteOnExit();
 
             try (OutputStream out = new FileOutputStream(tempFile)) {
@@ -62,7 +67,7 @@ public final class NativeLoader {
         }
 
         // Load the library
-        System.loadLibrary(libName);
+        System.load(libName);
         loaded = true;
     }
 }

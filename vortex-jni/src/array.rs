@@ -30,11 +30,6 @@ impl NativeArray {
         // SAFETY: caller must ensure that the pointer is valid and points to a `NativeArray`.
         unsafe { Box::from_raw(pointer as *mut NativeArray) }
     }
-
-    pub fn deallocate(self: Box<Self>) {
-        let this = *self;
-        drop(ManuallyDrop::into_inner(this.inner));
-    }
 }
 
 #[unsafe(no_mangle)]
@@ -43,7 +38,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_free(
     _class: JClass,
     array_ptr: jlong,
 ) {
-    unsafe { NativeArray::from_raw(array_ptr) }.deallocate();
+    drop(unsafe { NativeArray::from_raw(array_ptr) });
 }
 
 #[unsafe(no_mangle)]
@@ -64,9 +59,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getDataType(
 ) -> jlong {
     let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
     let dtype_ptr = array_ref.inner.dtype();
-    let ptr: *const DType = &*dtype_ptr;
     // Return a pointer to the DType.
-    ptr.addr() as jlong
+    (dtype_ptr as *const DType).addr() as jlong
 }
 
 #[unsafe(no_mangle)]
@@ -141,7 +135,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
     match array_ref.inner.invalid_count() {
-        Ok(count) => count as jint,
+        Ok(count) => jint::try_from(count).unwrap_or(-1),
         Err(err) => {
             err.throw_illegal_argument(&mut env);
             0
@@ -280,10 +274,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getFloat(
 ) -> jfloat {
     let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
     match scalar_at(array_ref.inner.as_ref(), index as usize) {
-        Ok(value) => match value.as_primitive().typed_value::<f32>() {
-            None => 0.0,
-            Some(f) => f,
-        },
+        Ok(value) => value.as_primitive().typed_value::<f32>().unwrap_or(0.0),
         Err(err) => {
             err.throw_illegal_argument(&mut env);
             0.0
@@ -300,10 +291,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getDouble(
 ) -> jdouble {
     let array_ref = unsafe { NativeArray::from_raw(array_ptr) };
     match scalar_at(array_ref.inner.as_ref(), index as usize) {
-        Ok(value) => match value.as_primitive().typed_value::<f64>() {
-            None => 0.0,
-            Some(val) => val,
-        },
+        Ok(value) => value.as_primitive().typed_value::<f64>().unwrap_or(0.0),
         Err(err) => {
             err.throw_illegal_argument(&mut env);
             0.0
