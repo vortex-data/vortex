@@ -209,7 +209,7 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 
 vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
                                           const string &column_name) {
-	D_ASSERT(child_filters.size() >= 1);
+	D_ASSERT(!child_filters.empty());
 
 	if (child_filters.size() == 1) {
 		return table_expression_into_expr(arena, *child_filters[0], column_name);
@@ -234,7 +234,7 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 
 vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
-	D_ASSERT(child_filters.size() >= 1);
+	D_ASSERT(!child_filters.empty());
 
 	if (child_filters.size() == 1) {
 		return child_filters[0];
