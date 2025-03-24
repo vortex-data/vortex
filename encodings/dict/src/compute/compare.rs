@@ -26,12 +26,12 @@ impl CompareFn<&DictArray> for DictEncoding {
                 &ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
-            let nullability = lhs
-                .dtype()
-                .nullability()
-                .bitor(compare_result.dtype().nullability());
-
             return if operator == Operator::Eq {
+                let nullability = lhs
+                    .dtype()
+                    .nullability()
+                    .bitor(compare_result.dtype().nullability());
+
                 dict_equal_to(compare_result, lhs.codes(), nullability).map(Some)
             } else {
                 DictArray::try_new(lhs.codes().clone(), compare_result)
