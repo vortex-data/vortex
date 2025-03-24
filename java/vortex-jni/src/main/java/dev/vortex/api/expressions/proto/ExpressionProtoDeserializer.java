@@ -15,6 +15,7 @@
  */
 package dev.vortex.api.expressions.proto;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.Expression;
 import dev.vortex.api.expressions.*;
@@ -22,6 +23,7 @@ import dev.vortex.proto.DTypeProtos;
 import dev.vortex.proto.ExprProtos;
 import dev.vortex.proto.ScalarProtos;
 import java.util.List;
+import java.util.Optional;
 
 public final class ExpressionProtoDeserializer {
     private ExpressionProtoDeserializer() {}
@@ -101,6 +103,11 @@ public final class ExpressionProtoDeserializer {
 
         DTypeProtos.DType dtype = literalScalar.getDtype();
 
+        // Special handling of extension types
+        if (dtype.hasExtension()) {
+            return deserializeExtensionLiteral(literal);
+        }
+
         ScalarProtos.ScalarValue scalarValue = literalScalar.getValue();
 
         switch (scalarValue.getKindCase()) {
@@ -136,6 +143,62 @@ public final class ExpressionProtoDeserializer {
                 return Literal.bytes(scalarValue.getBytesValue().toByteArray());
             default:
                 throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + scalarValue);
+        }
+    }
+
+    private static Expression deserializeExtensionLiteral(ExprProtos.Kind.Literal literal) {
+        ScalarProtos.Scalar scalar = literal.getValue();
+        DTypeProtos.DType scalarType = scalar.getDtype();
+
+        Preconditions.checkArgument(scalarType.hasExtension());
+
+        DTypeProtos.Extension extType = scalarType.getExtension();
+        String extId = scalarType.getExtension().getId();
+
+        switch (extId) {
+            case "vortex.time": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_SECONDS) {
+                    return Literal.timeSeconds(scalar.getValue().getInt32Value());
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.timeMillis(scalar.getValue().getInt32Value());
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MICROS) {
+                    return Literal.timeMicros(scalar.getValue().getInt64Value());
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_NANOS) {
+                    return Literal.timeNanos(scalar.getValue().getInt64Value());
+                } else {
+                    throw new UnsupportedOperationException("Unsupported TIME time unit: " + timeUnit);
+                }
+            }
+            case "vortex.date": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_DAYS) {
+                    return Literal.dateDays(scalar.getValue().getInt32Value());
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.dateMillis(scalar.getValue().getInt64Value());
+                } else {
+                    throw new UnsupportedOperationException("Unsupported DATE time unit: " + timeUnit);
+                }
+            }
+            case "vortex.timestamp": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                Optional<String> timeZone =
+                        TemporalMetadatas.getTimeZone(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.timestampMillis(scalar.getValue().getInt64Value(), timeZone);
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MICROS) {
+                    return Literal.timestampMicros(scalar.getValue().getInt64Value(), timeZone);
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_NANOS) {
+                    return Literal.timestampNanos(scalar.getValue().getInt64Value(), timeZone);
+                } else {
+                    throw new UnsupportedOperationException("Unsupported TIMESTAMP time unit: " + timeUnit);
+                }
+            }
+            default:
+                throw new UnsupportedOperationException("Unsupported extension type: " + extId);
         }
     }
 
@@ -184,8 +247,6 @@ public final class ExpressionProtoDeserializer {
                 return Literal.string(null);
             case BINARY:
                 return Literal.bytes(null);
-                // TODO(aduffy): fix timestamps/dates support
-                // TODO(aduffy): struct/list support
             default:
                 throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
         }

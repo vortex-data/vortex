@@ -15,7 +15,12 @@
  */
 package dev.vortex.api.expressions.proto;
 
+import static dev.vortex.api.expressions.proto.TemporalMetadatas.TIME_UNIT_MICROS;
+import static dev.vortex.api.expressions.proto.TemporalMetadatas.TIME_UNIT_NANOS;
+
+import com.google.protobuf.ByteString;
 import dev.vortex.proto.DTypeProtos;
+import java.util.Optional;
 
 final class DTypes {
     private DTypes() {}
@@ -95,6 +100,88 @@ final class DTypes {
     static DTypeProtos.DType binary(boolean nullable) {
         return DTypeProtos.DType.newBuilder()
                 .setBinary(DTypeProtos.Binary.newBuilder().setNullable(nullable).build())
+                .build();
+    }
+
+    static DTypeProtos.DType dateDays(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.date")
+                        .setStorageDtype(DTypes.int32(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_DAYS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType dateMillis(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.date")
+                        .setStorageDtype(DTypes.int64(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.DATE_MILLIS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType timeSeconds(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.time")
+                        .setStorageDtype(DTypes.int32(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_SECONDS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType timeMillis(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.time")
+                        .setStorageDtype(DTypes.int32(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MILLIS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType timeMicros(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.time")
+                        .setStorageDtype(DTypes.int64(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_MICROS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType timeNanos(boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.time")
+                        .setStorageDtype(DTypes.int64(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.TIME_NANOS.get()))
+                        .build())
+                .build();
+    }
+
+    static DTypeProtos.DType timestampMillis(Optional<String> timeZone, boolean nullable) {
+        return timestamp(TemporalMetadatas.TIME_UNIT_MILLIS, timeZone, nullable);
+    }
+
+    static DTypeProtos.DType timestampMicros(Optional<String> timeZone, boolean nullable) {
+        return timestamp(TIME_UNIT_MICROS, timeZone, nullable);
+    }
+
+    static DTypeProtos.DType timestampNanos(Optional<String> timeZone, boolean nullable) {
+        return timestamp(TIME_UNIT_NANOS, timeZone, nullable);
+    }
+
+    private static DTypeProtos.DType timestamp(byte timeUnit, Optional<String> timeZone, boolean nullable) {
+        return DTypeProtos.DType.newBuilder()
+                .setExtension(DTypeProtos.Extension.newBuilder()
+                        .setId("vortex.timestamp")
+                        .setStorageDtype(DTypes.int64(nullable))
+                        .setMetadata(ByteString.copyFrom(TemporalMetadatas.timestamp(timeUnit, timeZone)))
+                        .build())
                 .build();
     }
 }

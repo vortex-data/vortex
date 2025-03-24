@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
-use vortex_array::compute::{Operator, compare, filter, scalar_at, sub_scalar};
+use vortex_array::compute::{Operator, compare, fill_null, filter, scalar_at, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -11,7 +11,7 @@ use vortex_array::{
     RkyvMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
@@ -174,13 +174,16 @@ impl SparseArray {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
-            compare(array, &fill_array, Operator::NotEq)?
-                .to_bool()?
-                .boolean_buffer()
-                .clone(),
+            fill_null(
+                &compare(array, &fill_array, Operator::NotEq)?,
+                Scalar::bool(true, Nullability::NonNullable),
+            )?
+            .to_bool()?
+            .boolean_buffer()
+            .clone(),
         );
 
-        let non_top_values = filter(array, &non_top_mask)?.to_primitive()?;
+        let non_top_values = filter(array, &non_top_mask)?;
 
         let indices: Buffer<u64> = match non_top_mask {
             Mask::AllTrue(count) => {
@@ -309,11 +312,12 @@ impl ArrayValidityImpl for SparseArray {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{slice, try_cast};
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
-    use vortex_error::VortexError;
+    use vortex_error::{VortexError, VortexUnwrap};
     use vortex_scalar::{PrimitiveScalar, Scalar};
 
     use super::*;
@@ -490,5 +494,31 @@ mod test {
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         SparseArray::try_new(indices, values, 101, 0_u32.into()).unwrap();
+    }
+
+    #[test]
+    fn encode_with_nulls() {
+        let sparse = SparseArray::encode(
+            &PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
+                Validity::from_iter(vec![
+                    true, true, false, true, false, true, false, true, true, false, true, false,
+                ]),
+            )
+            .into_array(),
+            None,
+        )
+        .vortex_unwrap();
+        let canonical = sparse.to_primitive().vortex_unwrap();
+        assert_eq!(
+            sparse.validity_mask().unwrap(),
+            Mask::from_iter(vec![
+                true, true, false, true, false, true, false, true, true, false, true, false,
+            ])
+        );
+        assert_eq!(
+            canonical.as_slice::<i32>(),
+            vec![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4]
+        );
     }
 }

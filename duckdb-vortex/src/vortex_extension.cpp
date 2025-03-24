@@ -59,6 +59,12 @@ struct VortexScanState : public LocalTableFunctionState {
 	vector<idx_t> column_ids;
 };
 
+struct VortexScanSharedState : public GlobalTableFunctionState {
+	idx_t MaxThreads() const override {
+		return 1;
+	}
+};
+
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &bind_data = data.bind_data->Cast<VortexBindData>(); // NOLINT
 	auto &state = data.local_state->Cast<VortexScanState>();  // NOLINT
@@ -139,8 +145,8 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 	auto result = make_uniq<VortexBindData>();
 
 	// Get the filename from the input.
-	auto filename = input.inputs[0].GetValue<string>();
-	result->file_name = EnsureFileProtocol(filename);
+	auto filename = EnsureFileProtocol(input.inputs[0].GetValue<string>());
+	result->file_name = filename;
 
 	// Set up options for opening the file
 	FileOpenOptions options;
@@ -193,6 +199,12 @@ void VortexExtension::Load(DuckDB &db) {
 		for (auto proj_id : input.projection_ids) {
 			state->column_ids[idx++] = input.column_ids[proj_id];
 		}
+		return state;
+	};
+
+	vortex_func.init_global = [](ClientContext &context,
+	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
+		auto state = make_uniq<VortexScanSharedState>();
 		return state;
 	};
 
