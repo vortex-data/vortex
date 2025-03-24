@@ -67,74 +67,76 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 
 	vector<idx_t> projection_ids;
 
+	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
 		return 99999;
 	}
 };
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &bind_data = data.bind_data->Cast<VortexBindData>();         // NOLINT
-	auto &state = data.local_state->Cast<VortexScanLocalState>();     // NOLINT
-	auto &g_state = data.global_state->Cast<VortexScanGlobalState>(); // NOLINT
+	auto &bind_data = data.bind_data->Cast<VortexBindData>();              // NOLINT
+	auto &local_state = data.local_state->Cast<VortexScanLocalState>();    // NOLINT
+	auto &global_state = data.global_state->Cast<VortexScanGlobalState>(); // NOLINT
 
-	if (state.finished) {
+	if (local_state.finished) {
 		return;
 	}
 
-	if (state.array == nullptr) {
-		std::lock_guard l(g_state.stream_lock);
+	if (local_state.array == nullptr) {
+		std::lock_guard l(global_state.stream_lock);
 
-		if (g_state.finished) {
+		if (global_state.finished) {
+			local_state.finished = true;
 			return;
 		}
 
-		if (g_state.array_stream == nullptr) {
+		if (global_state.array_stream == nullptr) {
 			auto column_names = std::vector<char *>();
-			for (auto col_id : g_state.projection_ids) {
+			for (auto col_id : global_state.projection_ids) {
+				assert(col_id < bind_data.column_names.size());
 				column_names.push_back(const_cast<char *>(bind_data.column_names[col_id].c_str()));
 			}
 
 			auto str = std::string("");
 
-			if (g_state.filter != nullptr) {
+			if (global_state.filter != nullptr) {
 				google::protobuf::Arena arena;
 				vector<vortex::expr::Expr *> exprs;
-				for (const auto &[col_id, value] : g_state.filter->filters) {
-					auto col_name = bind_data.column_names[g_state.column_ids[col_id]];
+				for (const auto &[col_id, value] : global_state.filter->filters) {
+					auto col_name = bind_data.column_names[global_state.column_ids[col_id]];
 					auto conj = table_expression_into_expr(arena, *value, col_name);
 					exprs.push_back(conj);
 				}
-				auto expr = flatten_exprs(arena, exprs);
-				str = expr->SerializeAsString();
+				str = flatten_exprs(arena, exprs)->SerializeAsString();
 			}
 
 			auto options = FileScanOptions {
 			    .projection = column_names.data(),
-			    .projection_len = static_cast<int>(g_state.projection_ids.size()),
+			    .projection_len = static_cast<int>(global_state.projection_ids.size()),
 			    .filter_expression = str.data(),
 			    .filter_expression_len = static_cast<int>(str.length()),
 			    .split_by_row_count = 2048 * 32 * 4,
 			};
 
-			g_state.array_stream = File_scan(bind_data.file, &options);
+			global_state.array_stream = File_scan(bind_data.file, &options);
 		}
 
-		auto next = FFIArrayStream_next(g_state.array_stream);
+		auto next = FFIArrayStream_next(global_state.array_stream);
 		if (!next) {
-			FFIArrayStream_free(g_state.array_stream);
-			g_state.finished = true;
+			FFIArrayStream_free(global_state.array_stream);
+			global_state.finished = true;
 			return;
 		}
-		state.array = FFIArrayStream_current(g_state.array_stream);
-		state.current_row = 0;
+		local_state.array = FFIArrayStream_current(global_state.array_stream);
+		local_state.current_row = 0;
 	}
 
-	state.current_row =
-	    FFIArray_to_duckdb_chunk(state.array, state.current_row, reinterpret_cast<duckdb_data_chunk>(&output));
+	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
+	                                                   reinterpret_cast<duckdb_data_chunk>(&output));
 
-	if (state.current_row == 0) {
-		FFIArray_free(state.array);
-		state.array = nullptr;
+	if (local_state.current_row == 0) {
+		FFIArray_free(local_state.array);
+		local_state.array = nullptr;
 	}
 }
 
@@ -234,10 +236,10 @@ void VortexExtension::Load(DuckDB &db) {
 
 		state->filter = input.filters;
 
-		state->projection_ids = vector<column_t>(input.projection_ids.size());
-		auto idx = 0;
+		state->projection_ids = vector<column_t>();
+		state->projection_ids.reserve(input.projection_ids.size());
 		for (auto proj_id : input.projection_ids) {
-			state->projection_ids[idx++] = input.column_ids[proj_id];
+			state->projection_ids.push_back(input.column_ids[proj_id]);
 		}
 
 		state->column_ids = input.column_ids;
