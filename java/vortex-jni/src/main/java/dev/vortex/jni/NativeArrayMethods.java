@@ -19,6 +19,7 @@ public final class NativeArrayMethods {
     static {
         NativeLoader.loadJni();
     }
+
     private NativeArrayMethods() {}
 
     public static native void free(long pointer);

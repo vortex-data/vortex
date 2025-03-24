@@ -22,6 +22,7 @@ public final class NativeFileMethods {
     static {
         NativeLoader.loadJni();
     }
+
     private NativeFileMethods() {}
 
     /**

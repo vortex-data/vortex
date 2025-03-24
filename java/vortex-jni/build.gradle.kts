@@ -9,7 +9,6 @@ plugins {
 }
 
 dependencies {
-    api("net.java.dev.jna:jna-platform")
     api("com.google.protobuf:protobuf-java")
 
     compileOnly("org.immutables:value")

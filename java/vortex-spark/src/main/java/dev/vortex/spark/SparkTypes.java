@@ -27,8 +27,7 @@ import org.apache.spark.sql.types.TimestampType$;
  * Helpers for converting between Spark and Vortex type systems.
  */
 public final class SparkTypes {
-    private SparkTypes() {
-    }
+    private SparkTypes() {}
 
     /**
      * Convert a STRUCT Vortex type to a Spark {@link DataType}.
@@ -106,7 +105,7 @@ public final class SparkTypes {
     public static Column[] toColumns(DType dType) {
         return Streams.zip(dType.getFieldNames().stream(), dType.getFieldTypes().stream(), (name, fieldType) -> {
                     var dataType = toDataType(fieldType);
-                    return Column.create(name, dataType);
+                    return Column.create(name, dataType, fieldType.isNullable());
                 })
                 .toArray(Column[]::new);
     }

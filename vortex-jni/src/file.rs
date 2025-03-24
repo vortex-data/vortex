@@ -97,14 +97,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             match open_file {
                 Ok(open_file) => NativeFile::new(open_file).into_raw(),
                 Err(err) => {
-                    println!("throwing path");
                     err.throw_runtime(&mut env, "open_file");
                     0
                 }
             }
         }
         Err(err) => {
-            println!("throwing path2");
             err.throw_illegal_argument(&mut env);
             0
         }
@@ -146,6 +144,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     if !env
         .is_same_object(&project_cols, JObject::null())
         .expect("same_object")
+        && JList::from_env(&mut env, &project_cols)
+            .expect("JList")
+            .size(&mut env)
+            .expect("JList.size")
+            > 0
     {
         // Convert the JList to a Vec<String>
         let mut projection: Vec<Arc<str>> = Vec::new();
@@ -179,7 +182,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             Expr::decode(proto_vec.as_slice()).vortex_expect("decode filter expression");
         match deserialize_expr(&expr_proto) {
             Ok(expr) => {
-                scan_builder = scan_builder.with_projection(expr);
+                scan_builder = scan_builder.with_filter(expr);
             }
             Err(err) => {
                 err.throw_illegal_argument(&mut env);

@@ -28,7 +28,7 @@ public final class JNIArrayStream implements ArrayStream {
 
     public JNIArrayStream(long pointer) {
         Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
-        this.next = Optional.of(new JNIArray(NativeArrayStreamMethods.take(pointer)));
+        this.pointer = OptionalLong.of(pointer);
         advance();
     }
 

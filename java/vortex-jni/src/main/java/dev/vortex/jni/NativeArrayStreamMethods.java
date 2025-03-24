@@ -20,8 +20,7 @@ public final class NativeArrayStreamMethods {
         NativeLoader.loadJni();
     }
 
-    private NativeArrayStreamMethods() {
-    }
+    private NativeArrayStreamMethods() {}
 
     /**
      * Free all resources associated with the stream behind the pointer.

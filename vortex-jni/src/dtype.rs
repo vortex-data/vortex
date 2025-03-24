@@ -92,7 +92,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames<'loc
     dtype_ptr: jlong,
 ) -> JObject<'local> {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
-    // Create a new ArrayList.
     let array_list = env
         .new_object("java/util/ArrayList", "()V", &[])
         .expect("Failed to create ArrayList");

@@ -18,15 +18,13 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.jni.JNIFile;
 import dev.vortex.jni.NativeFileMethods;
-
 import java.net.URI;
 import java.nio.file.Paths;
 import java.util.Map;
 
 public final class Files {
 
-    private Files() {
-    }
+    private Files() {}
 
     public static File open(String path) {
         if (path.startsWith("/")) {

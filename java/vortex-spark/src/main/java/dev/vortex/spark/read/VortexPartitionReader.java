@@ -15,11 +15,10 @@
  */
 package dev.vortex.spark.read;
 
-import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import dev.vortex.api.*;
 import dev.vortex.spark.VortexFilePartition;
-import java.util.Objects;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
@@ -40,14 +39,14 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
 
     @Override
     public boolean next() {
-        checkState(arrayStream != null, "arrayStream");
+        checkNotNull(arrayStream, "arrayStream");
 
         return arrayStream.hasNext();
     }
 
     @Override
     public ColumnarBatch get() {
-        checkState(arrayStream != null, "closed arrayStream");
+        checkNotNull(arrayStream, "closed arrayStream");
         Array next = arrayStream.next();
         return VortexColumnarBatch.of(next);
     }
@@ -62,8 +61,8 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
 
     @Override
     public void close() {
-        checkState(Objects.nonNull(file), "File was closed");
-        checkState(Objects.nonNull(arrayStream), "ArrayStream was closed");
+        checkNotNull(file, "File was closed");
+        checkNotNull(arrayStream, "ArrayStream was closed");
 
         arrayStream.close();
         arrayStream = null;
