@@ -91,7 +91,6 @@ impl LayoutStrategy for VortexLayoutStrategy {
     }
 }
 
-#[allow(dead_code)]
 struct BtrBlocksCompressedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
 }
