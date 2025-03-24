@@ -122,7 +122,11 @@ fn is_sorted_impl(array: &dyn Array, strict: bool) -> VortexResult<bool> {
             // We can keep going
             0 => {}
             // If we have a potential null value - it has to be the first one.
-            1 => return array.is_invalid(0),
+            1 => {
+                if !array.is_invalid(0)? {
+                    return Ok(false);
+                }
+            }
             _ => return Ok(false),
         }
     }
