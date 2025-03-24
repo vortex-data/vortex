@@ -1,7 +1,7 @@
 use std::any::type_name;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
-use std::ops::{Add, Sub};
+use std::ops::{Add, BitOr, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
@@ -230,7 +230,7 @@ impl Scalar {
         }
     }
 
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
+    pub fn reinterpret_cast(&self, ptype: PType, nullability: Nullability) -> Self {
         let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
             vortex_panic!(e, "Failed to reinterpret cast {} to {}", self.dtype, ptype)
         });
@@ -245,7 +245,7 @@ impl Scalar {
         );
 
         Scalar::new(
-            DType::Primitive(ptype, self.dtype.nullability()),
+            DType::Primitive(ptype, self.dtype.nullability().bitor(nullability)),
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
