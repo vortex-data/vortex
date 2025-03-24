@@ -209,7 +209,7 @@ mod tests {
 
         let res = compare(
             &dict,
-            &ConstantArray::new(Scalar::primitive(4i32, Nullability::Nullable), 3),
+            &ConstantArray::new(Scalar::primitive(4i32, Nullability::NonNullable), 3),
             Operator::Eq,
         )
         .unwrap();
