@@ -38,7 +38,7 @@ fn compare_constant<T>(
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
-    Scalar: From<T>,
+    PValue: From<T>,
 {
     // For now, we only support equals and not equals. Comparisons are a little more fiddly to
     // get right regarding how to handle overflow and the wrapping subtraction.
