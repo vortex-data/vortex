@@ -50,7 +50,7 @@ impl ScanBuilder {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 10000,
+            concurrency: 2,
             metrics: Default::default(),
         }
     }

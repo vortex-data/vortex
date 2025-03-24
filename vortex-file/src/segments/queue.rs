@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,8 +39,8 @@ struct SegmentQueueInner {
 #[derive(Default)]
 struct NeededSegments {
     /// A queue of segments that have been explicitly requested (polled), but not yet resolved.
-    //need_now: VecDeque<SegmentId>,
-    need_now: BTreeSet<SegmentId>,
+    need_now: VecDeque<SegmentId>,
+    // need_now: BTreeSet<SegmentId>,
     /// The set of known segments, sorted by insertion order.
     need_later: LinkedHashSet<SegmentId>,
 }
@@ -90,7 +90,7 @@ impl SegmentQueue {
             loop {
                 // In a loop, we drain the need_now queue until we find a segment that
                 // hasn't been dropped or leased.
-                let Some(segment_id) = needed.need_now.pop_first() else {
+                let Some(segment_id) = needed.need_now.pop_front() else {
                     // No more need_now segments, break out of the loop.
                     break;
                 };
@@ -328,7 +328,7 @@ impl Future for SegmentFuture {
             {
                 let mut needed = self.queue.needed.lock().vortex_expect("poisoned lock");
                 if needed.need_later.remove(&self.id) {
-                    needed.need_now.insert(self.id);
+                    needed.need_now.push_back(self.id);
                 }
             }
 
