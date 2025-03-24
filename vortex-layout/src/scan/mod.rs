@@ -314,10 +314,7 @@ impl Scan {
 
         let task_executor = self.task_executor.clone();
         let exec_stream = stream::iter(row_ranges)
-            .map(move |task| {
-                log::info!("Spawning task");
-                task_executor.spawn(task)
-            })
+            .map(move |task| task_executor.spawn(task))
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
         let exec_stream = instrument!("exec_stream", exec_stream);
