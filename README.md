@@ -9,13 +9,12 @@
 > Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev) 
 
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
-Arrow arrays
-in-memory, on-disk, and over-the-wire.
+Arrow arrays in-memory, on-disk, and over-the-wire.
 
 Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and
 scans (2-10x faster),
 while preserving approximately the same compression ratio and write throughput as Parquet with zstd.
-It is designed to support very wide tables (at least 10s of thousands of columns) and (eventually) on-device
+It is designed to support very wide tables (i.e., very efficient, zero-copy/zero-parse metadata) and (eventually) on-device
 decompression on GPUs.
 
 Vortex is intended to be to columnar file formats what Apache DataFusion is to query engines: highly extensible,
@@ -98,7 +97,7 @@ The Vortex type-system is still in flux. The current set of logical types is:
 * Binary
 * UTF8
 * Struct
-* List (partially implemented)
+* List
 * Date/Time/DateTime/Duration (implemented as an extension type)
 * FixedList: TODO
 * Tensor: TODO
@@ -113,10 +112,9 @@ canonical representations of each of the logical data types. The canonical encod
 * Bool
 * Primitive (Integer, Float)
 * Struct
-* VarBin (Binary, UTF8)
+* List
 * VarBinView (Binary, UTF8)
 * Extension
-* ...with more to come
 
 ### Compressed Encodings
 
@@ -127,13 +125,12 @@ in-memory array implementation, allowing us to defer decompression. Currently, t
 * BitPacked (FastLanes)
 * Constant
 * Chunked
+* DateTimeParts
 * Delta (FastLanes)
 * Dictionary
 * Fast Static Symbol Table (FSST)
 * Frame-of-Reference
 * Run-end Encoding
-* RoaringUInt
-* RoaringBool
 * Sparse
 * ZigZag
 * ...with more to come
@@ -165,16 +162,14 @@ kernels as well as to the compressor.
 
 The current statistics are:
 
-* BitWidthFreq
-* TrailingZeroFreq
 * IsConstant
 * IsSorted
 * IsStrictSorted
 * Max
 * Min
-* RunCount
-* TrueCount
+* Sum
 * NullCount
+* UncompressedSizeInBytes
 
 ### Serialization / Deserialization (Serde)
 
@@ -288,6 +283,8 @@ In particular, the following academic papers have strongly influenced developmen
   data at YouTube](https://dl.acm.org/citation.cfm?id=3360438). PVLDB, 12(12): 2022-2034, 2019.
 * Dominik Durner, Viktor Leis, and Thomas Neumann. [Exploiting Cloud Object Storage for High-Performance
   Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf). PVLDB, 16(11): 2769-2782, 2023.
+* Robert Schulze, Tom Schreiber, Ilya Yatsishin, Ryadh Dahimene, and Alexey Milovidov. [ClickHouse -
+  Lightning Fast Analytics for Everyone](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf). PVLDB, 17(12): 3731-3744, 2024.
 
 Additionally, we benefited greatly from:
 
@@ -298,7 +295,6 @@ Additionally, we benefited greatly from:
 * the public discussions around choices of compression codecs, as well as the C++ implementations thereof,
   from [duckdb](https://github.com/duckdb/duckdb).
 * the [Velox](https://github.com/facebookincubator/velox) and [Nimble](https://github.com/facebookincubator/nimble)
-  projects,
-  and discussions with their maintainers.
+  projects, and discussions with their maintainers.
 
 Thanks to all of the aforementioned for sharing their work and knowledge with the world! 🚀
