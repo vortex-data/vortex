@@ -115,6 +115,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			    .projection_len = static_cast<int>(global_state.projection_ids.size()),
 			    .filter_expression = str.data(),
 			    .filter_expression_len = static_cast<int>(str.length()),
+			    // This is a multiple of the 2048 duckdb vector size, it needs tuning
+			    // This has a few factor effecting it:
+			    //  1. A smaller value means for work for the vortex file reader.
+			    //  2. A larger value reduces the parallelism available to the scanner
 			    .split_by_row_count = 2048 * 32 * 4,
 			};
 
@@ -125,6 +129,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		if (!next) {
 			FFIArrayStream_free(global_state.array_stream);
 			global_state.finished = true;
+			local_state.finished = true;
 			return;
 		}
 		local_state.array = FFIArrayStream_current(global_state.array_stream);
