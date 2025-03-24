@@ -1,3 +1,5 @@
+#[cfg(feature = "tracing")]
+use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use async_once_cell::OnceCell;

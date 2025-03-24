@@ -37,7 +37,10 @@ impl LayoutStrategy for VortexLayoutStrategy {
         // buffering limit.
         let writer: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
             child: ArcRef::new_ref(&FlatLayout),
-            buffer_size: 16 * (1 << 20), // 16 MB
+            // Buffer 4MB of compressed data per column before writing the chunks consecutively.
+            // TODO(ngates): this should really be amortized by the number of fields? Maybe the
+            //  strategy could keep track of how many writers were created?
+            buffer_size: 4 << 20, // 4 MB
         }) as _);
 
         // Compress each chunk with btrblocks.
@@ -125,6 +128,10 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         self.child.push_chunk(segment_writer, compressed)
     }
 
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.child.flush(segment_writer)
+    }
+
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.child.finish(segment_writer)
     }
@@ -172,10 +179,14 @@ impl LayoutWriter for BufferedWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         for chunk in self.chunks.drain(..) {
             self.child.push_chunk(segment_writer, chunk)?;
         }
+        self.child.flush(segment_writer)
+    }
+
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.child.finish(segment_writer)
     }
 }

@@ -30,8 +30,12 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
 
     for (i, name) in segment_names.iter().enumerate() {
         println!(
-            "{}: {}",
+            "{}: {}..{} (len={}, alignment={}) - {}",
             i,
+            segment_map[i].offset,
+            segment_map[i].offset + segment_map[i].length as u64,
+            segment_map[i].length,
+            segment_map[i].alignment,
             name.clone().unwrap_or_else(|| "<missing>".into())
         );
     }

@@ -118,12 +118,16 @@ impl LayoutWriter for RepartitionWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .to_canonical()?
                 .into_array();
         self.writer.push_chunk(segment_writer, chunk)?;
+        self.writer.flush(segment_writer)
+    }
+
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.writer.finish(segment_writer)
     }
 }

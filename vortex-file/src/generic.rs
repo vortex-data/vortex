@@ -117,7 +117,7 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             // Build up a coalesced read with other segments from the queue.
             let coalesced = this.coalesce(next);
 
-            // this.metrics.counter("vortex.scan.generic.request").inc();
+            this.metrics.counter("vortex.scan.generic.request").inc();
 
             // Launch the coalesced read.
             let read = this.read.clone();

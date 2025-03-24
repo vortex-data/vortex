@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +10,7 @@ use dashmap::{DashMap, Entry};
 use futures::channel::mpsc;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, StreamExt, TryFutureExt};
+use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{
@@ -38,7 +39,8 @@ struct SegmentQueueInner {
 #[derive(Default)]
 struct NeededSegments {
     /// A queue of segments that have been explicitly requested (polled), but not yet resolved.
-    need_now: VecDeque<SegmentId>,
+    //need_now: VecDeque<SegmentId>,
+    need_now: BTreeSet<SegmentId>,
     /// The set of known segments, sorted by insertion order.
     need_later: LinkedHashSet<SegmentId>,
 }
@@ -72,7 +74,9 @@ impl SegmentQueue {
         self.inner
             .segments
             .iter()
-            .filter_map(|p| p.value().clone().lease())
+            // Iterate in sorted order
+            .sorted_unstable_by_key(|e| *e.key())
+            .filter_map(|e| e.value().clone().lease())
     }
 
     /// Returns a future that resolves to the highest priority segment.
@@ -86,7 +90,7 @@ impl SegmentQueue {
             loop {
                 // In a loop, we drain the need_now queue until we find a segment that
                 // hasn't been dropped or leased.
-                let Some(segment_id) = needed.need_now.pop_front() else {
+                let Some(segment_id) = needed.need_now.pop_first() else {
                     // No more need_now segments, break out of the loop.
                     break;
                 };
@@ -324,7 +328,7 @@ impl Future for SegmentFuture {
             {
                 let mut needed = self.queue.needed.lock().vortex_expect("poisoned lock");
                 if needed.need_later.remove(&self.id) {
-                    needed.need_now.push_back(self.id);
+                    needed.need_now.insert(self.id);
                 }
             }
 
@@ -346,8 +350,14 @@ impl Drop for SegmentFuture {
             self.polled.load(Ordering::Relaxed),
             self.resolved.load(Ordering::Relaxed),
         ) {
-            (false, _) => {
+            (false, false) => {
                 log::debug!("Pending segment {}: DROPPED BEFORE POLL", self.id);
+            }
+            (false, true) => {
+                log::debug!(
+                    "Pending segment {}: DROPPED BEFORE POLL AFTER RESOLVE",
+                    self.id
+                );
             }
             (true, false) => {
                 log::debug!("Pending segment {}: DROPPED BEFORE RESOLVE", self.id);

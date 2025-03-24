@@ -96,6 +96,10 @@ impl LayoutWriter for StatsLayoutWriter {
         self.child_writer.push_chunk(segment_writer, chunk)
     }
 
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.child_writer.flush(segment_writer)
+    }
+
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let child = self.child_writer.finish(segment_writer)?;
 

@@ -96,7 +96,7 @@ impl Footer {
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
             Layout::new_viewed_unchecked(
-                "$".into(),
+                "".into(),
                 root_encoding,
                 dtype,
                 flatbuffer.clone(),
