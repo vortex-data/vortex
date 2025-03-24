@@ -85,9 +85,7 @@ impl EncodingVTable for ALPRDEncoding {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("Expected a primitive input")
-        };
+        let parray = input.clone().into_primitive()?;
 
         let like_alprd = like
             .map(|like| {
@@ -108,14 +106,14 @@ impl EncodingVTable for ALPRDEncoding {
                     PType::F64 => RDEncoder::new(parray.as_slice::<f64>()),
                     ptype => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
                 };
-                encoder.encode(parray)
+                encoder.encode(&parray)
             }
             Some(like) => {
                 let encoder = RDEncoder::from_parts(
                     like.right_bit_width(),
                     like.left_parts_dictionary().to_vec(),
                 );
-                encoder.encode(parray)
+                encoder.encode(&parray)
             }
         };
 

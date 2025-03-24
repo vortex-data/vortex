@@ -7,7 +7,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
@@ -88,7 +88,7 @@ impl ArrayImpl for ByteBoolArray {
         VTableRef::new_ref(&ByteBoolEncoding)
     }
 
-    fn _with_children(&self, children: &[vortex_array::ArrayRef]) -> VortexResult<Self> {
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
         let validity = match self.validity() {
             Validity::Array(_) => Validity::Array(children[0].clone()),
             other => other.clone(),

@@ -38,9 +38,7 @@ impl EncodingVTable for ZigZagEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("doesn't work")
-        };
+        let parray = input.clone().into_primitive()?;
 
         if !parray.ptype().is_signed_int() {
             vortex_bail!(
@@ -50,7 +48,7 @@ impl EncodingVTable for ZigZagEncoding {
             )
         }
 
-        Ok(Some(zigzag_encode(parray.clone())?.into_array()))
+        Ok(Some(zigzag_encode(parray)?.into_array()))
     }
 }
 

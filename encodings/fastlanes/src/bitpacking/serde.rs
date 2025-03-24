@@ -91,21 +91,15 @@ impl EncodingVTable for BitPackedEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!(
-                "{} only supports encoding primitive arrays, got {}",
-                self.id(),
-                input.as_ref().encoding()
-            )
-        };
+        let parray = input.clone().into_primitive()?;
 
-        let bit_width = find_best_bit_width(parray)?;
+        let bit_width = find_best_bit_width(&parray)?;
 
         if bit_width as usize == parray.ptype().bit_width() {
             return Ok(Some(parray.to_array()));
         }
 
-        Ok(Some(bitpack_encode(parray, bit_width)?.into_array()))
+        Ok(Some(bitpack_encode(&parray, bit_width)?.into_array()))
     }
 }
 

@@ -6,7 +6,7 @@ use vortex_array::{
     DeserializeMetadata, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compress::runend_encode;
 use crate::{RunEndArray, RunEndEncoding};
@@ -45,11 +45,9 @@ impl EncodingVTable for RunEndEncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("{} only supports encoding primitive arrays", self.id());
-        };
+        let parray = input.clone().into_primitive()?;
 
-        let (ends, values) = runend_encode(parray)?;
+        let (ends, values) = runend_encode(&parray)?;
 
         Ok(Some(
             RunEndArray::try_new(ends.to_array(), values)?.to_array(),

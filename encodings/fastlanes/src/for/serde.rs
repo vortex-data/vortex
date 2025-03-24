@@ -61,11 +61,9 @@ impl EncodingVTable for FoREncoding {
         input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("FoREncoding only supports encoding primitive arrays")
-        };
+        let parray = input.clone().into_primitive()?;
 
-        Ok(Some(FoRArray::encode(parray.clone())?.to_array()))
+        Ok(Some(FoRArray::encode(parray)?.to_array()))
     }
 }
 
