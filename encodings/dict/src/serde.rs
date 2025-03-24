@@ -1,8 +1,8 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -49,7 +49,7 @@ impl EncodingVTable for DictEncoding {
 
     fn encode(
         &self,
-        input: &vortex_array::Canonical,
+        input: &Canonical,
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(dict_encode(input.as_ref())?.into_array()))

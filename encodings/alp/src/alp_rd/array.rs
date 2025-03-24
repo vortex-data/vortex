@@ -20,10 +20,10 @@ use crate::alp_rd::serde::ALPRDMetadata;
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
     dtype: DType,
-    pub(crate) left_parts: ArrayRef,
-    pub(crate) left_parts_patches: Option<Patches>,
+    left_parts: ArrayRef,
+    left_parts_patches: Option<Patches>,
     left_parts_dictionary: Buffer<u16>,
-    pub(crate) right_parts: ArrayRef,
+    right_parts: ArrayRef,
     right_bit_width: u8,
     stats_set: ArrayStats,
 }

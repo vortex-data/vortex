@@ -7,9 +7,7 @@ use vortex_array::{
     DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use super::{ALPEncoding, alp_encode, alp_encode_with_exponents};
 use crate::{ALPArray, Exponents};
@@ -52,9 +50,7 @@ impl EncodingVTable for ALPEncoding {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Canonical::Primitive(parray) = input else {
-            vortex_bail!("Expected a primitive input")
-        };
+        let parray = input.clone().into_primitive()?;
 
         let like_alp = like
             .map(|like| {
@@ -70,8 +66,8 @@ impl EncodingVTable for ALPEncoding {
         let exponents = like_alp.map(|a| a.exponents());
 
         let alp = match exponents {
-            Some(e) => alp_encode_with_exponents(parray, e)?,
-            None => alp_encode(parray)?,
+            Some(e) => alp_encode_with_exponents(&parray, e)?,
+            None => alp_encode(&parray)?,
         };
 
         Ok(Some(alp.into_array()))

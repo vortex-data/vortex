@@ -11,7 +11,7 @@ use crate::arrays::StructArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use crate::variants::StructArrayTrait;
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
@@ -97,10 +97,8 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Struct(array) = array else {
-            vortex_bail!("Expected Canonical::Struct, found {:?}", array);
-        };
+        let array = array.to_canonical()?.into_struct()?;
+
         if array.dtype() != self.dtype() {
             vortex_bail!(
                 "Cannot extend from array with different dtype: expected {:?}, found {:?}",

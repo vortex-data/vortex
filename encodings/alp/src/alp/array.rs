@@ -17,8 +17,8 @@ use crate::alp::{Exponents, decompress};
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
-    pub(crate) encoded: ArrayRef,
-    pub(crate) patches: Option<Patches>,
+    encoded: ArrayRef,
+    patches: Option<Patches>,
     dtype: DType,
     exponents: Exponents,
     stats_set: ArrayStats,

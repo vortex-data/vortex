@@ -56,6 +56,7 @@ pub fn benchmark_compress<F>(
 where
     F: Fn() -> ArrayRef,
 {
+    tracing::info!("Running {bench_name} benchmark");
     let uncompressed = make_uncompressed();
     let uncompressed_size = uncompressed.nbytes();
     let compressed_size = AtomicU64::default();

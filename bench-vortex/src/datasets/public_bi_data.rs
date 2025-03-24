@@ -13,6 +13,7 @@ use humansize::{DECIMAL, format_size};
 use log::{debug, info};
 use reqwest::Url;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
@@ -521,12 +522,16 @@ impl PBIDataset {
             let compressed = idempotent_async(
                 &self.path_for_file_type(output_fname, FileType::Vortex),
                 |output_path| async {
-                    VortexWriteOptions::default()
+                    let mut f = VortexWriteOptions::default()
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(f).await.unwrap(),
                         )
-                        .await
+                        .await?;
+
+                    f.flush().await?;
+
+                    VortexResult::Ok(())
                 },
             )
             .await

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
@@ -53,6 +54,8 @@ pub async fn taxi_data_vortex() -> PathBuf {
                 output_file,
                 parquet_to_vortex(taxi_data_parquet()).await.unwrap(),
             )
+            .await?
+            .flush()
             .await?;
         Ok::<PathBuf, VortexError>(buf)
     })

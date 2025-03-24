@@ -148,14 +148,8 @@ impl ArrayImpl for StructArray {
             self.validity().clone()
         };
 
-        let fields_idx = validity.is_array() as usize;
+        let fields_idx = if validity.is_array() { 1_usize } else { 0 };
         let fields = children[fields_idx..].to_vec();
-
-        if let Some(field_len) = fields.first().map(|a| a.len()) {
-            if fields.iter().any(|a| a.len() != field_len) {
-                vortex_bail!("all struct array field arrays must have the same length");
-            }
-        }
 
         Self::try_new(self.names().clone(), fields, self.len(), validity)
     }
