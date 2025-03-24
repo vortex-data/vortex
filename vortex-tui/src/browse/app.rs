@@ -1,11 +1,11 @@
-use std::ops::Range;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use async_trait::async_trait;
+use futures_util::FutureExt;
+use futures_util::future::BoxFuture;
 use ratatui::widgets::ListState;
-use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex::buffer::{ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
@@ -241,25 +241,26 @@ struct SegmentReader {
     pub footer: Footer,
 }
 
-impl SegmentReader {
-    // Read the provided byte range
-    fn read_bytes_sync(&self, range: Range<u64>, alignment: Alignment) -> ByteBuffer {
-        let mut buf = ByteBufferMut::zeroed_aligned(
-            (range.end - range.start).try_into().vortex_expect("range"),
-            alignment,
-        );
-        self.reader
-            .read_exact_at(&mut buf, range.start)
-            .expect("read_exact_at sync");
-        buf.freeze()
-    }
-}
-
-#[async_trait]
 impl AsyncSegmentReader for SegmentReader {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        let segment = &self.footer.segment_map()[*id as usize];
+    fn get(
+        &self,
+        id: SegmentId,
+        _for_whom: &Arc<str>,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let segment = self.footer.segment_map()[*id as usize].clone();
         let range = segment.offset..(segment.offset + segment.length as u64);
-        Ok(self.read_bytes_sync(range, segment.alignment))
+        let reader = self.reader.clone();
+
+        async move {
+            let mut buf = ByteBufferMut::zeroed_aligned(
+                (range.end - range.start).try_into().vortex_expect("range"),
+                segment.alignment,
+            );
+            reader
+                .read_exact_at(&mut buf, range.start)
+                .expect("read_exact_at sync");
+            Ok(buf.freeze())
+        }
+        .boxed()
     }
 }

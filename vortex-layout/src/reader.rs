@@ -30,11 +30,17 @@ pub trait LayoutReader: 'static + Send + Sync + ExprEvaluator {
     fn dtype(&self) -> &DType {
         self.layout().dtype()
     }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
 }
 
 impl LayoutReader for Arc<dyn LayoutReader> {
     fn layout(&self) -> &Layout {
         self.as_ref().layout()
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        self.as_ref().children()
     }
 }
 

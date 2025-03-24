@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use async_once_cell::OnceCell;
@@ -85,5 +84,9 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        Ok(vec![])
     }
 }

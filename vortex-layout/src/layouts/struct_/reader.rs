@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_dtype::{DType, FieldName, StructDType};
@@ -107,6 +108,14 @@ impl StructReader {
 impl LayoutReader for StructReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        self.struct_dtype()
+            .names()
+            .iter()
+            .map(|name| self.child(name).cloned())
+            .try_collect()
     }
 }
 

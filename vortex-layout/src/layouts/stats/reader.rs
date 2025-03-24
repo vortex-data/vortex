@@ -177,4 +177,8 @@ impl LayoutReader for StatsReader {
     fn layout(&self) -> &Layout {
         &self.layout
     }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        Ok(vec![self.data_child.clone(), self.stats_child.clone()])
+    }
 }

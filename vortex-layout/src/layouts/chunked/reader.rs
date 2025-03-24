@@ -2,6 +2,7 @@ use std::iter;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
+use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexResult, vortex_panic};
 
@@ -90,5 +91,11 @@ impl ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        (0..self.layout.nchildren())
+            .map(|idx| self.child(idx).cloned())
+            .try_collect()
     }
 }

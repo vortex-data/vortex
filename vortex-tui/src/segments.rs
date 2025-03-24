@@ -1,0 +1,40 @@
+use std::collections::VecDeque;
+use std::path::Path;
+use std::sync::Arc;
+
+use vortex::error::{VortexExpect, VortexResult};
+use vortex::file::VortexOpenOptions;
+use vortex::io::TokioFile;
+use vortex_layout::LayoutReader;
+
+pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
+    let opened = TokioFile::open(file)?;
+    let vxf = VortexOpenOptions::file(opened).open().await?;
+
+    let segment_map = vxf.footer().segment_map();
+    let reader = vxf
+        .footer()
+        .layout()
+        .reader(vxf.segment_reader().clone(), vxf.footer().ctx().clone())?;
+
+    let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
+
+    let mut queue = VecDeque::from_iter([reader]);
+    while !queue.is_empty() {
+        let reader = queue.pop_front().vortex_expect("queue is not empty");
+        for segment in reader.layout().segments() {
+            segment_names[*segment as usize] = Some(reader.layout().name().clone());
+        }
+        queue.extend(reader.children()?);
+    }
+
+    for (i, name) in segment_names.iter().enumerate() {
+        println!(
+            "{}: {}",
+            i,
+            name.clone().unwrap_or_else(|| "<missing>".into())
+        );
+    }
+
+    Ok(())
+}

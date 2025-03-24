@@ -51,6 +51,10 @@ impl LayoutReader for FilterLayoutReader {
     fn layout(&self) -> &Layout {
         self.child.layout()
     }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        self.child.children()
+    }
 }
 
 #[async_trait]
