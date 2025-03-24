@@ -9,8 +9,6 @@ plugins {
 }
 
 dependencies {
-    api("com.google.protobuf:protobuf-java")
-
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -18,6 +16,7 @@ dependencies {
     errorprone("com.jakewharton.nopen:nopen-checker")
 
     implementation("com.google.guava:guava")
+    implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 }
@@ -101,6 +100,7 @@ publishing {
     publications {
         create<MavenPublication>("mavenJava") {
             from(components["java"]) // Publishes the compiled JAR
+            artifact(tasks["shadowJar"])
             artifactId = "vortex-jni"
         }
     }
