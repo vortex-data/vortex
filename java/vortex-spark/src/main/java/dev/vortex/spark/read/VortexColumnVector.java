@@ -24,6 +24,9 @@ import org.apache.spark.sql.vectorized.ColumnarMap;
 import org.apache.spark.unsafe.types.UTF8String;
 
 public final class VortexColumnVector extends ColumnVector {
+    private final long[] outPtr = new long[1];
+    private final int[] outLen = new int[1];
+
     private final Array array;
 
     public VortexColumnVector(Array array) {
@@ -113,7 +116,12 @@ public final class VortexColumnVector extends ColumnVector {
 
     @Override
     public UTF8String getUTF8String(int rowId) {
-        return UTF8String.fromString(array.getUTF8(rowId));
+        array.getUTF8_ptr_len(rowId, outPtr, outLen);
+        long addr = outPtr[0];
+        int len = outLen[0];
+        outPtr[0] = 0;
+        outLen[0] = 0;
+        return UTF8String.fromAddress(null, addr, len);
     }
 
     @Override
