@@ -129,9 +129,8 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
     }
 
     fn coalesce(&self, next: PendingSegmentLease) -> VortexResult<CoalescedSegmentRequest> {
-        let next_spec = self
-            .footer
-            .segment_map()
+        let segment_map = self.footer.segment_map();
+        let next_spec = segment_map
             .get(*next.id() as usize)
             .ok_or_else(|| vortex_err!("SegmentID {} not found", next.id()))?;
         let first_req = SegmentRequest {
@@ -152,35 +151,32 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
         let window = perf_hint.coalescing_window();
         let max_read = perf_hint.max_read();
 
-        for pending in self.segment_queue.pending() {
-            // If the coalesced request has reached the maximum size, ship it.
-            if let Some(max_read) = max_read {
-                if coalesced.size_bytes() > max_read {
-                    log::debug!(
-                        "Coalesced read {:?} reached max size {}",
-                        coalesced,
-                        max_read
-                    );
-                    break;
-                }
+        // We keep expanding our coalesced window until we reach max_read or no more segments
+        // can be coalesced.
+        loop {
+            let lowest_segment: SegmentId = segment_map
+                .partition_point(|s| {
+                    (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
+                })
+                .try_into()?;
+            let highest_segment: SegmentId = segment_map
+                .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window))
+                .try_into()?;
+            let segment_range = lowest_segment..highest_segment;
+
+            let matching = self.segment_queue.lease_within_range(&segment_range);
+            if matching.is_empty() {
+                break;
             }
 
-            // Otherwise, try to include the pending segment in the request.
-            let spec = self
-                .footer
-                .segment_map()
-                .get(*pending.id() as usize)
-                .ok_or_else(|| vortex_err!("SegmentID {} not found", pending.id()))?;
+            for lease in matching {
+                let spec = segment_map
+                    .get(*lease.id() as usize)
+                    .ok_or_else(|| vortex_err!("SegmentID {} not found", lease.id()))?;
 
-            let segment_start = spec.offset;
-            let segment_end = spec.offset + spec.length as u64;
+                let segment_start = spec.offset;
+                let segment_end = spec.offset + spec.length as u64;
 
-            // Check if the segment should be included in the coalesced request.
-            if coalesced.byte_range.contains(&segment_start)
-                || coalesced.byte_range.contains(&segment_end)
-                || segment_start.abs_diff(coalesced.byte_range.end) <= window
-                || segment_end.abs_diff(coalesced.byte_range.start) <= window
-            {
                 coalesced.byte_range.start = coalesced.byte_range.start.min(segment_start);
                 coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
                 // Take the maximum alignment of all segments in the coalesced request.
@@ -188,13 +184,19 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
                 coalesced.alignment = coalesced.alignment.max(spec.alignment);
                 coalesced.requests.push(SegmentRequest {
                     spec: spec.clone(),
-                    lease: pending,
+                    lease,
                 });
             }
 
-            // Ensure the coalesced requests are sorted
-            coalesced.requests.sort_by_key(|r| r.id());
+            if let Some(max_read) = max_read {
+                if coalesced.byte_range.end - coalesced.byte_range.start > max_read {
+                    break;
+                }
+            }
         }
+
+        // Ensure the coalesced requests are sorted
+        coalesced.requests.sort_by_key(|r| r.id());
 
         Ok(coalesced)
     }

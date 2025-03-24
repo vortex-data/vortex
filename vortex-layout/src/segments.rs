@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -14,6 +14,14 @@ pub struct SegmentId(u32);
 impl From<u32> for SegmentId {
     fn from(value: u32) -> Self {
         Self(value)
+    }
+}
+
+impl TryFrom<usize> for SegmentId {
+    type Error = VortexError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(Self::from(u32::try_from(value)?))
     }
 }
 

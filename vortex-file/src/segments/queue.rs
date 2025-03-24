@@ -1,5 +1,6 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,6 @@ use futures::channel::mpsc;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use itertools::Itertools;
-use linked_hash_set::LinkedHashSet;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{
     ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
@@ -38,11 +38,12 @@ struct SegmentQueueInner {
 
 #[derive(Default)]
 struct NeededSegments {
-    /// A queue of segments that have been explicitly requested (polled), but not yet resolved.
+    /// A queue of segments that have been explicitly requested (polled), but not yet resolved,
+    /// ordered by when they were polled.
     need_now: VecDeque<SegmentId>,
     // need_now: BTreeSet<SegmentId>,
-    /// The set of known segments, sorted by insertion order.
-    need_later: LinkedHashSet<SegmentId>,
+    /// The set of known segments, ordered by SegmentID (which corresponds to byte offset).
+    need_later: BTreeSet<SegmentId>,
 }
 
 impl SegmentQueue {
@@ -127,7 +128,7 @@ impl SegmentQueue {
 
             // Perform some cleanup and throw away any dropped segments (those whose weak
             // reference can no longer be upgraded).
-            self.inner.segments.retain(|_, v| v.fut.upgrade().is_some());
+            // self.inner.segments.retain(|_, v| v.fut.upgrade().is_some());
 
             // Before we await the future, we ensure we unlock the needed mutex.
             drop(needed);
@@ -148,13 +149,40 @@ impl SegmentQueue {
                 //     "Segment queue closed with pending _requested_ segments"
                 // );
                 return None;
-            } else {
-                // self.inner
-                //     .metrics
-                //     .counter("vortex.scan.segments.notified")
-                //     .inc();
             }
         }
+    }
+
+    /// Lease all segments within a given byte offset range.
+    pub fn lease_within_range(&self, segment_range: &Range<SegmentId>) -> Vec<PendingSegmentLease> {
+        let mut leased = vec![];
+
+        let needed = self.inner.needed.lock().vortex_expect("poisoned lock");
+        for segment_id in &needed.need_now {
+            if segment_range.contains(segment_id) {
+                if let Some(lease) = self
+                    .inner
+                    .segments
+                    .get(segment_id)
+                    .and_then(|v| v.clone().lease())
+                {
+                    leased.push(lease);
+                }
+            }
+        }
+
+        for segment_id in needed.need_later.range(segment_range.clone()) {
+            if let Some(lease) = self
+                .inner
+                .segments
+                .get(&segment_id)
+                .and_then(|v| v.clone().lease())
+            {
+                leased.push(lease);
+            }
+        }
+
+        leased
     }
 }
 
@@ -198,7 +226,7 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                         .lock()
                         .vortex_expect("poisoned lock")
                         .need_later
-                        .insert_if_absent(id);
+                        .insert(id);
                     break fut;
                 }
             }
