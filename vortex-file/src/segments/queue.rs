@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 use std::time::Instant;
 
@@ -16,7 +16,7 @@ use vortex_error::{
     ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
 };
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::{Counter, VortexMetrics};
 
 /// Pre-fetch queue for segments for the generic file reader.
 ///
@@ -52,7 +52,7 @@ impl SegmentQueue {
         let inner = Arc::new(SegmentQueueInner {
             segments: Default::default(),
             needed: Default::default(),
-            metrics,
+            metrics: metrics.clone(),
         });
 
         // We return a segment reader (instead of holding a strong reference to the send channel)
@@ -61,6 +61,7 @@ impl SegmentQueue {
         let segment_reader = Arc::new(SegmentQueueSegmentReader {
             queue: inner.clone(),
             notifier: send,
+            request_counter: metrics.counter("vortex.scan.segments.requested"),
         });
 
         (Self { recv, inner }, segment_reader)
@@ -144,10 +145,10 @@ impl SegmentQueue {
                 // );
                 return None;
             } else {
-                self.inner
-                    .metrics
-                    .counter("vortex.scan.segments.notified")
-                    .inc();
+                // self.inner
+                //     .metrics
+                //     .counter("vortex.scan.segments.notified")
+                //     .inc();
             }
         }
     }
@@ -157,6 +158,8 @@ impl SegmentQueue {
 struct SegmentQueueSegmentReader {
     queue: Arc<SegmentQueueInner>,
     notifier: mpsc::UnboundedSender<()>,
+
+    request_counter: Arc<Counter>,
 }
 
 impl AsyncSegmentReader for SegmentQueueSegmentReader {
@@ -178,6 +181,7 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                     }
                 }
                 Entry::Vacant(e) => {
+                    self.request_counter.inc();
                     let (pending, fut) = PendingSegment::new(
                         id,
                         for_whom.clone(),
@@ -247,11 +251,6 @@ impl PendingSegment {
         notifier: mpsc::UnboundedSender<()>,
     ) -> (PendingSegment, Shared<SegmentFuture>) {
         log::debug!("Pending segment {} for {}: REGISTERED", id, &for_whom);
-        queue
-            .metrics
-            .counter("vortex.scan.segments.requested")
-            .inc();
-
         let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
 
         // Set up the segment future tied to the recv end of the channel.
@@ -266,6 +265,7 @@ impl PendingSegment {
             notifier,
             polled: AtomicBool::new(false),
             resolved: AtomicBool::new(false),
+            // resolved_timer: queue.metrics.timer("vortex.scan.segments.resolve"),
         }
         .shared();
 
@@ -294,14 +294,11 @@ impl PendingSegment {
 
     /// Take a unique lease on the pending segment to resolve it some time later.
     pub fn lease(self: Arc<Self>) -> Option<PendingSegmentLease> {
-        self.send
-            .lock()
-            .vortex_expect("poisoned lock")
-            .take()
-            .map(|send| PendingSegmentLease {
-                pending: self,
-                send: Some(send),
-            })
+        let send = self.send.lock().vortex_expect("poisoned lock").take();
+        send.map(|send| PendingSegmentLease {
+            pending: self,
+            send: Some(send),
+        })
     }
 }
 
@@ -315,6 +312,7 @@ pub struct SegmentFuture {
     notifier: mpsc::UnboundedSender<()>,
     polled: AtomicBool,
     resolved: AtomicBool,
+    // resolved_timer: Arc<Timer>,
 }
 
 impl Future for SegmentFuture {
@@ -336,6 +334,8 @@ impl Future for SegmentFuture {
 
         let result = ready!(self.future.poll_unpin(cx));
         self.resolved.store(true, Ordering::Relaxed);
+        // self.resolved_timer
+        //     .update(Instant::now() - self.pending.created_at);
         Poll::Ready(result)
     }
 }
@@ -380,14 +380,8 @@ impl PendingSegmentLease {
         {
             // This occurs when the recv end of the channel was dropped while the segment was
             // leased, in other words, while the request was "in-flight".
-            log::trace!("Pending segment {}: DROPPED WHILE LEASED", self.id);
+            log::trace!("Pending segment {}: DROPPED WHILE LEASED", self.id());
         }
-
-        self.pending
-            .queue
-            .metrics
-            .timer("vortex.scan.segments.resolve")
-            .update(Instant::now() - self.pending.created_at);
     }
 }
 

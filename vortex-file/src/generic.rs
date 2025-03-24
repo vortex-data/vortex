@@ -93,7 +93,7 @@ pub struct GenericScanOptions {
 impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
-            io_concurrency: 10,
+            io_concurrency: 1,
             io_dispatcher: IoDispatcher::default(),
         }
     }
@@ -117,7 +117,7 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             // Build up a coalesced read with other segments from the queue.
             let coalesced = this.coalesce(next);
 
-            this.metrics.counter("vortex.scan.generic.request").inc();
+            // this.metrics.counter("vortex.scan.generic.request").inc();
 
             // Launch the coalesced read.
             let read = this.read.clone();
@@ -247,7 +247,7 @@ async fn evaluate<R: VortexReadAt + Send>(
 ) -> VortexResult<()> {
     log::debug!(
         "Reading byte range for [{}] requests {:?} size={}",
-        request.requests.iter().map(|r| r.id()).format(", "),
+        request.requests.iter().map(|r| r.id()).join(", "),
         request.byte_range,
         request.byte_range.end - request.byte_range.start,
     );

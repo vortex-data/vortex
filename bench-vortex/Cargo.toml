@@ -31,6 +31,7 @@ bytes = { workspace = true }
 bzip2 = { workspace = true }
 cfg-if = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+datadog-tracing = { workspace = true }
 datafusion = { workspace = true, features = [
     "parquet",
     "datetime_expressions",

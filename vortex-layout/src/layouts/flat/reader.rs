@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use async_once_cell::OnceCell;
@@ -49,7 +50,7 @@ impl FlatReader {
         self.array
             .get_or_try_init(instrument!(
                 "flat_read",
-                { name = self.layout().name() },
+                { name = self.layout().name().deref() },
                 async move {
                     let segment_id = self
                         .layout()
