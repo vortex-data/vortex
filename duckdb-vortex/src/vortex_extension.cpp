@@ -73,6 +73,24 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 };
 
+string create_filter_expression(const VortexBindData &bind_data, VortexScanGlobalState &global_state) {
+	if (global_state.filter == nullptr) {
+		return "";
+	}
+
+	google::protobuf::Arena arena;
+	vector<vortex::expr::Expr *> exprs;
+
+	for (const auto &[col_id, value] : global_state.filter->filters) {
+		auto col_name = bind_data.column_names[global_state.column_ids[col_id]];
+		auto conj = table_expression_into_expr(arena, *value, col_name);
+		exprs.push_back(conj);
+	}
+
+	auto expr = flatten_exprs(arena, exprs);
+	return expr->SerializeAsString();
+}
+
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &bind_data = data.bind_data->Cast<VortexBindData>();              // NOLINT
 	auto &local_state = data.local_state->Cast<VortexScanLocalState>();    // NOLINT
@@ -97,18 +115,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				column_names.push_back(const_cast<char *>(bind_data.column_names[col_id].c_str()));
 			}
 
-			auto str = std::string("");
-
-			if (global_state.filter != nullptr) {
-				google::protobuf::Arena arena;
-				vector<vortex::expr::Expr *> exprs;
-				for (const auto &[col_id, value] : global_state.filter->filters) {
-					auto col_name = bind_data.column_names[global_state.column_ids[col_id]];
-					auto conj = table_expression_into_expr(arena, *value, col_name);
-					exprs.push_back(conj);
-				}
-				str = flatten_exprs(arena, exprs)->SerializeAsString();
-			}
+			auto str = create_filter_expression(bind_data, global_state);
 
 			auto options = FileScanOptions {
 			    .projection = column_names.data(),
