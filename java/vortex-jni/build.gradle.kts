@@ -9,6 +9,8 @@ plugins {
 }
 
 dependencies {
+    api("org.apache.arrow:arrow-c-data")
+    implementation("org.apache.arrow:arrow-memory")
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -19,6 +21,9 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
+
+    // Need an allocationmanager installed for tests that don't use Spark
+    testRuntimeOnly("org.apache.arrow:arrow-memory-netty")
 }
 
 testing {
@@ -27,6 +32,14 @@ testing {
             useJUnitJupiter()
         }
     }
+}
+
+tasks.withType<Test>().all {
+    jvmArgs(
+        "--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED",
+        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    )
 }
 
 protobuf {

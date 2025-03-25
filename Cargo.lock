@@ -6241,6 +6241,7 @@ dependencies = [
 name = "vortex-jni"
 version = "0.25.2"
 dependencies = [
+ "arrow",
  "futures",
  "jni",
  "log",

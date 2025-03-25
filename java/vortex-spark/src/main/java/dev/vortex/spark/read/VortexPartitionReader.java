@@ -19,6 +19,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import dev.vortex.api.*;
 import dev.vortex.spark.VortexFilePartition;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
@@ -48,7 +51,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     public ColumnarBatch get() {
         checkNotNull(arrayStream, "closed arrayStream");
         Array next = arrayStream.next();
-        return VortexColumnarBatch.of(next);
+        return VortexColumnarBatch.fromVortex(next);
     }
 
     /**
@@ -56,7 +59,10 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
      */
     void initNativeResources() {
         file = Files.open(partition.getPath());
-        arrayStream = file.newScan(ScanOptions.of());
+        List<String> pushdownColumns =
+                partition.getColumns().stream().map(Column::name).collect(Collectors.toList());
+        arrayStream =
+                file.newScan(ScanOptions.builder().columns(pushdownColumns).build());
     }
 
     @Override

@@ -17,6 +17,7 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+arrow = { workspace = true, features = ["ffi"] }
 futures = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }

@@ -15,32 +15,51 @@
  */
 package dev.vortex.spark.read;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import dev.vortex.api.Array;
-import dev.vortex.api.DType;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.spark.sql.util.ArrowUtils;
+import org.apache.spark.sql.vectorized.ArrowColumnVector;
+import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
+/**
+ * A {@link ColumnarBatch} that returns Vortex-managed memory with Arrow format, shared over the C Data Interface.
+ */
 public final class VortexColumnarBatch extends ColumnarBatch {
-    private VortexColumnarBatch(VortexColumnVector[] columns, int numRows) {
+    private Array backingArray;
+
+    private VortexColumnarBatch(Array backingArray, ColumnVector[] columns, int numRows) {
         super(columns, numRows);
+        this.backingArray = backingArray;
     }
 
-    public static VortexColumnarBatch of(Array array) {
-        var dataType = array.getDataType();
-        checkArgument(
-                dataType.getVariant() == DType.Variant.STRUCT,
-                "VortexColumnarBatch can only be built from STRUCT type array");
-
-        var columns = new VortexColumnVector[array.getDataType().getFieldNames().size()];
-        for (int i = 0; i < columns.length; i++) {
-            var field = array.getField(i);
-            columns[i] = new VortexColumnVector(field);
+    /**
+     * Create a new columnar batch backed by the fields of a Vortex array.
+     */
+    public static ColumnarBatch fromVortex(Array vortex) {
+        VectorSchemaRoot root = vortex.exportToArrow(ArrowUtils.rootAllocator());
+        int rowCount = root.getRowCount();
+        ColumnVector[] vectors = new ColumnVector[root.getFieldVectors().size()];
+        for (int i = 0; i < root.getFieldVectors().size(); i++) {
+            vectors[i] = new ArrowColumnVector(root.getFieldVectors().get(i));
         }
+        return new VortexColumnarBatch(vortex, vectors, rowCount);
+    }
 
-        // NOTE: casting from long -> int may fail.
-        var len = array.getLen();
-        checkArgument(len <= Integer.MAX_VALUE, "array len overflows Integer.MAX_VALUE");
-        return new VortexColumnarBatch(columns, (int) len);
+    @Override
+    public void close() {
+        freeNativeMemory();
+        super.close();
+    }
+
+    @Override
+    public void closeIfFreeable() {
+        freeNativeMemory();
+        super.closeIfFreeable();
+    }
+
+    private void freeNativeMemory() {
+        backingArray.close();
+        backingArray = null;
     }
 }
