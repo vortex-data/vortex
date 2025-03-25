@@ -13,7 +13,7 @@ pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
     pub(crate) fn min_value(self) -> T {
-        self.0.into_value()
+        self.0.into_inner()
     }
 }
 
@@ -141,7 +141,7 @@ pub struct UpperBound<T>(pub(crate) Precision<T>);
 
 impl<T> UpperBound<T> {
     pub(crate) fn max_value(self) -> T {
-        self.0.into_value()
+        self.0.into_inner()
     }
 }
 

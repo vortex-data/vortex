@@ -232,7 +232,7 @@ impl StatsSet {
 
     // given two sets of stats (of differing precision) for the same array, combine them
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
-        let other_stats: Vec<_> = other.values.iter().map(|(stat, _)| stat.clone()).collect();
+        let other_stats: Vec<_> = other.values.iter().map(|(stat, _)| *stat).collect();
         for s in other_stats {
             match s {
                 Stat::Max => self.combine_bound::<Max>(other, dtype)?,

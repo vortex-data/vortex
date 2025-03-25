@@ -94,14 +94,14 @@ impl StatType<bool> for IsConstant {
     const STAT: Stat = Stat::IsConstant;
 }
 
-impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
-    type Bound = Precision<T>;
+impl StatType<bool> for IsSorted {
+    type Bound = Precision<bool>;
 
     const STAT: Stat = Stat::IsSorted;
 }
 
-impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
-    type Bound = Precision<T>;
+impl StatType<bool> for IsStrictSorted {
+    type Bound = Precision<bool>;
 
     const STAT: Stat = Stat::IsStrictSorted;
 }

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::partial_ord::partial_min;
 use crate::stats::bound::IntersectionResult;
-use crate::stats::{LowerBound, Precision, Stat};
+use crate::stats::{Precision, Stat};
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
 /// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
@@ -40,12 +40,6 @@ impl<T> Precision<T> {
     /// Applied the stat associated bound to the precision value
     pub fn bound<S: StatType<T>>(self) -> S::Bound {
         S::Bound::lift(self)
-    }
-}
-
-impl<T: PartialOrd + Clone> LowerBound<T> {
-    pub fn into_value(self) -> Precision<T> {
-        self.0
     }
 }
 
