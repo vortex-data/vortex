@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
@@ -136,9 +137,9 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
 
-            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk, 2)? {
+            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk)? {
                 let ratio =
-                    chunk.to_canonical()?.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
+                    encoded_chunk.nbytes() as f64 / chunk.to_canonical()?.as_ref().nbytes() as f64;
 
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
@@ -157,8 +158,20 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         }
 
         let compressed = match compressed_array {
-            Some(array) => array,
+            Some(array) => {
+                static COUNTER: AtomicUsize = AtomicUsize::new(0);
+                log::trace!(
+                    "reused compression info: {}",
+                    COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+                );
+                array
+            }
             None => {
+                static COUNTER: AtomicUsize = AtomicUsize::new(0);
+                log::trace!(
+                    "recalculating compression info: {}",
+                    COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+                );
                 let compressed = BtrBlocksCompressor.compress(&chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
@@ -240,15 +253,7 @@ impl LayoutWriter for BufferedWriter {
     }
 }
 
-fn encode_children_like(
-    current: ArrayRef,
-    previous: ArrayRef,
-    depth: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    if depth == 0 {
-        return Ok(Some(current));
-    }
-
+fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<Option<ArrayRef>> {
     if let Some(encoded) = previous
         .vtable()
         .encode(&current.to_canonical()?, Some(&previous))?
@@ -256,22 +261,13 @@ fn encode_children_like(
         let previous_children = previous.children();
         let encoded_children = encoded.children();
 
-        if encoded.dtype() != previous.dtype() {
-            log::debug!(
-                "current dtype is {}, previous chunk was {}",
-                encoded.dtype(),
-                previous.dtype()
-            );
-            return Ok(None);
-        }
-
         if previous_children.len() != encoded_children.len() {
             log::trace!(
                 "Children count mismatch {} and {}",
                 previous_children.len(),
                 encoded_children.len()
             );
-            return Ok(None);
+            return Ok(Some(encoded));
         }
 
         let mut new_children: Vec<Arc<dyn Array>> = Vec::default();
@@ -280,7 +276,7 @@ fn encode_children_like(
             .into_iter()
             .zip_eq(encoded_children.into_iter())
         {
-            new_children.push(encode_children_like(e.clone(), p, depth - 1)?.unwrap_or(e));
+            new_children.push(encode_children_like(e.clone(), p)?.unwrap_or(e));
         }
 
         Ok(Some(encoded.with_children(&new_children)?))

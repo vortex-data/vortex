@@ -212,6 +212,11 @@ impl<A: ArrayImpl + 'static> Array for A {
         if self.nchildren() != children.len() {
             vortex_bail!("Child count mismatch");
         }
+
+        for (s, o) in self.children().iter().zip(children.iter()) {
+            assert_eq!(s.len(), o.len());
+        }
+
         Ok(self._with_children(children)?.into_array())
     }
 }

@@ -55,7 +55,6 @@ impl EncodingVTable for DateTimePartsEncoding {
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         let ext_array = input.clone().into_extension()?;
-
         let temporal = TemporalArray::try_from(ext_array)?;
 
         Ok(Some(DateTimePartsArray::try_from(temporal)?.into_array()))
