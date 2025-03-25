@@ -76,6 +76,10 @@ impl LayoutWriter for FileStatsLayoutWriter {
         self.inner.push_chunk(segment_writer, chunk)
     }
 
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.inner.flush(segment_writer)
+    }
+
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.inner.finish(segment_writer)
     }
