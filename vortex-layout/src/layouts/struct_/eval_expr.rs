@@ -1,16 +1,21 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::TryStreamExt;
 use futures::future::{BoxFuture, try_join_all};
+use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
+use vortex_expr::transform::partition::PartitionedExpr;
+use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ExprEvaluator, LayoutReader, MaskFuture};
+use crate::{ArrayEvaluation, ExprEvaluator, LayoutReader, MaskEvaluation, MaskFuture};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -82,6 +87,73 @@ impl ExprEvaluator for StructReader {
 
             Ok(Some(partitioned.root.evaluate(&root_scope)?))
         }))
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let partitioned = self.partition_expr(expr.clone());
+
+        // Short-circuit if there is only one partition
+        if partitioned.partition_names.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .filter_evaluation(row_range, &partitioned.partitions[0]);
+        }
+
+        // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
+
+        // Construct evaluations for each child.
+        let field_evals: Vec<_> = partitioned
+            .partition_names
+            .iter()
+            .zip_eq(partitioned.partitions.iter())
+            .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
+            .try_collect()?;
+
+        Ok(Box::new(StructMaskEvaluation {
+            partitioned,
+            field_evals,
+        }))
+    }
+
+    fn projection_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        todo!()
+    }
+}
+
+struct StructMaskEvaluation {
+    partitioned: Arc<PartitionedExpr>,
+    field_evals: Vec<Box<dyn ArrayEvaluation>>,
+}
+
+#[async_trait]
+impl MaskEvaluation for StructMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        let field_arrays: Vec<_> = FuturesOrdered::from_iter(
+            self.field_evals
+                .iter()
+                .map(|eval| eval.invoke(Mask::new_true(mask.len()))),
+        )
+        .try_collect()
+        .await?;
+
+        let root_scope = StructArray::try_new(
+            self.partitioned.partition_names.clone(),
+            field_arrays,
+            mask.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        Mask::try_from(self.partitioned.root.evaluate(&root_scope)?.as_ref())
     }
 }
 

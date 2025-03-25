@@ -1,14 +1,17 @@
-use std::ops::Range;
+use std::ops::{BitAnd, Range, Sub};
 
+use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef};
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
-use crate::layouts::stats::reader::StatsReader;
-use crate::{ExprEvaluator, MaskFuture};
+use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
+use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, MaskFuture};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
@@ -18,7 +21,7 @@ impl ExprEvaluator for StatsReader {
         expr: &ExprRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        let Some(pruning_mask) = self.pruning_mask(expr.clone()) else {
+        let Some(pruning_mask) = self.pruning_mask_future(expr.clone()) else {
             // TODO(ngates): we should check if the predicate can be evaluated with the stats
             //  that are present.
 
@@ -53,6 +56,90 @@ impl ExprEvaluator for StatsReader {
             // Otherwise, we must delegate to the child.
             result.await
         }))
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        let data_eval = self.data_child.filter_evaluation(row_range, expr)?;
+
+        if let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) {
+            let zone_range = self.zone_range(row_range);
+            let zone_lengths = zone_range
+                .clone()
+                .map(|zone_idx| {
+                    // Figure out the range in the mask that corresponds to the zone
+                    let start = usize::try_from(
+                        self.zone_offset(zone_idx).saturating_sub(row_range.start),
+                    )?;
+                    let end = usize::try_from(
+                        self.zone_offset(zone_idx + 1)
+                            .sub(row_range.start)
+                            .min(row_range.end - row_range.start),
+                    )?;
+                    Ok::<_, VortexError>(end - start)
+                })
+                .try_collect()?;
+            Ok(Box::new(StatsMaskEvaluation {
+                pruning_mask_future,
+                zone_range,
+                zone_lengths,
+                data_eval,
+            }))
+        } else {
+            Ok(data_eval)
+        }
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        // TODO(ngates): there are some projection expressions that we may also be able to
+        //  short-circuit with statistics.
+        self.data_child.projection_evaluation(row_range, expr)
+    }
+}
+
+struct StatsMaskEvaluation {
+    pruning_mask_future: SharedPruningResult,
+    // The range of zones that cover the evaluation's row range.
+    zone_range: Range<usize>,
+    // The lengths of each zone in the zone_range.
+    zone_lengths: Vec<usize>,
+    // The evaluation of the data child.
+    data_eval: Box<dyn MaskEvaluation>,
+}
+
+#[async_trait]
+impl MaskEvaluation for StatsMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
+            // If the expression is not prune-able, we just return the input mask.
+            return Ok(mask);
+        };
+
+        let mut builder = BooleanBufferBuilder::new(mask.len());
+        for (zone_idx, zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
+            builder.append_n(*zone_length, !pruning_mask.value(zone_idx));
+        }
+
+        let stats_mask = Mask::from(builder.finish());
+        assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
+
+        // Intersect the masks.
+        let mask = mask.bitand(&stats_mask);
+
+        if mask.all_false() {
+            // If the mask is all false, we can short-circuit the evaluation.
+            return Ok(mask);
+        }
+
+        // Otherwise, we delegate to the data child.
+        self.data_eval.invoke(mask).await
     }
 }
 

@@ -101,17 +101,13 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        todo!()
-    }
+    ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     fn projection_evaluation(
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        todo!()
-    }
+    ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
 #[async_trait]
@@ -150,11 +146,14 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
     }
 }
 
+/// Refines the given mask, returning a mask equal in length to the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
+/// Evaluates an expression against an array, returning an array equal in length to the true count
+/// of the input mask.
 #[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;

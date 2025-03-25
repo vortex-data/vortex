@@ -18,9 +18,9 @@ use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutVTable, mask_future_ready};
 
-type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
-type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
-type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
+pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
+pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
+pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
 pub struct StatsReader {
     layout: Layout,
@@ -131,7 +131,7 @@ impl StatsReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    pub(crate) fn pruning_mask(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    pub(crate) fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         match self
             .pruning_result
             .write()
@@ -170,6 +170,11 @@ impl StatsReader {
         let zone_end = usize::try_from(row_range.end.div_ceil(self.zone_len as u64))
             .vortex_expect("Invalid zone end");
         zone_start..zone_end
+    }
+
+    /// Return the row offset of a given zone.
+    pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
+        ((zone_idx * self.zone_len) as u64).min(self.layout.child_row_count(0))
     }
 }
 

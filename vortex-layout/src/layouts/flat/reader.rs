@@ -3,6 +3,7 @@ use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use async_once_cell::OnceCell;
+use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRef};
@@ -45,6 +46,35 @@ impl FlatReader {
 
     pub(crate) fn ctx(&self) -> &ArrayContext {
         &self.ctx
+    }
+
+    pub(crate) fn array_future(&self) -> VortexResult<SharedArray> {
+        let segment_id = self
+            .layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+        let row_count = usize::try_from(self.layout.row_count())?;
+
+        Ok(self
+            .array2
+            .get_or_init(|| {
+                let segment_reader = self.segment_reader.clone();
+                let ctx = self.ctx.clone();
+                let dtype = self.layout.dtype().clone();
+
+                // We create, but don't await, the segment request. This allows for prefetching.
+                let segment_fut = segment_reader.get(segment_id, self.layout.name());
+
+                async move {
+                    let segment = segment_fut.await?;
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, dtype.clone(), row_count)
+                        .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            })
+            .clone())
     }
 
     pub(crate) async fn array(&self) -> VortexResult<&ArrayRef> {

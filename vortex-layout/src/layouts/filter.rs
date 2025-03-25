@@ -19,7 +19,7 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
 use crate::scan::executor::{Executor, TaskExecutor};
-use crate::{ExprEvaluator, Layout, LayoutReader, MaskFuture};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, MaskFuture};
 
 /// Perform a filter before evaluating the expression if the mask drops below this density.
 const DEFAULT_SELECTIVITY_THRESHOLD: f64 = 0.05;
@@ -94,6 +94,22 @@ impl ExprEvaluator for FilterLayoutReader {
             mask,
             self.task_executor.clone(),
         )
+    }
+
+    fn filter_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        todo!()
+    }
+
+    fn projection_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        todo!()
     }
 }
 
