@@ -13,7 +13,7 @@ pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
     pub(crate) fn min_value(self) -> T {
-        self.0.into_value()
+        self.0.into_inner()
     }
 }
 
@@ -108,6 +108,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
     fn to_exact(&self) -> Option<&T> {
         self.0.to_exact()
     }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
+    }
 }
 
 impl<T: PartialOrd> PartialEq<T> for LowerBound<T> {
@@ -137,13 +141,7 @@ pub struct UpperBound<T>(pub(crate) Precision<T>);
 
 impl<T> UpperBound<T> {
     pub(crate) fn max_value(self) -> T {
-        self.0.into_value()
-    }
-}
-
-impl<T> UpperBound<T> {
-    pub fn into_value(self) -> Precision<T> {
-        self.0
+        self.0.into_inner()
     }
 }
 
@@ -208,6 +206,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
 
     fn to_exact(&self) -> Option<&T> {
         self.0.to_exact()
+    }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
     }
 }
 

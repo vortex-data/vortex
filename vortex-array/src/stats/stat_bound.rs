@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::partial_ord::partial_min;
 use crate::stats::bound::IntersectionResult;
-use crate::stats::{LowerBound, Precision, Stat};
+use crate::stats::{Precision, Stat};
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
 /// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
@@ -13,10 +13,13 @@ pub trait StatType<T> {
 }
 
 /// `StatBound` defines the operations that can be performed on a bound.
-/// The mains bounds are Upper (e.g. max) and Lower (e.g. min).
+/// The main bounds are Upper (e.g. max) and Lower (e.g. min).
 pub trait StatBound<T>: Sized {
     /// Creates a new bound from a Precision statistic.
     fn lift(value: Precision<T>) -> Self;
+
+    /// Converts `Self` back to `Precision<T>`, inverse of `lift`.
+    fn into_value(self) -> Precision<T>;
 
     /// Finds the smallest bound that covers both bounds.
     /// A.k.a. the `meet` of the bound.
@@ -37,12 +40,6 @@ impl<T> Precision<T> {
     /// Applied the stat associated bound to the precision value
     pub fn bound<S: StatType<T>>(self) -> S::Bound {
         S::Bound::lift(self)
-    }
-}
-
-impl<T: PartialOrd + Clone> LowerBound<T> {
-    pub fn into_value(self) -> Precision<T> {
-        self.0
     }
 }
 
@@ -86,5 +83,9 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
             Precision::Exact(val) => Some(val),
             _ => None,
         }
+    }
+
+    fn into_value(self) -> Precision<T> {
+        self
     }
 }

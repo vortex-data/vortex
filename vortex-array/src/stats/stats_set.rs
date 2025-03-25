@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use enum_iterator::{Sequence, all};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
@@ -5,6 +7,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::traits::StatsProvider;
+use super::{IsSorted, IsStrictSorted, NullCount, StatType, UncompressedSizeInBytes};
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
 
 #[derive(Default, Debug, Clone)]
@@ -229,72 +232,76 @@ impl StatsSet {
 
     // given two sets of stats (of differing precision) for the same array, combine them
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
-        self.combine_max(other, dtype)?;
-        self.combine_min(other, dtype)?;
-        self.combine_is_constant(other)
+        let other_stats: Vec<_> = other.values.iter().map(|(stat, _)| *stat).collect();
+        for s in other_stats {
+            match s {
+                Stat::Max => self.combine_bound::<Max>(other, dtype)?,
+                Stat::Min => self.combine_bound::<Min>(other, dtype)?,
+                Stat::UncompressedSizeInBytes => {
+                    self.combine_bound::<UncompressedSizeInBytes>(other, dtype)?
+                }
+                Stat::IsConstant => self.combine_bool_stat::<IsConstant>(other)?,
+                Stat::IsSorted => self.combine_bool_stat::<IsSorted>(other)?,
+                Stat::IsStrictSorted => self.combine_bool_stat::<IsStrictSorted>(other)?,
+                Stat::NullCount => self.combine_bound::<NullCount>(other, dtype)?,
+                Stat::Sum => self.combine_bound::<Sum>(other, dtype)?,
+            }
+        }
+        Ok(())
     }
 
-    fn combine_min(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
+    fn combine_bound<S: StatType<Scalar>>(
+        &mut self,
+        other: &Self,
+        dtype: &DType,
+    ) -> VortexResult<()>
+    where
+        S::Bound: StatBound<Scalar> + Debug + Eq + PartialEq,
+    {
         match (
-            self.get_scalar_bound::<Min>(dtype),
-            other.get_scalar_bound::<Min>(dtype),
+            self.get_scalar_bound::<S>(dtype),
+            other.get_scalar_bound::<S>(dtype),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1
                     .intersection(&m2)
                     .vortex_expect("can always compare scalar")
-                    .ok_or_else(|| vortex_err!("Min bounds ({m1:?}, {m2:?}) do not overlap"))?;
+                    .ok_or_else(|| {
+                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
+                    })?;
                 if meet != m1 {
-                    self.set(Stat::Min, meet.into_value().map(Scalar::into_value));
+                    self.set(S::STAT, meet.into_value().map(Scalar::into_value));
                 }
             }
-            (None, Some(m)) => self.set(Stat::Min, m.into_value().map(Scalar::into_value)),
+            (None, Some(m)) => self.set(S::STAT, m.into_value().map(Scalar::into_value)),
             (Some(_), _) => (),
-            (None, None) => self.clear(Stat::Min),
+            (None, None) => self.clear(S::STAT),
         }
         Ok(())
     }
 
-    fn combine_max(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
+    fn combine_bool_stat<S: StatType<bool>>(&mut self, other: &Self) -> VortexResult<()>
+    where
+        S::Bound: StatBound<bool> + Debug + Eq + PartialEq,
+    {
         match (
-            self.get_scalar_bound::<Max>(dtype),
-            other.get_scalar_bound::<Max>(dtype),
-        ) {
-            (Some(m1), Some(m2)) => {
-                let meet = m1
-                    .intersection(&m2)
-                    .vortex_expect("can always compare scalar")
-                    .ok_or_else(|| vortex_err!("Max bounds ({m1:?}, {m2:?}) do not overlap"))?;
-                if meet != m1 {
-                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
-                }
-            }
-            (None, Some(m)) => self.set(Stat::Max, m.into_value().map(Scalar::into_value)),
-            (Some(_), None) => (),
-            (None, None) => self.clear(Stat::Max),
-        }
-        Ok(())
-    }
-
-    fn combine_is_constant(&mut self, other: &Self) -> VortexResult<()> {
-        match (
-            self.get_as_bound::<IsConstant, bool>(),
-            other.get_as_bound::<IsConstant, bool>(),
+            self.get_as_bound::<S, bool>(),
+            other.get_as_bound::<S, bool>(),
         ) {
             (Some(m1), Some(m2)) => {
                 let intersection = m1
                     .intersection(&m2)
-                    .vortex_expect("can always compare scalar")
+                    .vortex_expect("can always compare boolean")
                     .ok_or_else(|| {
-                        vortex_err!("IsConstant bounds ({m1:?}, {m2:?}) do not overlap")
+                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if intersection != m1 {
-                    self.set(Stat::IsConstant, intersection.map(ScalarValue::from));
+                    self.set(S::STAT, intersection.into_value().map(ScalarValue::from));
                 }
             }
-            (None, Some(m)) => self.set(Stat::IsConstant, m.map(ScalarValue::from)),
+            (None, Some(m)) => self.set(S::STAT, m.into_value().map(ScalarValue::from)),
             (Some(_), None) => (),
-            (None, None) => self.clear(Stat::IsConstant),
+            (None, None) => self.clear(S::STAT),
         }
         Ok(())
     }
@@ -460,7 +467,7 @@ mod test {
 
     use crate::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
+    use crate::stats::{IsConstant, Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_iter() {
@@ -789,7 +796,7 @@ mod test {
         {
             let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(true));
             let stats2 = StatsSet::of(Stat::IsConstant, Precision::exact(true));
-            stats.combine_is_constant(&stats2).unwrap();
+            stats.combine_bool_stat::<IsConstant>(&stats2).unwrap();
             assert_eq!(
                 stats.get_as::<bool>(Stat::IsConstant),
                 Some(Precision::exact(true))
@@ -799,7 +806,7 @@ mod test {
         {
             let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(true));
             let stats2 = StatsSet::of(Stat::IsConstant, Precision::inexact(false));
-            stats.combine_is_constant(&stats2).unwrap();
+            stats.combine_bool_stat::<IsConstant>(&stats2).unwrap();
             assert_eq!(
                 stats.get_as::<bool>(Stat::IsConstant),
                 Some(Precision::exact(true))
@@ -809,11 +816,93 @@ mod test {
         {
             let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(false));
             let stats2 = StatsSet::of(Stat::IsConstant, Precision::inexact(false));
-            stats.combine_is_constant(&stats2).unwrap();
+            stats.combine_bool_stat::<IsConstant>(&stats2).unwrap();
             assert_eq!(
                 stats.get_as::<bool>(Stat::IsConstant),
                 Some(Precision::exact(false))
             );
         }
+    }
+
+    #[test]
+    fn test_combine_sets_boolean_conflict() {
+        let mut stats1 = StatsSet::from_iter([
+            (Stat::IsConstant, Precision::exact(true)),
+            (Stat::IsSorted, Precision::exact(true)),
+        ]);
+
+        let stats2 = StatsSet::from_iter([
+            (Stat::IsConstant, Precision::exact(false)),
+            (Stat::IsSorted, Precision::exact(true)),
+        ]);
+
+        let result = stats1.combine_sets(
+            &stats2,
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_combine_sets_with_missing_stats() {
+        let mut stats1 = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(42)),
+            (Stat::UncompressedSizeInBytes, Precision::exact(1000)),
+        ]);
+
+        let stats2 = StatsSet::from_iter([
+            (Stat::Max, Precision::exact(100)),
+            (Stat::IsStrictSorted, Precision::exact(true)),
+        ]);
+
+        stats1
+            .combine_sets(
+                &stats2,
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+            )
+            .unwrap();
+
+        // Min should remain unchanged
+        assert_eq!(stats1.get_as::<i32>(Stat::Min), Some(Precision::exact(42)));
+        // Max should be added
+        assert_eq!(stats1.get_as::<i32>(Stat::Max), Some(Precision::exact(100)));
+        // IsStrictSorted should be added
+        assert_eq!(
+            stats1.get_as::<bool>(Stat::IsStrictSorted),
+            Some(Precision::exact(true))
+        );
+    }
+
+    #[test]
+    fn test_combine_sets_with_inexact() {
+        let mut stats1 = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(42)),
+            (Stat::Max, Precision::inexact(100)),
+            (Stat::IsConstant, Precision::exact(false)),
+        ]);
+
+        let stats2 = StatsSet::from_iter([
+            // Must ensure Min from stats2 is <= Min from stats1
+            (Stat::Min, Precision::inexact(40)),
+            (Stat::Max, Precision::exact(90)),
+            (Stat::IsSorted, Precision::exact(true)),
+        ]);
+
+        stats1
+            .combine_sets(
+                &stats2,
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+            )
+            .unwrap();
+
+        // Min should remain unchanged since it's more restrictive than the inexact value
+        assert_eq!(stats1.get_as::<i32>(Stat::Min), Some(Precision::exact(42)));
+        // Check that max was updated with the exact value
+        assert_eq!(stats1.get_as::<i32>(Stat::Max), Some(Precision::exact(90)));
+        // Check that IsSorted was added
+        assert_eq!(
+            stats1.get_as::<bool>(Stat::IsSorted),
+            Some(Precision::exact(true))
+        );
     }
 }

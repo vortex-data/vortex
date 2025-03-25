@@ -89,8 +89,8 @@ fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
 
     // an array that is not constant can become constant after slicing
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
-    let is_sorted = stats.get_as::<bool>(Stat::IsConstant);
-    let is_strict_sorted = stats.get_as::<bool>(Stat::IsConstant);
+    let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
+    let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
 
     let mut stats = stats.keep_inexact_stats(&[
         Stat::Max,
