@@ -27,14 +27,7 @@ impl Default for ChunkedLayoutStrategy {
 
 impl LayoutStrategy for ChunkedLayoutStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(ChunkedLayoutWriter {
-            ctx: ctx.clone(),
-            options: self.clone(),
-            chunks: vec![],
-            dtype: dtype.clone(),
-            row_count: 0,
-        }
-        .boxed())
+        Ok(ChunkedLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
     }
 }
 
@@ -47,6 +40,18 @@ pub struct ChunkedLayoutWriter {
     chunks: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
     row_count: u64,
+}
+
+impl ChunkedLayoutWriter {
+    pub fn new(ctx: ArrayContext, dtype: DType, options: ChunkedLayoutStrategy) -> Self {
+        Self {
+            ctx,
+            options,
+            chunks: vec![],
+            dtype,
+            row_count: 0,
+        }
+    }
 }
 
 impl LayoutWriter for ChunkedLayoutWriter {
