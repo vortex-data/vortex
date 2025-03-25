@@ -43,6 +43,7 @@ jobs:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           submodules: "recursive"
       # rustup is pre-installed on the ubuntu24-full-x64 image.
 
