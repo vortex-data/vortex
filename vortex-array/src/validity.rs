@@ -76,18 +76,11 @@ impl Validity {
         }
     }
 
+    /// The nullability and validity.
     pub fn merge_nullability(self, nullability: Nullability) -> Self {
-        match self {
-            Self::NonNullable => {
-                if nullability == Nullability::NonNullable {
-                    Self::NonNullable
-                } else {
-                    Self::AllValid
-                }
-            }
-            Self::AllValid => Self::AllValid,
-            Self::AllInvalid => Self::AllInvalid,
-            Self::Array(array) => Self::Array(array),
+        match nullability {
+            Nullability::NonNullable => self,
+            Nullability::Nullable => self.into_nullable(),
         }
     }
 
