@@ -1,16 +1,20 @@
 use std::ops::Range;
 
+use async_trait::async_trait;
 use futures::future::{BoxFuture, try_join_all};
-use futures::{FutureExt, TryFutureExt};
+use futures::stream::FuturesOrdered;
+use futures::{FutureExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::{ExprEvaluator, MaskFuture, RowMask};
+use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, MaskFuture, RowMask};
 
 impl ExprEvaluator for ChunkedReader {
     fn evaluate_expr2(
@@ -82,6 +86,99 @@ impl ExprEvaluator for ChunkedReader {
 
             Ok(Some(chunked_array.into_array()))
         }))
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        let mut chunk_evals = vec![];
+        let mut mask_ranges = vec![];
+
+        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+            let chunk_reader = self.child(chunk_idx)?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
+            chunk_evals.push(chunk_eval);
+            mask_ranges.push(mask_range);
+        }
+
+        Ok(Box::new(ChunkedMaskEvaluation {
+            chunk_evals,
+            mask_ranges,
+        }))
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        let dtype = expr.return_dtype(self.dtype())?;
+        let mut chunk_evals = vec![];
+        let mut mask_ranges = vec![];
+
+        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+            let chunk_reader = self.child(chunk_idx)?;
+            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
+            chunk_evals.push(chunk_eval);
+            mask_ranges.push(mask_range);
+        }
+
+        Ok(Box::new(ChunkedArrayEvaluation {
+            dtype,
+            chunk_evals,
+            mask_ranges,
+        }))
+    }
+}
+
+struct ChunkedMaskEvaluation {
+    chunk_evals: Vec<Box<dyn MaskEvaluation>>,
+    mask_ranges: Vec<Range<usize>>,
+}
+
+#[async_trait]
+impl MaskEvaluation for ChunkedMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        // Split the mask over each chunk.
+        let masks: Vec<_> = FuturesOrdered::from_iter(
+            self.mask_ranges
+                .iter()
+                .map(|range| mask.slice(range.start, range.end - range.start))
+                .zip_eq(&self.chunk_evals)
+                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
+        )
+        .try_collect()
+        .await?;
+
+        // Combine the masks.
+        Ok(Mask::from_iter(masks))
+    }
+}
+
+struct ChunkedArrayEvaluation {
+    dtype: DType,
+    chunk_evals: Vec<Box<dyn ArrayEvaluation>>,
+    mask_ranges: Vec<Range<usize>>,
+}
+
+#[async_trait]
+impl ArrayEvaluation for ChunkedArrayEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        // Split the mask over each chunk.
+        let chunks: Vec<_> = FuturesOrdered::from_iter(
+            self.mask_ranges
+                .iter()
+                .map(|range| mask.slice(range.start, range.end - range.start))
+                .zip_eq(&self.chunk_evals)
+                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
+        )
+        .try_collect()
+        .await?;
+
+        // Combine the arrays.
+        Ok(ChunkedArray::try_new(chunks, self.dtype.clone())?.to_array())
     }
 }
 

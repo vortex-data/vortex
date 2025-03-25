@@ -151,11 +151,11 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
 }
 
 #[async_trait]
-pub trait MaskEvaluation {
-    fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+pub trait MaskEvaluation: 'static + Send + Sync {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
 #[async_trait]
-pub trait ArrayEvaluation {
+pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
 }
