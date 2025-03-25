@@ -77,6 +77,7 @@ pub fn ext_to_duckdb(ext_dtype: &ExtDType) -> LogicalTypeHandle {
             }
             match time_unit {
                 TimeUnit::Ns => LogicalTypeHandle::from(LogicalTypeId::TimestampNs),
+                TimeUnit::Us => LogicalTypeHandle::from(LogicalTypeId::Timestamp),
                 TimeUnit::Ms => LogicalTypeHandle::from(LogicalTypeId::TimestampMs),
                 TimeUnit::S => LogicalTypeHandle::from(LogicalTypeId::TimestampS),
                 _ => {
