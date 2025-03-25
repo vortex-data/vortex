@@ -2,10 +2,11 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
 
 use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::compute::scalar_at;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, ArrayContext, ArrayRef};
@@ -131,10 +132,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        let mut compressed_array = None;
-
-        // If we have information about the previous chunk
-        if let Some(prev_compression) = self.previous_chunk.as_ref() {
+        // Short circuit the decision if the chunk is constant
+        let compressed_chunk = if chunk.is_constant() {
+            Some(ConstantArray::new(scalar_at(&chunk, 0)?, chunk.len()).into_array())
+        }
+        // If we have information about the data from the previous chunk
+        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
 
             if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk)? {
@@ -144,34 +147,26 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
                 if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
-                    compressed_array = Some(encoded_chunk);
+                    Some(encoded_chunk)
                 } else {
                     log::trace!(
                         "Compressed to a ratio of {ratio}, which is above the threshold of {}",
                         prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
-                    )
+                    );
+                    None
                 }
             } else {
                 log::debug!("Couldn't re-encode children");
-                self.previous_chunk = None;
-            }
-        }
 
-        let compressed = match compressed_array {
-            Some(array) => {
-                static COUNTER: AtomicUsize = AtomicUsize::new(0);
-                log::trace!(
-                    "reused compression info: {}",
-                    COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
-                );
-                array
+                None
             }
+        } else {
+            None
+        };
+
+        let compressed_chunk = match compressed_chunk {
+            Some(array) => array,
             None => {
-                static COUNTER: AtomicUsize = AtomicUsize::new(0);
-                log::trace!(
-                    "recalculating compression info: {}",
-                    COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
-                );
                 let compressed = BtrBlocksCompressor.compress(&chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
@@ -181,7 +176,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             }
         };
 
-        self.child.push_chunk(segment_writer, compressed)
+        self.child.push_chunk(segment_writer, compressed_chunk)
     }
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {

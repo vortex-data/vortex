@@ -4,11 +4,11 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, EncodingId, RkyvMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::{BitPackedEncoding, find_best_bit_width};
 use crate::{BitPackedArray, bitpack_encode};
@@ -89,10 +89,26 @@ impl EncodingVTable for BitPackedEncoding {
     fn encode(
         &self,
         input: &Canonical,
-        _like: Option<&dyn Array>,
+        like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         let parray = input.clone().into_primitive()?;
-        let bit_width = find_best_bit_width(&parray)?;
+
+        let like = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.encoding()
+                    )
+                })
+            })
+            .transpose()?;
+
+        let bit_width = match like {
+            Some(like) => like.bit_width(),
+            None => find_best_bit_width(&parray)?,
+        };
 
         if bit_width as usize == parray.ptype().bit_width() {
             return Ok(Some(parray.to_array()));

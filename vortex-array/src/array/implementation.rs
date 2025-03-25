@@ -195,6 +195,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         //     );
         // }
         let len = builder.len();
+
         ArrayCanonicalImpl::_append_to_builder(self, builder)?;
         assert_eq!(
             len + self.len(),
