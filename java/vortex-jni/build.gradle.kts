@@ -9,9 +9,6 @@ plugins {
 }
 
 dependencies {
-    api("net.java.dev.jna:jna-platform")
-    api("com.google.protobuf:protobuf-java")
-
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -19,6 +16,7 @@ dependencies {
     errorprone("com.jakewharton.nopen:nopen-checker")
 
     implementation("com.google.guava:guava")
+    implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 }
@@ -48,16 +46,64 @@ tasks.build {
     dependsOn("shadowJar")
 }
 
+tasks.register("generateJniHeaders") {
+    description = "Generates JNI header files for Java classes with native methods"
+    group = "build"
+
+    // Define input and output properties
+    val jniClasses =
+        fileTree("src/main/java") {
+            // Adjust this include pattern to match only files that need JNI headers
+            include("**/JNI*.java")
+        }
+
+    inputs.files(jniClasses)
+    outputs.dir("$buildDir/generated/jni")
+
+    doLast {
+        // Create output directory if it doesn't exist
+        val headerDir = file("$buildDir/generated/jni")
+        headerDir.mkdirs()
+
+        val classesDir =
+            sourceSets["main"]
+                .java.destinationDirectory
+                .get()
+                .asFile
+
+        // Compile only the selected files with -h option
+        ant.withGroovyBuilder {
+            "javac"(
+                "classpath" to sourceSets["main"].compileClasspath.asPath,
+                "srcdir" to "src/main/java",
+                "includes" to jniClasses.includes.joinToString(","),
+                "destdir" to classesDir,
+                "includeantruntime" to false,
+                "debug" to true,
+                "source" to java.sourceCompatibility,
+                "target" to java.targetCompatibility,
+            ) {
+                "compilerarg"("line" to "-h ${headerDir.absolutePath}")
+            }
+        }
+
+        println("JNI headers generated in ${headerDir.absolutePath}")
+    }
+
+    // Make this task run after the compileJava task
+    dependsOn("compileJava")
+}
+
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
-            from(components["java"]) // Publishes the compiled JAR
+            artifact(tasks.shadowJar.get())
             artifactId = "vortex-jni"
         }
     }
 }
 
-val vortexFFI = projectDir.parentFile.parentFile.resolve("vortex-ffi")
+val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
 
 val platformLibSuffix =
     if (System.getProperty("os.name").contains("Mac")) {
@@ -67,15 +113,15 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-val libraryFile = targetDir.resolve("release/libvortex_ffi.$platformLibSuffix")
+val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine("cargo", "check")
 }
 
 val cargoBuild by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine(
         "cargo",
         "build",
@@ -90,7 +136,7 @@ val cargoBuild by tasks.registering(Exec::class) {
 }
 
 val cargoClean by tasks.registering(Exec::class) {
-    workingDir = vortexFFI
+    workingDir = vortexJNI
     commandLine("cargo", "clean")
 }
 
@@ -123,7 +169,7 @@ val copySharedLibrary by tasks.registering(Copy::class) {
     dependsOn(cargoBuild)
 
     from(libraryFile)
-    into(projectDir.resolve("src/main/resources/$resourceDir"))
+    into(projectDir.resolve("src/main/resources/native/$resourceDir"))
 
     doLast {
         println("Copied $libraryFile into resource directory")
@@ -132,4 +178,9 @@ val copySharedLibrary by tasks.registering(Copy::class) {
 
 tasks.withType<ProcessResources>().configureEach {
     dependsOn(copySharedLibrary)
+}
+
+// Remove the JAR task, replace it with shadowJar
+tasks.named("jar").configure {
+    enabled = false
 }
