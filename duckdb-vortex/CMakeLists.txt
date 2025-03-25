@@ -23,14 +23,14 @@ FetchContent_MakeAvailable(vcpkg)
 
 # Install vcpkg dependencies.
 execute_process(
-    COMMAND bash ./bootstrap-vcpkg.sh
+    COMMAND bash ./bootstrap-vcpkg.sh -disableMetrics
     WORKING_DIRECTORY "${vcpkg_SOURCE_DIR}"
     RESULT_VARIABLE VCPKG_BOOTSTRAP_RESULT
 )
 set(VCPKG_INSTALL_DIR "${CMAKE_BINARY_DIR}/vcpkg_installed")
 file(MAKE_DIRECTORY "${VCPKG_INSTALL_DIR}")
 execute_process(
-    COMMAND "${vcpkg_SOURCE_DIR}/vcpkg" install --x-install-root=${VCPKG_INSTALL_DIR}
+    COMMAND "${vcpkg_SOURCE_DIR}/vcpkg" install --no-print-usage --x-install-root=${VCPKG_INSTALL_DIR}
     WORKING_DIRECTORY "${vcpkg_SOURCE_DIR}"
 )
 set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/arm64-osx)
