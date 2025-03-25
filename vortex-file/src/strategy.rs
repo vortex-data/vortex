@@ -168,8 +168,22 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         };
 
         let compressed_chunk = match compressed_chunk {
-            Some(array) => array,
+            Some(array) => {
+                // static COUNTER: std::sync::atomic::AtomicUsize =
+                //     std::sync::atomic::AtomicUsize::new(0);
+                // log::trace!(
+                //     "reused compression info: {}",
+                //     COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+                // );
+                array
+            }
             None => {
+                // static COUNTER: std::sync::atomic::AtomicUsize =
+                //     std::sync::atomic::AtomicUsize::new(0);
+                // log::trace!(
+                //     "re compression info: {}",
+                //     COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+                // );
                 let canonical_chunk = chunk.to_canonical()?;
                 let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
                 self.previous_chunk = Some(PreviousCompression {
