@@ -53,7 +53,7 @@ impl ScanBuilder {
             canonicalize: false,
             // How many row splits to make progress on concurrently (not necessarily in parallel,
             // that is decided by the TaskExecutor).
-            concurrency: 8,
+            concurrency: 16,
             metrics: Default::default(),
         }
     }
