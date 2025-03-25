@@ -1,5 +1,6 @@
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use vortex_array::arcref::ArcRef;
@@ -9,7 +10,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
@@ -32,27 +33,18 @@ impl LayoutStrategy for VortexLayoutStrategy {
             );
         }
 
-        // Leaf arrays are written as flat arrays, above which, we buffer up to 16MB to try to keep
-        // chunks for the same column next to each other, within some reasonable write-time memory
-        // buffering limit.
-        let writer: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
-            child: ArcRef::new_ref(&FlatLayout),
-            // Buffer 4MB of compressed data per column before writing the chunks consecutively.
+        // We buffer arrays per column, before flushing them into a chunked layout.
+        // This helps to keep consecutive chunks of a column adjacent for more efficient reads.
+        let strategy: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
+            child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
             // TODO(ngates): this should really be amortized by the number of fields? Maybe the
             //  strategy could keep track of how many writers were created?
-            buffer_size: 4 << 20, // 4 MB
+            buffer_size: 2 << 20, // 2MB
         }) as _);
 
         // Compress each chunk with btrblocks.
         let writer = BtrBlocksCompressedWriter {
-            child: ChunkedLayoutWriter::new(
-                ctx.clone(),
-                &DType::Null,
-                ChunkedLayoutOptions {
-                    chunk_strategy: writer,
-                },
-            )
-            .boxed(),
+            child: strategy.new_writer(ctx, dtype)?,
         }
         .boxed();
 
@@ -146,7 +138,7 @@ impl LayoutStrategy for BufferedStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         let child = self.child.new_writer(ctx, dtype)?;
         Ok(BufferedWriter {
-            chunks: Vec::new(),
+            chunks: Default::default(),
             nbytes: 0,
             buffer_size: self.buffer_size,
             child,
@@ -156,7 +148,7 @@ impl LayoutStrategy for BufferedStrategy {
 }
 
 struct BufferedWriter {
-    chunks: Vec<ArrayRef>,
+    chunks: VecDeque<ArrayRef>,
     nbytes: u64,
     buffer_size: u64,
     child: Box<dyn LayoutWriter>,
@@ -169,12 +161,18 @@ impl LayoutWriter for BufferedWriter {
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         self.nbytes += chunk.nbytes() as u64;
-        self.chunks.push(chunk);
-        if self.nbytes >= self.buffer_size {
-            for chunk in self.chunks.drain(..) {
-                self.child.push_chunk(segment_writer, chunk)?;
+        self.chunks.push_back(chunk);
+        // Wait until we're at 2x the buffer size before flushing 1x the buffer size
+        // This avoids small tail stragglers being flushed at the end of the file.
+        if self.nbytes >= 2 * self.buffer_size {
+            while self.nbytes > self.buffer_size {
+                if let Some(chunk) = self.chunks.pop_front() {
+                    self.nbytes -= chunk.nbytes() as u64;
+                    self.child.push_chunk(segment_writer, chunk)?;
+                } else {
+                    break;
+                }
             }
-            self.nbytes = 0;
         }
         Ok(())
     }

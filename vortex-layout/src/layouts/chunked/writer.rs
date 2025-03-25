@@ -3,24 +3,38 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::LayoutVTableRef;
 use crate::data::Layout;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
+use crate::{LayoutVTableRef, LayoutWriterExt};
 
-pub struct ChunkedLayoutOptions {
+#[derive(Clone)]
+pub struct ChunkedLayoutStrategy {
     /// The layout strategy for each chunk.
     pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
 }
 
-impl Default for ChunkedLayoutOptions {
+impl Default for ChunkedLayoutStrategy {
     fn default() -> Self {
         Self {
             chunk_strategy: ArcRef::new_ref(&FlatLayout),
         }
+    }
+}
+
+impl LayoutStrategy for ChunkedLayoutStrategy {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(ChunkedLayoutWriter {
+            ctx: ctx.clone(),
+            options: self.clone(),
+            chunks: vec![],
+            dtype: dtype.clone(),
+            row_count: 0,
+        }
+        .boxed())
     }
 }
 
@@ -29,22 +43,10 @@ impl Default for ChunkedLayoutOptions {
 /// TODO(ngates): introduce more sophisticated layout writers with different chunking strategies.
 pub struct ChunkedLayoutWriter {
     ctx: ArrayContext,
-    options: ChunkedLayoutOptions,
+    options: ChunkedLayoutStrategy,
     chunks: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
     row_count: u64,
-}
-
-impl ChunkedLayoutWriter {
-    pub fn new(ctx: ArrayContext, dtype: &DType, options: ChunkedLayoutOptions) -> Self {
-        Self {
-            ctx,
-            options,
-            chunks: Vec::new(),
-            dtype: dtype.clone(),
-            row_count: 0,
-        }
-    }
 }
 
 impl LayoutWriter for ChunkedLayoutWriter {
@@ -62,13 +64,15 @@ impl LayoutWriter for ChunkedLayoutWriter {
             .chunk_strategy
             .new_writer(&self.ctx, chunk.dtype())?;
         chunk_writer.push_chunk(segment_writer, chunk)?;
-        chunk_writer.flush(segment_writer)?;
         self.chunks.push(chunk_writer);
 
         Ok(())
     }
 
-    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        for writer in self.chunks.iter_mut() {
+            writer.flush(segment_writer)?;
+        }
         Ok(())
     }
 
