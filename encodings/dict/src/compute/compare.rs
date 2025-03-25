@@ -1,5 +1,3 @@
-use std::ops::BitOr;
-
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::{CompareFn, Operator, compare, try_cast};
