@@ -322,6 +322,73 @@ impl Scan {
         Ok(ArrayStreamAdapter::new(result_dtype, exec_stream))
     }
 
+    /// Perform the scan operation and return a stream of arrays.
+    ///
+    /// The returned stream should be considered to perform I/O-bound operations and requires
+    /// frequent polling to make progress.
+    pub fn into_array_stream2(self) -> VortexResult<impl ArrayStream + 'static> {
+        // Create a single LayoutReader that is reused for the entire scan.
+        let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
+
+        // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
+        let layout_reader = self.layout_reader.clone();
+        let filter_reader = self.layout_reader.clone();
+        //let filter_reader =
+        //    FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
+
+        let array_futures: Vec<_> = self
+            .row_masks
+            .into_iter()
+            .map(move |row_mask| {
+                let row_range = row_mask.begin()..row_mask.end();
+
+                let filter_eval = self
+                    .filter
+                    .as_ref()
+                    .map(|expr| filter_reader.filter_evaluation(&row_range, expr))
+                    .transpose()?;
+
+                let project_eval =
+                    layout_reader.projection_evaluation(&row_range, &self.projection)?;
+
+                Ok::<_, VortexError>(async move {
+                    let mut mask = row_mask.filter_mask().clone();
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+
+                    if let Some(filter_eval) = filter_eval {
+                        mask = filter_eval.invoke(mask).await?;
+                    }
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+
+                    let mut array = project_eval.invoke(mask).await?;
+
+                    if self.canonicalize {
+                        let mut builder = builder_with_capacity(array.dtype(), array.len());
+                        array.append_to_builder(builder.as_mut())?;
+                        array = builder.finish();
+                    }
+
+                    Ok(Some(array))
+                })
+            })
+            .try_collect()?;
+
+        let task_executor = self.task_executor.clone();
+        let exec_stream = stream::iter(array_futures)
+            .map(move |task| task_executor.spawn(task))
+            .buffered(self.concurrency)
+            .filter_map(|v| async move { v.transpose() });
+
+        Ok(ArrayStreamAdapter::new(
+            result_dtype,
+            instrument!("exec_stream", exec_stream),
+        ))
+    }
+
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
         self.into_array_stream()?.read_all().await
     }
