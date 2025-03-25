@@ -176,8 +176,11 @@ impl MaskEvaluation for StructEvaluation {
         .into_array();
 
         let root_mask = Mask::try_from(self.partitioned.root.evaluate(&root_scope)?.as_ref())?;
+        let mask = mask.bitand(&root_mask);
 
-        Ok(root_mask.bitand(&mask))
+        log::info!("Struct mask evaluation result {}", mask.density());
+
+        Ok(mask)
     }
 }
 

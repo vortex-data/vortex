@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use async_trait::async_trait;
-use futures::future::{BoxFuture, try_join_all};
+use futures::future::{BoxFuture, ready, try_join_all};
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -147,7 +147,14 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                 .iter()
                 .map(|range| mask.slice(range.start, range.end - range.start))
                 .zip_eq(&self.chunk_evals)
-                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
+                .map(|(mask, chunk_eval)| {
+                    if mask.all_false() {
+                        // If the mask is all false, we can skip the evaluation.
+                        ready(Ok(mask)).boxed()
+                    } else {
+                        chunk_eval.invoke(mask).boxed()
+                    }
+                }),
         )
         .try_collect()
         .await?;
@@ -172,6 +179,7 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
                 .iter()
                 .map(|range| mask.slice(range.start, range.end - range.start))
                 .zip_eq(&self.chunk_evals)
+                .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
         )
         .try_collect()

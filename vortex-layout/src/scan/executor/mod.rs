@@ -3,6 +3,7 @@ mod tokio;
 
 mod threads;
 
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 
 use futures::future::BoxFuture;
@@ -25,6 +26,21 @@ pub enum TaskExecutor {
     Threads(ThreadsExecutor),
     #[cfg(feature = "tokio")]
     Tokio(TokioExecutor),
+}
+
+impl Debug for TaskExecutor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskExecutor")
+            .field(
+                "variant",
+                &match self {
+                    TaskExecutor::Threads(_) => "Threads",
+                    #[cfg(feature = "tokio")]
+                    TaskExecutor::Tokio(_) => "Tokio",
+                },
+            )
+            .finish()
+    }
 }
 
 #[async_trait::async_trait]

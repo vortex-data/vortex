@@ -51,7 +51,9 @@ impl ScanBuilder {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 1,
+            // How many row splits to make progress on concurrently (not necessarily in parallel,
+            // that is decided by the TaskExecutor).
+            concurrency: 8,
             metrics: Default::default(),
         }
     }
@@ -245,7 +247,6 @@ impl Scan {
         let filter_reader =
             FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
 
-        // Map each mask into a future that resolves the array for the row range.
         let row_ranges: Vec<_> = self
             .row_masks
             .iter()
@@ -339,7 +340,8 @@ impl Scan {
         let array_futures: Vec<_> = self
             .row_masks
             .into_iter()
-            .map(move |row_mask| {
+            .enumerate()
+            .map(move |(_i, row_mask)| {
                 let row_range = row_mask.begin()..row_mask.end();
 
                 let filter_eval = self
@@ -351,7 +353,7 @@ impl Scan {
                 let project_eval =
                     layout_reader.projection_evaluation(&row_range, &self.projection)?;
 
-                Ok::<_, VortexError>(async move {
+                Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
                     let mut mask = row_mask.filter_mask().clone();
                     if mask.all_false() {
                         return Ok(None);
@@ -365,7 +367,6 @@ impl Scan {
                     }
 
                     let mut array = project_eval.invoke(mask).await?;
-
                     if self.canonicalize {
                         let mut builder = builder_with_capacity(array.dtype(), array.len());
                         array.append_to_builder(builder.as_mut())?;
@@ -373,7 +374,7 @@ impl Scan {
                     }
 
                     Ok(Some(array))
-                })
+                }))
             })
             .try_collect()?;
 

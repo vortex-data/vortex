@@ -117,6 +117,7 @@ struct StatsMaskEvaluation {
 #[async_trait]
 impl MaskEvaluation for StatsMaskEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        log::info!("STATS MASK EVAL");
         let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
             // If the expression is not prune-able, we just return the input mask.
             return Ok(mask);

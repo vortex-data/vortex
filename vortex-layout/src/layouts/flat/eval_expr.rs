@@ -150,6 +150,12 @@ impl MaskEvaluation for FlatEvaluation {
 
         // Evaluate the projection expression.
         if !self.expr.as_any().is::<Identity>() {
+            log::debug!(
+                "Evaluating filter expr over {} true values of {} on array\n{}",
+                mask.density(),
+                mask.len(),
+                array.tree_display(),
+            );
             array = self.expr.evaluate(&array)?;
         }
 

@@ -1,3 +1,6 @@
+use std::fmt::{Display, Formatter};
+
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -38,6 +41,21 @@ pub struct PartitionedExpr {
     pub partitions: Box<[ExprRef]>,
     /// The field names for the partitions
     pub partition_names: FieldNames,
+}
+
+impl Display for PartitionedExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "root: {} {{{}}}",
+            self.root,
+            self.partition_names
+                .iter()
+                .zip(self.partitions.iter())
+                .map(|(name, partition)| format!("{}: {}", name, partition))
+                .join(", ")
+        )
+    }
 }
 
 impl PartitionedExpr {
