@@ -138,8 +138,16 @@ impl ArrayImpl for ListArray {
         VTableRef::new_ref(&ListEncoding)
     }
 
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
-        todo!()
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let elements = children[0].clone();
+        let offsets = children[1].clone();
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[2].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        Self::try_new(elements, offsets, validity)
     }
 }
 

@@ -253,7 +253,11 @@ impl LayoutWriter for BufferedWriter {
 }
 
 fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<Option<ArrayRef>> {
-    if let Some(encoded) = previous
+    if current.is_constant() {
+        Ok(Some(
+            ConstantArray::new(scalar_at(current.as_ref(), 0)?, current.len()).into_array(),
+        ))
+    } else if let Some(encoded) = previous
         .vtable()
         .encode(&current.to_canonical()?, Some(&previous))?
     {
@@ -266,7 +270,7 @@ fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<O
                 previous_children.len(),
                 encoded_children.len()
             );
-            return Ok(None);
+            return Ok(Some(encoded));
         }
 
         let mut new_children: Vec<Arc<dyn Array>> = Vec::with_capacity(encoded_children.len());
