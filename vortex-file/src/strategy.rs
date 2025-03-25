@@ -266,10 +266,10 @@ fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<O
                 previous_children.len(),
                 encoded_children.len()
             );
-            return Ok(Some(encoded));
+            return Ok(None);
         }
 
-        let mut new_children: Vec<Arc<dyn Array>> = Vec::default();
+        let mut new_children: Vec<Arc<dyn Array>> = Vec::with_capacity(encoded_children.len());
 
         for (p, e) in previous_children
             .into_iter()
