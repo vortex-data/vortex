@@ -4,6 +4,7 @@ mod fill_null;
 pub(crate) mod filter;
 mod invert;
 mod is_sorted;
+mod min_max;
 mod scalar_at;
 mod slice;
 pub(crate) mod take;
@@ -11,7 +12,7 @@ mod take_from;
 
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FillNullFn, FilterKernelAdapter, InvertFn, IsSortedFn, KernelRef,
-    ScalarAtFn, SliceFn, TakeFn, TakeFromFn,
+    MinMaxFn, ScalarAtFn, SliceFn, TakeFn, TakeFromFn,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl};
@@ -56,6 +57,10 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
