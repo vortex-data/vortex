@@ -39,8 +39,7 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
             .vortex_expect("dict id checked")
             .to_duckdb(chunk)
     } else {
-        let arr = to_arrow_preferred(&array)?;
-        arr.to_duckdb(chunk)
+        to_arrow_preferred(&array)?.to_duckdb(chunk)
     }
 }
 
