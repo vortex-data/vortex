@@ -191,6 +191,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         }
     }
 
+    // Canonicalize first, to avoid needing to pay decoding cost for every access.
+    scan_builder = scan_builder.with_canonicalize(true);
+
     // build and wrap scan with native object
     match scan_builder.build() {
         Ok(scan) => NativeArrayStream::new(

@@ -107,6 +107,11 @@ public class JNIArray implements Array {
     }
 
     @Override
+    public void getUTF8_ptr_len(int index, long[] ptr, int[] len) {
+        NativeArrayMethods.getUTF8_ptr_len(pointer.getAsLong(), index, ptr, len);
+    }
+
+    @Override
     public byte[] getBinary(int index) {
         return NativeArrayMethods.getBinary(pointer.getAsLong(), index);
     }
