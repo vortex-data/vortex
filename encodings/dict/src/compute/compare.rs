@@ -26,13 +26,10 @@ impl CompareFn<&DictArray> for DictEncoding {
                 &ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
-            let nullability = lhs
-                .dtype()
-                .nullability()
-                .bitor(compare_result.dtype().nullability());
-
             return if operator == Operator::Eq {
-                dict_equal_to(compare_result, lhs.codes(), nullability).map(Some)
+                let result_nullability =
+                    compare_result.dtype().nullability() | lhs.dtype().nullability();
+                dict_equal_to(compare_result, lhs.codes(), result_nullability).map(Some)
             } else {
                 DictArray::try_new(lhs.codes().clone(), compare_result)
                     .map(|a| a.into_array())
@@ -49,9 +46,8 @@ impl CompareFn<&DictArray> for DictEncoding {
 fn dict_equal_to(
     values_compare: ArrayRef,
     codes: &ArrayRef,
-    nullability: Nullability,
+    result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let nullability = nullability.bitor(codes.dtype().nullability());
     let bool_result = values_compare.to_bool()?;
     let result_validity = bool_result.validity_mask()?;
     let bool_buffer = bool_result.boolean_buffer();
@@ -72,9 +68,10 @@ fn dict_equal_to(
         (None, _) => match result_validity {
             Mask::AllTrue(_) => {
                 let mut result_builder =
-                    builder_with_capacity(&DType::Bool(nullability), codes.len());
+                    builder_with_capacity(&DType::Bool(result_nullability), codes.len());
                 result_builder.extend_from_array(
-                    &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+                    &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
+                        .into_array(),
                 )?;
                 result_builder.set_validity(codes.validity_mask()?);
                 result_builder.finish()
@@ -86,9 +83,10 @@ fn dict_equal_to(
             .into_array(),
             Mask::Values(_) => {
                 let mut result_builder =
-                    builder_with_capacity(&DType::Bool(nullability), codes.len());
+                    builder_with_capacity(&DType::Bool(result_nullability), codes.len());
                 result_builder.extend_from_array(
-                    &ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+                    &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
+                        .into_array(),
                 )?;
                 result_builder.set_validity(
                     Validity::from_mask(result_validity, bool_result.dtype().nullability())
@@ -106,7 +104,7 @@ fn dict_equal_to(
                 &try_cast(&ConstantArray::new(code, codes.len()), codes.dtype())?,
                 Operator::Eq,
             )?,
-            &DType::Bool(nullability),
+            &DType::Bool(result_nullability),
         )?,
         // more than one value matches
         _ => DictArray::try_new(codes.clone(), bool_result.into_array())?.into_array(),
@@ -120,6 +118,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
@@ -181,7 +180,7 @@ mod tests {
 
         let res = compare(
             &dict,
-            &ConstantArray::new(Scalar::from(4i32), 3),
+            &ConstantArray::new(Scalar::primitive(4i32, Nullability::Nullable), 3),
             Operator::Eq,
         )
         .unwrap();
@@ -190,6 +189,7 @@ mod tests {
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
+        assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
             res.validity_mask().unwrap(),
             Mask::from_iter([false, true, false])
@@ -210,7 +210,7 @@ mod tests {
 
         let res = compare(
             &dict,
-            &ConstantArray::new(Scalar::from(0i32), 3),
+            &ConstantArray::new(Scalar::primitive(4i32, Nullability::NonNullable), 3),
             Operator::Eq,
         )
         .unwrap();
@@ -219,6 +219,7 @@ mod tests {
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
+        assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
             res.validity_mask().unwrap(),
             Mask::from_iter([true, true, false])

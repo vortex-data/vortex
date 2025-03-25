@@ -93,6 +93,13 @@ impl LayoutWriter for StructLayoutWriter {
         Ok(())
     }
 
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        for writer in self.column_strategies.iter_mut() {
+            writer.flush(segment_writer)?;
+        }
+        Ok(())
+    }
+
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {

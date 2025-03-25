@@ -19,6 +19,9 @@ impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
             return Ok(None);
         };
 
+        // Note, we know that have checked before that the lower and upper bounds are not constant
+        // null values
+
         let nullability =
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
@@ -90,7 +93,7 @@ where
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity().clone().merge_nullability(nullability),
+        arr.validity().clone().union_nullability(nullability),
     )
     .into_array()
 }

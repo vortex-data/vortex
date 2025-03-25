@@ -147,6 +147,10 @@ typedef struct FileScanOptions {
   int projection_len;
   const char *filter_expression;
   int filter_expression_len;
+  /**
+   * Splits the file into chunks of this size, if zero then we use the write layout.
+   */
+  int split_by_row_count;
 } FileScanOptions;
 
 
@@ -287,7 +291,7 @@ void FileStatistics_free(struct FileStatistics *stat);
 const struct DType *File_dtype(const struct File *file);
 
 /**
- * Build a new scan that will stream batches of `FFIArray` from the file.
+ * Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
  */
 struct ArrayStream *File_scan(const struct File *file, const struct FileScanOptions *opts);
 

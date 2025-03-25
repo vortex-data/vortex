@@ -92,7 +92,7 @@ mod test {
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             ctx.clone(),
-            &DType::Primitive(PType::I32, NonNullable),
+            DType::Primitive(PType::I32, NonNullable),
             Default::default(),
         )
         .push_all(

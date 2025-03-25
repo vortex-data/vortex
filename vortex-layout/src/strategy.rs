@@ -4,11 +4,9 @@
 //! all while remaining independent of the read code.
 
 use vortex_array::ArrayContext;
-use vortex_array::arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::struct_::writer::StructLayoutWriter;
@@ -36,31 +34,5 @@ impl LayoutStrategy for StructStrategy {
         } else {
             Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), Default::default()).boxed())
         }
-    }
-}
-
-/// A layout strategy that preserves each chunk as-given.
-pub struct ChunkedStrategy {
-    pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
-}
-
-impl Default for ChunkedStrategy {
-    fn default() -> Self {
-        Self {
-            chunk_strategy: ArcRef::new_ref(&StructStrategy),
-        }
-    }
-}
-
-impl LayoutStrategy for ChunkedStrategy {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(ChunkedLayoutWriter::new(
-            ctx.clone(),
-            dtype,
-            ChunkedLayoutOptions {
-                chunk_strategy: self.chunk_strategy.clone(),
-            },
-        )
-        .boxed())
     }
 }

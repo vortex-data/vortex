@@ -227,14 +227,18 @@ pub async fn register_vortex_files(
     table_name: &str,
     input_path: &Url,
     schema: &Schema,
+    single_file: bool,
 ) -> anyhow::Result<()> {
-    let vortex_dir = input_path.join("vortex/")?;
+    let mut vortex_path = input_path.join("vortex/")?;
+    if single_file {
+        vortex_path = vortex_path.join("hits_0.vortex")?;
+    }
 
     let format = Arc::new(VortexFormat::default());
 
-    info!("Registering table from {vortex_dir}");
+    info!("Registering table from {vortex_path}");
 
-    let table_url = ListingTableUrl::parse(vortex_dir)?;
+    let table_url = ListingTableUrl::parse(vortex_path)?;
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
@@ -251,9 +255,14 @@ pub async fn register_parquet_files(
     table_name: &str,
     input_path: &Url,
     schema: &Schema,
+    single_file: bool,
 ) -> anyhow::Result<()> {
     let format = Arc::new(ParquetFormat::new());
-    let table_path = input_path.join("parquet/")?;
+    let mut table_path = input_path.join("parquet/")?;
+    if single_file {
+        table_path = table_path.join("hits_0.parquet")?;
+    }
+
     info!("Registering table from {}", &table_path);
     let table_url = ListingTableUrl::parse(table_path)?;
 

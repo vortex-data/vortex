@@ -94,6 +94,10 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
+    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        Ok(())
+    }
+
     fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.layout
             .take()
