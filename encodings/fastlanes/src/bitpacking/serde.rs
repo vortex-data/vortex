@@ -92,7 +92,6 @@ impl EncodingVTable for BitPackedEncoding {
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         let parray = input.clone().into_primitive()?;
-
         let bit_width = find_best_bit_width(&parray)?;
 
         if bit_width as usize == parray.ptype().bit_width() {

@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
@@ -134,46 +135,24 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         // If we have information about the previous chunk
         if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
-            let prev_vtable = prev_chunk.vtable();
-            let canonical = chunk.to_canonical()?;
 
-            log::trace!(
-                "Encoding {} array into {}",
-                canonical.as_ref().encoding(),
-                prev_vtable.id()
-            );
-            // If the encoding didn't have to fallback here
-            if let Some(encoded) = prev_vtable.encode(&canonical, Some(&prev_chunk))? {
-                let prev_chunk_children = prev_chunk.named_children();
-                let encoded_children = encoded.named_children();
-
-                let mut new_children = Vec::new();
-                for (k, child) in encoded_children.into_iter() {
-                    let new_encoded_child = prev_chunk_children
-                        .iter()
-                        .find(|(name, _)| name == &k)
-                        .map(|(_, prev_child)| {
-                            prev_child
-                                .vtable()
-                                .encode(&child.to_canonical()?, Some(prev_child))
-                        })
-                        .transpose()?
-                        .flatten();
-
-                    new_children.push(new_encoded_child.unwrap_or(child));
-                }
-
-                let new_array = encoded.with_children(&new_children)?;
-
-                let ratio = canonical.as_ref().nbytes() as f64 / new_array.nbytes() as f64;
+            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk, 2)? {
+                let ratio =
+                    chunk.to_canonical()?.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
 
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
                 if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
-                    compressed_array = Some(new_array);
+                    compressed_array = Some(encoded_chunk);
+                } else {
+                    log::trace!(
+                        "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
+                    )
                 }
             } else {
-                self.previous_chunk.take();
+                log::debug!("Couldn't re-encode children");
+                self.previous_chunk = None;
             }
         }
 
@@ -258,5 +237,54 @@ impl LayoutWriter for BufferedWriter {
 
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.child.finish(segment_writer)
+    }
+}
+
+fn encode_children_like(
+    current: ArrayRef,
+    previous: ArrayRef,
+    depth: usize,
+) -> VortexResult<Option<ArrayRef>> {
+    if depth == 0 {
+        return Ok(Some(current));
+    }
+
+    if let Some(encoded) = previous
+        .vtable()
+        .encode(&current.to_canonical()?, Some(&previous))?
+    {
+        let previous_children = previous.children();
+        let encoded_children = encoded.children();
+
+        if encoded.dtype() != previous.dtype() {
+            log::debug!(
+                "current dtype is {}, previous chunk was {}",
+                encoded.dtype(),
+                previous.dtype()
+            );
+            return Ok(None);
+        }
+
+        if previous_children.len() != encoded_children.len() {
+            log::trace!(
+                "Children count mismatch {} and {}",
+                previous_children.len(),
+                encoded_children.len()
+            );
+            return Ok(None);
+        }
+
+        let mut new_children: Vec<Arc<dyn Array>> = Vec::default();
+
+        for (p, e) in previous_children
+            .into_iter()
+            .zip_eq(encoded_children.into_iter())
+        {
+            new_children.push(encode_children_like(e.clone(), p, depth - 1)?.unwrap_or(e));
+        }
+
+        Ok(Some(encoded.with_children(&new_children)?))
+    } else {
+        Ok(None)
     }
 }

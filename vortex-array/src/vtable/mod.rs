@@ -62,6 +62,21 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
     }
 }
 
+// pub fn encode<A: Array, M: SerializeMetadata + DeserializeMetadata + Debug>(
+//     vtable: ArcRef<dyn Encoding<Array = A, Metadata = M>>,
+//     input: &Canonical,
+// ) -> VortexResult<Option<ArrayRef>> {
+//     vtable.encode(input, None)
+// }
+
+// pub fn encode_like<A: Array, M: SerializeMetadata + DeserializeMetadata + Debug>(
+//     vtable: ArcRef<dyn Encoding<Array = A, Metadata = M>>,
+//     input: &Canonical,
+//     like: &dyn Array,
+// ) -> VortexResult<Option<ArrayRef>> {
+//     todo!()
+// }
+
 impl PartialEq for dyn EncodingVTable + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
