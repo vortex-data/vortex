@@ -9,7 +9,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::scalar_at;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -139,10 +139,13 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         // If we have information about the data from the previous chunk
         else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
+            let canonical_chunk = chunk.to_canonical()?;
 
-            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk)? {
+            if let Some(encoded_chunk) =
+                encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
+            {
                 let ratio =
-                    encoded_chunk.nbytes() as f64 / chunk.to_canonical()?.as_ref().nbytes() as f64;
+                    encoded_chunk.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64;
 
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
