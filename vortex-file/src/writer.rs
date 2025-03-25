@@ -88,6 +88,12 @@ impl VortexWriteOptions {
         }
 
         // Flush the final layout messages into the file
+        layout_writer.flush(&mut segment_writer)?;
+        segment_writer
+            .flush_async(&mut write, &mut segment_map)
+            .await?;
+
+        // Finish the layouts and flush the finishing messages into the file
         let layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
             .flush_async(&mut write, &mut segment_map)

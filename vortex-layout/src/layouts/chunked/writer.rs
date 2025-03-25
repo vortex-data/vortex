@@ -62,8 +62,13 @@ impl LayoutWriter for ChunkedLayoutWriter {
             .chunk_strategy
             .new_writer(&self.ctx, chunk.dtype())?;
         chunk_writer.push_chunk(segment_writer, chunk)?;
+        chunk_writer.flush(segment_writer)?;
         self.chunks.push(chunk_writer);
 
+        Ok(())
+    }
+
+    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         Ok(())
     }
 
