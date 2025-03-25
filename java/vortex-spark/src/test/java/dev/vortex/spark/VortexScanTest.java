@@ -71,7 +71,7 @@ final class VortexScanTest {
                 + "    l_returnflag,\n"
                 + "    l_linestatus\n";
 
-        var plan = spark.sql("SELECT * from lineitem LIMIT 10");
+        var plan = spark.sql(q1);
 
         long start = System.nanoTime();
         var results = plan.collectAsList();
