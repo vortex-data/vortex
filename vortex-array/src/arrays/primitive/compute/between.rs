@@ -1,8 +1,9 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenFn, BetweenOptions, StrictComparison};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef};
@@ -21,6 +22,16 @@ impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
 
         let nullability =
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+
+        if lower.is_null() || upper.is_null() {
+            return Ok(Some(
+                ConstantArray::new(
+                    Scalar::null(arr.dtype().with_nullability(nullability)),
+                    arr.len(),
+                )
+                .to_array(),
+            ));
+        }
 
         Ok(Some(match_each_native_ptype!(arr.ptype(), |$P| {
             between_impl::<$P>(arr, $P::try_from(lower)?, $P::try_from(upper)?, nullability, options)
@@ -90,7 +101,7 @@ where
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity().clone().merge_nullability(nullability),
+        arr.validity().clone().union_nullability(nullability),
     )
     .into_array()
 }
