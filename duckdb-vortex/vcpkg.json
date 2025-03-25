@@ -1,6 +1,3 @@
 {
-  "dependencies": [
-    "openssl",
-    "protobuf"
-  ]
+  "dependencies": [{ "name": "catch2" }, { "name": "protobuf" }]
 }

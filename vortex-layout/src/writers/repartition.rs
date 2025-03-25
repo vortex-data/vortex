@@ -46,7 +46,7 @@ impl RepartitionWriter {
         }
     }
 
-    fn flush(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
+    fn maybe_flush_chunk(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
         if self.nbytes >= self.options.block_size_minimum {
             let nblocks = self.row_count / self.options.block_len_multiple;
 
@@ -112,18 +112,22 @@ impl LayoutWriter for RepartitionWriter {
             self.chunks.push_back(c);
             offset = end;
 
-            self.flush(segment_writer)?;
+            self.maybe_flush_chunk(segment_writer)?;
         }
 
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .to_canonical()?
                 .into_array();
         self.writer.push_chunk(segment_writer, chunk)?;
+        self.writer.flush(segment_writer)
+    }
+
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.writer.finish(segment_writer)
     }
 }

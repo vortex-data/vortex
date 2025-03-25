@@ -1,5 +1,6 @@
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use vortex_array::arcref::ArcRef;
@@ -9,9 +10,8 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
@@ -33,17 +33,19 @@ impl LayoutStrategy for VortexLayoutStrategy {
             );
         }
 
-        // Otherwise, we finish with compressing the chunks
+        // We buffer arrays per column, before flushing them into a chunked layout.
+        // This helps to keep consecutive chunks of a column adjacent for more efficient reads.
+        let strategy: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
+            child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
+            // TODO(ngates): this should really be amortized by the number of fields? Maybe the
+            //  strategy could keep track of how many writers were created?
+            buffer_size: 2 << 20, // 2MB
+        }) as _);
+
+        // Compress each chunk with btrblocks.
         let writer = BtrBlocksCompressedWriter {
             previous_chunk: None,
-            child: ChunkedLayoutWriter::new(
-                ctx.clone(),
-                &DType::Null,
-                ChunkedLayoutOptions {
-                    chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutOptions::default()) as _),
-                },
-            )
-            .boxed(),
+            child: strategy.new_writer(ctx, dtype)?,
         }
         .boxed();
 
@@ -188,6 +190,70 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         };
 
         self.child.push_chunk(segment_writer, compressed)
+    }
+
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.child.flush(segment_writer)
+    }
+
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+        self.child.finish(segment_writer)
+    }
+}
+
+struct BufferedStrategy {
+    child: ArcRef<dyn LayoutStrategy>,
+    buffer_size: u64,
+}
+
+impl LayoutStrategy for BufferedStrategy {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        let child = self.child.new_writer(ctx, dtype)?;
+        Ok(BufferedWriter {
+            chunks: Default::default(),
+            nbytes: 0,
+            buffer_size: self.buffer_size,
+            child,
+        }
+        .boxed())
+    }
+}
+
+struct BufferedWriter {
+    chunks: VecDeque<ArrayRef>,
+    nbytes: u64,
+    buffer_size: u64,
+    child: Box<dyn LayoutWriter>,
+}
+
+impl LayoutWriter for BufferedWriter {
+    fn push_chunk(
+        &mut self,
+        segment_writer: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
+        self.nbytes += chunk.nbytes() as u64;
+        self.chunks.push_back(chunk);
+        // Wait until we're at 2x the buffer size before flushing 1x the buffer size
+        // This avoids small tail stragglers being flushed at the end of the file.
+        if self.nbytes >= 2 * self.buffer_size {
+            while self.nbytes > self.buffer_size {
+                if let Some(chunk) = self.chunks.pop_front() {
+                    self.nbytes -= chunk.nbytes() as u64;
+                    self.child.push_chunk(segment_writer, chunk)?;
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        for chunk in self.chunks.drain(..) {
+            self.child.push_chunk(segment_writer, chunk)?;
+        }
+        self.child.flush(segment_writer)
     }
 
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {

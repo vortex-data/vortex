@@ -6,6 +6,7 @@
 #include "duckdb/common/exception.hpp"
 
 #include <duckdb/planner/filter/conjunction_filter.hpp>
+#include <duckdb/planner/filter/optional_filter.hpp>
 
 using duckdb::ConjunctionAndFilter;
 using duckdb::ConstantFilter;
@@ -24,6 +25,24 @@ const string BINARY_ID = "binary";
 const string GET_ITEM_ID = "get_item";
 const string IDENTITY_ID = "identity";
 const string LITERAL_ID = "literal";
+
+// Temporal ids
+const string VORTEX_DATE_ID = "vortex.date";
+const string VORTEX_TIME_ID = "vortex.time";
+const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
+
+enum TimeUnit : uint8_t {
+	/// Nanoseconds
+	Ns = 0,
+	/// Microseconds
+	Us = 1,
+	/// Milliseconds
+	Ms = 2,
+	/// Seconds
+	S = 3,
+	/// Days
+	D = 4,
+};
 
 vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
 	static const std::unordered_map<ExpressionType, vortex::expr::Kind_BinaryOp> op_map = {
@@ -101,6 +120,14 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 	case LogicalTypeId::BLOB:
 		dtype->mutable_binary()->set_nullable(nullable);
 		return dtype;
+	case LogicalTypeId::DATE: {
+		dtype->mutable_extension()->set_id(VORTEX_DATE_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::D)}));
+		return dtype;
+	}
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
@@ -152,6 +179,18 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 	case LogicalTypeId::UBIGINT:
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
+	case LogicalTypeId::FLOAT:
+		scalar->mutable_value()->set_uint64_value(value.GetValue<float32_t>());
+		return scalar;
+	case LogicalTypeId::DOUBLE:
+		scalar->mutable_value()->set_uint64_value(value.GetValue<float64_t>());
+		return scalar;
+	case LogicalTypeId::VARCHAR:
+		scalar->mutable_value()->set_string_value(value.GetValue<string>());
+		return scalar;
+	case LogicalTypeId::DATE:
+		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
@@ -168,7 +207,57 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 	id->set_id(IDENTITY_ID);
 }
 
-vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, string &column_name) {
+vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
+                                          const string &column_name) {
+	D_ASSERT(!child_filters.empty());
+
+	if (child_filters.size() == 1) {
+		return table_expression_into_expr(arena, *child_filters[0], column_name);
+	}
+
+	// Start with the first expression
+	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
+	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+
+	// Flatten the list of children into a linked list of AND values.
+	for (size_t i = 0; i < child_filters.size() - 1; i++) {
+		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		new_and->set_id(BINARY_ID);
+		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->add_children()->Swap(table_expression_into_expr(arena, *child_filters[i], column_name));
+
+		tail = new_and;
+	}
+	tail->add_children()->Swap(table_expression_into_expr(arena, *child_filters.back(), column_name));
+	return hd;
+}
+
+vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
+
+	D_ASSERT(!child_filters.empty());
+
+	if (child_filters.size() == 1) {
+		return child_filters[0];
+	}
+
+	// Start with the first expression
+	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
+	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+
+	// Flatten the list of children into a linked list of AND values.
+	for (size_t i = 0; i < child_filters.size() - 1; i++) {
+		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		new_and->set_id(BINARY_ID);
+		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->add_children()->Swap(child_filters[i]);
+
+		tail = new_and;
+	}
+	tail->add_children()->Swap(child_filters.back());
+	return hd;
+}
+
+vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
 	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
@@ -191,32 +280,22 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjucts = filter.Cast<ConjunctionAndFilter>();
 
-		D_ASSERT(conjucts.child_filters.size() > 1);
-
-		// Start with the first expression
-		auto tail = static_cast<vortex::expr::Expr *>(nullptr);
-		auto hd = Arena::Create<vortex::expr::Expr>(&arena);
-
-		// Flatten the list of children into a linked list of AND values.
-		for (size_t i = 0; i < conjucts.child_filters.size() - 1; i++) {
-			vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
-			new_and->set_id(BINARY_ID);
-			new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
-			new_and->add_children()->Swap(table_expression_into_expr(arena, *conjucts.child_filters[i], column_name));
-
-			tail = new_and;
-		}
-		tail->add_children()->Swap(table_expression_into_expr(arena, *conjucts.child_filters.back(), column_name));
-		return hd;
+		return flatten_table_filters(arena, conjucts.child_filters, column_name);
 	}
 	case TableFilterType::IS_NULL:
 	case TableFilterType::IS_NOT_NULL: {
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "null checks");
 	}
+	case TableFilterType::OPTIONAL_FILTER: {
+		expr->set_id(LITERAL_ID);
+		auto lit = expr->mutable_kind()->mutable_literal();
+		lit->mutable_value()->mutable_value()->set_bool_value(true);
+		lit->mutable_value()->mutable_dtype()->mutable_bool_()->set_nullable(false);
+		return expr;
+	}
 	default:
 		break;
 	}
-
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
 }

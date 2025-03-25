@@ -1,4 +1,5 @@
 build
+gen
 .idea
 cmake-build-debug
 duckdb_unittest_tempdir/

@@ -6,6 +6,7 @@ use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -59,7 +60,11 @@ fn compare_fsst_constant(
         };
 
         return Ok(Some(
-            BoolArray::new(buffer, Validity::copy_from_array(left)?).into_array(),
+            BoolArray::new(
+                buffer,
+                Validity::copy_from_array(left)?.union_nullability(right.dtype().nullability()),
+            )
+            .into_array(),
         ));
     }
 
@@ -70,7 +75,7 @@ fn compare_fsst_constant(
 
     let compressor = fsst::Compressor::rebuild_from(left.symbols(), left.symbol_lengths());
 
-    let encoded_scalar = match left.dtype() {
+    let encoded_buffer = match left.dtype() {
         DType::Utf8(_) => {
             let value = right
                 .scalar()
@@ -89,6 +94,11 @@ fn compare_fsst_constant(
         }
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
+
+    let encoded_scalar = Scalar::new(
+        DType::Binary(left.dtype().nullability() | right.dtype().nullability()),
+        encoded_buffer.into(),
+    );
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
     compare(left.codes(), &rhs, operator).map(Some)
@@ -123,26 +133,29 @@ mod tests {
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let equals: Vec<bool> = compare(&lhs, &rhs, Operator::Eq)
+        let equals = compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
             .to_bool()
-            .unwrap()
-            .boolean_buffer()
-            .into_iter()
-            .collect();
+            .unwrap();
 
-        assert_eq!(equals, vec![false, false, true, false, false]);
+        assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
+
+        assert_eq!(
+            equals.boolean_buffer().into_iter().collect::<Vec<_>>(),
+            vec![false, false, true, false, false]
+        );
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let not_equals: Vec<bool> = compare(&lhs, &rhs, Operator::NotEq)
+        let not_equals = compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
             .to_bool()
-            .unwrap()
-            .boolean_buffer()
-            .into_iter()
-            .collect();
+            .unwrap();
 
-        assert_eq!(not_equals, vec![true, true, false, true, true]);
+        assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_eq!(
+            not_equals.boolean_buffer().into_iter().collect::<Vec<_>>(),
+            vec![true, true, false, true, true]
+        );
 
         // Ensure null constants are handled correctly.
         let null_rhs =
