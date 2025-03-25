@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use async_trait::async_trait;
 use futures::future::{BoxFuture, try_join_all};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
@@ -13,7 +12,6 @@ use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
 use crate::{ExprEvaluator, MaskFuture, RowMask};
 
-#[async_trait]
 impl ExprEvaluator for ChunkedReader {
     fn evaluate_expr2(
         &self,
