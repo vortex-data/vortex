@@ -232,8 +232,13 @@ async fn bench_main(
                 continue;
             }
 
-            for i in 0..2 {
+            let mut fastest_result = Duration::from_millis(u64::MAX);
+            for i in 0..iterations {
+                let start = Instant::now();
                 let (row_count, plan) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
+                let elapsed = start.elapsed();
+                fastest_result = fastest_result.min(elapsed);
+
                 if i == 0 {
                     row_counts.push((query_idx, format, row_count));
                     // gather metrics
@@ -251,14 +256,6 @@ async fn bench_main(
                     }
                     plans.push((query_idx, plan));
                 }
-            }
-
-            let mut fastest_result = Duration::from_millis(u64::MAX);
-            for _ in 0..iterations {
-                let start = Instant::now();
-                run_tpch_query(&ctx, &sql_queries, query_idx).await;
-                let elapsed = start.elapsed();
-                fastest_result = fastest_result.min(elapsed);
             }
 
             let storage = match url.scheme() {

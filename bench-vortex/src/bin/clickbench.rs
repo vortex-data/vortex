@@ -50,6 +50,8 @@ struct Args {
     flavor: Flavor,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
+    #[arg(long, default_value = "false")]
+    single_file: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -153,9 +155,15 @@ fn main() -> anyhow::Result<()> {
 
         match format {
             Format::Parquet => runtime.block_on(async {
-                clickbench::register_parquet_files(&context, "hits", &url, &HITS_SCHEMA)
-                    .await
-                    .unwrap()
+                clickbench::register_parquet_files(
+                    &context,
+                    "hits",
+                    &url,
+                    &HITS_SCHEMA,
+                    args.single_file,
+                )
+                .await
+                .unwrap()
             }),
             Format::OnDiskVortex => {
                 runtime.block_on(async {
@@ -167,9 +175,15 @@ fn main() -> anyhow::Result<()> {
                         .await
                         .unwrap();
                     }
-                    clickbench::register_vortex_files(context.clone(), "hits", &url, &HITS_SCHEMA)
-                        .await
-                        .unwrap();
+                    clickbench::register_vortex_files(
+                        context.clone(),
+                        "hits",
+                        &url,
+                        &HITS_SCHEMA,
+                        args.single_file,
+                    )
+                    .await
+                    .unwrap();
                 });
             }
             other => vortex_panic!("Format {other} isn't supported on ClickBench"),
