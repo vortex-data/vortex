@@ -97,7 +97,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?.into_struct()?;
+        let array = array.to_struct()?;
 
         if array.dtype() != self.dtype() {
             vortex_bail!(
