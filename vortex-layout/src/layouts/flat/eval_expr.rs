@@ -75,25 +75,22 @@ impl MaskEvaluation for FlatEvaluation {
             array = slice(&array, self.row_range.start, self.row_range.end)?;
         }
 
-        // TODO(ngates): if the input mask is sufficiently sparse, we may want to apply it before
-        //  the expression, and then do a Mask::range_intersection.
-
-        // Evaluate the projection expression.
-        if !self.expr.as_any().is::<Identity>() {
-            log::debug!(
-                "Evaluating filter expr over {} true values of {} on array\n{}",
-                mask.density(),
-                mask.len(),
-                array.tree_display(),
-            );
+        // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+        //  we have approximate mask results from a zone map. In which case we could look at
+        //  the true_count between the mask's first and last true positions.
+        // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+        //   or not.
+        let array_mask = if mask.density() < 0.2 {
+            // Evaluate only the selected rows of the mask.
+            array = filter(&array, &mask)?;
+            let array_mask = Mask::try_from(self.expr.evaluate(&array)?.as_ref())?;
+            mask.intersect_by_rank(&array_mask)
+        } else {
+            // Evaluate all rows, avoiding the more expensive rank intersection.
             array = self.expr.evaluate(&array)?;
-        }
-
-        // Convert the array into a mask.
-        let array_mask = Mask::try_from(array.as_ref())?;
-
-        // Intersect the mask with the input mask.
-        let array_mask = mask.bitand(&array_mask);
+            let array_mask = Mask::try_from(array.as_ref())?;
+            mask.bitand(&array_mask)
+        };
 
         log::debug!(
             "Flat mask evaluation {} - {} (mask = {}) => {}",

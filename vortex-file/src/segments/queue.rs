@@ -108,22 +108,22 @@ impl SegmentQueue {
             }
 
             // Otherwise, we start pre-fetching the need_later segments.
-            // loop {
-            //     let Some(segment_id) = needed.need_later.pop_first() else {
-            //         // No more need_later segments, break out of the loop.
-            //         break;
-            //     };
-            //
-            //     if let Some(lease) = self
-            //         .inner
-            //         .segments
-            //         .get(&segment_id)
-            //         .and_then(|p| p.clone().lease())
-            //     {
-            //         log::trace!("Fetching unrequested segment: {}", lease.id());
-            //         return Some(lease);
-            //     };
-            // }
+            loop {
+                let Some(segment_id) = needed.need_later.pop_first() else {
+                    // No more need_later segments, break out of the loop.
+                    break;
+                };
+
+                if let Some(lease) = self
+                    .inner
+                    .segments
+                    .get(&segment_id)
+                    .and_then(|p| p.clone().lease())
+                {
+                    log::trace!("Fetching unrequested segment: {}", lease.id());
+                    return Some(lease);
+                };
+            }
 
             // Perform some cleanup and throw away any dropped segments (those whose weak
             // reference can no longer be upgraded).

@@ -71,14 +71,6 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
 ///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
 pub trait ExprEvaluator: Send + Sync {
-    fn pruning_evaluation(
-        &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        todo!()
-    }
-
     fn filter_evaluation(
         &self,
         _row_range: &Range<u64>,
@@ -94,14 +86,6 @@ pub trait ExprEvaluator: Send + Sync {
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader> {
-    fn pruning_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.as_ref().pruning_evaluation(row_range, expr)
-    }
-
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,

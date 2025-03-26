@@ -8,7 +8,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
@@ -37,6 +37,8 @@ impl ExprEvaluator for StatsReader {
                 })
                 .try_collect()?;
             Ok(Box::new(StatsMaskEvaluation {
+                layout: self.layout().clone(),
+                expr: expr.clone(),
                 pruning_mask_future,
                 zone_range,
                 zone_lengths,
@@ -59,6 +61,8 @@ impl ExprEvaluator for StatsReader {
 }
 
 struct StatsMaskEvaluation {
+    layout: Layout,
+    expr: ExprRef,
     pruning_mask_future: SharedPruningResult,
     // The range of zones that cover the evaluation's row range.
     zone_range: Range<usize>,
@@ -85,7 +89,17 @@ impl MaskEvaluation for StatsMaskEvaluation {
         assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
         // Intersect the masks.
-        Ok(mask.bitand(&stats_mask))
+        let stats_mask = mask.bitand(&stats_mask);
+
+        log::debug!(
+            "Stats evaluation approx {} - {} (mask = {}) => {}",
+            self.layout.name(),
+            self.expr,
+            mask.density(),
+            stats_mask.density(),
+        );
+
+        Ok(stats_mask)
     }
 
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
