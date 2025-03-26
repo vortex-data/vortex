@@ -1,3 +1,4 @@
+use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
@@ -11,7 +12,7 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
+use crate::{ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -29,6 +30,19 @@ impl Encoding for BoolEncoding {
 }
 
 impl BoolArray {
+    /// Create a new BoolArray from a set of indices and a length.
+    /// All indices must be less than the length.
+    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+        let mut buffer = MutableBuffer::new_null(length);
+        indices
+            .into_iter()
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+        Self::new(
+            BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
+            Validity::NonNullable,
+        )
+    }
+
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
     /// any invariants.
     pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
@@ -44,7 +58,6 @@ impl BoolArray {
 
         // Shrink the buffer to remove any whole bytes.
         let buffer = buffer.shrink_offset();
-
         Self {
             dtype: DType::Bool(validity.nullability()),
             buffer,
@@ -113,6 +126,39 @@ impl ArrayImpl for BoolArray {
     #[inline]
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BoolEncoding)
+    }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        Ok(Self::new(self.boolean_buffer().clone(), validity))
+    }
+}
+
+impl From<BooleanBuffer> for BoolArray {
+    fn from(value: BooleanBuffer) -> Self {
+        Self::new(value, Validity::NonNullable)
+    }
+}
+
+impl FromIterator<bool> for BoolArray {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        Self::new(BooleanBuffer::from_iter(iter), Validity::NonNullable)
+    }
+}
+
+impl FromIterator<Option<bool>> for BoolArray {
+    fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
+        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
+
+        Self::new(
+            buffer,
+            nulls.map(Validity::from).unwrap_or(Validity::AllValid),
+        )
     }
 }
 

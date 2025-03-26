@@ -19,7 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
-import dev.vortex.impl.Files;
+import dev.vortex.api.Files;
 import dev.vortex.spark.read.VortexTable;
 import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;

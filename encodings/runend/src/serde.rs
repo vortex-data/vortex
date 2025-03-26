@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::compress::runend_encode;
 use crate::{RunEndArray, RunEndEncoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,10 +39,24 @@ impl EncodingVTable for RunEndEncoding {
 
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let parray = input.clone().into_primitive()?;
+
+        let (ends, values) = runend_encode(&parray)?;
+
+        Ok(Some(
+            RunEndArray::try_new(ends.to_array(), values)?.to_array(),
+        ))
+    }
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("ends", self.ends());
         visitor.visit_child("values", self.values());
     }

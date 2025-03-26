@@ -33,6 +33,12 @@ publishing {
 }
 
 tasks.withType<Test>().all {
+    classpath +=
+        project(":vortex-jni")
+            .tasks
+            .named("shadowJar")
+            .get()
+            .outputs.files
     jvmArgs(
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
         "--add-opens=java.base/java.nio=ALL-UNNAMED",

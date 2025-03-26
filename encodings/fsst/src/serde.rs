@@ -1,16 +1,16 @@
-use fsst::Symbol;
+use fsst::{Compressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, SerdeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FSSTMetadata {
@@ -57,15 +57,44 @@ impl EncodingVTable for FSSTEncoding {
                 .into_array(),
         )
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let like = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.encoding()
+                    )
+                })
+            })
+            .transpose()?;
+
+        let array = input.clone().into_varbinview()?;
+
+        let compressor = match like {
+            Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),
+            None => fsst_train_compressor(&array)?,
+        };
+
+        let fsst = fsst_compress(&array, &compressor)?;
+
+        Ok(Some(fsst.into_array()))
+    }
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
         visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
     }

@@ -154,6 +154,11 @@ impl DType {
         matches!(self, Bool(_))
     }
 
+    /// Check if `self` is an extension type
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Extension(_))
+    }
+
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct(&self) -> Option<&StructDType> {
         match self {

@@ -61,6 +61,11 @@ pub fn preferred_arrow_data_type(array: &dyn Array) -> VortexResult<DataType> {
     array.dtype().to_arrow_dtype()
 }
 
+pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
+    let data_type = preferred_arrow_data_type(array)?;
+    to_arrow(array, &data_type)
+}
+
 /// Convert the array to an Arrow array of the given type.
 pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
     if let Some(result) = array
@@ -80,19 +85,23 @@ pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowAr
     // Fall back to canonicalizing and then converting.
     let mut builder = builder_with_capacity(array.dtype(), array.len());
     array.append_to_builder(builder.as_mut())?;
-    let array = builder.finish();
-    array
+    let canonical_array = builder.finish();
+    let arrow_array = canonical_array
         .vtable()
         .to_arrow_fn()
         .vortex_expect("Canonical encodings must implement ToArrowFn")
-        .to_arrow(&array, data_type)?
+        .to_arrow(&canonical_array, data_type)?
         .ok_or_else(|| {
             vortex_err!(
                 "Failed to convert array {} to Arrow {}",
-                array.encoding(),
+                canonical_array.encoding(),
                 data_type
             )
-        })
+        })?;
+
+    debug_assert_eq!(array.len(), arrow_array.len());
+
+    Ok(arrow_array)
 }
 
 #[cfg(test)]

@@ -1,12 +1,13 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
+use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -45,10 +46,18 @@ impl EncodingVTable for DictEncoding {
 
         Ok(DictArray::try_new(codes, values)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(dict_encode(input.as_ref())?.into_array()))
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("values", self.values());
     }

@@ -71,6 +71,10 @@ impl ArrayImpl for NullArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&NullEncoding)
     }
+
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+        Ok(self.clone())
+    }
 }
 
 impl ArrayStatisticsImpl for NullArray {

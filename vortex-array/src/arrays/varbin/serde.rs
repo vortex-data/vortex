@@ -1,16 +1,18 @@
 use std::fmt::Debug;
 
+use arrow_schema::DataType;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::VarBinEncoding;
 use crate::arrays::VarBinArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    Canonical, DeserializeMetadata, EncodingId, IntoArray, RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -54,14 +56,31 @@ impl EncodingVTable for VarBinEncoding {
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let arrow_array = input.clone().into_array().into_arrow_preferred()?;
+        let array = match arrow_array.data_type() {
+            DataType::Utf8View => arrow_cast::cast(arrow_array.as_ref(), &DataType::Utf8)?,
+            DataType::BinaryView => arrow_cast::cast(arrow_array.as_ref(), &DataType::Binary)?,
+            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
+        };
+        Ok(Some(ArrayRef::from_arrow(
+            array,
+            input.as_ref().dtype().nullability().into(),
+        )))
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());
     }

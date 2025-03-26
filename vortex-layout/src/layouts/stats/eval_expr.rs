@@ -138,7 +138,7 @@ mod test {
             &DType::Primitive(PType::I32, NonNullable),
             ChunkedLayoutWriter::new(
                 ctx.clone(),
-                &DType::Primitive(PType::I32, NonNullable),
+                DType::Primitive(PType::I32, NonNullable),
                 Default::default(),
             )
             .boxed(),

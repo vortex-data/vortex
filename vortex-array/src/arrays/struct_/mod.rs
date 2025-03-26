@@ -140,6 +140,19 @@ impl ArrayImpl for StructArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&StructEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        let fields_idx = if validity.is_array() { 1_usize } else { 0 };
+        let fields = children[fields_idx..].to_vec();
+
+        Self::try_new(self.names().clone(), fields, self.len(), validity)
+    }
 }
 
 impl ArrayStatisticsImpl for StructArray {

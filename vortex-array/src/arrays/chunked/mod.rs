@@ -197,6 +197,14 @@ impl ArrayImpl for ChunkedArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ChunkedEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        Ok(ChunkedArray::new_unchecked(
+            // We skip the first child as it contains the offsets buffer.
+            children[1..].to_vec(),
+            self.dtype.clone(),
+        ))
+    }
 }
 
 impl ArrayStatisticsImpl for ChunkedArray {

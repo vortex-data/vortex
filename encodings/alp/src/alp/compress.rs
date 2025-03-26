@@ -28,24 +28,20 @@ macro_rules! match_each_alp_float_ptype {
     })
 }
 
-pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
-    let (exponents, encoded, patches) = alp_encode_components(parray)?;
-    ALPArray::try_new(encoded, exponents, patches)
-}
-
-pub fn alp_encode_components(
-    parray: &PrimitiveArray,
-) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)> {
-    match parray.ptype() {
-        PType::F32 => alp_encode_components_typed::<f32>(parray),
-        PType::F64 => alp_encode_components_typed::<f64>(parray),
+pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> VortexResult<ALPArray> {
+    let (exponents, encoded, patches) = match parray.ptype() {
+        PType::F32 => alp_encode_components_typed::<f32>(parray, exponents)?,
+        PType::F64 => alp_encode_components_typed::<f64>(parray, exponents)?,
         _ => vortex_bail!("ALP can only encode f32 and f64"),
-    }
+    };
+
+    ALPArray::try_new(encoded, exponents, patches)
 }
 
 #[allow(clippy::cast_possible_truncation)]
 fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
+    exponents: Option<Exponents>,
 ) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
@@ -55,7 +51,7 @@ where
     let values_slice = values.as_slice::<T>();
 
     let (exponents, encoded, exceptional_positions, exceptional_values) =
-        T::encode(values_slice, None);
+        T::encode(values_slice, exponents);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
@@ -132,7 +128,7 @@ mod tests {
     #[test]
     fn test_compress() {
         let array = PrimitiveArray::new(buffer![1.234f32; 1025], Validity::NonNullable);
-        let encoded = alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
@@ -147,7 +143,7 @@ mod tests {
     #[test]
     fn test_nullable_compress() {
         let array = PrimitiveArray::from_option_iter([None, Some(1.234f32), None]);
-        let encoded = alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
@@ -165,7 +161,7 @@ mod tests {
     fn test_patched_compress() {
         let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
         let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let encoded = alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_some());
         assert_eq!(
             encoded.encoded().to_primitive().unwrap().as_slice::<i64>(),
@@ -182,7 +178,7 @@ mod tests {
     fn test_compress_ignores_invalid_exceptional_values() {
         let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
         let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
-        let encoded = alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().unwrap().as_slice::<i64>(),
@@ -216,7 +212,7 @@ mod tests {
             Some(4.0),
             None,
         ]);
-        let encoded = alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_some());
 
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
@@ -236,7 +232,7 @@ mod tests {
     #[test]
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
-        let alp_arr = alp_encode(&original).unwrap();
+        let alp_arr = alp_encode(&original, None).unwrap();
         let decompressed = alp_arr.to_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
     }
@@ -247,7 +243,7 @@ mod tests {
             Buffer::from_iter([195.26274f64, f64::consts::PI, -48.815685]),
             Validity::AllInvalid,
         );
-        let alp_arr = alp_encode(&original).unwrap();
+        let alp_arr = alp_encode(&original, None).unwrap();
         let decompressed = alp_arr.to_primitive().unwrap();
         assert_eq!(
             // The second and third values become exceptions and are replaced
@@ -275,7 +271,7 @@ mod tests {
             buffer![0.0f32, -0.0, f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
             Validity::NonNullable,
         );
-        let encoded = alp_encode(&original).unwrap();
+        let encoded = alp_encode(&original, None).unwrap();
         let decoded = encoded.to_primitive().unwrap();
         for idx in 0..original.len() {
             let decoded_val = decoded.as_slice::<f32>()[idx];

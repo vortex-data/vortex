@@ -14,8 +14,8 @@ use crate::compute::{ComputeFn, Filter, KernelRef};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding,
-    EncodingId,
+    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
+    Canonical, Encoding, EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -37,6 +37,13 @@ pub trait ArrayImpl:
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
     fn _vtable(&self) -> VTableRef;
+
+    /// Replace the children of this array with the given arrays.
+    ///
+    /// ## Pre-conditions
+    ///
+    /// - The number of given children matches the current number of children of the array.
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -188,6 +195,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         //     );
         // }
         let len = builder.len();
+
         ArrayCanonicalImpl::_append_to_builder(self, builder)?;
         assert_eq!(
             len + self.len(),
@@ -199,5 +207,17 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self._stats_ref()
+    }
+
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+        if self.nchildren() != children.len() {
+            vortex_bail!("Child count mismatch");
+        }
+
+        for (s, o) in self.children().iter().zip(children.iter()) {
+            assert_eq!(s.len(), o.len());
+        }
+
+        Ok(self._with_children(children)?.into_array())
     }
 }

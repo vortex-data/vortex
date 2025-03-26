@@ -21,9 +21,10 @@ use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::sparse::SparseArray;
-use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagEncoding;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
+use vortex::vtable::EncodingVTable;
 use vortex::{Array, ArrayRef, IntoArray};
 
 fn fsst_array() -> ArrayRef {
@@ -140,7 +141,12 @@ fn enc_impls() -> Vec<ArrayRef> {
         .into_array(),
         varbin_array(),
         varbinview_array(),
-        ZigZagArray::encode(&buffer![-1, 1, -9, 9].into_array())
+        ZigZagEncoding
+            .encode(
+                &buffer![-1, 1, -9, 9].into_array().to_canonical().unwrap(),
+                None,
+            )
+            .unwrap()
             .unwrap()
             .into_array(),
     ]

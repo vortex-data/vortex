@@ -10,8 +10,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
@@ -232,6 +232,32 @@ impl ArrayImpl for BitPackedArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&BitPackedEncoding)
+    }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let patches = self.patches().map(|existing| {
+            let indices = children[0].clone();
+            let values = children[1].clone();
+            Patches::new(existing.array_len(), existing.offset(), indices, values)
+        });
+
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[children.len() - 1].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        unsafe {
+            Self::new_unchecked_with_offset(
+                self.packed().clone(),
+                self.ptype(),
+                validity,
+                patches,
+                self.bit_width(),
+                self.len(),
+                self.offset(),
+            )
+        }
     }
 }
 

@@ -58,7 +58,7 @@ pub struct ListMetadata {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("elements", self.elements());
         visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());

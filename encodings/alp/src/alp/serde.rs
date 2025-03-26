@@ -3,13 +3,13 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, SerdeMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
-use super::ALPEncoding;
+use super::{ALPEncoding, alp_encode};
 use crate::{ALPArray, Exponents};
 
 impl EncodingVTable for ALPEncoding {
@@ -44,16 +44,40 @@ impl EncodingVTable for ALPEncoding {
 
         Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let parray = input.clone().into_primitive()?;
+
+        let like_alp = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.encoding()
+                    )
+                })
+            })
+            .transpose()?;
+        let exponents = like_alp.map(|a| a.exponents());
+        let alp = alp_encode(&parray, exponents)?;
+
+        Ok(Some(alp.into_array()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
-    pub(crate) exponents: Exponents,
-    pub(crate) patches: Option<PatchesMetadata>,
+    exponents: Exponents,
+    patches: Option<PatchesMetadata>,
 }
 
 impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", self.encoded());
         if let Some(patches) = self.patches() {
             visitor.visit_patches(patches);
@@ -69,5 +93,31 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
                 .transpose()
                 .vortex_expect("Failed to create patches metadata"),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::SerdeMetadata;
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_harness::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::Exponents;
+    use crate::alp::serde::ALPMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_alp_metadata() {
+        check_metadata(
+            "alp.metadata",
+            SerdeMetadata(ALPMetadata {
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
+                exponents: Exponents {
+                    e: u8::MAX,
+                    f: u8::MAX,
+                },
+            }),
+        );
     }
 }

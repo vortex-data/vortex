@@ -83,6 +83,13 @@ impl ArrayImpl for DictArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DictEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let codes = children[0].clone();
+        let values = children[1].clone();
+
+        Self::try_new(codes, values)
+    }
 }
 
 impl ArrayCanonicalImpl for DictArray {

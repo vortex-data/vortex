@@ -14,7 +14,7 @@ use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructDType};
-use vortex_error::VortexUnwrap;
+use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
 fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
@@ -66,13 +66,21 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
         if matches!(array_data.dtype(), DType::Struct(_, _) | DType::List(_, _)) {
             compare_struct(array_data, output);
         } else {
-            let r = compare(&array_data, &output, Operator::Eq).vortex_unwrap();
-            let true_count = r
-                .to_bool()
+            let bool_result = compare(&array_data, &output, Operator::Eq)
                 .vortex_unwrap()
-                .boolean_buffer()
-                .count_set_bits();
-            assert_eq!(true_count, array_data.len());
+                .to_bool()
+                .vortex_unwrap();
+            let true_count = bool_result.boolean_buffer().count_set_bits();
+            if true_count != array_data.len()
+                && (bool_result.all_valid().vortex_unwrap()
+                    || array_data.all_valid().vortex_unwrap())
+            {
+                vortex_panic!(
+                    "Failed to match original array {}with{}",
+                    array_data.tree_display(),
+                    output.tree_display()
+                );
+            }
         }
     });
 

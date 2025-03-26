@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
+use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -194,8 +195,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_new(left.to_array())?;
-    let rhs = Datum::try_new(right.to_array())?;
+    let lhs = datum_for_cmp(left)?;
+    let rhs = datum_for_cmp(right)?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -250,14 +251,26 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
     }
 }
 
+// Make sure both of the arrays end up with the same arrow data type
+fn datum_for_cmp(array: &dyn Array) -> VortexResult<Datum> {
+    if matches!(array.dtype(), DType::Utf8(_)) {
+        Datum::with_target_datatype(array, &DataType::Utf8View)
+    } else if matches!(array.dtype(), DType::Binary(_)) {
+        Datum::with_target_datatype(array, &DataType::BinaryView)
+    } else {
+        Datum::try_new(array)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
+    use rstest::rstest;
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::{BoolArray, ConstantArray};
+    use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
     use crate::validity::Validity;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
@@ -337,7 +350,7 @@ mod tests {
         assert_eq!(compare.len(), 10);
     }
 
-    #[rstest::rstest]
+    #[rstest]
     #[case(Operator::Eq, vec![false, false, false, true])]
     #[case(Operator::NotEq, vec![true, true, true, false])]
     #[case(Operator::Gt, vec![true, true, true, false])]
@@ -349,5 +362,18 @@ mod tests {
 
         let output = compare_lengths_to_empty(lengths.iter().copied(), op);
         assert_eq!(Vec::from_iter(output.iter()), expected);
+    }
+
+    #[rstest]
+    #[case(VarBinArray::from(vec!["a", "b"]).into_array(), VarBinViewArray::from_iter_str(["a", "b"]).into_array())]
+    #[case(VarBinViewArray::from_iter_str(["a", "b"]).into_array(), VarBinArray::from(vec!["a", "b"]).into_array())]
+    #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
+    #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
+    fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
+        let res = arrow_compare(&left, &right, Operator::Eq).unwrap();
+        assert_eq!(
+            res.to_bool().unwrap().boolean_buffer().count_set_bits(),
+            left.len()
+        );
     }
 }

@@ -32,7 +32,7 @@ impl EncodingVTable for ExtensionEncoding {
 }
 
 impl ArrayVisitorImpl for ExtensionArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("storage", self.storage())
     }
 

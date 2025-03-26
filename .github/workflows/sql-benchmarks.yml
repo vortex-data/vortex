@@ -36,9 +36,15 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
+        if: inputs.mode == 'pr'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: "recursive"
+
+      - uses: actions/checkout@v4
+        if: inputs.mode != 'pr'
         with:
           submodules: "recursive"
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null

@@ -1,10 +1,11 @@
 mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, RDEncoder, alp_encode};
+use vortex_alp::{ALPArray, ALPEncoding, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, ArrayExt as _, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
@@ -201,7 +202,10 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp = alp_encode(stats.source())?;
+        let alp_encoded = ALPEncoding
+            .encode(&stats.source().to_canonical()?, None)?
+            .vortex_expect("Input is a supported floating point array");
+        let alp = alp_encoded.as_::<ALPArray>();
         let alp_ints = alp.encoded().to_primitive()?;
 
         // Compress the ALP ints.

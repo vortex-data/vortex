@@ -1,27 +1,26 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::alp::serde::ALPMetadata;
-use crate::alp::{Exponents, alp_encode, decompress};
+use crate::alp::{Exponents, decompress};
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
-    dtype: DType,
     encoded: ArrayRef,
-    exponents: Exponents,
     patches: Option<Patches>,
+    dtype: DType,
+    exponents: Exponents,
     stats_set: ArrayStats,
 }
 
@@ -52,14 +51,6 @@ impl ALPArray {
         })
     }
 
-    pub fn encode(array: ArrayRef) -> VortexResult<ArrayRef> {
-        if let Some(parray) = array.as_opt::<PrimitiveArray>() {
-            Ok(alp_encode(parray)?.into_array())
-        } else {
-            vortex_bail!("ALP can only encode primitive arrays");
-        }
-    }
-
     pub fn encoded(&self) -> &ArrayRef {
         &self.encoded
     }
@@ -87,6 +78,18 @@ impl ArrayImpl for ALPArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ALPEncoding)
+    }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let encoded = children[0].clone();
+
+        let patches = self.patches().map(|existing| {
+            let indices = children[1].clone();
+            let values = children[2].clone();
+            Patches::new(existing.array_len(), existing.offset(), indices, values)
+        });
+
+        ALPArray::try_new(encoded, self.exponents(), patches)
     }
 }
 
@@ -135,29 +138,3 @@ impl ArrayVariantsImpl for ALPArray {
 }
 
 impl PrimitiveArrayTrait for ALPArray {}
-
-#[cfg(test)]
-mod tests {
-    use vortex_array::SerdeMetadata;
-    use vortex_array::patches::PatchesMetadata;
-    use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
-
-    use crate::Exponents;
-    use crate::alp::serde::ALPMetadata;
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_alp_metadata() {
-        check_metadata(
-            "alp.metadata",
-            SerdeMetadata(ALPMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-                exponents: Exponents {
-                    e: u8::MAX,
-                    f: u8::MAX,
-                },
-            }),
-        );
-    }
-}

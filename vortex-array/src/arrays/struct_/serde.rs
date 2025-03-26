@@ -61,7 +61,7 @@ impl EncodingVTable for StructEncoding {
 }
 
 impl ArrayVisitorImpl for StructArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(self.validity(), self.len());
         for (idx, name) in self.names().iter().enumerate() {
             let child = self

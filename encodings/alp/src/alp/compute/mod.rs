@@ -186,8 +186,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-    use crate::ALPArray;
     use crate::alp::compute::between_impl;
+    use crate::{ALPArray, alp_encode};
 
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, options)
@@ -206,7 +206,7 @@ mod tests {
     fn comparison_range() {
         let value = 0.0605_f32;
         let array = PrimitiveArray::from_iter([value; 1]);
-        let encoded = crate::alp::compress::alp_encode(&array).unwrap();
+        let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),

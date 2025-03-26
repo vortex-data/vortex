@@ -161,12 +161,20 @@ impl Patches {
         self.indices
     }
 
+    pub fn indices_mut(&mut self) -> &mut ArrayRef {
+        &mut self.indices
+    }
+
     pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
     pub fn into_values(self) -> ArrayRef {
         self.values
+    }
+
+    pub fn values_mut(&mut self) -> &mut ArrayRef {
+        &mut self.values
     }
 
     pub fn offset(&self) -> usize {

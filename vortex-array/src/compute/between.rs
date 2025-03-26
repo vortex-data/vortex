@@ -1,6 +1,8 @@
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
+use crate::arrays::ConstantArray;
 use crate::compute::{BinaryOperator, Operator, binary_boolean, compare};
 use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 
@@ -90,6 +92,21 @@ pub fn between(
     debug_assert!(arr.dtype().eq_ignore_nullability(upper.dtype()));
     debug_assert_eq!(arr.len(), lower.len());
     debug_assert_eq!(arr.len(), upper.len());
+
+    // A quick check to see if either array might is a null constant array.
+    if lower.is_invalid(0)? || upper.is_invalid(0)? {
+        if let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant()) {
+            if c_lower.is_null() || c_upper.is_null() {
+                return Ok(ConstantArray::new(
+                    Scalar::null(arr.dtype().with_nullability(
+                        lower.dtype().nullability() | upper.dtype().nullability(),
+                    )),
+                    arr.len(),
+                )
+                .to_array());
+            }
+        }
+    }
 
     let result = between_impl(arr, lower, upper, options)?;
 

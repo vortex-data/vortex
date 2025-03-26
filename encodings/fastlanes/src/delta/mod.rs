@@ -222,6 +222,22 @@ impl ArrayImpl for DeltaArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&DeltaEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[2].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        Self::try_new(
+            children[0].clone(),
+            children[1].clone(),
+            validity,
+            self.offset,
+            self.len(),
+        )
+    }
 }
 
 impl ArrayCanonicalImpl for DeltaArray {

@@ -129,7 +129,7 @@ impl<T> Precision<T> {
         Ok(precision)
     }
 
-    pub(crate) fn into_value(self) -> T {
+    pub(crate) fn into_inner(self) -> T {
         match self {
             Exact(val) | Inexact(val) => val,
         }

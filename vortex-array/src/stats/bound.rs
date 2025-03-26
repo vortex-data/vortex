@@ -13,7 +13,7 @@ pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
     pub(crate) fn min_value(self) -> T {
-        self.0.into_value()
+        self.0.into_inner()
     }
 }
 
@@ -96,7 +96,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
             }
             (Exact(lhs), Inexact(rhs)) => {
                 if rhs <= lhs {
-                    IntersectionResult::Value(LowerBound(Exact(rhs.clone())))
+                    IntersectionResult::Value(LowerBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
                     IntersectionResult::None
@@ -107,6 +107,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
 
     fn to_exact(&self) -> Option<&T> {
         self.0.to_exact()
+    }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
     }
 }
 
@@ -137,13 +141,7 @@ pub struct UpperBound<T>(pub(crate) Precision<T>);
 
 impl<T> UpperBound<T> {
     pub(crate) fn max_value(self) -> T {
-        self.0.into_value()
-    }
-}
-
-impl<T> UpperBound<T> {
-    pub fn into_value(self) -> Precision<T> {
-        self.0
+        self.0.into_inner()
     }
 }
 
@@ -209,6 +207,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
     fn to_exact(&self) -> Option<&T> {
         self.0.to_exact()
     }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
+    }
 }
 
 impl<T: PartialOrd> PartialEq<T> for UpperBound<T> {
@@ -239,7 +241,7 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
 #[cfg(test)]
 mod tests {
     use crate::stats::bound::IntersectionResult;
-    use crate::stats::{Precision, StatBound, UpperBound};
+    use crate::stats::{LowerBound, Precision, StatBound, UpperBound};
 
     #[test]
     fn test_upper_bound_cmp() {
@@ -295,5 +297,21 @@ mod tests {
         let ub2 = UpperBound(Precision::inexact(12i32));
 
         assert_eq!(Some(IntersectionResult::None), ub1.intersection(&ub2));
+    }
+
+    #[test]
+    fn test_lower_bound_intersection() {
+        let lb1: LowerBound<i32> = LowerBound(Precision::exact(12i32));
+        let lb2 = LowerBound(Precision::inexact(10i32));
+
+        assert_eq!(
+            Some(IntersectionResult::Value(lb1.clone())),
+            lb1.intersection(&lb2)
+        );
+
+        let lb1: LowerBound<i32> = LowerBound(Precision::exact(12i32));
+        let lb2 = LowerBound(Precision::inexact(13i32));
+
+        assert_eq!(Some(IntersectionResult::None), lb1.intersection(&lb2));
     }
 }

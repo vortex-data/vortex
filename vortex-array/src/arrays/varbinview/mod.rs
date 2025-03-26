@@ -501,6 +501,16 @@ impl ArrayImpl for VarBinViewArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&VarBinViewEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let mut this = self.clone();
+
+        if let Validity::Array(array) = &mut this.validity {
+            *array = children[0].clone();
+        }
+
+        Ok(this)
+    }
 }
 
 impl ArrayStatisticsImpl for VarBinViewArray {

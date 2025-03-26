@@ -136,6 +136,9 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
+
+    /// Replaces the children of the array with the given array references.
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -213,6 +216,10 @@ impl Array for Arc<dyn Array> {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
+    }
+
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+        self.as_ref().with_children(children)
     }
 }
 

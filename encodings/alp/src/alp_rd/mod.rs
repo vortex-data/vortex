@@ -155,6 +155,14 @@ impl RDEncoder {
         }
     }
 
+    /// Build a new encoder from known parameters.
+    pub fn from_parts(right_bit_width: u8, codes: Vec<u16>) -> Self {
+        Self {
+            right_bit_width,
+            codes,
+        }
+    }
+
     /// Encode a set of floating point values with ALP-RD.
     ///
     /// Each value will be split into a left and right component, which are compressed individually.

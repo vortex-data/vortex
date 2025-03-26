@@ -24,6 +24,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 arrow-array = { workspace = true }
 itertools = { workspace = true }
 vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }

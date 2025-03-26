@@ -139,6 +139,19 @@ impl ArrayImpl for FSSTArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&FSSTEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let codes = children[0].clone();
+        let uncompressed_lengths = children[1].clone();
+
+        Self::try_new(
+            self.dtype().clone(),
+            self.symbols().clone(),
+            self.symbol_lengths().clone(),
+            codes,
+            uncompressed_lengths,
+        )
+    }
 }
 
 impl ArrayStatisticsImpl for FSSTArray {

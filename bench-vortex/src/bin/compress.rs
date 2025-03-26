@@ -118,9 +118,9 @@ fn compress(
                     let vx_array =
                         runtime.block_on(async { dataset_handle.to_vortex_array().await });
                     ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
-                        |c| {
-                            let mut builder = builder_with_capacity(c.dtype(), c.len());
-                            c.append_to_builder(builder.as_mut()).unwrap();
+                        |chunk| {
+                            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+                            chunk.append_to_builder(builder.as_mut()).unwrap();
                             builder.finish()
                         },
                     ))

@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
 use crate::serde::ArrayParts;
-use crate::{ArrayContext, ArrayRef};
+use crate::{Array, ArrayContext, ArrayRef, Canonical};
 
 /// A reference to an array VTable, either static or arc'd.
 pub type VTableRef = ArcRef<dyn EncodingVTable>;
@@ -40,6 +40,21 @@ pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
                 .vortex_expect("Encoding already validated")
                 .id()
         )
+    }
+
+    /// Encode the canonical array into this encoding implementation.
+    ///
+    /// Should error if `like` is encoded with a different encoding.
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if self.id() == input.as_ref().encoding() {
+            return Ok(Some(input.as_ref().to_array()));
+        }
+
+        Ok(None)
     }
 }
 

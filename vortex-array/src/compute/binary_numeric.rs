@@ -150,8 +150,8 @@ fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs.to_array())?;
-    let right = Datum::try_new(rhs.to_array())?;
+    let left = Datum::try_new(lhs)?;
+    let right = Datum::try_new(rhs)?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,

@@ -2,12 +2,12 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{SparseArray, SparseEncoding};
@@ -59,10 +59,33 @@ impl EncodingVTable for SparseEncoding {
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let like = like
+            .map(|like| {
+                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                    vortex_err!(
+                        "Expected {} encoded array but got {}",
+                        self.id(),
+                        like.encoding()
+                    )
+                })
+            })
+            .transpose()?;
+
+        // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
+        let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
+
+        Ok(Some(SparseArray::encode(input.as_ref(), fill_value)?))
+    }
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         let fill_value_buffer = self
             .fill_value
             .value()
@@ -71,7 +94,7 @@ impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
         visitor.visit_buffer(&fill_value_buffer);
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_patches(self.patches())
     }
 

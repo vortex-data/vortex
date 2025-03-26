@@ -1,15 +1,18 @@
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
@@ -32,27 +35,19 @@ impl LayoutStrategy for VortexLayoutStrategy {
             );
         }
 
-        // Leaf arrays are written as flat arrays, above which, we buffer up to 16MB to try to keep
-        // chunks for the same column next to each other, within some reasonable write-time memory
-        // buffering limit.
-        let writer: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
-            child: ArcRef::new_ref(&FlatLayout),
-            // Buffer 4MB of compressed data per column before writing the chunks consecutively.
+        // We buffer arrays per column, before flushing them into a chunked layout.
+        // This helps to keep consecutive chunks of a column adjacent for more efficient reads.
+        let strategy: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
+            child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
             // TODO(ngates): this should really be amortized by the number of fields? Maybe the
             //  strategy could keep track of how many writers were created?
-            buffer_size: 4 << 20, // 4 MB
+            buffer_size: 2 << 20, // 2MB
         }) as _);
 
         // Compress each chunk with btrblocks.
         let writer = BtrBlocksCompressedWriter {
-            child: ChunkedLayoutWriter::new(
-                ctx.clone(),
-                &DType::Null,
-                ChunkedLayoutOptions {
-                    chunk_strategy: writer,
-                },
-            )
-            .boxed(),
+            previous_chunk: None,
+            child: strategy.new_writer(ctx, dtype)?,
         }
         .boxed();
 
@@ -105,14 +100,26 @@ struct BtrBlocksCompressedStrategy {
 impl LayoutStrategy for BtrBlocksCompressedStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         let child = self.child.new_writer(ctx, dtype)?;
-        Ok(BtrBlocksCompressedWriter { child }.boxed())
+        Ok(BtrBlocksCompressedWriter {
+            child,
+            previous_chunk: None,
+        }
+        .boxed())
     }
 }
+
+struct PreviousCompression {
+    chunk: ArrayRef,
+    ratio: f64,
+}
+
+const COMPRESSION_DRIFT_THRESHOLD: f64 = 1.2;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
 /// compressed chunk as a hint for the next.
 struct BtrBlocksCompressedWriter {
     child: Box<dyn LayoutWriter>,
+    previous_chunk: Option<PreviousCompression>,
 }
 
 impl LayoutWriter for BtrBlocksCompressedWriter {
@@ -124,8 +131,55 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        let compressed = BtrBlocksCompressor.compress(&chunk)?;
-        self.child.push_chunk(segment_writer, compressed)
+        // Short circuit the decision if the chunk is constant
+        let compressed_chunk = if let Some(constant) = chunk.as_constant() {
+            Some(ConstantArray::new(constant, chunk.len()).into_array())
+        }
+        // If we have information about the data from the previous chunk
+        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
+            let prev_chunk = prev_compression.chunk.clone();
+            let canonical_chunk = chunk.to_canonical()?;
+
+            if let Some(encoded_chunk) =
+                encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
+            {
+                let ratio =
+                    encoded_chunk.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64;
+
+                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
+                // If it isn't we  fall back to the compressor.
+                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                    Some(encoded_chunk)
+                } else {
+                    log::trace!(
+                        "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
+                    );
+                    None
+                }
+            } else {
+                log::debug!("Couldn't re-encode children");
+
+                None
+            }
+        } else {
+            None
+        };
+
+        let compressed_chunk = match compressed_chunk {
+            Some(array) => array,
+            None => {
+                let canonical_chunk = chunk.to_canonical()?;
+                let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
+                self.previous_chunk = Some(PreviousCompression {
+                    chunk: compressed.clone(),
+                    ratio: compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
+                });
+                compressed
+            }
+        };
+
+        self.child.push_chunk(segment_writer, compressed_chunk)
     }
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
@@ -146,7 +200,7 @@ impl LayoutStrategy for BufferedStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         let child = self.child.new_writer(ctx, dtype)?;
         Ok(BufferedWriter {
-            chunks: Vec::new(),
+            chunks: Default::default(),
             nbytes: 0,
             buffer_size: self.buffer_size,
             child,
@@ -156,7 +210,7 @@ impl LayoutStrategy for BufferedStrategy {
 }
 
 struct BufferedWriter {
-    chunks: Vec<ArrayRef>,
+    chunks: VecDeque<ArrayRef>,
     nbytes: u64,
     buffer_size: u64,
     child: Box<dyn LayoutWriter>,
@@ -169,12 +223,18 @@ impl LayoutWriter for BufferedWriter {
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         self.nbytes += chunk.nbytes() as u64;
-        self.chunks.push(chunk);
-        if self.nbytes >= self.buffer_size {
-            for chunk in self.chunks.drain(..) {
-                self.child.push_chunk(segment_writer, chunk)?;
+        self.chunks.push_back(chunk);
+        // Wait until we're at 2x the buffer size before flushing 1x the buffer size
+        // This avoids small tail stragglers being flushed at the end of the file.
+        if self.nbytes >= 2 * self.buffer_size {
+            while self.nbytes > self.buffer_size {
+                if let Some(chunk) = self.chunks.pop_front() {
+                    self.nbytes -= chunk.nbytes() as u64;
+                    self.child.push_chunk(segment_writer, chunk)?;
+                } else {
+                    break;
+                }
             }
-            self.nbytes = 0;
         }
         Ok(())
     }
@@ -188,5 +248,41 @@ impl LayoutWriter for BufferedWriter {
 
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.child.finish(segment_writer)
+    }
+}
+
+fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    if let Some(constant) = current.as_constant() {
+        Ok(Some(
+            ConstantArray::new(constant, current.len()).into_array(),
+        ))
+    } else if let Some(encoded) = previous
+        .vtable()
+        .encode(&current.to_canonical()?, Some(&previous))?
+    {
+        let previous_children = previous.children();
+        let encoded_children = encoded.children();
+
+        if previous_children.len() != encoded_children.len() {
+            log::trace!(
+                "Children count mismatch {} and {}",
+                previous_children.len(),
+                encoded_children.len()
+            );
+            return Ok(Some(encoded));
+        }
+
+        let mut new_children: Vec<Arc<dyn Array>> = Vec::with_capacity(encoded_children.len());
+
+        for (p, e) in previous_children
+            .into_iter()
+            .zip_eq(encoded_children.into_iter())
+        {
+            new_children.push(encode_children_like(e.clone(), p)?.unwrap_or(e));
+        }
+
+        Ok(Some(encoded.with_children(&new_children)?))
+    } else {
+        Ok(None)
     }
 }

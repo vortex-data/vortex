@@ -24,7 +24,6 @@ impl CompareFn<&DictArray> for DictEncoding {
                 &ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
-
             return if operator == Operator::Eq {
                 let result_nullability =
                     compare_result.dtype().nullability() | lhs.dtype().nullability();

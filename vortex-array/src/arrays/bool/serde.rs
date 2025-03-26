@@ -55,14 +55,14 @@ pub struct BoolMetadata {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<BoolMetadata>> for BoolArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
             self.boolean_buffer().clone().into_inner(),
             Alignment::none(),
         ))
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&self.validity, self.len());
     }
 

@@ -54,7 +54,7 @@ impl CompareFn<&VarBinArray> for VarBinEncoding {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.clone().into_array())?;
+            let lhs = Datum::try_new(lhs)?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {

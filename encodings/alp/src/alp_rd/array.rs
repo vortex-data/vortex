@@ -150,6 +150,26 @@ impl ArrayImpl for ALPRDArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&ALPRDEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let left_parts = children[0].clone();
+        let right_parts = children[1].clone();
+
+        let left_part_patches = self.left_parts_patches().map(|existing| {
+            let indices = children[2].clone();
+            let values = children[3].clone();
+            Patches::new(existing.array_len(), existing.offset(), indices, values)
+        });
+
+        ALPRDArray::try_new(
+            self.dtype().clone(),
+            left_parts,
+            self.left_parts_dictionary().clone(),
+            right_parts,
+            self.right_bit_width(),
+            left_part_patches,
+        )
+    }
 }
 
 impl ArrayCanonicalImpl for ALPRDArray {

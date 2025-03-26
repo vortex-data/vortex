@@ -1,8 +1,9 @@
+use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
+    DeserializeMetadata, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -47,6 +48,17 @@ impl EncodingVTable for DateTimePartsEncoding {
 
         Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
     }
+
+    fn encode(
+        &self,
+        input: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let ext_array = input.clone().into_extension()?;
+        let temporal = TemporalArray::try_from(ext_array)?;
+
+        Ok(Some(DateTimePartsArray::try_from(temporal)?.into_array()))
+    }
 }
 
 #[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -60,7 +72,7 @@ pub struct DateTimePartsMetadata {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("days", self.days());
         visitor.visit_child("seconds", self.seconds());
         visitor.visit_child("subseconds", self.subseconds());

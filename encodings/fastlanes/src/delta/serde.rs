@@ -68,7 +68,7 @@ impl EncodingVTable for DeltaEncoding {
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<DeltaMetadata>> for DeltaArray {
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("bases", self.bases());
         visitor.visit_child("deltas", self.deltas());
         visitor.visit_validity(self.validity(), self.len());

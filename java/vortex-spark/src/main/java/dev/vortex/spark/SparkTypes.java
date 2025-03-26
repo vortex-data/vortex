@@ -64,9 +64,6 @@ public final class SparkTypes {
                 // For each of the inner struct fields, we capture them together here.
                 var struct = new StructType();
 
-                // TODO(aduffy): FieldTypes leaks. DType_field_dtype will box a new value, we need to iterate
-                //  and free each of the boxed values.
-
                 Streams.forEachPair(
                         dType.getFieldNames().stream(),
                         dType.getFieldTypes().stream(),
@@ -108,7 +105,7 @@ public final class SparkTypes {
     public static Column[] toColumns(DType dType) {
         return Streams.zip(dType.getFieldNames().stream(), dType.getFieldTypes().stream(), (name, fieldType) -> {
                     var dataType = toDataType(fieldType);
-                    return Column.create(name, dataType);
+                    return Column.create(name, dataType, fieldType.isNullable());
                 })
                 .toArray(Column[]::new);
     }

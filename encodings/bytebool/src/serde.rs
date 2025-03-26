@@ -41,11 +41,11 @@ impl EncodingVTable for ByteBoolEncoding {
 }
 
 impl ArrayVisitorImpl<EmptyMetadata> for ByteBoolArray {
-    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.buffer());
     }
 
-    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(self.validity(), self.len());
     }
 

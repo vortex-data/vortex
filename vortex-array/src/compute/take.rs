@@ -116,6 +116,11 @@ pub fn take_into(
     indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
+    if indices.all_invalid()? {
+        builder.append_nulls(indices.len());
+        return Ok(());
+    }
+
     if array.is_empty() && !indices.is_empty() {
         vortex_bail!("Cannot take_into from an empty array");
     }

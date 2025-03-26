@@ -256,6 +256,20 @@ impl ArrayImpl for PrimitiveArray {
     fn _vtable(&self) -> VTableRef {
         VTableRef::new_ref(&PrimitiveEncoding)
     }
+
+    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
+        let validity = if self.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            self.validity().clone()
+        };
+
+        Ok(Self::from_byte_buffer(
+            self.byte_buffer().clone(),
+            self.ptype(),
+            validity,
+        ))
+    }
 }
 
 impl ArrayStatisticsImpl for PrimitiveArray {
