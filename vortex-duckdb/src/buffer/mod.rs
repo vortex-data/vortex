@@ -12,19 +12,19 @@ pub struct FFIDuckDBBufferInternal {
 // This CANNOT be copied or cloned since the void* inner is actually an Arc, and the ref counter
 // will be incorrect.
 #[repr(C)]
-pub struct FFIDuckDBBuffer {
+pub struct ExternalBuffer {
     pub inner: *mut c_void,
 }
 
-impl From<FFIDuckDBBufferInternal> for FFIDuckDBBuffer {
+impl From<FFIDuckDBBufferInternal> for ExternalBuffer {
     fn from(buffer: FFIDuckDBBufferInternal) -> Self {
         let ptr = Box::into_raw(buffer.inner) as *mut c_void;
-        FFIDuckDBBuffer { inner: ptr }
+        ExternalBuffer { inner: ptr }
     }
 }
 
-impl From<FFIDuckDBBuffer> for FFIDuckDBBufferInternal {
-    fn from(buffer: FFIDuckDBBuffer) -> Self {
+impl From<ExternalBuffer> for FFIDuckDBBufferInternal {
+    fn from(buffer: ExternalBuffer) -> Self {
         let inner: Box<ByteBuffer> = unsafe { Box::from_raw(buffer.inner.cast()) };
         FFIDuckDBBufferInternal { inner }
     }
@@ -33,8 +33,9 @@ impl From<FFIDuckDBBuffer> for FFIDuckDBBufferInternal {
 // This will free a single FFIDuckDBBuffer, however due to cloning there might be more
 // references to the underlying ByteBuffer that will not be freed in this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIDuckDBBuffer_free(buffer: *mut FFIDuckDBBufferInternal) {
-    drop(unsafe { Box::from_raw(buffer) })
+pub unsafe extern "C" fn ExternalBuffer_free(buffer: *mut ExternalBuffer) {
+    let internal: Box<FFIDuckDBBufferInternal> = unsafe { Box::from_raw(buffer.cast()) };
+    drop(internal)
 }
 
 #[repr(C)]
@@ -45,9 +46,16 @@ pub struct CppVectorBuffer {
 
 #[allow(dead_code)]
 unsafe extern "C" {
-    pub fn NewCppVectorBuffer(buffer: *mut FFIDuckDBBuffer) -> *mut CppVectorBuffer;
+    pub fn NewCppVectorBuffer(
+        buffer: *mut ExternalBuffer,
+        free: unsafe extern "C" fn(*mut ExternalBuffer),
+    ) -> *mut CppVectorBuffer;
 
     pub fn AssignBufferToVec(vector: duckdb_vector, buffer: *mut CppVectorBuffer);
+}
+
+pub unsafe fn new_cpp_vector_buffer(buffer: *mut ExternalBuffer) -> *mut CppVectorBuffer {
+    unsafe { NewCppVectorBuffer(buffer, ExternalBuffer_free) }
 }
 
 #[cfg(test)]
@@ -55,7 +63,7 @@ mod tests {
 
     use vortex_buffer::ByteBuffer;
 
-    use crate::buffer::{FFIDuckDBBuffer, FFIDuckDBBufferInternal};
+    use crate::buffer::{ExternalBuffer, FFIDuckDBBufferInternal};
 
     #[test]
     fn test_buff_drop() {
@@ -65,7 +73,7 @@ mod tests {
 
         assert!(buffer.inner.inner().is_unique());
 
-        let buffer_er: FFIDuckDBBuffer = buffer.clone().into();
+        let buffer_er: ExternalBuffer = buffer.clone().into();
         let buffer_back: FFIDuckDBBufferInternal = buffer_er.into();
 
         assert!(!buffer_back.inner.inner().is_unique());
