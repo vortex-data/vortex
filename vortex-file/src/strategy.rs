@@ -6,7 +6,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::scalar_at;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
@@ -133,8 +132,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
         // Short circuit the decision if the chunk is constant
-        let compressed_chunk = if chunk.is_constant() {
-            Some(ConstantArray::new(scalar_at(&chunk, 0)?, chunk.len()).into_array())
+        let compressed_chunk = if let Some(constant) = chunk.as_constant() {
+            Some(ConstantArray::new(constant, chunk.len()).into_array())
         }
         // If we have information about the data from the previous chunk
         else if let Some(prev_compression) = self.previous_chunk.as_ref() {
@@ -253,9 +252,9 @@ impl LayoutWriter for BufferedWriter {
 }
 
 fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<Option<ArrayRef>> {
-    if current.is_constant() {
+    if let Some(constant) = current.as_constant() {
         Ok(Some(
-            ConstantArray::new(scalar_at(current.as_ref(), 0)?, current.len()).into_array(),
+            ConstantArray::new(constant, current.len()).into_array(),
         ))
     } else if let Some(encoded) = previous
         .vtable()
