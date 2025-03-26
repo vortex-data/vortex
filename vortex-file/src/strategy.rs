@@ -194,13 +194,13 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
                 if ratio < threshold {
-                    log::info!(
+                    log::trace!(
                         "Reusing compression with ration of {ratio}, which is below the threshold of {threshold}."
                     );
                     prev_compression.add_measurement(ratio);
                     Some(encoded_chunk)
                 } else {
-                    log::info!(
+                    log::trace!(
                         "Compressed to a ratio of {ratio}, which is above the threshold of {threshold}",
                     );
                     None
