@@ -19,7 +19,6 @@ async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
-sketches-ddsketch = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
@@ -29,6 +28,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 range_union_find = { workspace = true }
+sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["sync"], optional = true }
 tracing = { workspace = true, optional = true }
 tracing-futures = { workspace = true, features = [
