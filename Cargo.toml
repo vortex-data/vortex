@@ -82,6 +82,7 @@ datafusion-execution = { version = "46" }
 datafusion-expr = { version = "46" }
 datafusion-physical-expr = { version = "46" }
 datafusion-physical-plan = { version = "46" }
+sketches-ddsketch = "0.3.0"
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
     "vtab-full",
@@ -89,7 +90,6 @@ duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
 ] }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
-exponential-decay-histogram = "=0.1.13"
 fastlanes = "0.1.8"
 flatbuffers = "25"
 flexbuffers = "25"

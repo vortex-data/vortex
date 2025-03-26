@@ -19,13 +19,14 @@ async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
-exponential-decay-histogram = { workspace = true }
+sketches-ddsketch = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 range_union_find = { workspace = true }
 tokio = { workspace = true, features = ["sync"], optional = true }

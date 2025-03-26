@@ -4957,6 +4957,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
+name = "sketches-ddsketch"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e9a774a6c28142ac54bb25d25562e6bcf957493a184f15ad4eebccb23e410a"
+
+[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6257,16 +6263,17 @@ dependencies = [
  "async-trait",
  "bit-vec",
  "bytes",
- "exponential-decay-histogram",
  "flatbuffers 25.2.10",
  "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
  "log",
+ "parking_lot",
  "pin-project-lite",
  "range_union_find",
  "rstest",
+ "sketches-ddsketch",
  "tokio",
  "tracing",
  "tracing-futures",

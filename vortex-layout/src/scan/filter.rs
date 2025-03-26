@@ -1,11 +1,12 @@
 use std::iter;
 use std::ops::BitAnd;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bit_vec::BitVec;
-use exponential_decay_histogram::ExponentialDecayHistogram;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use parking_lot::RwLock;
+use sketches_ddsketch::DDSketch;
 use vortex_array::ArrayRef;
 use vortex_dtype::{FieldName, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
@@ -20,8 +21,6 @@ use crate::{ExprEvaluator, RowMask};
 const DEFAULT_SELECTIVITY_THRESHOLD: f64 = 0.05;
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
-/// The multiplier to used to convert selectivity to i64 for the histogram.
-const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 
 /// A [`FilterExpr`] performs smart stateful evaluation of a filter expression across multiple
 /// row splits.
@@ -38,7 +37,7 @@ pub struct FilterExpr {
     /// The fields involved in each conjunct.
     conjunct_fields: Vec<Vec<usize>>,
     /// A histogram of the selectivity of each conjunct.
-    conjunct_selectivity: Vec<RwLock<ExponentialDecayHistogram>>,
+    conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
     /// The threshold of selectivity below which the filter is pushed down.
@@ -86,11 +85,9 @@ impl FilterExpr {
             fields,
             conjuncts,
             conjunct_fields,
-            conjunct_selectivity: iter::repeat_with(|| {
-                RwLock::new(ExponentialDecayHistogram::new())
-            })
-            .take(nconjuncts)
-            .collect(),
+            conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
+                .take(nconjuncts)
+                .collect(),
             prefetch_conjuncts,
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
@@ -122,19 +119,23 @@ impl FilterExpr {
         remaining: &BitVec,
         fetched_fields: &[Option<ArrayRef>],
     ) -> Option<usize> {
-        let read = self.ordering.read().vortex_expect("poisoned lock");
+        let read_guard = self.ordering.read();
 
         // First try to find a conjunct that we've already fetched fields for.
-        if let Some(next) = read.iter().filter(|&idx| remaining[*idx]).find(|&idx| {
-            self.conjunct_fields[*idx]
-                .iter()
-                .all(|&field_idx| fetched_fields[field_idx].is_some())
-        }) {
+        if let Some(next) = read_guard
+            .iter()
+            .filter(|&idx| remaining[*idx])
+            .find(|&idx| {
+                self.conjunct_fields[*idx]
+                    .iter()
+                    .all(|&field_idx| fetched_fields[field_idx].is_some())
+            })
+        {
             return Some(*next);
         }
 
         // Otherwise, just take the first conjunct that we prefer.
-        read.iter().find(|&idx| remaining[*idx]).copied()
+        read_guard.iter().find(|&idx| remaining[*idx]).copied()
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
@@ -145,13 +146,9 @@ impl FilterExpr {
         }
 
         {
-            let mut histogram = self.conjunct_selectivity[conjunct_idx]
-                .write()
-                .vortex_expect("poisoned lock");
+            let mut histogram = self.conjunct_selectivity[conjunct_idx].write();
 
-            // Since our histogram only supports i64, we map our f64 into a 0-1m range.
-            let selectivity = (selectivity * SELECTIVITY_MULTIPLIER).round() as i64;
-            histogram.update(selectivity);
+            histogram.add(selectivity);
         }
 
         let all_selectivity = self
@@ -160,32 +157,33 @@ impl FilterExpr {
             .map(|histogram| {
                 histogram
                     .read()
-                    .vortex_expect("poisoned lock")
-                    .snapshot()
-                    .value(self.selectivity_quantile)
+                    .quantile(self.selectivity_quantile)
+                    .expect("Quantile should always be in (0, 1)")
+                    // If the sketch is empty, its selectivity is 0.
+                    .unwrap_or_default()
             })
             .collect::<Vec<_>>();
 
         {
-            let ordering = self.ordering.read().vortex_expect("lock poisoned");
+            let ordering = self.ordering.read();
             if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
                 return;
             }
         }
 
         // Re-sort our conjuncts based on the new statistics.
-        let mut ordering = self.ordering.write().vortex_expect("lock poisoned");
-        ordering.sort_unstable_by_key(|&idx| all_selectivity[idx]);
+        let mut ordering = self.ordering.write();
+        ordering.sort_unstable_by(|&l_idx, &r_idx| {
+            all_selectivity[l_idx]
+                .partial_cmp(&all_selectivity[r_idx])
+                .vortex_expect("Can't compare selectivity values")
+        });
 
         log::debug!(
             "Reordered conjuncts based on new selectivity {:?}",
             ordering
                 .iter()
-                .map(|&idx| format!(
-                    "({}) => {}",
-                    self.conjuncts[idx],
-                    all_selectivity[idx] as f64 / SELECTIVITY_MULTIPLIER
-                ))
+                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
                 .join(", ")
         );
     }
