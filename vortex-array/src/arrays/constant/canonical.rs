@@ -163,7 +163,7 @@ fn canonical_list_array(
                     elements_builder.append_scalar(v)?;
                 }
             }
-            let offsets = if vs.len() == 0 {
+            let offsets = if vs.is_empty() {
                 Buffer::zeroed(len + 1)
             } else {
                 (0..=len * vs.len())
