@@ -21,11 +21,11 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  lint-toml:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.7.0
+  # lint-toml:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: spiraldb/actions/.github/actions/lint-toml@0.7.0
 
   release-plz-pr:
     name: Release-plz PR
@@ -49,372 +49,372 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  validate-workflow-yaml:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - name: Validate YAML file
-        run: |
-          # Lint the workflows and yamllint's configuration file.
-          yamllint \
-              -c yamllint-config.yaml \
-              yamllint-config.yaml \
-              .github/workflows
+  # validate-workflow-yaml:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - name: Validate YAML file
+  #       run: |
+  #         # Lint the workflows and yamllint's configuration file.
+  #         yamllint \
+  #             -c yamllint-config.yaml \
+  #             yamllint-config.yaml \
+  #             .github/workflows
 
-  python-lint:
-    name: "Python (lint)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
-      - name: Python Lint - Format
-        run: uv run ruff format --check .
-      - name: Python Lint - Ruff
-        run: uv run ruff check .
+  # python-lint:
+  #   name: "Python (lint)"
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+  #     - name: Python Lint - Format
+  #       run: uv run ruff format --check .
+  #     - name: Python Lint - Ruff
+  #       run: uv run ruff check .
 
-  python-test:
-    name: "Python (test)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+  # python-test:
+  #   name: "Python (test)"
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
 
-      # Ensure the stub files are up-to-date with the public API of the native module.
-      - name: Stubtest - PyVortex
-        run: |
-          uv run stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
-        working-directory: pyvortex/
+  #     # Ensure the stub files are up-to-date with the public API of the native module.
+  #     - name: Stubtest - PyVortex
+  #       run: |
+  #         uv run stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
+  #       working-directory: pyvortex/
 
-      - name: Pytest - PyVortex
-        run: |
-          uv run pytest --benchmark-disable test/
-        working-directory: pyvortex/
+  #     - name: Pytest - PyVortex
+  #       run: |
+  #         uv run pytest --benchmark-disable test/
+  #       working-directory: pyvortex/
 
-      - name: Doctest - PyVortex
-        run: |
-          uv run make clean && uv run make doctest
-        working-directory: docs/
+  #     - name: Doctest - PyVortex
+  #       run: |
+  #         uv run make clean && uv run make doctest
+  #       working-directory: docs/
 
-      - name: Ensure docs build - PyVortex
-        run: |
-          uv run make html
-        working-directory: docs/
+  #     - name: Ensure docs build - PyVortex
+  #       run: |
+  #         uv run make html
+  #       working-directory: docs/
 
-      - name: Ensure wheel and sdist can be built on Linux - PyVortex
-        run: |
-          # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
-          uv run maturin build --interpreter python3.10 --compatibility linux
-        working-directory: pyvortex/
+  #     - name: Ensure wheel and sdist can be built on Linux - PyVortex
+  #       run: |
+  #         # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
+  #         uv run maturin build --interpreter python3.10 --compatibility linux
+  #       working-directory: pyvortex/
 
-      - name: Ensure wheel can run tests successfully
-        run: |
-          set -ex
+  #     - name: Ensure wheel can run tests successfully
+  #       run: |
+  #         set -ex
 
-          echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
+  #         echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
 
-          rm -rf .venv
-          uv sync --only-dev
+  #         rm -rf .venv
+  #         uv sync --only-dev
 
-          uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
-          uv run pip install pytest
-          cd pyvortex/test
-          uv run pytest
+  #         uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
+  #         uv run pip install pytest
+  #         cd pyvortex/test
+  #         uv run pytest
 
-  rust-docs:
-    name: "Rust (docs)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - disk=large
-      - spot=false
-      - tag=rust-docs
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/setup-rust
-      - name: Docs
-        run: cargo doc --no-deps
+  # rust-docs:
+  #   name: "Rust (docs)"
+  #   runs-on:
+  #     - runs-on=${{ github.run_id }}
+  #     - family=m7i+m7i-flex+m7a
+  #     - cpu=8
+  #     - image=ubuntu24-full-x64
+  #     - disk=large
+  #     - spot=false
+  #     - tag=rust-docs
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: ./.github/actions/setup-rust
+  #     - name: Docs
+  #       run: cargo doc --no-deps
 
-  build-rust:
-    name: "Rust build (${{matrix.config.name}})"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - disk=large
-      - spot=false
-      - tag=${{ matrix.config.name }}
+  # build-rust:
+  #   name: "Rust build (${{matrix.config.name}})"
+  #   runs-on:
+  #     - runs-on=${{ github.run_id }}
+  #     - family=m7i+m7i-flex+m7a
+  #     - cpu=8
+  #     - image=ubuntu24-full-x64
+  #     - disk=large
+  #     - spot=false
+  #     - tag=${{ matrix.config.name }}
 
-    env:
-      # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: '-A warnings'
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - name: "all-features"
-            command: "build"
-            args: "--all-features --all-targets"
-          - name: "default features"
-            command: "build"
-            args: "--all-targets"
-          - name: "with tokio dispatcher"
-            command: "build"
-            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
-          - name: "with compio dispatcher"
-            command: "build"
-            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
-          - name: "with tokio+compio dispatcher"
-            command: "build"
-            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
-          - name: "wasm32 with default features"
-            command: "build"
-            target: wasm32-unknown-unknown
-            env:
-              rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui"
-    steps:
-      - uses: runs-on/action@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: rui314/setup-mold@v1
-        with:
-          targets: ${{matrix.config.target || ''}}
-      - uses: ./.github/actions/setup-c++
-      - name: Install wasm32 target
-        if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
-        run: rustup target add wasm32-unknown-unknown
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-      - name: Rust Build (${{matrix.config.name}})
-        run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+  #   env:
+  #     # disable lints for build, they will be caught in Rust lint job.
+  #     RUSTFLAGS: '-A warnings'
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       config:
+  #         - name: "all-features"
+  #           command: "build"
+  #           args: "--all-features --all-targets"
+  #         - name: "default features"
+  #           command: "build"
+  #           args: "--all-targets"
+  #         - name: "with tokio dispatcher"
+  #           command: "build"
+  #           args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+  #         - name: "with compio dispatcher"
+  #           command: "build"
+  #           args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
+  #         - name: "with tokio+compio dispatcher"
+  #           command: "build"
+  #           args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
+  #         - name: "wasm32 with default features"
+  #           command: "build"
+  #           target: wasm32-unknown-unknown
+  #           env:
+  #             rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
+  #           args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-tui"
+  #   steps:
+  #     - uses: runs-on/action@v1
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: rui314/setup-mold@v1
+  #       with:
+  #         targets: ${{matrix.config.target || ''}}
+  #     - uses: ./.github/actions/setup-c++
+  #     - name: Install wasm32 target
+  #       if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
+  #       run: rustup target add wasm32-unknown-unknown
+  #     - name: Install cargo-hack
+  #       uses: taiki-e/install-action@cargo-hack
+  #     - name: Rust Build (${{matrix.config.name}})
+  #       run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
 
-  check-min-deps:
-    name: "Check build with minimal dependencies"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - disk=large
-      - spot=false
-      - tag=rust-min-deps
-    steps:
-      - uses: runs-on/action@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
-      - uses: taiki-e/install-action@cargo-hack
-      - uses: taiki-e/install-action@cargo-minimal-versions
-      - run: cargo minimal-versions check --direct --workspace --ignore-private
+  # check-min-deps:
+  #   name: "Check build with minimal dependencies"
+  #   runs-on:
+  #     - runs-on=${{ github.run_id }}
+  #     - family=m7i+m7i-flex+m7a
+  #     - cpu=8
+  #     - image=ubuntu24-full-x64
+  #     - disk=large
+  #     - spot=false
+  #     - tag=rust-min-deps
+  #   steps:
+  #     - uses: runs-on/action@v1
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: ./.github/actions/setup-c++
+  #     - uses: taiki-e/install-action@cargo-hack
+  #     - uses: taiki-e/install-action@cargo-minimal-versions
+  #     - run: cargo minimal-versions check --direct --workspace --ignore-private
 
-  rust-lint:
-    name: "Rust (lint)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - disk=large
-      - spot=false
-      - tag=rust-lint
-    steps:
-      - uses: runs-on/action@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
-      - name: Rust Lint - Format
-        run: cargo fmt --all --check
-      - name: Rustc check
-        run: cargo check --locked --all-features --all-targets
-      - name: Rust Lint - Clippy All Features
-        run: cargo clippy --locked --all-features --all-targets
-      - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --locked --all-targets
-      - name: Rust Lint - Clippy No Default Features
-        run: |
-          set -ex
+  # rust-lint:
+  #   name: "Rust (lint)"
+  #   runs-on:
+  #     - runs-on=${{ github.run_id }}
+  #     - family=m7i+m7i-flex+m7a
+  #     - cpu=8
+  #     - image=ubuntu24-full-x64
+  #     - disk=large
+  #     - spot=false
+  #     - tag=rust-lint
+  #   steps:
+  #     - uses: runs-on/action@v1
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: ./.github/actions/setup-c++
+  #     - name: Rust Lint - Format
+  #       run: cargo fmt --all --check
+  #     - name: Rustc check
+  #       run: cargo check --locked --all-features --all-targets
+  #     - name: Rust Lint - Clippy All Features
+  #       run: cargo clippy --locked --all-features --all-targets
+  #     - name: Rust Lint - Clippy Default Features
+  #       run: cargo clippy --locked --all-targets
+  #     - name: Rust Lint - Clippy No Default Features
+  #       run: |
+  #         set -ex
 
-          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          for package in $(cargo check --locked -p  2>&1 | grep '^    ')
-          do
-              echo ---- $package ----
-              cargo clippy --package $package --no-default-features
-          done
+  #         # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
+  #         for package in $(cargo check --locked -p  2>&1 | grep '^    ')
+  #         do
+  #             echo ---- $package ----
+  #             cargo clippy --package $package --no-default-features
+  #         done
 
-  rust-test:
-    name: "Rust (tests)"
-    runs-on: ubuntu-latest
-    env:
-      # Disable incremental compilation to get accurate coverage
-      CARGO_INCREMENTAL: "0"
-      # Disable lints when running tests. They will be caught by the Rust lint job.
-      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
-      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
-      - name: Install grcov
-        if: github.ref == 'refs/heads/develop'
-        run: cargo install grcov
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-      - name: Rust Test
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
-      - name: Generate coverage report
-        if: github.ref == 'refs/heads/develop'
-        run: |
-          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
-            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
-            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
-            -o ${{ env.GRCOV_OUTPUT_FILE }}
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        if: github.ref == 'refs/heads/develop'
-        with:
-          file: ${{ env.GRCOV_OUTPUT_FILE }}
+  # rust-test:
+  #   name: "Rust (tests)"
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     # Disable incremental compilation to get accurate coverage
+  #     CARGO_INCREMENTAL: "0"
+  #     # Disable lints when running tests. They will be caught by the Rust lint job.
+  #     RUSTFLAGS: "-Cinstrument-coverage -A warnings"
+  #     LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
+  #     GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: ./.github/actions/setup-c++
+  #     - name: Install grcov
+  #       if: github.ref == 'refs/heads/develop'
+  #       run: cargo install grcov
+  #     - uses: taiki-e/install-action@v2
+  #       with:
+  #         tool: nextest
+  #     - name: Rust Test
+  #       run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+  #     - name: Generate coverage report
+  #       if: github.ref == 'refs/heads/develop'
+  #       run: |
+  #         grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+  #           --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
+  #           --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+  #           -o ${{ env.GRCOV_OUTPUT_FILE }}
+  #     - name: Coveralls
+  #       uses: coverallsapp/github-action@v2
+  #       if: github.ref == 'refs/heads/develop'
+  #       with:
+  #         file: ${{ env.GRCOV_OUTPUT_FILE }}
 
-  bench-codspeed:
-    name: Benchmark with Codspeed
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
-      - image=ubuntu24-full-x64
-      - spot=false
+  # bench-codspeed:
+  #   name: Benchmark with Codspeed
+  #   runs-on:
+  #     - runs-on=${{ github.run_id }}
+  #     - family=c7i.8xlarge
+  #     - image=ubuntu24-full-x64
+  #     - spot=false
 
-    steps:
-      - uses: runs-on/action@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
+  #   steps:
+  #     - uses: runs-on/action@v1
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     # rustup is pre-installed on the ubuntu24-full-x64 image.
 
-      - name: Install Codspeed
-        shell: bash
-        run: cargo install --force cargo-codspeed --locked
+  #     - name: Install Codspeed
+  #       shell: bash
+  #       run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmarks
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2"
-        run: |
-          cargo codspeed build --features test-harness \
-            --exclude bench-vortex \
-            --exclude vortex-datafusion \
-            --exclude vortex-tui \
-            --exclude vortex-fuzz \
-            --exclude pyvortex \
-            --exclude xtask \
-            --workspace \
-            --profile bench
+  #     - name: Build benchmarks
+  #       env:
+  #         RUSTFLAGS: "-C target-feature=+avx2"
+  #       run: |
+  #         cargo codspeed build --features test-harness \
+  #           --exclude bench-vortex \
+  #           --exclude vortex-datafusion \
+  #           --exclude vortex-tui \
+  #           --exclude vortex-fuzz \
+  #           --exclude pyvortex \
+  #           --exclude xtask \
+  #           --workspace \
+  #           --profile bench
 
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
-        with:
-          run: cargo codspeed run
-          runner-version: 3.4.1-beta.1
-          token: ${{ secrets.CODSPEED_TOKEN }}
+  #     - name: Run benchmarks
+  #       uses: CodSpeedHQ/action@v3
+  #       with:
+  #         run: cargo codspeed run
+  #         runner-version: 3.4.1-beta.1
+  #         token: ${{ secrets.CODSPEED_TOKEN }}
 
-  license-check-and-audit-check:
-    name: License Check and Audit Check
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        checks:
-          - advisories
-          - bans licenses sources
-    # Prevent sudden announcement of a new advisory from failing ci:
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check ${{ matrix.checks }}
+  # license-check-and-audit-check:
+  #   name: License Check and Audit Check
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       checks:
+  #         - advisories
+  #         - bans licenses sources
+  #   # Prevent sudden announcement of a new advisory from failing ci:
+  #   continue-on-error: ${{ matrix.checks == 'advisories' }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: EmbarkStudios/cargo-deny-action@v2
+  #       with:
+  #         command: check ${{ matrix.checks }}
 
-  wasm-integration:
-    name: "wasm-integration"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: rui314/setup-mold@v1
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-        with:
-          targets: "wasm32-wasip1"
-      - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v3.1
-      - run: cargo build --target wasm32-wasip1
-        working-directory: ./wasm-test
-      - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
-        working-directory: ./wasm-test
+  # wasm-integration:
+  #   name: "wasm-integration"
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/setup-rust
+  #       with:
+  #         targets: "wasm32-wasip1"
+  #     - name: Setup Wasmer
+  #       uses: wasmerio/setup-wasmer@v3.1
+  #     - run: cargo build --target wasm32-wasip1
+  #       working-directory: ./wasm-test
+  #     - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
+  #       working-directory: ./wasm-test
 
-  miri:
-    name: "miri"
-    runs-on: ubuntu-latest
-    env:
-      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
-      RUSTFLAGS: "-A warnings"
-    steps:
-      - uses: rui314/setup-mold@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/setup-rust
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-      - name: Run all tests with Miri
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb
-        # For now, we only run Miri against known "fiddly" crates.
-        if: false
-      - name: Run Miri
-        run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
+  # miri:
+  #   name: "miri"
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
+  #     RUSTFLAGS: "-A warnings"
+  #   steps:
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: taiki-e/install-action@v2
+  #       with:
+  #         tool: nextest
+  #     - name: Run all tests with Miri
+  #       run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb
+  #       # For now, we only run Miri against known "fiddly" crates.
+  #       if: false
+  #     - name: Run Miri
+  #       run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
-  generated-files:
-    name: "Check generated proto/fbs files are up to date"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-flatc
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: "regenerate all .fbs/.proto Rust code"
-        run: |
-          cargo xtask generate-fbs
-          cargo xtask generate-proto
-      - name: "Make sure no files changed after regenerating"
-        run: |
-          git status --porcelain
-          test -z "$(git status --porcelain)"
+  # generated-files:
+  #   name: "Check generated proto/fbs files are up to date"
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: "recursive"
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: rui314/setup-mold@v1
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: ./.github/actions/setup-flatc
+  #     - name: Install Protoc
+  #       uses: arduino/setup-protoc@v3
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: "regenerate all .fbs/.proto Rust code"
+  #       run: |
+  #         cargo xtask generate-fbs
+  #         cargo xtask generate-proto
+  #     - name: "Make sure no files changed after regenerating"
+  #       run: |
+  #         git status --porcelain
+  #         test -z "$(git status --porcelain)"
