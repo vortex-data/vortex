@@ -122,7 +122,12 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
 /// Refines the given mask, returning a mask equal in length to the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    /// Returns an approximate refinement of the mask with relatively cheap computation.
+    async fn approximate(&self, mask: Mask) -> VortexResult<Mask> {
+        Ok(mask)
+    }
+
+    async fn exact(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
 /// Evaluates an expression against an array, returning an array equal in length to the true count

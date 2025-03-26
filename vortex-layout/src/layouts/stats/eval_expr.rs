@@ -70,7 +70,7 @@ struct StatsMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for StatsMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
         log::info!("STATS MASK EVAL");
         let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
             // If the expression is not prune-able, we just return the input mask.
@@ -94,7 +94,7 @@ impl MaskEvaluation for StatsMaskEvaluation {
         }
 
         // Otherwise, we delegate to the data child.
-        self.data_eval.invoke(mask).await
+        self.data_eval.exact(mask).await
     }
 }
 

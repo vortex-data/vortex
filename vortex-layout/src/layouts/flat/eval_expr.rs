@@ -54,7 +54,7 @@ struct FlatEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 

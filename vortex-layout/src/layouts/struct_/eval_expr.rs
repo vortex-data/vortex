@@ -86,7 +86,7 @@ struct StructEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for StructEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
         // FIXME(ngates): this isn't the best way to evaluate a mask...
         let field_arrays: Vec<_> = FuturesOrdered::from_iter(
             self.field_evals

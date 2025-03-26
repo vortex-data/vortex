@@ -69,7 +69,7 @@ struct ChunkedMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
         // Split the mask over each chunk.
         let masks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
@@ -81,7 +81,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
                     } else {
-                        chunk_eval.invoke(mask).boxed()
+                        chunk_eval.exact(mask).boxed()
                     }
                 }),
         )

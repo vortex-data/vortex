@@ -266,7 +266,7 @@ impl Scan {
                     }
 
                     if let Some(filter_eval) = filter_eval {
-                        mask = filter_eval.invoke(mask).await?;
+                        mask = filter_eval.exact(mask).await?;
                     }
                     if mask.all_false() {
                         return Ok(None);
