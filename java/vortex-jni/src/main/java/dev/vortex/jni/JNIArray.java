@@ -16,7 +16,6 @@
 package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
-import com.jakewharton.nopen.annotation.Open;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
 import java.util.OptionalLong;
@@ -27,8 +26,7 @@ import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-@Open
-public class JNIArray implements Array {
+public final class JNIArray implements Array {
     static {
         NativeLoader.loadJni();
     }

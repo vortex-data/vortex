@@ -10,7 +10,6 @@ plugins {
 
 dependencies {
     implementation("org.apache.arrow:arrow-c-data")
-    // Can this be compile-only perhaps?
     implementation("org.apache.arrow:arrow-memory-core")
     implementation("org.apache.arrow:arrow-memory-netty")
 
@@ -24,10 +23,6 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
-
-    // Need an allocationmanager installed for tests that don't use Spark
-    testImplementation("org.apache.arrow:arrow-memory-netty")
-    testImplementation("org.apache.arrow:arrow-memory-core")
 }
 
 testing {
@@ -58,14 +53,14 @@ tasks.withType<ShadowJar> {
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
-        exclude("org.apache.arrow.vector.*")
+        // exclude("org.apache.arrow.vector.**")
         // exclude C Data Interface since JNI cannot be relocated
         exclude("org.apache.arrow.c.jni.JniWrapper")
         exclude("org.apache.arrow.c.jni.PrivateData")
         exclude("org.apache.arrow.c.jni.CDataJniException")
         // Also used by JNI: https://github.com/apache/arrow/blob/apache-arrow-11.0.0/java/c/src/main/cpp/jni_wrapper.cc#L341
         // Note this class is not used by us, but required when loading the native lib
-        exclude("org.apache.arrow.c.jni.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
+        exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
     }
 }
 
