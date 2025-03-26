@@ -41,6 +41,8 @@ pub struct PartitionedExpr {
     pub partitions: Box<[ExprRef]>,
     /// The field names for the partitions
     pub partition_names: FieldNames,
+    /// The return DTypes of each partition.
+    pub partition_dtypes: Box<[DType]>,
 }
 
 impl Display for PartitionedExpr {
@@ -105,6 +107,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         // Create partitions which can be passed to layout fields
         let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
         let mut partition_names = Vec::with_capacity(splitter.sub_expressions.len());
+        let mut partition_dtypes = Vec::with_capacity(splitter.sub_expressions.len());
         for (name, exprs) in splitter.sub_expressions.into_iter() {
             let field_dtype = scope_dtype.field(&name)?;
             // If there is a single expr then we don't need to `pack` this, and we must update
@@ -121,8 +124,12 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 )
             };
 
-            partitions.push(simplify_typed(expr, &field_dtype)?);
+            let expr = simplify_typed(expr.clone(), &field_dtype)?;
+            let expr_dtype = expr.return_dtype(&field_dtype)?;
+
+            partitions.push(expr);
             partition_names.push(name);
+            partition_dtypes.push(expr_dtype);
         }
 
         let expression_access_counts = field_accesses.get(&expr).map(|ac| ac.len());
@@ -140,6 +147,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             root: simplify_typed(split.result, dtype)?,
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
+            partition_dtypes: partition_dtypes.into_boxed_slice(),
         })
     }
 }

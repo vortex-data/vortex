@@ -70,8 +70,7 @@ struct StatsMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for StatsMaskEvaluation {
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
-        log::info!("STATS MASK EVAL");
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
         let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
             // If the expression is not prune-able, we just return the input mask.
             return Ok(mask);
@@ -86,15 +85,11 @@ impl MaskEvaluation for StatsMaskEvaluation {
         assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
         // Intersect the masks.
-        let mask = mask.bitand(&stats_mask);
+        Ok(mask.bitand(&stats_mask))
+    }
 
-        if mask.all_false() {
-            // If the mask is all false, we can short-circuit the evaluation.
-            return Ok(mask);
-        }
-
-        // Otherwise, we delegate to the data child.
-        self.data_eval.exact(mask).await
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        self.data_eval.invoke(mask).await
     }
 }
 

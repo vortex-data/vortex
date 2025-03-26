@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, RowMask};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, MaskEvaluation, RowMask};
 
 impl ExprEvaluator for ChunkedReader {
     fn filter_evaluation(
@@ -33,6 +33,7 @@ impl ExprEvaluator for ChunkedReader {
         }
 
         Ok(Box::new(ChunkedMaskEvaluation {
+            layout: self.layout().clone(),
             chunk_evals,
             mask_ranges,
         }))
@@ -63,13 +64,20 @@ impl ExprEvaluator for ChunkedReader {
 }
 
 struct ChunkedMaskEvaluation {
+    layout: Layout,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
-#[async_trait]
-impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
+impl ChunkedMaskEvaluation {
+    async fn invoke_on_child(&self, mask: Mask, approximate: bool) -> VortexResult<Mask> {
+        log::debug!(
+            "Chunked mask evaluation {} approx={} (mask = {})",
+            self.layout.name(),
+            approximate,
+            mask.density()
+        );
+
         // Split the mask over each chunk.
         let masks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
@@ -81,7 +89,11 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
                     } else {
-                        chunk_eval.exact(mask).boxed()
+                        if approximate {
+                            chunk_eval.invoke_approx(mask).boxed()
+                        } else {
+                            chunk_eval.invoke(mask).boxed()
+                        }
                     }
                 }),
         )
@@ -90,6 +102,17 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
 
         // Combine the masks.
         Ok(Mask::from_iter(masks))
+    }
+}
+
+#[async_trait]
+impl MaskEvaluation for ChunkedMaskEvaluation {
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
+        self.invoke_on_child(mask, true).await
+    }
+
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        self.invoke_on_child(mask, false).await
     }
 }
 

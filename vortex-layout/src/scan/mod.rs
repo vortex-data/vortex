@@ -266,10 +266,17 @@ impl Scan {
                     }
 
                     if let Some(filter_eval) = filter_eval {
-                        mask = filter_eval.exact(mask).await?;
-                    }
-                    if mask.all_false() {
-                        return Ok(None);
+                        // First, we run an approximate evaluation to prune the row range.
+                        mask = filter_eval.invoke_approx(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
+
+                        // Then, we run the full evaluation.
+                        mask = filter_eval.invoke(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
                     }
 
                     let mut array = project_eval.invoke(mask).await?;

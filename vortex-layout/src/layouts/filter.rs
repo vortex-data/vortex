@@ -187,7 +187,23 @@ struct FilterEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for FilterEvaluation {
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
+        let mut mask = mask;
+
+        for conjunct in self.conjunct_evals.iter() {
+            if mask.all_false() {
+                // If the mask is all false, we can short-circuit the evaluation.
+                return Ok(mask);
+            }
+
+            let conjunct_mask = conjunct.invoke_approx(mask.clone()).await?;
+            mask = mask.bitand(&conjunct_mask);
+        }
+
+        Ok(mask)
+    }
+
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         let mut remaining = BitVec::from_elem(self.conjunct_evals.len(), true);
         let mut mask = mask;
 
@@ -200,7 +216,7 @@ impl MaskEvaluation for FilterEvaluation {
                 return Ok(mask);
             }
 
-            let conjunct_mask = self.conjunct_evals[idx].exact(mask.clone()).await?;
+            let conjunct_mask = self.conjunct_evals[idx].invoke(mask.clone()).await?;
 
             // TODO(ngates): what stats do we even report? We could invoke the conjunct using an
             //  all true mask in order to get a true selectivity estimate, because computing

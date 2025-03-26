@@ -8,7 +8,7 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::{FlatReader, SharedArray};
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
@@ -23,6 +23,7 @@ impl ExprEvaluator for FlatReader {
                 .vortex_expect("RowMask end must fit within FlatLayout size");
 
         Ok(Box::new(FlatEvaluation {
+            layout: self.layout().clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -39,6 +40,7 @@ impl ExprEvaluator for FlatReader {
             ..usize::try_from(row_range.end)
                 .vortex_expect("RowMask end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
+            layout: self.layout().clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -47,6 +49,7 @@ impl ExprEvaluator for FlatReader {
 }
 
 struct FlatEvaluation {
+    layout: Layout,
     array: SharedArray,
     row_range: Range<usize>,
     expr: ExprRef,
@@ -54,7 +57,16 @@ struct FlatEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for FlatEvaluation {
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
+        // Nothing we can do really, possibly use statistics?
+        Ok(mask)
+    }
+
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
+        //  (as often happens with zone map pruning), then we could slice/filter the array prior
+        //  to evaluating the expression.
+
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
@@ -81,13 +93,30 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = Mask::try_from(array.as_ref())?;
 
         // Intersect the mask with the input mask.
-        Ok(mask.bitand(&array_mask))
+        let array_mask = mask.bitand(&array_mask);
+
+        log::debug!(
+            "Flat mask evaluation {} - {} (mask = {}) => {}",
+            self.layout.name(),
+            self.expr,
+            mask.density(),
+            array_mask.density(),
+        );
+
+        Ok(array_mask)
     }
 }
 
 #[async_trait]
 impl ArrayEvaluation for FlatEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        log::debug!(
+            "Flat array evaluation {} - {} (mask = {})",
+            self.layout.name(),
+            self.expr,
+            mask.density(),
+        );
+
         // Now we await the array .
         let mut array = self.array.clone().await?;
 

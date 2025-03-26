@@ -7,14 +7,15 @@ use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
-use vortex_error::VortexResult;
+use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_dtype::DType;
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -40,10 +41,24 @@ impl ExprEvaluator for StructReader {
             .partition_names
             .iter()
             .zip_eq(partitioned.partitions.iter())
-            .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
+            .zip_eq(partitioned.partition_dtypes.iter())
+            .map(|((name, expr), dtype)| {
+                let reader = self.child(name)?;
+                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(_)) {
+                    // If the partition evaluates to a boolean, we can evaluate it as a mask which
+                    // can often be more efficient since nulls are turned into `false` early on,
+                    // and layouts can perform predicate pruning / indexing.
+                    FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
+                } else {
+                    // Otherwise, we evaluate the projection as an array, and combine the results
+                    // at the end.
+                    FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
+                })
+            })
             .try_collect()?;
 
-        Ok(Box::new(StructEvaluation {
+        Ok(Box::new(StructMaskEvaluation {
+            layout: self.layout().clone(),
             partitioned,
             field_evals,
         }))
@@ -72,27 +87,45 @@ impl ExprEvaluator for StructReader {
             .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
             .try_collect()?;
 
-        Ok(Box::new(StructEvaluation {
+        Ok(Box::new(StructArrayEvaluation {
+            layout: self.layout().clone(),
             partitioned,
             field_evals,
         }))
     }
 }
 
-struct StructEvaluation {
+struct StructMaskEvaluation {
+    layout: Layout,
     partitioned: Arc<PartitionedExpr>,
-    field_evals: Vec<Box<dyn ArrayEvaluation>>,
+    field_evals: Vec<FieldEval>,
+}
+
+enum FieldEval {
+    Mask(Box<dyn MaskEvaluation>),
+    Array(Box<dyn ArrayEvaluation>),
 }
 
 #[async_trait]
-impl MaskEvaluation for StructEvaluation {
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask> {
-        // FIXME(ngates): this isn't the best way to evaluate a mask...
-        let field_arrays: Vec<_> = FuturesOrdered::from_iter(
-            self.field_evals
-                .iter()
-                .map(|eval| eval.invoke(Mask::new_true(mask.len()))),
-        )
+impl MaskEvaluation for StructMaskEvaluation {
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
+        // TODO(ngates): if all struct partitions are mask evaluations, we should be able to
+        //   perform an approximate result. But for now, most conjuncts split out by the
+        //   FilterLayoutReader operate over a single column, so we don't yet hit this case.
+        Ok(mask)
+    }
+
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
+        let field_arrays: Vec<_> = FuturesOrdered::from_iter(self.field_evals.iter().map(|eval| {
+            let mask = mask.clone();
+            async move {
+                match eval {
+                    FieldEval::Mask(eval) => Ok(eval.invoke(mask.clone()).await?.into_array()),
+                    FieldEval::Array(eval) => eval.invoke(Mask::new_true(mask.len())).await,
+                }
+            }
+        }))
         .try_collect()
         .await?;
 
@@ -113,9 +146,22 @@ impl MaskEvaluation for StructEvaluation {
     }
 }
 
+struct StructArrayEvaluation {
+    layout: Layout,
+    partitioned: Arc<PartitionedExpr>,
+    field_evals: Vec<Box<dyn ArrayEvaluation>>,
+}
+
 #[async_trait]
-impl ArrayEvaluation for StructEvaluation {
+impl ArrayEvaluation for StructArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        log::debug!(
+            "Struct array evaluation {} - {} (mask = {})",
+            self.layout.name(),
+            self.partitioned,
+            mask.density()
+        );
+
         let field_arrays: Vec<_> = FuturesOrdered::from_iter(
             self.field_evals
                 .iter()

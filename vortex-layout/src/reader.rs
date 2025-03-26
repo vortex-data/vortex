@@ -123,11 +123,9 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
     /// Returns an approximate refinement of the mask with relatively cheap computation.
-    async fn approximate(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
-    }
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask>;
 
-    async fn exact(&self, mask: Mask) -> VortexResult<Mask>;
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
 /// Evaluates an expression against an array, returning an array equal in length to the true count
