@@ -76,7 +76,7 @@ where
             // array, hence != to all values in the encoded array.
             Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
             Operator::Gt | Operator::Gte => {
-                // Per IEEE 754 totalOrder semantics the ordering is -Nan < - Inf < Inf < Nan.
+                // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
                 let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
                 if is_not_finite {
@@ -95,7 +95,7 @@ where
                 }
             }
             Operator::Lt | Operator::Lte => {
-                // Per IEEE 754 totalOrder semantics the ordering is -Nan < - Inf < Inf < Nan.
+                // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
                 let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
                 if is_not_finite {
