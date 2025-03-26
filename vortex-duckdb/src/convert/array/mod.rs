@@ -6,8 +6,8 @@ use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
 use vortex_array::arrays::StructArray;
-use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
-use vortex_array::compute::try_cast;
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::compute::{take, to_arrow_preferred, try_cast};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
@@ -17,6 +17,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::PType::U32;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::convert::array::data_chunk_adaptor::{
     DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
 };
@@ -38,19 +39,27 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
             .vortex_expect("dict id checked")
             .to_duckdb(chunk)
     } else {
-        array.into_arrow_preferred()?.to_duckdb(chunk)
+        to_arrow_preferred(&array)?.to_duckdb(chunk)
     }
 }
 
 impl ToDuckDB for DictArray {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
-        to_duckdb(self.values().clone(), chunk)?;
-        let indices =
-            try_cast(self.codes(), &DType::Primitive(U32, NonNullable))?.to_primitive()?;
-        let indices = indices.as_slice::<u32>();
-        let sel = SelectionVector::new_copy(indices);
-        chunk.flat_vector().slice(sel);
-        Ok(())
+        // If the values fit into a single vector, we can efficiently delay the take operation.
+        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE {
+            to_duckdb(self.values().clone(), chunk)?;
+            let indices =
+                try_cast(self.codes(), &DType::Primitive(U32, NonNullable))?.to_primitive()?;
+            let indices = indices.as_slice::<u32>();
+            let sel = SelectionVector::new_copy(indices);
+            chunk.flat_vector().slice(sel);
+            Ok(())
+        } else {
+            // TODO(joe): can we do value compression and avoid a take.
+            // If the ratio of values to code is low, aka few values to many codes.
+            let values = take(self.values(), self.codes())?;
+            to_duckdb(values, chunk)
+        }
     }
 }
 
@@ -70,7 +79,7 @@ pub fn to_duckdb_chunk(
 impl ToDuckDB for ArrowArrayRef {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
         write_arrow_array_to_vector(self, chunk)
-            .map_err(|e| vortex_err!("Failed to convert vrotex duckdb array: {}", e.to_string()))
+            .map_err(|e| vortex_err!("Failed to convert vortex duckdb array: {}", e.to_string()))
     }
 }
 

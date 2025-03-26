@@ -43,6 +43,8 @@ struct VortexBindData : public TableFunctionData {
 		result->file_name = file_name;
 		result->columns_types = columns_types;
 		result->column_names = column_names;
+		result->num_columns = num_columns;
+		result->file = file;
 		return std::move(result);
 	}
 };
@@ -51,9 +53,9 @@ struct VortexBindData : public TableFunctionData {
 /// operation. In DuckDB's execution model, a query reading from a file can be
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct VortexScanLocalState : public LocalTableFunctionState {
-	idx_t current_row = 0;
-	bool finished = false;
-	mutable Array *array;
+	idx_t current_row;
+	bool finished;
+	Array *array;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
@@ -109,10 +111,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 
 		if (global_state.array_stream == nullptr) {
-			auto column_names = std::vector<char *>();
+			auto column_names = std::vector<char const *>();
 			for (auto col_id : global_state.projection_ids) {
 				assert(col_id < bind_data.column_names.size());
-				column_names.push_back(const_cast<char *>(bind_data.column_names[col_id].c_str()));
+				column_names.push_back(bind_data.column_names[col_id].c_str());
 			}
 
 			auto str = create_filter_expression(bind_data, global_state);

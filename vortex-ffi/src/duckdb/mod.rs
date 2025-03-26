@@ -7,13 +7,9 @@ use vortex::compute::slice;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::{Array, ToCanonical};
-use vortex_duckdb::{ToDuckDBType, to_duckdb_chunk};
+use vortex_duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
-
-/// This is the default chunk size for duckdb.
-/// It is best to return data chunks of this size to duckdb.
-const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
