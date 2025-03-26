@@ -6,6 +6,7 @@ description = "a small but might tool for working with Vortex files"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
+publish = false
 keywords = { workspace = true }
 license = { workspace = true }
 readme = { workspace = true }
