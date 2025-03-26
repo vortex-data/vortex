@@ -6,7 +6,6 @@ use duckdb::core::{DataChunkHandle, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
-use itertools::Itertools;
 use vortex_array::arrays::{
     ChunkedArray, ChunkedEncoding, StructArray, VarBinViewArray, VarBinViewEncoding,
 };
@@ -37,16 +36,11 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
         chunk.flat_vector().assign_to_constant(&value);
         Ok(())
     } else if array.is_encoding(ChunkedEncoding.id()) {
-        let arr_chunk = array
+        array
             .as_any()
             .downcast_ref::<ChunkedArray>()
-            .vortex_expect("chunk checked");
-        // TODO(joe): support multi-chunk arrays without canonical.
-        if arr_chunk.chunks().len() > 1 {
-            to_duckdb(to_arrow_preferred(array), chunk)
-        } else {
-            to_duckdb(arr_chunk.chunks()[0].clone(), chunk)
-        }
+            .vortex_expect("chunk checked")
+            .to_duckdb(chunk)
     } else if array.is_encoding(VarBinViewEncoding.id()) {
         array
             .as_any()
@@ -61,6 +55,17 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
             .to_duckdb(chunk)
     } else {
         to_arrow_preferred(&array)?.to_duckdb(chunk)
+    }
+}
+
+impl ToDuckDB for ChunkedArray {
+    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+        // TODO(joe): support multi-chunk arrays without canonical.
+        if self.chunks().len() > 1 {
+            to_arrow_preferred(self)?.to_duckdb(chunk)
+        } else {
+            to_duckdb(self.chunks()[0].clone(), chunk)
+        }
     }
 }
 

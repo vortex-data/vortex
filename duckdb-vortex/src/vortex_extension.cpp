@@ -14,10 +14,6 @@
 #include "expr/expr.hpp"
 #include "rust_vector_buffer.hpp"
 
-extern "C" {
-const char *vortex_duckdb_hello();
-}
-
 #ifndef DUCKDB_EXTENSION_MAIN
 #error DUCKDB_EXTENSION_MAIN not defined
 #endif
@@ -72,7 +68,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
-		return 1;
+		return 99999;
 	}
 };
 

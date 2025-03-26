@@ -7,6 +7,7 @@ extern "C" {
 typedef struct FFIDuckDBBuffer FFIDuckDBBuffer;
 
 void FFIDuckDBBuffer_free(FFIDuckDBBuffer *);
+
 }
 
 class RustVectorBuffer : public duckdb::VectorBuffer {
@@ -22,6 +23,8 @@ private:
 	FFIDuckDBBuffer *wrapper;
 };
 
+// These structs and functions are used the wrap a buffer in C++.
+// See convert/array/varbinview::to_duckdb for more
 extern "C" {
 
 typedef struct {
@@ -31,13 +34,8 @@ typedef struct {
 typedef struct {
 	duckdb::buffer_ptr<RustVectorBuffer> buffer;
 } CppVectorBufferInternal;
-
 CppVectorBuffer *NewCppVectorBuffer(FFIDuckDBBuffer *buffer);
 
 void AssignBufferToVec(duckdb_vector vec, CppVectorBuffer *buffer);
-}
 
-// rust have buffer BufferFFI {arc: Arc<Buffer>}, decrement_arc_ptr(ptr);
-//  let buffer = create_wrapper_buffer(ptr *mut BufferFFI) from c
-//  vector.assign_buffer(buffer)  <------ c. duckdb_assign_string_buffer(buffer)
-//
+}
