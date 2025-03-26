@@ -53,9 +53,9 @@ struct VortexBindData : public TableFunctionData {
 /// operation. In DuckDB's execution model, a query reading from a file can be
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct VortexScanLocalState : public LocalTableFunctionState {
-	idx_t current_row = 0;
-	bool finished = false;
-	Array *array = nullptr;
+	idx_t current_row;
+	bool finished;
+	Array *array;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
