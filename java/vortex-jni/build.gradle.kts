@@ -10,7 +10,8 @@ plugins {
 
 dependencies {
     api("org.apache.arrow:arrow-c-data")
-    implementation("org.apache.arrow:arrow-memory")
+
+    compileOnly("org.apache.arrow:arrow-memory-core")
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -23,7 +24,8 @@ dependencies {
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 
     // Need an allocationmanager installed for tests that don't use Spark
-    testRuntimeOnly("org.apache.arrow:arrow-memory-netty")
+    testImplementation("org.apache.arrow:arrow-memory-netty")
+    testImplementation("org.apache.arrow:arrow-memory-core")
 }
 
 testing {
