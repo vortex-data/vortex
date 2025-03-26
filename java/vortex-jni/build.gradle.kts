@@ -9,9 +9,11 @@ plugins {
 }
 
 dependencies {
-    api("org.apache.arrow:arrow-c-data")
+    implementation("org.apache.arrow:arrow-c-data")
+    // Can this be compile-only perhaps?
+    implementation("org.apache.arrow:arrow-memory-core")
+    implementation("org.apache.arrow:arrow-memory-netty")
 
-    compileOnly("org.apache.arrow:arrow-memory-core")
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -55,6 +57,16 @@ tasks.withType<ShadowJar> {
     archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
+    relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
+        exclude("org.apache.arrow.vector.*")
+        // exclude C Data Interface since JNI cannot be relocated
+        exclude("org.apache.arrow.c.jni.JniWrapper")
+        exclude("org.apache.arrow.c.jni.PrivateData")
+        exclude("org.apache.arrow.c.jni.CDataJniException")
+        // Also used by JNI: https://github.com/apache/arrow/blob/apache-arrow-11.0.0/java/c/src/main/cpp/jni_wrapper.cc#L341
+        // Note this class is not used by us, but required when loading the native lib
+        exclude("org.apache.arrow.c.jni.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
+    }
 }
 
 tasks.build {

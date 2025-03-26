@@ -16,8 +16,8 @@
 package dev.vortex.spark.read;
 
 import dev.vortex.api.Array;
+import dev.vortex.arrow.ArrowAllocation;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.spark.sql.util.ArrowUtils;
 import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -37,7 +37,7 @@ public final class VortexColumnarBatch extends ColumnarBatch {
      * Create a new columnar batch backed by the fields of a Vortex array.
      */
     public static ColumnarBatch fromVortex(Array vortex) {
-        VectorSchemaRoot root = vortex.exportToArrow(ArrowUtils.rootAllocator());
+        VectorSchemaRoot root = vortex.exportToArrow(ArrowAllocation.rootAllocator());
         int rowCount = root.getRowCount();
         ColumnVector[] vectors = new ColumnVector[root.getFieldVectors().size()];
         for (int i = 0; i < root.getFieldVectors().size(); i++) {
