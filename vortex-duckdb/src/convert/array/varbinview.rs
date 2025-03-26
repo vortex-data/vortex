@@ -49,15 +49,15 @@ pub struct PtrRef {
     ptr: *const c_char,
 }
 
-fn binary_view_to_ptr_binary_view(
-    view: impl Iterator<Item = BinaryView>,
+fn binary_view_to_ptr_binary_view<'a>(
+    view: impl Iterator<Item = &'a BinaryView>,
     buffers: &[ByteBuffer],
-    used_buffers: &mut Vec<bool>,
+    used_buffers: &mut [bool],
 ) -> Vec<PtrBinaryView> {
     view.map(|v| {
         if v.is_inlined() {
             PtrBinaryView {
-                inlined: v.as_inlined().clone(),
+                inlined: *v.as_inlined(),
             }
         } else {
             let view = v.as_view();
@@ -65,7 +65,7 @@ fn binary_view_to_ptr_binary_view(
             PtrBinaryView {
                 _ref: PtrRef {
                     size: v.len(),
-                    prefix: view.prefix().clone(),
+                    prefix: *view.prefix(),
                     // TODO(joe) verify this.
                     ptr: unsafe {
                         buffers[view.buffer_index() as usize]
@@ -85,20 +85,18 @@ impl ToDuckDB for VarBinViewArray {
         let buffers = self.buffers();
         let mut buffer_used = vec![false; buffers.len()];
 
-        let views: Vec<PtrBinaryView> =
-            binary_view_to_ptr_binary_view(self.views().iter(), buffers, &mut buffer_used);
+        let views: Vec<PtrBinaryView> = binary_view_to_ptr_binary_view(
+            self.views().iter(),
+            buffers,
+            buffer_used.as_mut_slice(),
+        );
 
         let vec = chunk.flat_vector();
         buffers
             .iter()
             .enumerate()
-            .filter_map(|(idx, buf)| {
-                if buffer_used[idx] {
-                    Some(buf.clone())
-                } else {
-                    None
-                }
-            })
+            .filter(|&(idx, _buf)| buffer_used[idx])
+            .map(|(_idx, buf)| buf.clone())
             .for_each(|b| {
                 // Each buffer is wrapped with a C++ VectorBuffer wrapper which will
                 // in turn call `FFIDuckDBBuffer_free` when it is cleaned up in C++ land.

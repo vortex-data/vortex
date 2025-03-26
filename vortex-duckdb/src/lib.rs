@@ -22,7 +22,9 @@ mod tests {
 
     #[test]
     fn assert_duckdb_vector_size_matches() {
-        assert_eq!(DUCKDB_STANDARD_VECTOR_SIZE, unsafe { duckdb_vector_size() }
-            as usize);
+        assert_eq!(
+            Ok(DUCKDB_STANDARD_VECTOR_SIZE),
+            usize::try_from(unsafe { duckdb_vector_size() })
+        );
     }
 }
