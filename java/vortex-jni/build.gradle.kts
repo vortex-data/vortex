@@ -53,7 +53,6 @@ tasks.withType<ShadowJar> {
     archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
-    relocate("org.apache.arrow.c", "dev.vortex.relocated.org.apache.arrow.c")
 }
 
 tasks.build {
