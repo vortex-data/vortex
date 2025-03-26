@@ -110,46 +110,10 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
 
 struct PreviousCompression {
     chunk: ArrayRef,
-    past_ratios: Vec<f64>,
+    ratio: f64,
 }
 
-impl PreviousCompression {
-    fn new(chunk: ArrayRef, first_measurement: f64) -> Self {
-        Self {
-            chunk,
-            past_ratios: vec![first_measurement],
-        }
-    }
-    fn mean(&self) -> f64 {
-        self.past_ratios.iter().sum::<f64>() / self.past_ratios.len() as f64
-    }
-
-    fn std_deviation(&self) -> f64 {
-        let mean = self.mean();
-        let count = self.past_ratios.len() as f64;
-        let variance = self
-            .past_ratios
-            .iter()
-            .map(|v| (mean - *v).powi(2))
-            .sum::<f64>()
-            / count;
-
-        variance.sqrt()
-    }
-
-    fn z_score(&self, measurement: f64) -> f64 {
-        let mean = self.mean();
-        let std_deviation = self.std_deviation();
-
-        (measurement - mean) / std_deviation
-    }
-
-    fn add_measurement(&mut self, measurement: f64) {
-        self.past_ratios.push(measurement);
-    }
-}
-
-const STD_DEV_THRESHOLD: f64 = 2.0;
+const COMPRESSION_DRIFT_THRESHOLD: f64 = 1.2;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
 /// compressed chunk as a hint for the next.
@@ -172,7 +136,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             Some(ConstantArray::new(constant, chunk.len()).into_array())
         }
         // If we have information about the data from the previous chunk
-        else if let Some(prev_compression) = self.previous_chunk.as_mut() {
+        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
             let canonical_chunk = chunk.to_canonical()?;
 
@@ -184,14 +148,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
 
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
-                if prev_compression.z_score(ratio) < STD_DEV_THRESHOLD {
-                    prev_compression.add_measurement(ratio);
+                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
                         "Compressed to a ratio of {ratio}, which is above the threshold of {}",
-                        prev_compression.mean()
-                            + (prev_compression.std_deviation() * STD_DEV_THRESHOLD)
+                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
                 }
@@ -209,10 +171,10 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
                 let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
-                self.previous_chunk = Some(PreviousCompression::new(
-                    compressed.clone(),
-                    compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
-                ));
+                self.previous_chunk = Some(PreviousCompression {
+                    chunk: compressed.clone(),
+                    ratio: compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
+                });
                 compressed
             }
         };

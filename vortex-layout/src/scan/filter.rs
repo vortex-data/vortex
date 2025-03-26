@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::ArrayRef;
 use vortex_dtype::{FieldName, StructDType};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
 use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::{ExprRef, get_item, ident};
@@ -158,8 +158,8 @@ impl FilterExpr {
                 histogram
                     .read()
                     .quantile(self.selectivity_quantile)
-                    .ok() // Placeholder fo a second
-                    .vortex_expect("Quantile should always be in (0, 1)")
+                    .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
+                    .vortex_unwrap()
                     // If the sketch is empty, its selectivity is 0.
                     .unwrap_or_default()
             })
