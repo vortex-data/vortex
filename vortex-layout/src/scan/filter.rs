@@ -158,7 +158,8 @@ impl FilterExpr {
                 histogram
                     .read()
                     .quantile(self.selectivity_quantile)
-                    .expect("Quantile should always be in (0, 1)")
+                    .ok() // Placeholder fo a second
+                    .vortex_expect("Quantile should always be in (0, 1)")
                     // If the sketch is empty, its selectivity is 0.
                     .unwrap_or_default()
             })
