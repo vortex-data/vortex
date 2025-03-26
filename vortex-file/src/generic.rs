@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,7 +8,7 @@ use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
+use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::{Counter, VortexMetrics};
 
@@ -21,14 +20,20 @@ use crate::{FileType, VortexFile, VortexOpenOptions};
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
-pub struct GenericVortexFile<R>(PhantomData<R>);
+///
+/// FIXME(ngates): rename to TokioVortexFile
+pub struct GenericVortexFile;
 
-impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
+impl FileType for GenericVortexFile {
+    type Options = GenericFileOptions;
+}
+
+impl VortexOpenOptions<GenericVortexFile> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     /// Open a file using the provided [`VortexReadAt`] implementation.
-    pub fn file(read: R) -> Self {
-        Self::new(read, Default::default())
+    pub fn file() -> Self {
+        Self::new(Default::default())
             .with_segment_cache(Arc::new(InMemorySegmentCache::new(
                 // For now, use a fixed 1GB overhead.
                 CacheBuilder::new(1 << 30),
@@ -40,62 +45,55 @@ impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
         self.options.io_concurrency = io_concurrency;
         self
     }
-}
 
-impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
-    type Options = GenericScanOptions;
-    type Read = R;
+    pub async fn open<R: VortexReadAt + Send>(
+        self,
+        mut read: R,
+    ) -> VortexResult<(VortexFile, impl Future<Output = VortexResult<()>>)> {
+        let footer = self.read_footer(&mut read).await?;
 
-    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
-        let (segment_queue, segment_reader) = SegmentQueue::new(options.metrics.clone());
+        let (segment_queue, segment_reader) = SegmentQueue::new(self.metrics.clone());
 
         // Spawn an I/O driver to serve requests while this file is open.
         let driver = GenericScanDriver {
-            read: options.read,
+            read,
             footer: footer.clone(),
-            segment_cache: options.segment_cache,
+            segment_cache: self.segment_cache,
             segment_queue,
-            metrics: options.metrics.clone(),
+            metrics: self.metrics.clone(),
         };
 
-        // When this wakes, does it cause the CPU tasks to wake too? Surely not... only when
-        // the segment is resolved.
-        options.options.io_dispatcher.dispatch(move || async move {
+        let driver_fut = async move {
             let io_stream = driver
                 .io_driver()
-                .buffer_unordered(options.options.io_concurrency);
-
+                .buffer_unordered(self.options.io_concurrency);
             pin_mut!(io_stream);
             while let Some(r) = io_stream.next().await {
-                if r.is_err() {
-                    log::error!("GenericVortexFile SegmentQueue IO driver failed: {:?}", r);
-                }
+                let _ = r?;
             }
-        })?;
+            Ok(())
+        };
 
-        Ok(VortexFile {
+        let vxf = VortexFile {
             footer,
             segment_reader,
-            metrics: options.metrics,
-        })
+            metrics: self.metrics,
+        };
+
+        Ok((vxf, driver_fut))
     }
 }
 
 #[derive(Clone)]
-pub struct GenericScanOptions {
+pub struct GenericFileOptions {
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
-    /// The dispatcher pool used to perform I/O.
-    io_dispatcher: IoDispatcher,
 }
 
-impl Default for GenericScanOptions {
+impl Default for GenericFileOptions {
     fn default() -> Self {
-        Self {
-            io_concurrency: 10,
-            io_dispatcher: IoDispatcher::default(),
-        }
+        Self { io_concurrency: 10 }
     }
 }
 

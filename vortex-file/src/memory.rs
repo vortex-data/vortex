@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::executor::block_on;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
@@ -14,25 +15,24 @@ use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 /// zero-copy slicing the segments from the buffer.
 pub struct InMemoryVortexFile;
 
-impl VortexOpenOptions<InMemoryVortexFile> {
-    /// Open an in-memory file contained in the provided buffer.
-    pub fn in_memory<B: Into<ByteBuffer>>(buffer: B) -> Self {
-        Self::new(buffer.into(), ())
-    }
-}
-
 impl FileType for InMemoryVortexFile {
     type Options = ();
-    type Read = ByteBuffer;
+}
 
-    fn open(options: VortexOpenOptions<Self>, footer: Footer) -> VortexResult<VortexFile> {
+impl VortexOpenOptions<InMemoryVortexFile> {
+    /// Open an in-memory file contained in the provided buffer.
+    pub fn in_memory() -> Self {
+        Self::new(())
+    }
+
+    /// Open an in-memory file contained in the provided buffer.
+    pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+        let buffer = buffer.into();
+        let footer = block_on(self.read_footer(&buffer))?;
         Ok(VortexFile {
             footer: footer.clone(),
-            segment_reader: Arc::new(InMemorySegmentReader {
-                buffer: options.read,
-                footer,
-            }),
-            metrics: options.metrics,
+            segment_reader: Arc::new(InMemorySegmentReader { buffer, footer }),
+            metrics: self.metrics,
         })
     }
 }

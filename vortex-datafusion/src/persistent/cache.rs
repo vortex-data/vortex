@@ -92,20 +92,20 @@ impl FooterCache {
                 let vxf = if let Some(file) =
                     ObjectStoreReadAt::maybe_file(&object_store, &object.location).await
                 {
-                    VortexOpenOptions::file(TokioFile::new(file))
+                    VortexOpenOptions::file()
                         .with_array_registry(self.array_registry.clone())
                         .with_layout_registry(self.layout_registry.clone())
                         .with_file_size(object.size as u64)
-                        .open()
+                        .open(TokioFile::new(file))
                         .await?
                 } else {
                     let os_read_at =
                         ObjectStoreReadAt::new(object_store, object.location.clone(), None);
-                    VortexOpenOptions::file(os_read_at)
+                    VortexOpenOptions::file()
                         .with_array_registry(self.array_registry.clone())
                         .with_layout_registry(self.layout_registry.clone())
                         .with_file_size(object.size as u64)
-                        .open()
+                        .open(os_read_at)
                         .await?
                 };
 
