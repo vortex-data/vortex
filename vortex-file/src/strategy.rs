@@ -61,7 +61,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype.clone(),
             writer,
             RepartitionWriterOptions {
-                block_size_minimum: 8 * (1 << 20),  // 1 MB
+                block_size_minimum: 1 << 20,        // 1 MB
                 block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
             },
         )
