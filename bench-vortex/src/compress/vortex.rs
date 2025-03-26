@@ -19,8 +19,8 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> Vort
 
 #[inline(never)]
 pub async fn vortex_decompress_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
-    VortexOpenOptions::in_memory(buf)
-        .open()
+    VortexOpenOptions::in_memory()
+        .open(buf)
         .await?
         .scan()
         .into_array_stream()?

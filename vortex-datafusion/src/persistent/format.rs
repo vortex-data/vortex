@@ -212,15 +212,15 @@ impl FileFormat for VortexFormat {
         let footer = self.footer_cache.try_get(object, store.clone()).await?;
 
         let vxf = if let Some(file) = ObjectStoreReadAt::maybe_file(store, &object.location).await {
-            VortexOpenOptions::file(TokioFile::new(file))
+            VortexOpenOptions::file()
                 .with_footer(footer)
-                .open()
+                .open(TokioFile::new(file))
                 .await?
         } else {
             let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
-            VortexOpenOptions::file(os_read_at)
+            VortexOpenOptions::file()
                 .with_footer(footer)
-                .open()
+                .open(os_read_at)
                 .await?
         };
 

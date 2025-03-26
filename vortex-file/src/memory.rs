@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::executor::block_on;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
@@ -26,9 +25,9 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     }
 
     /// Open an in-memory file contained in the provided buffer.
-    pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+    pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
-        let footer = block_on(self.read_footer(&buffer))?;
+        let footer = self.read_footer(&buffer).await?;
         Ok(VortexFile {
             footer: footer.clone(),
             segment_reader: Arc::new(InMemorySegmentReader { buffer, footer }),

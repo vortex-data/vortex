@@ -70,14 +70,14 @@ impl FileOpener for VortexFileOpener {
             let vxf = if let Some(file) =
                 ObjectStoreReadAt::maybe_file(&object_store, file_meta.location()).await
             {
-                VortexOpenOptions::file(TokioFile::new(file))
+                VortexOpenOptions::file()
                     .with_metrics(file_metrics)
                     .with_footer(
                         footer_cache
                             .try_get(&file_meta.object_meta, object_store)
                             .await?,
                     )
-                    .open()
+                    .open(TokioFile::new(file))
                     .await?
             } else {
                 let os_read_at = ObjectStoreReadAt::new(
@@ -85,14 +85,14 @@ impl FileOpener for VortexFileOpener {
                     file_meta.location().clone(),
                     None,
                 );
-                VortexOpenOptions::file(os_read_at)
+                VortexOpenOptions::file()
                     .with_metrics(file_metrics)
                     .with_footer(
                         footer_cache
                             .try_get(&file_meta.object_meta, object_store)
                             .await?,
                     )
-                    .open()
+                    .open(os_read_at)
                     .await?
             };
 

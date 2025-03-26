@@ -32,8 +32,8 @@ async fn take_vortex<T: VortexReadAt + Send>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<ArrayRef> {
-    VortexOpenOptions::file(reader)
-        .open()
+    VortexOpenOptions::file()
+        .open(reader)
         .await?
         .scan()
         .with_row_indices(indices)

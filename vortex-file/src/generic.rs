@@ -7,8 +7,8 @@ use futures::{Stream, StreamExt, pin_mut, stream};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_io::VortexReadAt;
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::{Counter, VortexMetrics};
 
@@ -46,10 +46,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    pub async fn open<R: VortexReadAt + Send>(
-        self,
-        mut read: R,
-    ) -> VortexResult<(VortexFile, impl Future<Output = VortexResult<()>>)> {
+    pub async fn open<R: VortexReadAt + Send>(self, mut read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&mut read).await?;
 
         let (segment_queue, segment_reader) = SegmentQueue::new(self.metrics.clone());
@@ -63,16 +60,19 @@ impl VortexOpenOptions<GenericVortexFile> {
             metrics: self.metrics.clone(),
         };
 
-        let driver_fut = async move {
+        self.options.io_dispatcher.dispatch(move || async move {
             let io_stream = driver
                 .io_driver()
                 .buffer_unordered(self.options.io_concurrency);
             pin_mut!(io_stream);
             while let Some(r) = io_stream.next().await {
-                let _ = r?;
+                if let Err(e) = &r {
+                    // FIXME(ngates): we need to handle these somehow.
+                    log::error!("Error in I/O driver: {:?}", e);
+                }
             }
-            Ok(())
-        };
+            Ok::<_, VortexError>(())
+        })?;
 
         let vxf = VortexFile {
             footer,
@@ -80,7 +80,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             metrics: self.metrics,
         };
 
-        Ok((vxf, driver_fut))
+        Ok(vxf)
     }
 }
 
@@ -89,11 +89,15 @@ pub struct GenericFileOptions {
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
+    io_dispatcher: IoDispatcher,
 }
 
 impl Default for GenericFileOptions {
     fn default() -> Self {
-        Self { io_concurrency: 10 }
+        Self {
+            io_concurrency: 10,
+            io_dispatcher: IoDispatcher::default(),
+        }
     }
 }
 
