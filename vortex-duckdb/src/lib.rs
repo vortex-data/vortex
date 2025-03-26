@@ -3,13 +3,16 @@
 
 /// This is the default chunk size for duckdb.
 /// It is best to return data chunks of this size to duckdb.
-pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+/// 2048 is the default chunk size for duckdb.
+pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = unsafe { duckdb_vector_size() } as usize;
 
+mod buffer;
 mod convert;
 
 use std::ffi::c_char;
 
 pub use convert::{FromDuckDB, FromDuckDBType, ToDuckDB, ToDuckDBType, to_duckdb_chunk};
+use duckdb::ffi::duckdb_vector_size;
 
 // To generate C decls to include in vortex_duckdb_extension.cpp,
 // call `cbindgen` from `vortex/vortex-duckdb`.

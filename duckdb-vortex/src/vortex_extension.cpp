@@ -11,7 +11,8 @@
 
 #include "vortex.h"
 
-#include <expr/expr.hpp>
+#include "expr/expr.hpp"
+#include "rust_vector_buffer.hpp"
 
 extern "C" {
 const char *vortex_duckdb_hello();
@@ -71,7 +72,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
-		return 99999;
+		return 1;
 	}
 };
 
