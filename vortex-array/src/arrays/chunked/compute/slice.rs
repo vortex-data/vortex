@@ -18,11 +18,7 @@ impl SliceFn<&ChunkedArray> for ChunkedEncoding {
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk)?;
-            return Ok(ChunkedArray::new_unchecked(
-                vec![slice(chunk, offset_in_first_chunk, length_in_last_chunk)?],
-                array.dtype().clone(),
-            )
-            .into_array());
+            return slice(chunk, offset_in_first_chunk, length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
