@@ -13,7 +13,7 @@ use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{ArrayRef, ArrayVariants};
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::{ExprEvaluator, LayoutReader, LayoutVTable, mask_future_ready};
+use vortex_layout::{ExprEvaluator, LayoutReader, LayoutVTable};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -106,14 +106,10 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let array = TOKIO_RUNTIME
         .block_on(
             reader
-                .evaluate_expr2(
-                    &(0..reader.row_count()),
-                    &Identity::new_expr(),
-                    mask_future_ready(Mask::new_true(reader.row_count() as usize)),
-                )
-                .vortex_expect("Failed to evaluate FlatLayout reader"),
+                .projection_evaluation(&(0..reader.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(reader.row_count() as usize)),
         )
-        .vortex_expect("Failed to read flat array")
         .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)

@@ -9,7 +9,7 @@ use vortex_layout::LayoutReader;
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let opened = TokioFile::open(file)?;
-    let vxf = VortexOpenOptions::file(opened).open().await?;
+    let vxf = VortexOpenOptions::file().open(opened).await?;
 
     let segment_map = vxf.footer().segment_map();
     let reader = vxf

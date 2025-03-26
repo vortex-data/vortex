@@ -60,7 +60,7 @@ pub trait SegmentWriter {
 
 #[cfg(test)]
 pub mod test {
-    use async_trait::async_trait;
+    use futures::FutureExt;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::{VortexExpect, vortex_err};
 
@@ -87,13 +87,10 @@ pub mod test {
         }
     }
 
-    #[async_trait]
     impl AsyncSegmentReader for TestSegments {
-        async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-            self.segments
-                .get(*id as usize)
-                .cloned()
-                .ok_or_else(|| vortex_err!("Segment not found"))
+        fn get(&self, id: SegmentId, _for_whom: &Arc<str>) -> SegmentFuture {
+            let buffer = self.segments.get(*id as usize).cloned();
+            async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
         }
     }
 }

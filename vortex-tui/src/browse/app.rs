@@ -211,8 +211,8 @@ impl AppState {
 /// Create an app backed from a file path.
 pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
     let file = TokioFile::open(path)?;
-    let footer = VortexOpenOptions::file(file.clone())
-        .open()
+    let footer = VortexOpenOptions::file()
+        .open(file.clone())
         .await?
         .footer()
         .clone();

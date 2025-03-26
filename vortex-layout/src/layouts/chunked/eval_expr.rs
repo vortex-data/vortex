@@ -163,12 +163,13 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::Identity;
+    use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::{Layout, RowMask};
+    use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -204,10 +205,9 @@ mod test {
             let result = layout
                 .reader(segments, ctx)
                 .unwrap()
-                .evaluate_expr(
-                    RowMask::new_valid_between(0, layout.row_count()),
-                    Identity::new_expr(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await
                 .unwrap()
                 .to_primitive()

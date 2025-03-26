@@ -7,8 +7,8 @@ use vortex::io::TokioFile;
 pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
     let opened = TokioFile::open(file)?;
 
-    let full = VortexOpenOptions::file(opened)
-        .open()
+    let full = VortexOpenOptions::file()
+        .open(opened)
         .await?
         .scan()
         .read_all()
