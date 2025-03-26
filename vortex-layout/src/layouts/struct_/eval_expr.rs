@@ -112,6 +112,14 @@ impl MaskEvaluation for StructMaskEvaluation {
         // TODO(ngates): if all struct partitions are mask evaluations, we should be able to
         //   perform an approximate result. But for now, most conjuncts split out by the
         //   FilterLayoutReader operate over a single column, so we don't yet hit this case.
+        if self
+            .field_evals
+            .iter()
+            .all(|eval| matches!(eval, FieldEval::Mask(_)))
+        {
+            log::info!("COULD PERFORM APPROXIMATE STATS EVALUATION");
+        }
+
         Ok(mask)
     }
 
@@ -139,8 +147,6 @@ impl MaskEvaluation for StructMaskEvaluation {
 
         let root_mask = Mask::try_from(self.partitioned.root.evaluate(&root_scope)?.as_ref())?;
         let mask = mask.bitand(&root_mask);
-
-        log::info!("Struct mask evaluation result {}", mask.density());
 
         Ok(mask)
     }
