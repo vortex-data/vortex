@@ -15,7 +15,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 use url::Url;
 use vortex::TryIntoArray;
@@ -209,11 +208,7 @@ pub async fn convert_parquet_to_vortex(
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default()
-                        .write(f, array_stream)
-                        .await?
-                        .flush()
-                        .await?;
+                    VortexWriteOptions::default().write(f, array_stream).await?;
 
                     anyhow::Ok(())
                 })
