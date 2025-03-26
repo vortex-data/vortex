@@ -12,7 +12,6 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::scan::executor::TaskExecutor;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -29,15 +28,13 @@ const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 pub struct FilterLayoutReader {
     child: Arc<dyn LayoutReader>,
     cache: RwLock<HashMap<ExprRef, Arc<FilterExpr>>>,
-    task_executor: TaskExecutor,
 }
 
 impl FilterLayoutReader {
-    pub fn new(child: Arc<dyn LayoutReader>, task_executor: TaskExecutor) -> Self {
+    pub fn new(child: Arc<dyn LayoutReader>) -> Self {
         Self {
             child,
             cache: Default::default(),
-            task_executor,
         }
     }
 }

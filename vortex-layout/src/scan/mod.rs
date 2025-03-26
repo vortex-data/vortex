@@ -16,6 +16,7 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
+use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
 use crate::{ExprEvaluator, LayoutReader, RowMask, instrument, range_intersection};
 
@@ -238,8 +239,7 @@ impl Scan {
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
 
         // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
-        let layout_reader = self.layout_reader.clone();
-        let filter_reader = self.layout_reader.clone();
+        let layout_reader = FilterLayoutReader::new(self.layout_reader.clone());
         //let filter_reader =
         //    FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
 
@@ -253,7 +253,7 @@ impl Scan {
                 let filter_eval = self
                     .filter
                     .as_ref()
-                    .map(|expr| filter_reader.filter_evaluation(&row_range, expr))
+                    .map(|expr| layout_reader.filter_evaluation(&row_range, expr))
                     .transpose()?;
 
                 let project_eval =
