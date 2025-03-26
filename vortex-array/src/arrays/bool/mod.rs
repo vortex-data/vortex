@@ -1,8 +1,3 @@
-use arrow_array::BooleanArray;
-use arrow_buffer::MutableBuffer;
-
-use crate::validity::Validity;
-
 mod array;
 pub mod compute;
 mod patch;
@@ -11,44 +6,6 @@ mod serde;
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
-
-impl BoolArray {
-    /// Create a new BoolArray from a set of indices and a length.
-    /// All indices must be less than the length.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
-        let mut buffer = MutableBuffer::new_null(length);
-        indices
-            .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
-        Self::new(
-            BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
-            Validity::NonNullable,
-        )
-    }
-}
-
-impl From<BooleanBuffer> for BoolArray {
-    fn from(value: BooleanBuffer) -> Self {
-        Self::new(value, Validity::NonNullable)
-    }
-}
-
-impl FromIterator<bool> for BoolArray {
-    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::new(BooleanBuffer::from_iter(iter), Validity::NonNullable)
-    }
-}
-
-impl FromIterator<Option<bool>> for BoolArray {
-    fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-
-        Self::new(
-            buffer,
-            nulls.map(Validity::from).unwrap_or(Validity::AllValid),
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {
