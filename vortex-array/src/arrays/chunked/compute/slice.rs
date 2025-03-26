@@ -18,11 +18,7 @@ impl SliceFn<&ChunkedArray> for ChunkedEncoding {
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk)?;
-            return Ok(ChunkedArray::new_unchecked(
-                vec![slice(chunk, offset_in_first_chunk, length_in_last_chunk)?],
-                array.dtype().clone(),
-            )
-            .into_array());
+            return slice(chunk, offset_in_first_chunk, length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
@@ -65,11 +61,14 @@ mod tests {
 
     fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
-        arr.as_::<ChunkedArray>()
-            .chunks()
-            .iter()
-            .map(|a| a.to_primitive().unwrap())
-            .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
+        if let Some(arr) = arr.as_opt::<ChunkedArray>() {
+            arr.chunks()
+                .iter()
+                .map(|a| a.to_primitive().unwrap())
+                .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
+        } else {
+            values.extend_from_slice(arr.to_primitive().unwrap().as_slice::<T>());
+        }
         assert_eq!(values, slice);
     }
 

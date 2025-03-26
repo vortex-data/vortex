@@ -163,10 +163,14 @@ fn canonical_list_array(
                     elements_builder.append_scalar(v)?;
                 }
             }
-            let offsets = (0..=len * vs.len())
-                .step_by(vs.len())
-                .map(|i| i as u64)
-                .collect::<Buffer<_>>();
+            let offsets = if vs.is_empty() {
+                Buffer::zeroed(len + 1)
+            } else {
+                (0..=len * vs.len())
+                    .step_by(vs.len())
+                    .map(|i| i as u64)
+                    .collect::<Buffer<_>>()
+            };
 
             ListArray::try_new(
                 elements_builder.finish(),
@@ -273,6 +277,32 @@ mod tests {
                 .unwrap()
                 .as_slice::<u64>(),
             [0u64, 2, 4]
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_empty_list() {
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            vec![],
+            Nullability::NonNullable,
+        );
+        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let canonical_const = const_array.to_list().unwrap();
+        assert!(
+            canonical_const
+                .elements()
+                .to_primitive()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            canonical_const
+                .offsets()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [0u64, 0, 0]
         );
     }
 }

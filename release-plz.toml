@@ -1,5 +1,6 @@
 [workspace]
 # set the path of all the crates to the changelog to the root of the repository
+publish_allow_dirty = ["duckdb-vortex/duckdb"]
 changelog_path = "./CHANGELOG.md"
 git_release_enable = false
 git_tag_enable = false
