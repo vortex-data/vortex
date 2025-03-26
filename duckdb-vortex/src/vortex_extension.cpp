@@ -53,7 +53,7 @@ struct VortexBindData : public TableFunctionData {
 struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t current_row = 0;
 	bool finished = false;
-	mutable Array *array;
+	Array *array = nullptr;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
@@ -109,10 +109,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 
 		if (global_state.array_stream == nullptr) {
-			auto column_names = std::vector<char *>();
+			auto column_names = std::vector<char const *>();
 			for (auto col_id : global_state.projection_ids) {
 				assert(col_id < bind_data.column_names.size());
-				column_names.push_back(const_cast<char *>(bind_data.column_names[col_id].c_str()));
+				column_names.push_back(bind_data.column_names[col_id].c_str());
 			}
 
 			auto str = create_filter_expression(bind_data, global_state);
