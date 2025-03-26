@@ -125,10 +125,6 @@ impl ALPRDArray {
         self.left_parts_patches.as_ref()
     }
 
-    pub fn left_parts_patches_mut(&mut self) -> Option<&mut Patches> {
-        self.left_parts_patches.as_mut()
-    }
-
     /// The dictionary that maps the codes in `left_parts` into bit patterns.
     #[inline]
     pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
