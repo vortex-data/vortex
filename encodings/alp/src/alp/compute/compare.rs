@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareFn, Operator, compare};
 use vortex_array::{Array, ArrayRef};
+use vortex_dtype::NativePType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -74,27 +75,50 @@ where
             // Since this value is not encodable it cannot be equal to any value in the encoded
             // array, hence != to all values in the encoded array.
             Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
-            Operator::Gt | Operator::Gte => Ok(Some(compare(
-                alp.encoded(),
-                &ConstantArray::new(F::encode_above(value, exponents), alp.len()),
-                // Since the encoded value is unencodable gte is equivalent to gt.
-                // Consider a value v, between two encodable values v_l (just less) and
-                // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
-                Operator::Gte,
-            )?)),
-            Operator::Lt | Operator::Lte => Ok(Some(compare(
-                alp.encoded(),
-                &ConstantArray::new(F::encode_below(value, exponents), alp.len()),
-                // Since the encoded values unencodable lt is equivalent to lte.
-                // See Gt | Gte for further explanation.
-                Operator::Lte,
-            )?)),
+            Operator::Gt | Operator::Gte => {
+                // Per IEEE 754 totalOrder semantics the ordering is -Nan < - Inf < Inf < Nan.
+                // All values in the encoded array are definitely finite
+                let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
+                if is_not_finite {
+                    Ok(Some(
+                        ConstantArray::new(value.is_sign_negative(), alp.len()).into_array(),
+                    ))
+                } else {
+                    Ok(Some(compare(
+                        alp.encoded(),
+                        &ConstantArray::new(F::encode_above(value, exponents), alp.len()),
+                        // Since the encoded value is unencodable gte is equivalent to gt.
+                        // Consider a value v, between two encodable values v_l (just less) and
+                        // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
+                        Operator::Gte,
+                    )?))
+                }
+            }
+            Operator::Lt | Operator::Lte => {
+                // Per IEEE 754 totalOrder semantics the ordering is -Nan < - Inf < Inf < Nan.
+                // All values in the encoded array are definitely finite
+                let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
+                if is_not_finite {
+                    Ok(Some(
+                        ConstantArray::new(value.is_sign_positive(), alp.len()).into_array(),
+                    ))
+                } else {
+                    Ok(Some(compare(
+                        alp.encoded(),
+                        &ConstantArray::new(F::encode_below(value, exponents), alp.len()),
+                        // Since the encoded values unencodable lt is equivalent to lte.
+                        // See Gt | Gte for further explanation.
+                        Operator::Lte,
+                    )?))
+                }
+            }
         },
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
@@ -274,7 +298,7 @@ mod tests {
 
     #[test]
     fn compare_to_null() {
-        let array = PrimitiveArray::from_iter([1.234f32; 1025]);
+        let array = PrimitiveArray::from_iter([1.234f32; 10]);
         let encoded = alp_encode(&array).unwrap();
 
         let other = ConstantArray::new(
@@ -290,5 +314,33 @@ mod tests {
         for v in r.boolean_buffer().iter() {
             assert!(!v);
         }
+    }
+
+    #[rstest]
+    #[case(f32::NAN, false)]
+    #[case(-1.0f32 / 0.0f32, true)]
+    #[case(f32::INFINITY, false)]
+    #[case(f32::NEG_INFINITY, true)]
+    fn compare_to_non_finite_gt(#[case] value: f32, #[case] result: bool) {
+        let array = PrimitiveArray::from_iter([1.234f32; 10]);
+        let encoded = alp_encode(&array).unwrap();
+
+        let gte = test_alp_compare(&encoded, value, Operator::Gt).unwrap();
+
+        assert_eq!(gte, [result; 10]);
+    }
+
+    #[rstest]
+    #[case(f32::NAN, true)]
+    #[case(-1.0f32 / 0.0f32, false)]
+    #[case(f32::INFINITY, true)]
+    #[case(f32::NEG_INFINITY, false)]
+    fn compare_to_non_finite_lt(#[case] value: f32, #[case] result: bool) {
+        let array = PrimitiveArray::from_iter([1.234f32; 10]);
+        let encoded = alp_encode(&array).unwrap();
+
+        let lt = test_alp_compare(&encoded, value, Operator::Lt).unwrap();
+
+        assert_eq!(lt, [result; 10]);
     }
 }
