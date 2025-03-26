@@ -43,6 +43,8 @@ struct VortexBindData : public TableFunctionData {
 		result->file_name = file_name;
 		result->columns_types = columns_types;
 		result->column_names = column_names;
+		result->num_columns = num_columns;
+		result->file = file;
 		return std::move(result);
 	}
 };
