@@ -48,12 +48,18 @@ public final class JNIArray implements Array {
     }
 
     @Override
-    public VectorSchemaRoot exportToArrow(BufferAllocator allocator) {
+    public VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse) {
         // Export the dataset to Arrow over C Data Interface.
         NativeArrayMethods.exportToArrow(pointer.getAsLong(), schemaPtr, arrayPtr);
         try (ArrowSchema arrowSchema = ArrowSchema.wrap(schemaPtr[0]);
-                ArrowArray arrowArray = ArrowArray.wrap(arrayPtr[0])) {
-            return Data.importVectorSchemaRoot(allocator, arrowArray, arrowSchema, new CDataDictionaryProvider());
+                ArrowArray arrowArray = ArrowArray.wrap(arrayPtr[0]);
+                CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
+            if (reuse != null) {
+                Data.importIntoVectorSchemaRoot(allocator, arrowArray, reuse, provider);
+                return reuse;
+            } else {
+                return Data.importVectorSchemaRoot(allocator, arrowArray, arrowSchema, new CDataDictionaryProvider());
+            }
         } finally {
             NativeArrayMethods.dropArrowSchema(schemaPtr[0]);
             NativeArrayMethods.dropArrowArray(arrayPtr[0]);

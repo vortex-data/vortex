@@ -24,7 +24,7 @@ public interface Array extends AutoCloseable {
     /**
      * Export to an ArrowVector. The data will now be owned by the VectorSchemaRoot after this operation.
      */
-    VectorSchemaRoot exportToArrow(BufferAllocator allocator);
+    VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse);
 
     DType getDataType();
 
