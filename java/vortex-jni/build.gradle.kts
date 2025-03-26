@@ -53,6 +53,7 @@ tasks.withType<ShadowJar> {
     archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
+    relocate("org.apache.arrow.c", "dev.vortex.relocated.org.apache.arrow.c")
 }
 
 tasks.build {
@@ -71,11 +72,11 @@ tasks.register("generateJniHeaders") {
         }
 
     inputs.files(jniClasses)
-    outputs.dir("$buildDir/generated/jni")
+    outputs.dir("${layout.buildDirectory}/generated/jni")
 
     doLast {
         // Create output directory if it doesn't exist
-        val headerDir = file("$buildDir/generated/jni")
+        val headerDir = file("${layout.buildDirectory}/generated/jni")
         headerDir.mkdirs()
 
         val classesDir =
