@@ -39,7 +39,7 @@ jobs:
           # Needed to pull full commit history for release version number inference
           fetch-depth: 0
           submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+      # - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5.100
