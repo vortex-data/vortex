@@ -61,9 +61,8 @@ mod tests {
 
     fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
-        if arr.is::<ChunkedArray>() {
-            arr.as_::<ChunkedArray>()
-                .chunks()
+        if let Some(arr) = arr.as_opt::<ChunkedArray>() {
+            arr.chunks()
                 .iter()
                 .map(|a| a.to_primitive().unwrap())
                 .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
