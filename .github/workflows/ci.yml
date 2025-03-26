@@ -42,7 +42,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+        uses: MarcoIeni/release-plz-action@v0.5.100
         with:
           command: release-pr
         env:
