@@ -1,93 +1,22 @@
 use std::ops::Range;
 
 use async_trait::async_trait;
-use futures::future::{BoxFuture, ready, try_join_all};
+use futures::future::ready;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, MaskFuture, RowMask};
+use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, RowMask};
 
 impl ExprEvaluator for ChunkedReader {
-    fn evaluate_expr2(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        // Compute the result dtype of the expression.
-        let dtype = expr.return_dtype(self.dtype())?;
-
-        // Figure out which chunks intersect the RowMask
-        let chunk_range = self.chunk_range(row_range);
-
-        // Now we have to create a future for each chunk.
-        let child_futures: Vec<_> = chunk_range
-            .map(|chunk_idx| {
-                // Figure out the chunk row range relative to the mask's row range.
-                let chunk_row_range =
-                    self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
-
-                // Find the intersection of the mask and the chunk row ranges.
-                let intersecting_row_range = row_range.start.max(chunk_row_range.start)
-                    ..row_range.end.min(chunk_row_range.end);
-                let intersecting_len =
-                    usize::try_from(intersecting_row_range.end - intersecting_row_range.start)?;
-
-                // Figure out the offset into the mask.
-                let mask_relative_start =
-                    usize::try_from(intersecting_row_range.start - row_range.start)?;
-
-                let mask: MaskFuture = mask
-                    .clone()
-                    .map_ok(move |mask| mask.slice(mask_relative_start, intersecting_len))
-                    .boxed()
-                    .shared();
-
-                // Figure out the row range within the chunk.
-                let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
-                let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
-
-                self.child(chunk_idx)
-                    .vortex_expect("out of bounds")
-                    .evaluate_expr2(&(chunk_relative_start..chunk_relative_end), expr, mask)
-            })
-            .try_collect()?;
-
-        Ok(Box::pin(async move {
-            let mut chunks: Vec<ArrayRef> = try_join_all(child_futures)
-                .await?
-                .into_iter()
-                .flatten()
-                .collect_vec();
-
-            if chunks.len() == 1 {
-                // Avoid creating a chunked array for a single chunk
-                let chunk = chunks
-                    .pop()
-                    .vortex_expect("Expected at least one chunk to be evaluated");
-                return Ok(Some(chunk));
-            }
-
-            let chunked_array = ChunkedArray::new_unchecked(chunks, dtype);
-            assert_eq!(
-                chunked_array.len(),
-                mask.await?.true_count(),
-                "Mask length mismatch for chunked layout"
-            );
-
-            Ok(Some(chunked_array.into_array()))
-        }))
-    }
-
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,

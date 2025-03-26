@@ -3,92 +3,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::TryStreamExt;
-use futures::future::{BoxFuture, try_join_all};
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ArrayEvaluation, ExprEvaluator, LayoutReader, MaskEvaluation, MaskFuture};
+use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
-    fn evaluate_expr2(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone());
-
-        // Short-circuit if there is only one partition
-        if partitioned.partition_names.len() == 1 {
-            return self.child(&partitioned.partition_names[0])?.evaluate_expr2(
-                row_range,
-                &partitioned.partitions[0],
-                mask,
-            );
-        }
-
-        // Construct readers for each child.
-        let field_futures: Vec<_> = partitioned
-            .partition_names
-            .iter()
-            .zip_eq(partitioned.partitions.iter())
-            .map(|(name, expr)| {
-                self.child(name)?
-                    .evaluate_expr2(row_range, expr, mask.clone())
-            })
-            .try_collect()?;
-
-        let name = self.layout().name().to_string();
-
-        Ok(Box::pin(async move {
-            let row_count = mask.await?.true_count();
-            if row_count == 0 {
-                // Short-circuit if the mask is all false
-                return Ok(None);
-            }
-
-            let arrays = try_join_all(field_futures)
-                .await?
-                .into_iter()
-                .zip(&*partitioned.partition_names.clone())
-                .map(|(a, field_name)| {
-                    if a.is_none() {
-                        vortex_panic!(
-                            "Layout {} child {} incorrectly returned None for non-empty mask",
-                            name,
-                            field_name,
-                        )
-                    }
-                    a.vortex_expect("Layout incorrectly returned empty array for non-empty mask")
-                })
-                .collect::<Vec<_>>();
-            assert!(
-                arrays.iter().all(|a| a.len() == row_count),
-                "Struct fields returned arrays of incorrect length"
-            );
-
-            let root_scope = StructArray::try_new(
-                partitioned.partition_names.clone(),
-                arrays,
-                row_count,
-                Validity::NonNullable,
-            )?
-            .into_array();
-
-            Ok(Some(partitioned.root.evaluate(&root_scope)?))
-        }))
-    }
-
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,

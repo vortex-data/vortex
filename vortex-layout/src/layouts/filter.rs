@@ -5,24 +5,16 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use bit_vec::BitVec;
 use exponential_decay_histogram::ExponentialDecayHistogram;
-use futures::future::BoxFuture;
-use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::{Entry, HashMap};
-use vortex_array::arrays::ConstantArray;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::scan::executor::{Executor, TaskExecutor};
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, MaskFuture};
+use crate::scan::executor::TaskExecutor;
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
-/// Perform a filter before evaluating the expression if the mask drops below this density.
-const DEFAULT_SELECTIVITY_THRESHOLD: f64 = 0.05;
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// The multiplier to used to convert selectivity to i64 for the histogram.
@@ -36,7 +28,7 @@ const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 /// expression rewrite logic at read-time.
 pub struct FilterLayoutReader {
     child: Arc<dyn LayoutReader>,
-    cache: RwLock<HashMap<ExprRef, Option<Arc<FilterExpr>>>>,
+    cache: RwLock<HashMap<ExprRef, Arc<FilterExpr>>>,
     task_executor: TaskExecutor,
 }
 
@@ -62,54 +54,39 @@ impl LayoutReader for FilterLayoutReader {
 
 #[async_trait]
 impl ExprEvaluator for FilterLayoutReader {
-    fn evaluate_expr2(
+    fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        let filter_expr = match self.cache.write()?.entry(expr.clone()) {
-            Entry::Occupied(e) => Ok::<_, VortexError>(e.get().clone()),
-            Entry::Vacant(e) => {
-                // Only intercept boolean expressions.
-                let dtype = expr.return_dtype(self.layout().dtype())?;
-                let filter_expr = matches!(dtype, DType::Bool(_))
-                    .then(|| Arc::new(FilterExpr::new(expr.clone())));
-                e.insert(filter_expr.clone());
-                Ok(filter_expr)
-            }
-        }?;
-
-        let Some(filter_expr) = filter_expr else {
-            // If there is no filter expression (i.e. it is not a boolean expression), pass through
-            // to our child layout reader.
-            return self.child.evaluate_expr2(row_range, expr, mask);
-        };
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        let filter_expr = self
+            .cache
+            .write()?
+            .entry(expr.clone())
+            .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
+            .clone();
 
         // Otherwise, we create a new evaluation of the filter expression for this particular
         // row range.
-        filter_expr.new_evaluation(
-            self.child.clone(),
-            row_range,
-            mask,
-            self.task_executor.clone(),
-        )
-    }
+        let conjunct_evals: Vec<_> = filter_expr
+            .conjuncts
+            .iter()
+            .map(|expr| self.child.filter_evaluation(row_range, expr))
+            .try_collect()?;
 
-    fn filter_evaluation(
-        &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        todo!()
+        Ok(Box::new(FilterEvaluation {
+            filter_expr,
+            conjunct_evals,
+        }))
     }
 
     fn projection_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        todo!()
+        // Pass-through all projection expressions to the child layout reader.
+        self.child.projection_evaluation(row_range, expr)
     }
 }
 
@@ -121,8 +98,6 @@ pub struct FilterExpr {
     conjunct_selectivity: Vec<RwLock<ExponentialDecayHistogram>>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
-    /// The threshold of selectivity below which the filter is pushed down.
-    selectivity_threshold: f64,
     /// The quantile to use from the selectivity histogram of each conjunct.
     selectivity_quantile: f64,
 }
@@ -141,7 +116,6 @@ impl FilterExpr {
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
-            selectivity_threshold: DEFAULT_SELECTIVITY_THRESHOLD,
             selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
         }
     }
@@ -205,62 +179,44 @@ impl FilterExpr {
                 .join(", ")
         );
     }
+}
 
-    /// Create a new evaluation of the pruning expression.
-    fn new_evaluation(
-        self: Arc<Self>,
-        reader: Arc<dyn LayoutReader>,
-        row_range: &Range<u64>,
-        mask_future: MaskFuture,
-        task_executor: TaskExecutor,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        // We construct the conjunct evaluations now to ensure that pre-fetching has full visibility.
-        let mut conjunct_futures: Vec<_> = self
-            .conjuncts
-            .iter()
-            .map(|expr| reader.evaluate_expr2(row_range, expr, mask_future.clone()))
-            .map_ok(Some)
-            .try_collect()?;
+struct FilterEvaluation {
+    /// The parent filter expression.
+    filter_expr: Arc<FilterExpr>,
+    /// The mask evaluations for each conjunct
+    conjunct_evals: Vec<Box<dyn MaskEvaluation>>,
+}
 
-        let range_len =
-            usize::try_from(row_range.end - row_range.start).vortex_expect("Invalid row range");
-        let row_range = row_range.clone();
+#[async_trait]
+impl MaskEvaluation for FilterEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        let mut remaining = BitVec::from_elem(self.conjunct_evals.len(), true);
+        let mut mask = mask;
 
-        Ok(async move {
-            log::debug!("Evaluating filter conjunctions for {:?}", &row_range);
+        // Loop over the conjuncts in order of selectivity.
+        while let Some(idx) = self.filter_expr.next_conjunct(&remaining) {
+            remaining.set(idx, false);
 
-            // Now we poll the conjuncts in any order, and if any return all false, we can exit early.
-            // FIXME(ngates): we need to spawn these in order to actually make concurrent progress.
-            let mut conjunct_futures =
-                FuturesUnordered::from_iter(self.ordering.read()?.iter().map(|&i| {
-                    task_executor.spawn(
-                        conjunct_futures[i]
-                            .take()
-                            .vortex_expect("duplicate conjunct in ordering")
-                            .map(move |r| (i, r)),
-                    )
-                }));
-
-            let mut acc = Mask::new_true(range_len);
-            while let Some((i, result)) = conjunct_futures.next().await {
-                let Some(result) = result? else {
-                    // The result is only None if the mask is all false, meaning we can return None.
-                    return Ok(None);
-                };
-
-                // If the result is Some, we need to combine it with the accumulator.
-                let result = Mask::try_from(&result.to_bool()?)?;
-                self.report_selectivity(i, result.density());
-
-                acc = acc.bitand(&result);
-
-                if acc.all_false() {
-                    return Ok(Some(ConstantArray::new(false, range_len).into_array()));
-                }
+            if mask.all_false() {
+                // If the mask is all false, we can short-circuit the evaluation.
+                return Ok(mask);
             }
 
-            Ok(Some(acc.into_array()))
+            let conjunct_mask = self.conjunct_evals[idx].invoke(mask.clone()).await?;
+
+            // TODO(ngates): what stats do we even report? We could invoke the conjunct using an
+            //  all true mask in order to get a true selectivity estimate, because computing
+            //  selectivity based on before/after mask is completely dependent on the conjunct
+            //  ordering.
+            self.filter_expr.report_selectivity(
+                idx,
+                conjunct_mask.true_count() as f64 / mask.true_count() as f64,
+            );
+
+            mask = mask.bitand(&conjunct_mask);
         }
-        .boxed())
+
+        Ok(mask)
     }
 }

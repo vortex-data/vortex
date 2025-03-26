@@ -71,24 +71,6 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
 ///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
 pub trait ExprEvaluator: Send + Sync {
-    /// Construct an expression evaluation future for the given row range, expression, and mask.
-    ///
-    /// The row range is relative to the start of the layout.
-    ///
-    /// Note: this function returns a future with a static lifetime. It is recommended that
-    /// after producing evaluation futures for each desired row range, that the original
-    /// [`LayoutReader`] is dropped. This does two things:
-    ///  * Any caches will be automatically cleaned up at the earliest opportunity.
-    ///  * Any segments that were requested at creation of the future, but are not longer needed
-    ///    (for example, those that are pruned away with statistics), will be dropped. Enabling
-    ///    the segment reader to cancel any in-flight or upcoming requests.
-    fn evaluate_expr2(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>;
-
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
@@ -112,15 +94,6 @@ pub trait ExprEvaluator: Send + Sync {
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader> {
-    fn evaluate_expr2(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        self.as_ref().evaluate_expr2(row_range, expr, mask)
-    }
-
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,

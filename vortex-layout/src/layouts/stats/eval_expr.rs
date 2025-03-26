@@ -2,62 +2,16 @@ use std::ops::{BitAnd, Range, Sub};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
-use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation, MaskFuture};
+use crate::{ArrayEvaluation, ExprEvaluator, MaskEvaluation};
 
 #[async_trait]
 impl ExprEvaluator for StatsReader {
-    fn evaluate_expr2(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-        mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
-        let Some(pruning_mask) = self.pruning_mask_future(expr.clone()) else {
-            // TODO(ngates): we should check if the predicate can be evaluated with the stats
-            //  that are present.
-
-            // Otherwise, we just delegate to the data child.
-            return self.data_child.evaluate_expr2(row_range, expr, mask);
-        };
-
-        let zone_range = self.zone_range(row_range);
-
-        // We create an "un-pruned" future to ensure visibility into pre-fetching, although we
-        // may never await this.
-        let result = self
-            .data_child
-            .evaluate_expr2(row_range, expr, mask.clone())?;
-
-        Ok(Box::pin(async move {
-            let mask = mask.clone().await?;
-
-            if let Some(pruning_mask) = pruning_mask.await? {
-                if zone_range
-                    .clone()
-                    .all(|zone_idx| pruning_mask.value(zone_idx))
-                {
-                    // If all zones covering the row range are pruned, we can return a constant
-                    // false response.
-                    return Ok(Some(
-                        ConstantArray::new(false, mask.true_count()).into_array(),
-                    ));
-                }
-            }
-
-            // Otherwise, we must delegate to the child.
-            result.await
-        }))
-    }
-
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,

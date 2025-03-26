@@ -16,7 +16,7 @@ use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutVTable, mask_future_ready};
+use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
@@ -109,15 +109,12 @@ impl StatsReader {
                 let present_stats = self.present_stats.clone();
                 let nzones = self.nzones;
 
-                let stats_future = stats_child.evaluate_expr2(
-                    &(0..nzones as u64),
-                    &Identity::new_expr(),
-                    mask_future_ready(Mask::new_true(nzones)),
-                )?;
+                let stats_eval = stats_child
+                    .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())?;
 
                 Ok::<_, VortexError>(
                     async move {
-                        let stats_array = stats_future.await?.vortex_expect("Mask was all true");
+                        let stats_array = stats_eval.invoke(Mask::new_true(nzones)).await?;
                         // SAFETY: This is only fine to call because we perform validation above
                         Ok(StatsTable::unchecked_new(stats_array, present_stats))
                     }

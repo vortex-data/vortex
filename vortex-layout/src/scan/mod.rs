@@ -1,13 +1,12 @@
-use std::ops::BitAnd;
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
-use futures::{FutureExt, StreamExt, TryFutureExt, stream};
+use futures::{StreamExt, stream};
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
@@ -17,11 +16,8 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
-use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
-use crate::{
-    ExprEvaluator, LayoutReader, RowMask, instrument, mask_future_ready, range_intersection,
-};
+use crate::{ExprEvaluator, LayoutReader, RowMask, instrument, range_intersection};
 
 pub mod executor;
 mod split_by;
@@ -173,7 +169,7 @@ impl ScanBuilder {
 
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        self.build()?.into_array_stream()
+        self.build()?.into_array_stream2()
     }
 
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
@@ -233,96 +229,6 @@ pub struct Scan {
 }
 
 impl Scan {
-    /// Perform the scan operation and return a stream of arrays.
-    ///
-    /// The returned stream should be considered to perform I/O-bound operations and requires
-    /// frequent polling to make progress.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        // Create a single LayoutReader that is reused for the entire scan.
-        let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-
-        // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
-        let layout_reader = self.layout_reader.clone();
-        // let filter_reader = self.layout_reader.clone();
-        let filter_reader =
-            FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
-
-        let row_ranges: Vec<_> = self
-            .row_masks
-            .iter()
-            .map(move |row_mask| {
-                let row_range = row_mask.begin()..row_mask.end();
-                let range_len = usize::try_from(
-                    row_range
-                        .end
-                        .checked_sub(row_range.start)
-                        .vortex_expect("row range overflow"),
-                )
-                .vortex_expect("row range overflow");
-
-                // Set up an initial mask future that resolves to the row mask.
-                let mut mask = mask_future_ready(row_mask.filter_mask().clone());
-
-                if let Some(filter) = self.filter.as_ref() {
-                    // FIXME(ngates): we currently pass an all-true mask to the filter expression
-                    //  and then intersect it with the original row mask. This isn't ideal when the
-                    //  original row mask is very sparse.
-                    mask = instrument!(
-                        "filter_expr",
-                        filter_reader
-                            .evaluate_expr2(
-                                &row_range,
-                                filter,
-                                mask_future_ready(Mask::new_true(range_len)),
-                            )?
-                            .and_then(async move |array: Option<ArrayRef>| {
-                                // The array is a boolean array, so we extract the mask.
-                                let filter_result = array
-                                    .map(|array| Mask::try_from(&array.to_bool()?))
-                                    .unwrap_or_else(|| Ok(Mask::new_false(range_len)))?;
-
-                                // Intersect the filter result with the original mask.
-                                Ok(mask.await?.bitand(&filter_result))
-                            })
-                    )
-                    .map_err(Arc::new)
-                    .boxed()
-                    .shared();
-                }
-
-                Ok::<_, VortexError>(
-                    instrument!(
-                        "project_expr",
-                        layout_reader.evaluate_expr2(&row_range, &self.projection, mask)?
-                    )
-                    .map(move |array| {
-                        if self.canonicalize {
-                            array?
-                                .map(|array| {
-                                    let mut builder =
-                                        builder_with_capacity(array.dtype(), array.len());
-                                    array.append_to_builder(builder.as_mut())?;
-                                    Ok(builder.finish())
-                                })
-                                .transpose()
-                        } else {
-                            array
-                        }
-                    }),
-                )
-            })
-            .try_collect()?;
-
-        let task_executor = self.task_executor.clone();
-        let exec_stream = stream::iter(row_ranges)
-            .map(move |task| task_executor.spawn(task))
-            .buffered(self.concurrency)
-            .filter_map(|v| async move { v.transpose() });
-        let exec_stream = instrument!("exec_stream", exec_stream);
-
-        Ok(ArrayStreamAdapter::new(result_dtype, exec_stream))
-    }
-
     /// Perform the scan operation and return a stream of arrays.
     ///
     /// The returned stream should be considered to perform I/O-bound operations and requires
@@ -391,6 +297,6 @@ impl Scan {
     }
 
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
+        self.into_array_stream2()?.read_all().await
     }
 }
