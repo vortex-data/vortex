@@ -150,6 +150,7 @@ impl PreviousCompression {
 }
 
 const STD_DEV_THRESHOLD: f64 = 2.0;
+const RATIO_DRIFT_THRESHOLD: f64 = 1.2;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
 /// compressed chunk as a hint for the next.
@@ -184,15 +185,22 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
 
                 let mean = prev_compression.mean();
                 let std_dev = prev_compression.std_deviation(Some(mean));
-                let threshold = mean + (std_dev * STD_DEV_THRESHOLD);
+                let threshold = if std_dev == 0.0 {
+                    mean * RATIO_DRIFT_THRESHOLD
+                } else {
+                    mean + std_dev * STD_DEV_THRESHOLD
+                };
 
                 // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
                 // If it isn't we  fall back to the compressor.
                 if ratio < threshold {
+                    log::info!(
+                        "Reusing compression with ration of {ratio}, which is below the threshold of {threshold}."
+                    );
                     prev_compression.add_measurement(ratio);
                     Some(encoded_chunk)
                 } else {
-                    log::trace!(
+                    log::info!(
                         "Compressed to a ratio of {ratio}, which is above the threshold of {threshold}",
                     );
                     None
