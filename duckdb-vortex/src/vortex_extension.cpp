@@ -124,7 +124,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			    // This has a few factor effecting it:
 			    //  1. A smaller value means for work for the vortex file reader.
 			    //  2. A larger value reduces the parallelism available to the scanner
-			    .split_by_row_count = 2048 * 32 * 4,
+			    .split_by_row_count = 2048 * 16,
 			};
 
 			global_state.array_stream = File_scan(bind_data.file, &options);

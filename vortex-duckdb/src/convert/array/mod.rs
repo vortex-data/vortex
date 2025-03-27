@@ -80,7 +80,8 @@ impl ToDuckDB for DictArray {
             let sel = selection_vector_from_array(self.codes().to_primitive()?);
             let mut vector = chunk.flat_vector();
             vector.slice(sel);
-            // Note you can only have nullable values (not codes/selection vectors)
+            // Note you can only have nullable values (not codes/selection vectors),
+            // so we cannot assign a selection vector.
             Ok(())
         } else {
             // TODO(joe): can we do value compression and avoid a take.
