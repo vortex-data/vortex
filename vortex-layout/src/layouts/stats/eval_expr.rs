@@ -8,6 +8,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
+use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
@@ -16,10 +17,13 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let data_eval = self.data_child.filter_evaluation(row_range, expr)?;
+        let data_eval = self
+            .data_child
+            .filter_evaluation(row_range, expr, segment_reader)?;
 
-        if let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) {
+        if let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_reader) {
             let zone_range = self.zone_range(row_range);
             let zone_lengths = zone_range
                 .clone()
@@ -53,10 +57,12 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child.projection_evaluation(row_range, expr)
+        self.data_child
+            .projection_evaluation(row_range, expr, segment_reader)
     }
 }
 
@@ -124,14 +130,14 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
-    use crate::segments::AsyncSegmentReader;
+    use crate::segments::SegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
@@ -166,15 +172,19 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {
         block_on(async {
             let result = layout
-                .reader(segments, ctx)
+                .reader(ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &Identity::new_expr(),
+                    segments.as_ref(),
+                )
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -191,19 +201,19 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.reader(segments, ctx).unwrap();
+            let reader = layout.reader(ctx).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .filter_evaluation(&(0..row_count), &expr)
+                .filter_evaluation(&(0..row_count), &expr, segments.as_ref())
                 .unwrap()
                 .invoke_approx(Mask::new_true(row_count.try_into().unwrap()))
                 .await

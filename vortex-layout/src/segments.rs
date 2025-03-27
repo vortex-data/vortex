@@ -2,9 +2,10 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult};
+use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -42,7 +43,7 @@ impl Display for SegmentId {
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
 
-pub trait AsyncSegmentReader: 'static + Send + Sync {
+pub trait SegmentReader: 'static + Send + Sync {
     fn get(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture;
 }
 
@@ -58,39 +59,30 @@ pub trait SegmentWriter {
     fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
 }
 
-#[cfg(test)]
-pub mod test {
-    use futures::FutureExt;
-    use vortex_buffer::ByteBufferMut;
-    use vortex_error::{VortexExpect, vortex_err};
+#[derive(Default)]
+pub struct TestSegments {
+    segments: Vec<ByteBuffer>,
+}
 
-    use super::*;
+impl SegmentWriter for TestSegments {
+    fn put(&mut self, data: &[ByteBuffer]) -> SegmentId {
+        let id = u32::try_from(self.segments.len())
+            .vortex_expect("Cannot store more than u32::MAX segments");
 
-    #[derive(Default)]
-    pub struct TestSegments {
-        segments: Vec<ByteBuffer>,
-    }
-
-    impl SegmentWriter for TestSegments {
-        fn put(&mut self, data: &[ByteBuffer]) -> SegmentId {
-            let id = u32::try_from(self.segments.len())
-                .vortex_expect("Cannot store more than u32::MAX segments");
-
-            // Combine all the buffers since we're only a test implementation
-            let mut buffer = ByteBufferMut::empty();
-            for segment in data {
-                buffer.extend_from_slice(segment.as_ref());
-            }
-            self.segments.push(buffer.freeze());
-
-            id.into()
+        // Combine all the buffers since we're only a test implementation
+        let mut buffer = ByteBufferMut::empty();
+        for segment in data {
+            buffer.extend_from_slice(segment.as_ref());
         }
-    }
+        self.segments.push(buffer.freeze());
 
-    impl AsyncSegmentReader for TestSegments {
-        fn get(&self, id: SegmentId, _for_whom: &Arc<str>) -> SegmentFuture {
-            let buffer = self.segments.get(*id as usize).cloned();
-            async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
-        }
+        id.into()
+    }
+}
+
+impl SegmentReader for TestSegments {
+    fn get(&self, id: SegmentId, _for_whom: &Arc<str>) -> SegmentFuture {
+        let buffer = self.segments.get(*id as usize).cloned();
+        async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
     }
 }

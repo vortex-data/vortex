@@ -12,6 +12,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
+use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -55,6 +56,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let filter_expr = self
             .cache
@@ -68,7 +70,10 @@ impl ExprEvaluator for FilterLayoutReader {
         let conjunct_evals: Vec<_> = filter_expr
             .conjuncts
             .iter()
-            .map(|expr| self.child.filter_evaluation(row_range, expr))
+            .map(|expr| {
+                self.child
+                    .filter_evaluation(row_range, expr, segment_reader)
+            })
             .try_collect()?;
 
         Ok(Box::new(FilterEvaluation {
@@ -81,9 +86,11 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Pass-through all projection expressions to the child layout reader.
-        self.child.projection_evaluation(row_range, expr)
+        self.child
+            .projection_evaluation(row_range, expr, segment_reader)
     }
 }
 

@@ -7,7 +7,7 @@ use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_dtype::TryFromBytes;
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::segments::SegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
@@ -48,11 +48,7 @@ pub struct StatsReader {
 }
 
 impl StatsReader {
-    pub(super) fn try_new(
-        layout: Layout,
-        ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
-    ) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: Layout, ctx: ArrayContext) -> VortexResult<Self> {
         if layout.vtable().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
@@ -67,12 +63,12 @@ impl StatsReader {
 
         let data_child = layout
             .child(0, layout.dtype().clone(), "data")?
-            .reader(segment_reader.clone(), ctx.clone())?;
+            .reader(ctx.clone())?;
 
         let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
         let stats_child = layout
             .child(1, stats_dtype, "stats_table")?
-            .reader(segment_reader.clone(), ctx.clone())?;
+            .reader(ctx.clone())?;
 
         Ok(Self {
             layout,
@@ -102,33 +98,39 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) fn stats_table(&self) -> Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>> {
+    pub(crate) fn stats_table(&self, segment_reader: &dyn SegmentReader) -> SharedStatsTable {
         self.stats_table
-            .get_or_try_init(|| {
-                let stats_child = self.stats_child.clone();
-                let present_stats = self.present_stats.clone();
+            .get_or_init(move || {
                 let nzones = self.nzones;
+                let present_stats = self.present_stats.clone();
 
-                let stats_eval = stats_child
-                    .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())?;
+                let stats_eval = self
+                    .stats_child
+                    .projection_evaluation(
+                        &(0..nzones as u64),
+                        &Identity::new_expr(),
+                        segment_reader,
+                    )
+                    .vortex_expect("Failed construct stats table evaluation");
 
-                Ok::<_, VortexError>(
-                    async move {
-                        let stats_array = stats_eval.invoke(Mask::new_true(nzones)).await?;
-                        // SAFETY: This is only fine to call because we perform validation above
-                        Ok(StatsTable::unchecked_new(stats_array, present_stats))
-                    }
-                    .map_err(Arc::new)
-                    .boxed()
-                    .shared(),
-                )
+                async move {
+                    let stats_array = stats_eval.invoke(Mask::new_true(nzones)).await?;
+                    // SAFETY: This is only fine to call because we perform validation above
+                    Ok(StatsTable::unchecked_new(stats_array, present_stats))
+                }
+                .map_err(Arc::new)
+                .boxed()
+                .shared()
             })
-            .vortex_expect("Failed to construct stats expression")
             .clone()
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    pub(crate) fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    pub(crate) fn pruning_mask_future(
+        &self,
+        expr: ExprRef,
+        segment_reader: &dyn SegmentReader,
+    ) -> Option<SharedPruningResult> {
         match self
             .pruning_result
             .write()
@@ -142,7 +144,7 @@ impl StatsReader {
                     Some(pred) => {
                         log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
                         Some(
-                            self.stats_table()
+                            self.stats_table(segment_reader)
                                 .map(move |stats_table| {
                                     stats_table.and_then(move |stats_table| {
                                         pred.evaluate(stats_table.array())?

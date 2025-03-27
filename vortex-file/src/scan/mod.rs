@@ -3,6 +3,7 @@ use std::sync::Arc;
 use executor::{TaskExecutor, ThreadsExecutor};
 use futures::{StreamExt, stream};
 use itertools::Itertools;
+pub use row_mask::*;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
@@ -13,14 +14,15 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
+use vortex_layout::layouts::filter::FilterLayoutReader;
+use vortex_layout::segments::SegmentReader;
+use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::{VortexMetrics, instrument};
 
-use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
-use crate::{ExprEvaluator, LayoutReader, RowMask, instrument, range_intersection};
-
 pub mod executor;
+mod row_mask;
 mod split_by;
 pub mod unified;
 
@@ -28,6 +30,9 @@ pub mod unified;
 pub struct ScanBuilder {
     task_executor: Option<TaskExecutor>,
     layout_reader: Arc<dyn LayoutReader>,
+    project_segment_reader: Arc<dyn SegmentReader>,
+    approx_filter_segment_reader: Option<Arc<dyn SegmentReader>>,
+    exact_filter_segment_reader: Option<Arc<dyn SegmentReader>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
@@ -39,10 +44,16 @@ pub struct ScanBuilder {
 }
 
 impl ScanBuilder {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(
+        layout_reader: Arc<dyn LayoutReader>,
+        segment_reader: Arc<dyn SegmentReader>,
+    ) -> Self {
         Self {
             task_executor: None,
             layout_reader,
+            project_segment_reader: segment_reader,
+            approx_filter_segment_reader: None,
+            exact_filter_segment_reader: None,
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
@@ -160,6 +171,13 @@ impl ScanBuilder {
                 .task_executor
                 .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
             layout_reader: self.layout_reader,
+            project_segment_reader: self.project_segment_reader.clone(),
+            approx_filter_segment_reader: self
+                .approx_filter_segment_reader
+                .unwrap_or_else(|| self.project_segment_reader.clone()),
+            exact_filter_segment_reader: self
+                .exact_filter_segment_reader
+                .unwrap_or_else(|| self.project_segment_reader.clone()),
             projection,
             filter,
             row_masks,
@@ -220,6 +238,13 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 pub struct Scan {
     task_executor: TaskExecutor,
     layout_reader: Arc<dyn LayoutReader>,
+
+    // We allow the caller to configure segment readers for each stage of the scan, in case
+    // they wish to prioritise or fetch the segments differently.
+    project_segment_reader: Arc<dyn SegmentReader>,
+    approx_filter_segment_reader: Arc<dyn SegmentReader>,
+    exact_filter_segment_reader: Arc<dyn SegmentReader>,
+
     // Guaranteed to be simplified
     projection: ExprRef,
     // Guaranteed to be simplified
@@ -248,17 +273,36 @@ impl Scan {
             .row_masks
             .into_iter()
             .enumerate()
-            .map(move |(_i, row_mask)| {
+            .map(|(_i, row_mask)| {
                 let row_range = row_mask.begin()..row_mask.end();
 
-                let filter_eval = self
+                let approx_filter_eval = self
                     .filter
                     .as_ref()
-                    .map(|expr| layout_reader.filter_evaluation(&row_range, expr))
+                    .map(|expr| {
+                        layout_reader.filter_evaluation(
+                            &row_range,
+                            expr,
+                            self.approx_filter_segment_reader.as_ref(),
+                        )
+                    })
                     .transpose()?;
-
-                let project_eval =
-                    layout_reader.projection_evaluation(&row_range, &self.projection)?;
+                let exact_filter_eval = self
+                    .filter
+                    .as_ref()
+                    .map(|expr| {
+                        layout_reader.filter_evaluation(
+                            &row_range,
+                            expr,
+                            self.exact_filter_segment_reader.as_ref(),
+                        )
+                    })
+                    .transpose()?;
+                let project_eval = layout_reader.projection_evaluation(
+                    &row_range,
+                    &self.projection,
+                    self.project_segment_reader.as_ref(),
+                )?;
 
                 Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
                     let mut mask = row_mask.filter_mask().clone();
@@ -266,15 +310,17 @@ impl Scan {
                         return Ok(None);
                     }
 
-                    if let Some(filter_eval) = filter_eval {
+                    if let Some(approx_filter_eval) = approx_filter_eval {
                         // First, we run an approximate evaluation to prune the row range.
-                        mask = filter_eval.invoke_approx(mask).await?;
+                        mask = approx_filter_eval.invoke_approx(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
                         }
+                    }
 
+                    if let Some(exact_filter_eval) = exact_filter_eval {
                         // Then, we run the full evaluation.
-                        mask = filter_eval.invoke(mask).await?;
+                        mask = exact_filter_eval.invoke(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
                         }

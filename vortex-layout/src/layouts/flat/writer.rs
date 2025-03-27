@@ -107,8 +107,6 @@ impl LayoutWriter for FlatLayoutWriter {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::{Precision, Stat};
@@ -138,9 +136,9 @@ mod tests {
                     .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), ctx)
+                .reader(ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &ident(), &segments)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await

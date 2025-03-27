@@ -7,7 +7,6 @@ use vortex_array::arcref::ArcRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutId, LayoutReader};
 
 /// A reference to a layout VTable, either static or arc'd.
@@ -24,7 +23,6 @@ pub trait LayoutVTable: Debug + Send + Sync {
         &self,
         layout: Layout,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
         // FIXME(ngates): return Box<dyn LayoutReader> instead of Arc<dyn LayoutReader>
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 

@@ -401,12 +401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-once-cell"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
-
-[[package]]
 name = "async-task"
 version = "4.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4271,16 +4265,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "range_union_find"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "650ca3577642cea7367b6be622edcd9496e8bc97867d7d644c4290289614c63b"
-dependencies = [
- "num-traits",
- "sorted-vec",
-]
-
-[[package]]
 name = "ratatui"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5022,12 +5006,6 @@ dependencies = [
  "libc",
  "windows-sys 0.52.0",
 ]
-
-[[package]]
-name = "sorted-vec"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d372029cb5195f9ab4e4b9aef550787dce78b124fcaee8d82519925defcd6f0d"
 
 [[package]]
 name = "spin"
@@ -6133,6 +6111,7 @@ dependencies = [
  "bytes",
  "dashmap",
  "flatbuffers 25.2.10",
+ "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
@@ -6142,6 +6121,7 @@ dependencies = [
  "object_store",
  "oneshot",
  "pin-project-lite",
+ "rstest",
  "rustc-hash",
  "tokio",
  "tracing",
@@ -6162,6 +6142,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
+ "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
  "vortex-sparse",
@@ -6271,20 +6252,15 @@ name = "vortex-layout"
 version = "0.25.2"
 dependencies = [
  "arrow-buffer",
- "async-once-cell",
  "async-trait",
  "bit-vec",
  "bytes",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
- "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
  "log",
- "pin-project-lite",
- "range_union_find",
- "rstest",
  "tokio",
  "tracing",
  "tracing-futures",
@@ -6295,7 +6271,6 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
- "vortex-metrics",
 ]
 
 [[package]]

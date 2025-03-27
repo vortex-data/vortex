@@ -1,6 +1,8 @@
 #![deny(missing_docs)]
 //! Vortex metrics
 
+mod macros;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};

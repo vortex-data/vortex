@@ -11,6 +11,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::Layout;
+use crate::segments::SegmentReader;
 
 /// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
 /// operations.
@@ -73,14 +74,16 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
 pub trait ExprEvaluator: Send + Sync {
     fn filter_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     fn projection_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
@@ -90,16 +93,20 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.as_ref().filter_evaluation(row_range, expr)
+        self.as_ref()
+            .filter_evaluation(row_range, expr, segment_reader)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        self.as_ref().projection_evaluation(row_range, expr)
+        self.as_ref()
+            .projection_evaluation(row_range, expr, segment_reader)
     }
 }
 

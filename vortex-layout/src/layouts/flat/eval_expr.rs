@@ -8,6 +8,7 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::{FlatReader, SharedArray};
+use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
@@ -16,15 +17,16 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("RowMask begin must fit within FlatLayout size")
+            .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("RowMask end must fit within FlatLayout size");
+                .vortex_expect("Row range end must fit within FlatLayout size");
 
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future()?,
+            array: self.array_future(segment_reader)?,
             row_range,
             expr: expr.clone(),
         }))
@@ -34,14 +36,15 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("RowMask begin must fit within FlatLayout size")
+            .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("RowMask end must fit within FlatLayout size");
+                .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future()?,
+            array: self.array_future(segment_reader)?,
             row_range,
             expr: expr.clone(),
         }))
@@ -138,8 +141,6 @@ impl ArrayEvaluation for FlatEvaluation {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
@@ -166,9 +167,9 @@ mod test {
                     .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), ctx)
+                .reader(ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr(), &segments)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -193,9 +194,9 @@ mod test {
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .reader(Arc::new(segments), ctx)
+                .reader(ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .projection_evaluation(&(0..layout.row_count()), &expr, &segments)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -222,9 +223,9 @@ mod test {
                     .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), ctx)
+                .reader(ctx)
                 .unwrap()
-                .projection_evaluation(&(2..4), &ident())
+                .projection_evaluation(&(2..4), &ident(), &segments)
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

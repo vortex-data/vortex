@@ -4,8 +4,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
-
-use crate::Layout;
+use vortex_layout::Layout;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -63,11 +62,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};
+    use vortex_layout::LayoutWriterExt;
+    use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
+    use vortex_layout::segments::TestSegments;
 
     use super::*;
-    use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
-    use crate::writer::LayoutWriterExt;
 
     #[test]
     fn test_layout_splits_flat() {

@@ -15,6 +15,7 @@ use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
+use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 #[async_trait]
@@ -23,6 +24,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -31,7 +33,7 @@ impl ExprEvaluator for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .filter_evaluation(row_range, &partitioned.partitions[0]);
+                .filter_evaluation(row_range, &partitioned.partitions[0], segment_reader);
         }
 
         // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
@@ -48,11 +50,15 @@ impl ExprEvaluator for StructReader {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
                     // can often be more efficient since nulls are turned into `false` early on,
                     // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
+                    FieldEval::Mask(reader.filter_evaluation(row_range, expr, segment_reader)?)
                 } else {
                     // Otherwise, we evaluate the projection as an array, and combine the results
                     // at the end.
-                    FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
+                    FieldEval::Array(reader.projection_evaluation(
+                        row_range,
+                        expr,
+                        segment_reader,
+                    )?)
                 })
             })
             .try_collect()?;
@@ -68,6 +74,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -76,7 +83,7 @@ impl ExprEvaluator for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .projection_evaluation(row_range, &partitioned.partitions[0]);
+                .projection_evaluation(row_range, &partitioned.partitions[0], segment_reader);
         }
 
         // Construct evaluations for each child.
@@ -84,7 +91,10 @@ impl ExprEvaluator for StructReader {
             .partition_names
             .iter()
             .zip_eq(partitioned.partitions.iter())
-            .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
+            .map(|(name, expr)| {
+                self.child(name)?
+                    .projection_evaluation(row_range, expr, segment_reader)
+            })
             .try_collect()?;
 
         Ok(Box::new(StructArrayEvaluation {
@@ -205,14 +215,14 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::segments::AsyncSegmentReader;
+    use crate::segments::SegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
@@ -264,15 +274,15 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {
-        let reader = layout.reader(segments, ctx).unwrap();
+        let reader = layout.reader(ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, segments.as_ref())
                 .unwrap()
                 .invoke(Mask::new_true(3)),
         )
@@ -292,15 +302,15 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {
-        let reader = layout.reader(segments, ctx).unwrap();
+        let reader = layout.reader(ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, segments.as_ref())
                 .unwrap()
                 .invoke(Mask::from_iter([true, true, false])),
         )
@@ -323,15 +333,15 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentReader>,
             Layout,
         ),
     ) {
-        let reader = layout.reader(segments, ctx).unwrap();
+        let reader = layout.reader(ctx).unwrap();
         let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, segments.as_ref())
                 .unwrap()
                 // Take rows 0 and 1, skip row 2, and anything after that
                 .invoke(Mask::from_iter([true, true, false])),

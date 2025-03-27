@@ -9,7 +9,7 @@ use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::SplitBy;
-use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
+use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;

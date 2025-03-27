@@ -9,15 +9,11 @@ pub mod layouts;
 
 pub use reader::*;
 pub use strategy::*;
+use vortex_array::arcref::ArcRef;
 pub use vtable::*;
 pub use writer::*;
-mod row_mask;
-pub use row_mask::*;
-use vortex_array::arcref::ArcRef;
 
-pub mod macros;
 mod reader;
-pub mod scan;
 pub mod segments;
 pub mod stats;
 mod strategy;

@@ -3,16 +3,16 @@ use std::sync::Arc;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
-use vortex_layout::scan::ScanBuilder;
-use vortex_layout::segments::AsyncSegmentReader;
+use vortex_layout::segments::SegmentReader;
 use vortex_metrics::VortexMetrics;
 
+use crate::ScanBuilder;
 use crate::footer::Footer;
 
 #[derive(Clone)]
 pub struct VortexFile {
     pub(crate) footer: Footer,
-    pub(crate) segment_reader: Arc<dyn AsyncSegmentReader>,
+    pub(crate) segment_reader: Arc<dyn SegmentReader>,
     pub(crate) metrics: VortexMetrics,
 }
 
@@ -33,7 +33,7 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    pub fn segment_reader(&self) -> &Arc<dyn AsyncSegmentReader> {
+    pub fn segment_reader(&self) -> &Arc<dyn SegmentReader> {
         &self.segment_reader
     }
 
@@ -45,9 +45,10 @@ impl VortexFile {
         ScanBuilder::new(
             self.footer()
                 .layout()
-                .reader(self.segment_reader().clone(), self.footer.ctx().clone())
+                .reader(self.footer.ctx().clone())
                 // FIXME(ngates): why can this fail?
                 .vortex_expect("failed to create layout reader"),
+            self.segment_reader.clone(),
         )
     }
 }

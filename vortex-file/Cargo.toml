@@ -18,6 +18,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
+flume = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
@@ -51,12 +52,14 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }

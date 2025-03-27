@@ -10,13 +10,11 @@ use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader, LayoutVTable};
 
 pub struct StructReader {
     layout: Layout,
     ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     field_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
     field_lookup: Option<HashMap<FieldName, usize>>,
@@ -24,11 +22,7 @@ pub struct StructReader {
 }
 
 impl StructReader {
-    pub(super) fn try_new(
-        layout: Layout,
-        ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
-    ) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: Layout, ctx: ArrayContext) -> VortexResult<Self> {
         if layout.vtable().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
@@ -55,7 +49,6 @@ impl StructReader {
         Ok(Self {
             layout,
             ctx,
-            segment_reader,
             field_readers,
             field_lookup,
             partitioned_expr_cache: Default::default(),
@@ -83,7 +76,7 @@ impl StructReader {
             let child_layout =
                 self.layout
                     .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
-            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
+            child_layout.reader(self.ctx.clone())
         })
     }
 
