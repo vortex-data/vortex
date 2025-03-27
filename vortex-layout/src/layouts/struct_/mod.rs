@@ -59,7 +59,7 @@ impl LayoutVTable for StructLayout {
                 row_offset,
                 &[field_mask],
                 &[],
-                &mut segments.with_priority_hint(RequiredSegmentKind::FILTER),
+                &mut segments.with_priority_hint(RequiredSegmentKind::Filter),
             )
         })?;
         for_all_matching_children(layout, projection_field_mask, |field_mask, child| {
@@ -67,7 +67,7 @@ impl LayoutVTable for StructLayout {
                 row_offset,
                 &[],
                 &[field_mask],
-                &mut segments.with_priority_hint(RequiredSegmentKind::PROJECTION),
+                &mut segments.with_priority_hint(RequiredSegmentKind::Projection),
             )
         })?;
         Ok(())

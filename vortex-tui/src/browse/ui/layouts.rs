@@ -43,7 +43,6 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let row_count = cursor.layout().row_count();
 
     let mut rows = vec![
-        Text::from(format!("Cursor encoding ID: {}", cursor.encoding().id())),
         Text::from(format!("Kind: {layout_kind}")).bold(),
         Text::from(format!("Row Count: {row_count}")).bold(),
         Text::from(format!("Schema: {}", cursor.dtype()))

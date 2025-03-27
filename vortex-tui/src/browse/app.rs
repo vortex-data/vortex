@@ -167,6 +167,10 @@ impl LayoutCursor {
     pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
+
+    pub fn footer(&self) -> &Footer {
+        &self.footer
+    }
 }
 
 #[derive(Default, PartialEq, Eq)]
