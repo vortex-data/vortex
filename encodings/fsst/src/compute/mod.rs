@@ -11,7 +11,7 @@ use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -61,7 +61,7 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
             take(array.codes(), indices)?,
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
-                Scalar::from(0).cast(indices.dtype())?,
+                Scalar::new(indices.dtype().clone(), ScalarValue::from(0)),
             )?,
         )?
         .into_array())
