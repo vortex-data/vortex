@@ -87,8 +87,8 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-          # Generate date
-          cargo run --release --bin tpch --package bench-vortex -- --formats vortex -i1
+          # Generate data, running each query once to make sure they don't panic.
+          cargo run --release --bin ${{ matrix.binary_name }} --package bench-vortex -- --formats vortex -i1
           aws s3 rm --recursive ${{ matrix.remote_storage }}
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
