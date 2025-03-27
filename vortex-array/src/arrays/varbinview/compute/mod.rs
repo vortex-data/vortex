@@ -2,6 +2,7 @@ mod cast;
 mod is_constant;
 mod is_sorted;
 mod min_max;
+mod optimize;
 mod take;
 mod to_arrow;
 

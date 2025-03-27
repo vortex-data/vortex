@@ -3,10 +3,11 @@ mod compare;
 mod is_constant;
 mod is_sorted;
 mod like;
+mod optimize;
 
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsSortedFn,
-    KernelRef, LikeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
+    KernelRef, LikeFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
@@ -38,6 +39,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn like_fn(&self) -> Option<&dyn LikeFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn optimize_fn(&self) -> Option<&dyn OptimizeFn<&dyn Array>> {
         Some(self)
     }
 
