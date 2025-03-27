@@ -79,14 +79,14 @@ impl CastFn<&StructArray> for StructEncoding {
             .clone()
             .cast_nullability(dtype.nullability())?;
 
-        StructArray::try_new(
-            target_sdtype.names().clone(),
+        StructArray::try_new_with_dtype(
             array
                 .fields()
                 .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| try_cast(field, &dtype))
                 .try_collect()?,
+            array.struct_dtype(),
             array.len(),
             validity,
         )
@@ -109,13 +109,13 @@ impl ScalarAtFn<&StructArray> for StructEncoding {
 
 impl TakeFn<&StructArray> for StructEncoding {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        StructArray::try_new(
-            array.names().clone(),
+        StructArray::try_new_with_dtype(
             array
                 .fields()
                 .iter()
                 .map(|field| take(field, indices))
                 .try_collect()?,
+            array.dtype().clone(),
             indices.len(),
             array.validity().take(indices)?,
         )
@@ -130,9 +130,9 @@ impl SliceFn<&StructArray> for StructEncoding {
             .iter()
             .map(|field| slice(field, start, stop))
             .try_collect()?;
-        StructArray::try_new(
-            array.names().clone(),
+        StructArray::try_new_with_dtype(
             fields,
+            array.dtype().clone(),
             stop - start,
             array.validity().slice(start, stop)?,
         )
@@ -154,7 +154,7 @@ impl FilterKernel for StructEncoding {
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        StructArray::try_new(array.names().clone(), fields, length, validity)
+        StructArray::try_new_with_dtype(fields, array.dtype().clone(), length, validity)
             .map(|a| a.into_array())
     }
 }

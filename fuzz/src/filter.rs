@@ -71,9 +71,9 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                 .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 
-            StructArray::try_new(
-                struct_array.names().clone(),
+            StructArray::try_new_with_dtype(
                 filtered_children,
+                struct_array.struct_dtype().clone(),
                 filter.iter().filter(|b| **b).map(|b| *b as usize).sum(),
                 validity,
             )

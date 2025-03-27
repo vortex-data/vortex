@@ -42,6 +42,13 @@ impl StructArray {
         &self.fields
     }
 
+    pub fn struct_dtype(&self) -> &Arc<StructDType> {
+        let DType::Struct(str, _) = &self.dtype else {
+            unreachable!()
+        };
+        str
+    }
+
     pub fn try_new(
         names: FieldNames,
         fields: Vec<ArrayRef>,
@@ -74,6 +81,40 @@ impl StructArray {
             stats_set: Default::default(),
         })
     }
+
+    pub fn try_new_with_dtype(
+        fields: Vec<ArrayRef>,
+        dtype: Arc<StructDType>,
+        length: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        for (field, struct_dt) in fields.iter().zip(dtype.fields()) {
+            if field.len() != length {
+                vortex_bail!(
+                    "Expected all struct fields to have length {length}, found {}",
+                    field.len()
+                );
+            }
+
+            if &struct_dt != field.dtype() {
+                vortex_bail!(
+                    "Expected all struct fields to have dtype {}, found {}",
+                    struct_dt,
+                    field.dtype()
+                );
+            }
+        }
+
+        Ok(Self {
+            len: length,
+            dtype: DType::Struct(dtype, validity.nullability()),
+            fields,
+            validity,
+            stats_set: Default::default(),
+        })
+    }
+
+    // TODO(joe): add a new struct ctor that doesn't create a dtype
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
