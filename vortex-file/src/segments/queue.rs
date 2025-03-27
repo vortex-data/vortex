@@ -134,9 +134,7 @@ impl SegmentQueue {
             // self.inner.segments.retain(|_, v| v.fut.upgrade().is_some());
 
             // Otherwise, await a notification that there may be more work to do.
-            if self.recv.next().await.is_none() {
-                return None;
-            }
+            self.recv.next().await?;
         }
     }
 
@@ -162,7 +160,7 @@ impl SegmentQueue {
             if let Some(lease) = self
                 .inner
                 .segments
-                .get(&segment_id)
+                .get(segment_id)
                 .and_then(|v| v.clone().lease())
             {
                 leased.push(lease);
@@ -397,11 +395,12 @@ impl PendingSegmentLease {
     }
 
     pub fn resolve(mut self, buffer: VortexResult<ByteBuffer>) {
-        if let Err(_) = self
+        if self
             .send
             .take()
             .vortex_expect("cannot resolve a segment twice")
             .send(buffer)
+            .is_err()
         {
             // This occurs when the recv end of the channel was dropped while the segment was
             // leased, in other words, while the request was "in-flight".

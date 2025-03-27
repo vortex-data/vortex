@@ -142,7 +142,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &ident())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count() as usize))
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

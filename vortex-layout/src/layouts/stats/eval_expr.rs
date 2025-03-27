@@ -176,7 +176,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count() as usize))
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive()
@@ -205,7 +205,7 @@ mod test {
             let result = reader
                 .filter_evaluation(&(0..row_count), &expr)
                 .unwrap()
-                .invoke_approx(Mask::new_true(row_count as usize))
+                .invoke_approx(Mask::new_true(row_count.try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_boolean_buffer()

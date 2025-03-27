@@ -88,12 +88,10 @@ impl ChunkedMaskEvaluation {
                     if mask.all_false() {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
+                    } else if approximate {
+                        chunk_eval.invoke_approx(mask).boxed()
                     } else {
-                        if approximate {
-                            chunk_eval.invoke_approx(mask).boxed()
-                        } else {
-                            chunk_eval.invoke(mask).boxed()
-                        }
+                        chunk_eval.invoke(mask).boxed()
                     }
                 }),
         )

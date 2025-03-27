@@ -35,8 +35,8 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             .await
             .vortex_unwrap();
 
-        let output = VortexOpenOptions::in_memory(full_buff)
-            .open()
+        let output = VortexOpenOptions::in_memory()
+            .open(full_buff)
             .await
             .vortex_unwrap()
             .scan()

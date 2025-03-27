@@ -46,8 +46,8 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    pub async fn open<R: VortexReadAt + Send>(self, mut read: R) -> VortexResult<VortexFile> {
-        let footer = self.read_footer(&mut read).await?;
+    pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
+        let footer = self.read_footer(&read).await?;
 
         let (segment_queue, segment_reader) = SegmentQueue::new(self.metrics.clone());
 
