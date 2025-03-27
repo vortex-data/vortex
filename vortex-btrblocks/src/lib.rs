@@ -245,9 +245,12 @@ pub trait Compressor {
 pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
-    #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        match array.to_canonical()? {
+        self.compress_canonical(array.to_canonical()?)
+    }
+
+    pub fn compress_canonical(&self, array: Canonical) -> VortexResult<ArrayRef> {
+        match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
