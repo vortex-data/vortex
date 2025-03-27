@@ -53,10 +53,11 @@ impl EncodingVTable for StructEncoding {
             })
             .try_collect()?;
 
-        Ok(
-            StructArray::try_new(struct_dtype.names().clone(), children, len, validity)?
-                .into_array(),
-        )
+        let DType::Struct(struct_dtype, _) = dtype else {
+            unreachable!()
+        };
+
+        Ok(StructArray::try_new_with_dtype(children, struct_dtype, len, validity)?.into_array())
     }
 }
 

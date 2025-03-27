@@ -67,12 +67,7 @@ fn swizzle_struct_chunks(
         field_arrays.push(field_array.into_array());
     }
 
-    StructArray::try_new_with_dtype(
-        field_arrays,
-        DType::Struct(struct_dtype.clone(), validity.nullability()),
-        len,
-        validity,
-    )
+    StructArray::try_new_with_dtype(field_arrays, struct_dtype.clone(), len, validity)
 }
 
 fn pack_lists(

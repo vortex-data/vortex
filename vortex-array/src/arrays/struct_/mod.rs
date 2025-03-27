@@ -192,7 +192,7 @@ impl ArrayImpl for StructArray {
         let fields_idx = if validity.is_array() { 1_usize } else { 0 };
         let fields = children[fields_idx..].to_vec();
 
-        Self::try_new(self.names().clone(), fields, self.len(), validity)
+        Self::try_new_with_dtype(fields, self.struct_dtype().clone(), self.len(), validity)
     }
 }
 
