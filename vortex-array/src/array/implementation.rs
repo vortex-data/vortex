@@ -186,6 +186,13 @@ impl<A: ArrayImpl + 'static> Array for A {
     ///
     /// The [`DType`] of the builder must match that of the array.
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        if builder.dtype() != self.dtype() {
+            vortex_bail!(
+                "Builder dtype mismatch: expected {}, got {}",
+                self.dtype(),
+                builder.dtype()
+            );
+        }
         let len = builder.len();
 
         ArrayCanonicalImpl::_append_to_builder(self, builder)?;
