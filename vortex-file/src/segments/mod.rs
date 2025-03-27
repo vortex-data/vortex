@@ -1,5 +1,4 @@
 mod cache;
-pub(crate) mod queue;
 pub(crate) mod writer;
 
 pub use cache::*;

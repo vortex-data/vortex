@@ -48,6 +48,10 @@ impl FlatReader {
             .segment_id(0)
             .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
         let row_count = usize::try_from(self.layout.row_count())?;
+
+        // We create the segment_fut here to ensure we give the segment reader visibility into
+        // how to prioritize this segment, even if the `array` future has already been initialized.
+        // This is gross... see the function's TODO for a better solution.
         let segment_fut = segment_reader.get(segment_id, self.layout.name());
 
         Ok(self

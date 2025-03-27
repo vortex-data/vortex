@@ -10,7 +10,7 @@ use std::time::Instant;
 use dashmap::{DashMap, Entry};
 use futures::channel::mpsc;
 use futures::future::{BoxFuture, Shared, WeakShared};
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{
@@ -24,16 +24,149 @@ use vortex_metrics::{Counter, VortexMetrics};
 /// Segments are prioritised by the order in which they are first requested, with explicitly
 /// polled segments jumping to the front of the queue.
 pub struct SegmentQueue {
-    /// Notification queue triggered whenever a new segment is requested
-    recv: mpsc::UnboundedReceiver<()>,
-    inner: Arc<SegmentQueueInner>,
+    pub(crate) inner: Arc<SegmentQueueInner>,
 }
 
 struct SegmentQueueInner {
     /// A map of pending segments, indexed by segment ID.
-    segments: DashMap<SegmentId, Arc<PendingSegment>>,
+    segments: DashMap<SegmentId, PendingSegment>,
     needed: Mutex<NeededSegments>,
+    /// A queue of segments whose futures have been dropped.
+    dead_queue: (
+        mpsc::UnboundedSender<SegmentId>,
+        mpsc::UnboundedReceiver<SegmentId>,
+    ),
     metrics: VortexMetrics,
+}
+
+impl SegmentQueueInner {
+    /// Drive the segment queue to perform more I/O.
+    pub async fn drive(self: Arc<Self>) -> VortexResult<()> {
+        Ok(())
+    }
+
+    /// Get or create a segment future for the given segment ID.
+    fn segment_future(
+        self: Arc<Self>,
+        id: SegmentId,
+        for_whom: Arc<str>,
+        row_range: Range<u64>,
+        stage: ScanStage,
+    ) -> Shared<SegmentFuture> {
+        loop {
+            // Loop in case the pending future has no strong references, in which case we clear it
+            // out of the map and create a new one on the next iteration.
+            match self.segments.entry(id) {
+                Entry::Occupied(e) => {
+                    if let Some(fut) = e.get().future() {
+                        break fut;
+                    } else {
+                        log::debug!("Re-requesting dropped segment from segment reader {}", id);
+                        e.remove();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    self.metrics.counter("vortex.scan.segments.requests").inc();
+
+                    log::debug!("Pending segment {} for {}: REGISTERED", id, &for_whom);
+                    let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
+
+                    // Set up the segment future tied to the recv end of the channel.
+                    let fut = SegmentFuture {
+                        future: recv
+                            .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
+                            .map(|r| r.unnest())
+                            .map_err(Arc::new)
+                            .boxed(),
+                        id,
+                        queue: self.clone(),
+                        polled: AtomicBool::new(false),
+                        resolved: AtomicBool::new(false),
+                    }
+                    .shared();
+
+                    let pending = PendingSegment {
+                        id,
+                        row_range,
+                        stage,
+                        for_whom,
+                        created_at: Instant::now(),
+                        resolved: false,
+                        polled: false,
+                        fut: fut
+                            .downgrade()
+                            .vortex_expect("future must be alive, we only just created it"),
+                        queue: self.clone(),
+                        send: Mutex::new(Some(send)),
+                    };
+                    e.insert(pending);
+
+                    self.needed
+                        .lock()
+                        .vortex_expect("poisoned lock")
+                        .need_later
+                        .insert(id);
+
+                    break fut;
+                }
+            }
+        }
+    }
+
+    /// Callback invoked when a segment future is first polled.
+    fn on_first_poll(&self, id: SegmentId) {
+        log::debug!("Pending segment {}: POLLED", id);
+        if let Some(mut pending) = self.segments.get_mut(&id) {
+            pending.polled = true;
+        }
+
+        // Bump the segment to the front of the queue.
+        {
+            let mut needed = self.needed.lock().vortex_expect("poisoned lock");
+            if needed.need_later.remove(&id) {
+                needed.need_now.push_back(id);
+            }
+        }
+    }
+
+    fn on_resolve(&self, id: SegmentId) {
+        log::debug!("Pending segment {}: RESOLVED", id);
+        if let Some(mut pending) = self.segments.get_mut(&id) {
+            pending.resolved = true;
+        }
+    }
+
+    fn on_drop(&self, id: SegmentId) {
+        if let Some(pending) = self.segments.get(&id) {
+            match (pending.polled, pending.resolved) {
+                (false, false) => {
+                    log::debug!("Pending segment {}: DROPPED BEFORE POLL", id);
+                }
+                (false, true) => {
+                    log::debug!("Pending segment {}: DROPPED BEFORE POLL AFTER RESOLVE", id);
+                }
+                (true, false) => {
+                    log::debug!("Pending segment {}: DROPPED BEFORE RESOLVE", id);
+                }
+                (true, true) => {
+                    // This is not an interesting case, the future resolved to completion.
+                    log::trace!("Pending segment {}: DROPPED AFTER RESOLVE", id);
+                }
+            }
+        }
+        // We cannot lock the pending segment in a drop handler, since we will deadlock.
+        // Instead, we place the ID into a dead queue.
+        if self.dead_queue.0.unbounded_send(id).is_err() {
+            log::trace!("Cannot submit to dead queue after drop")
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ScanStage {
+    ApproxFilter,
+    ExactFilter,
+    Projection,
 }
 
 #[derive(Default)]
@@ -49,25 +182,37 @@ struct NeededSegments {
 impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
     /// populate it.
-    pub fn new(metrics: VortexMetrics) -> (Self, Arc<dyn SegmentReader>) {
-        let (send, recv) = mpsc::unbounded();
-
+    pub fn new(metrics: VortexMetrics) -> Self {
         let inner = Arc::new(SegmentQueueInner {
             segments: Default::default(),
             needed: Default::default(),
+            dead_queue: mpsc::unbounded(),
             metrics: metrics.clone(),
         });
 
+        Self { inner }
+    }
+
+    /// Create a new [`SegmentReader`] that can be used to populate the segment queue.
+    pub fn segment_reader(
+        &self,
+        row_range: &Range<u64>,
+        stage: ScanStage,
+    ) -> Arc<dyn SegmentReader> {
         // We return a segment reader (instead of holding a strong reference to the send channel)
         // such that when all segment readers are dropped, the "send" end of the queue is closed,
         // and we can return `None` from the next function.
-        let segment_reader = Arc::new(SegmentQueueSegmentReader {
-            queue: inner.clone(),
-            notifier: send,
-            request_counter: metrics.counter("vortex.scan.segments.requested"),
-        });
+        Arc::new(SegmentQueueSegmentReader {
+            queue: self.inner.clone(),
+            row_range: row_range.clone(),
+            stage,
+            request_counter: self.inner.metrics.counter("vortex.scan.segments.requested"),
+        })
+    }
 
-        (Self { recv, inner }, segment_reader)
+    /// Drive the segment queue to completion.
+    pub async fn drive(&self) -> VortexResult<()> {
+        Ok(())
     }
 
     /// Inspect all pending segments.
@@ -134,7 +279,7 @@ impl SegmentQueue {
             // self.inner.segments.retain(|_, v| v.fut.upgrade().is_some());
 
             // Otherwise, await a notification that there may be more work to do.
-            self.recv.next().await?;
+            // self.recv.next().await?;
         }
     }
 
@@ -174,9 +319,22 @@ impl SegmentQueue {
 /// Segment reader that creates a [`PendingSegment`] in the segment queue.
 struct SegmentQueueSegmentReader {
     queue: Arc<SegmentQueueInner>,
-    notifier: mpsc::UnboundedSender<()>,
+    row_range: Range<u64>,
+    stage: ScanStage,
 
     request_counter: Arc<Counter>,
+}
+
+impl SegmentQueueSegmentReader {
+    pub fn new(queue: Arc<SegmentQueueInner>, row_range: Range<u64>, stage: ScanStage) -> Self {
+        let request_counter = queue.metrics.counter("vortex.scan.segments.requested");
+        Self {
+            queue,
+            row_range,
+            stage,
+            request_counter,
+        }
+    }
 }
 
 impl SegmentReader for SegmentQueueSegmentReader {
@@ -185,56 +343,41 @@ impl SegmentReader for SegmentQueueSegmentReader {
         id: SegmentId,
         for_whom: &Arc<str>,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let fut = loop {
-            // Loop in case the pending future has no strong references, in which case we clear it
-            // out of the map and create a new one on the next iteration.
-            match self.queue.segments.entry(id) {
-                Entry::Occupied(e) => {
-                    if let Some(fut) = e.get().future() {
-                        break fut;
-                    } else {
-                        log::debug!("Re-requesting dropped segment from segment reader {}", id);
-                        e.remove();
-                    }
-                }
-                Entry::Vacant(e) => {
-                    self.request_counter.inc();
-                    let (pending, fut) = PendingSegment::new(
-                        id,
-                        for_whom.clone(),
-                        self.queue.clone(),
-                        self.notifier.clone(),
-                    );
-                    e.insert(Arc::new(pending));
-                    self.queue
-                        .needed
-                        .lock()
-                        .vortex_expect("poisoned lock")
-                        .need_later
-                        .insert(id);
-                    break fut;
-                }
-            }
-        };
-
-        // Send a notification that there may be more work to do in the queue.
-        self.notifier
-            .unbounded_send(())
-            .map_err(|e| vortex_err!("Failed to notify segment queue {}", e))
-            .vortex_expect("Failed to notify segment queue");
-
-        fut.map_err(VortexError::from).boxed()
+        self.queue
+            .clone()
+            .segment_future(id, for_whom.clone(), self.row_range.clone(), self.stage)
+            .map_err(VortexError::from)
+            .boxed()
     }
 }
 
 /// A pending segment returned by the [`SegmentReader`].
 pub struct PendingSegment {
     id: SegmentId,
+    /// The row range of the scan that requested the segment.
+    row_range: Range<u64>,
+    /// The stage of the scan that requested the segment.
+    stage: ScanStage,
+    /// A debug string identifying which layout requested the segment.
     for_whom: Arc<str>,
-    fut: WeakShared<SegmentFuture>,
-    send: Mutex<Option<oneshot::Sender<VortexResult<ByteBuffer>>>>,
-    queue: Arc<SegmentQueueInner>,
+    /// The time at which the segment was requested.
     created_at: Instant,
+
+    /// Whether the segment has been resolved.
+    resolved: bool,
+    /// Whether the segment has been polled.
+    polled: bool,
+
+    /// A weak shared future that we hand out to all requesters. Once all requesters have been
+    /// dropped, typically because their row split has completed (or been pruned), then the weak
+    /// feature is no longer upgradable, and the segment can be dropped.
+    fut: WeakShared<SegmentFuture>,
+
+    /// A channel that can be used to resolve the segment future.
+    send: Mutex<Option<oneshot::Sender<VortexResult<ByteBuffer>>>>,
+
+    /// Handle back into the queue state.
+    queue: Arc<SegmentQueueInner>,
 }
 
 impl Debug for PendingSegment {
@@ -246,46 +389,6 @@ impl Debug for PendingSegment {
 }
 
 impl PendingSegment {
-    /// Create a new [`PendingSegment`] that can be resolved later.
-    fn new(
-        id: SegmentId,
-        for_whom: Arc<str>,
-        queue: Arc<SegmentQueueInner>,
-        notifier: mpsc::UnboundedSender<()>,
-    ) -> (PendingSegment, Shared<SegmentFuture>) {
-        log::debug!("Pending segment {} for {}: REGISTERED", id, &for_whom);
-        let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
-
-        // Set up the segment future tied to the recv end of the channel.
-        let fut = SegmentFuture {
-            future: recv
-                .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
-                .map(|r| r.unnest())
-                .map_err(Arc::new)
-                .boxed(),
-            id,
-            queue: queue.clone(),
-            notifier,
-            polled: AtomicBool::new(false),
-            resolved: AtomicBool::new(false),
-            // resolved_timer: queue.metrics.timer("vortex.scan.segments.resolve"),
-        }
-        .shared();
-
-        let this = Self {
-            id,
-            for_whom,
-            fut: fut
-                .downgrade()
-                .vortex_expect("future has not been polled to completion"),
-            queue,
-            created_at: Instant::now(),
-            send: Mutex::new(Some(send)),
-        };
-
-        (this, fut)
-    }
-
     pub fn id(&self) -> SegmentId {
         self.id
     }
@@ -312,10 +415,8 @@ pub struct SegmentFuture {
     // FIXME(ngates): just call queue.on_poll(id).
     id: SegmentId,
     queue: Arc<SegmentQueueInner>,
-    notifier: mpsc::UnboundedSender<()>,
     polled: AtomicBool,
     resolved: AtomicBool,
-    // resolved_timer: Arc<Timer>,
 }
 
 impl Future for SegmentFuture {
@@ -323,49 +424,20 @@ impl Future for SegmentFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.polled.fetch_or(true, Ordering::Relaxed) {
-            // Bump the segment to the front of the queue.
-            {
-                let mut needed = self.queue.needed.lock().vortex_expect("poisoned lock");
-                if needed.need_later.remove(&self.id) {
-                    needed.need_now.push_back(self.id);
-                }
-            }
-
-            // Notify the queue that there may be more work to do.
-            let _ = self.notifier.unbounded_send(());
+            self.queue.on_first_poll(self.id);
         }
 
         let result = ready!(self.future.poll_unpin(cx));
-        self.resolved.store(true, Ordering::Relaxed);
-        // self.resolved_timer
-        //     .update(Instant::now() - self.pending.created_at);
+        if !self.resolved.fetch_or(true, Ordering::Relaxed) {
+            self.queue.on_resolve(self.id);
+        }
         Poll::Ready(result)
     }
 }
 
 impl Drop for SegmentFuture {
     fn drop(&mut self) {
-        match (
-            self.polled.load(Ordering::Relaxed),
-            self.resolved.load(Ordering::Relaxed),
-        ) {
-            (false, false) => {
-                log::debug!("Pending segment {}: DROPPED BEFORE POLL", self.id);
-            }
-            (false, true) => {
-                log::debug!(
-                    "Pending segment {}: DROPPED BEFORE POLL AFTER RESOLVE",
-                    self.id
-                );
-            }
-            (true, false) => {
-                log::debug!("Pending segment {}: DROPPED BEFORE RESOLVE", self.id);
-            }
-            (true, true) => {
-                // This is not an interesting case, the future resolved to completion.
-                log::trace!("Pending segment {}: DROPPED AFTER RESOLVE", self.id);
-            }
-        }
+        self.queue.on_drop(self.id);
     }
 }
 

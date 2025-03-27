@@ -59,6 +59,7 @@ pub trait SegmentWriter {
     fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
 }
 
+/// A dummy in-memory implementation of a segment reader and writer.
 #[derive(Default)]
 pub struct TestSegments {
     segments: Vec<ByteBuffer>,

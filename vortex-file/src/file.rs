@@ -2,17 +2,18 @@ use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_layout::segments::SegmentReader;
 use vortex_metrics::VortexMetrics;
 
-use crate::ScanBuilder;
 use crate::footer::Footer;
+use crate::segments::SegmentCache;
 
 #[derive(Clone)]
 pub struct VortexFile {
+    /// The footer of the Vortex file.
     pub(crate) footer: Footer,
-    pub(crate) segment_reader: Arc<dyn SegmentReader>,
+    /// Cache containing any segments that were incidentally read as part of the initial read.
+    pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
 
@@ -33,22 +34,7 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    pub fn segment_reader(&self) -> &Arc<dyn SegmentReader> {
-        &self.segment_reader
-    }
-
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
-    }
-
-    pub fn scan(&self) -> ScanBuilder {
-        ScanBuilder::new(
-            self.footer()
-                .layout()
-                .reader(self.footer.ctx().clone())
-                // FIXME(ngates): why can this fail?
-                .vortex_expect("failed to create layout reader"),
-            self.segment_reader.clone(),
-        )
     }
 }

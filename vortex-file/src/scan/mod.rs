@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
+use futures::channel::mpsc;
 use futures::{StreamExt, stream};
 use itertools::Itertools;
 pub use row_mask::*;
@@ -14,25 +15,27 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
+use vortex_io::{Dispatch, IoDispatcher};
 use vortex_layout::layouts::filter::FilterLayoutReader;
 use vortex_layout::segments::SegmentReader;
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
 use vortex_metrics::{VortexMetrics, instrument};
 
+use crate::VortexFile;
 use crate::scan::executor::Executor;
+use crate::scan::segments::{ScanStage, SegmentQueue};
+
 pub mod executor;
 mod row_mask;
+mod segments;
 mod split_by;
 pub mod unified;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder {
+    vxf: VortexFile,
     task_executor: Option<TaskExecutor>,
-    layout_reader: Arc<dyn LayoutReader>,
-    project_segment_reader: Arc<dyn SegmentReader>,
-    approx_filter_segment_reader: Option<Arc<dyn SegmentReader>>,
-    exact_filter_segment_reader: Option<Arc<dyn SegmentReader>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
@@ -40,20 +43,15 @@ pub struct ScanBuilder {
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
     concurrency: usize,
+    io_dispatcher: IoDispatcher,
     metrics: VortexMetrics,
 }
 
 impl ScanBuilder {
-    pub fn new(
-        layout_reader: Arc<dyn LayoutReader>,
-        segment_reader: Arc<dyn SegmentReader>,
-    ) -> Self {
+    pub fn new(vxf: VortexFile, metrics: VortexMetrics) -> Self {
         Self {
+            vxf,
             task_executor: None,
-            layout_reader,
-            project_segment_reader: segment_reader,
-            approx_filter_segment_reader: None,
-            exact_filter_segment_reader: None,
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
@@ -62,7 +60,8 @@ impl ScanBuilder {
             // How many row splits to make progress on concurrently (not necessarily in parallel,
             // that is decided by the TaskExecutor).
             concurrency: 16,
-            metrics: Default::default(),
+            io_dispatcher: IoDispatcher::default(),
+            metrics,
         }
     }
 
@@ -119,25 +118,33 @@ impl ScanBuilder {
         self
     }
 
-    pub fn build(self) -> VortexResult<Scan> {
-        let projection = simplify_typed(self.projection.clone(), self.layout_reader.dtype())?;
+    pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
+        // Spin up the root layout reader
+        let layout_reader = self
+            .vxf
+            .footer()
+            .layout()
+            .reader(self.vxf.footer().ctx().clone())?;
+        // And then wrap it in a FilterLayoutReader to perform conjunction splitting.
+        let layout_reader: Arc<dyn LayoutReader> = Arc::new(FilterLayoutReader::new(layout_reader));
+
+        // Normalize and simplify the expressions.
+        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, self.layout_reader.dtype()))
+            .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), self.layout_reader.dtype())?;
 
+        // Construct field masks and compute the row splits of the scan.
+        let (filter_mask, projection_mask) =
+            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = filter_mask
             .iter()
             .cloned()
             .chain(projection_mask.iter().cloned())
             .collect();
-
-        let splits = self
-            .split_by
-            .splits(self.layout_reader.layout(), &field_mask)?;
+        let splits = self.split_by.splits(layout_reader.layout(), &field_mask)?;
         let row_indices = self.row_indices.clone();
         let row_masks = splits
             .into_iter()
@@ -166,29 +173,119 @@ impl ScanBuilder {
             })
             .collect_vec();
 
-        Ok(Scan {
-            task_executor: self
-                .task_executor
-                .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
-            layout_reader: self.layout_reader,
-            project_segment_reader: self.project_segment_reader.clone(),
-            approx_filter_segment_reader: self
-                .approx_filter_segment_reader
-                .unwrap_or_else(|| self.project_segment_reader.clone()),
-            exact_filter_segment_reader: self
-                .exact_filter_segment_reader
-                .unwrap_or_else(|| self.project_segment_reader.clone()),
-            projection,
-            filter,
-            row_masks,
-            canonicalize: self.canonicalize,
-            concurrency: self.concurrency,
-        })
+        // Set up the segment queue to manage segment state.
+        let queue = SegmentQueue::new(self.metrics.clone());
+
+        let result_dtype = projection.return_dtype(layout_reader.dtype())?;
+
+        // Create a future to process each row split of the scan.
+        let array_futures: Vec<_> = row_masks
+            .into_iter()
+            .enumerate()
+            .map(|(_i, row_mask)| {
+                let row_range = row_mask.begin()..row_mask.end();
+
+                let approx_filter_eval = filter
+                    .as_ref()
+                    .map(|expr| {
+                        layout_reader.filter_evaluation(
+                            &row_range,
+                            expr,
+                            queue
+                                .segment_reader(&row_range, ScanStage::ApproxFilter)
+                                .as_ref(),
+                        )
+                    })
+                    .transpose()?;
+                let exact_filter_eval = filter
+                    .as_ref()
+                    .map(|expr| {
+                        layout_reader.filter_evaluation(
+                            &row_range,
+                            expr,
+                            queue
+                                .segment_reader(&row_range, ScanStage::ExactFilter)
+                                .as_ref(),
+                        )
+                    })
+                    .transpose()?;
+                let project_eval = layout_reader.projection_evaluation(
+                    &row_range,
+                    &self.projection,
+                    queue
+                        .segment_reader(&row_range, ScanStage::Projection)
+                        .as_ref(),
+                )?;
+
+                Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
+                    let mut mask = row_mask.filter_mask().clone();
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+
+                    if let Some(approx_filter_eval) = approx_filter_eval {
+                        // First, we run an approximate evaluation to prune the row range.
+                        mask = approx_filter_eval.invoke_approx(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
+                    }
+
+                    if let Some(exact_filter_eval) = exact_filter_eval {
+                        // Then, we run the full evaluation.
+                        mask = exact_filter_eval.invoke(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
+                    }
+
+                    let mut array = project_eval.invoke(mask).await?;
+                    if self.canonicalize {
+                        let mut builder = builder_with_capacity(array.dtype(), array.len());
+                        array.append_to_builder(builder.as_mut())?;
+                        array = builder.finish();
+                    }
+
+                    Ok(Some(array))
+                }))
+            })
+            .try_collect()?;
+
+        // Spawn the array futures onto the executor and buffer some number of row splits.
+        let task_executor = self
+            .task_executor
+            .unwrap_or_else(|| TaskExecutor::Threads(ThreadsExecutor::default()));
+        let array_stream = stream::iter(array_futures)
+            .map(move |task| task_executor.spawn(task))
+            .buffered(self.concurrency)
+            .filter_map(|v| async move { v.transpose() });
+
+        // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
+        let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
+        let queue = Arc::downgrade(&queue.inner);
+        self.io_dispatcher.dispatch(move || {
+            // While the queue remains alive (i.e. there is some part of the scan waiting on a
+            // segment future), we drive the I/O forwards, propagating any errors back.
+            while let Some(queue) = queue.upgrade() {
+                if let Err(e) = queue.drive() {
+                    let _ = err_send.unbounded_send(e);
+                }
+            }
+        })?;
+
+        // FIXME(ngates): we need to consume and interleave the error queue with the array
+        //  stream.
+        let _ = err_recv;
+
+        Ok(ArrayStreamAdapter::new(
+            result_dtype,
+            instrument!("array_stream", array_stream),
+        ))
     }
 
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        self.build()?.into_array_stream()
+        self.build()
     }
 
     pub async fn read_all(self) -> VortexResult<ArrayRef> {

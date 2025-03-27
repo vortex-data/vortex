@@ -3,17 +3,16 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{Stream, StreamExt, pin_mut, stream};
+use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_io::{IoDispatcher, VortexReadAt};
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, SegmentSpec};
-use crate::segments::queue::{PendingSegmentLease, SegmentQueue};
 use crate::segments::{InMemorySegmentCache, SegmentCache};
 use crate::{FileType, VortexFile, VortexOpenOptions};
 
@@ -47,39 +46,11 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
-
-        let (segment_queue, segment_reader) = SegmentQueue::new(self.metrics.clone());
-
-        // Spawn an I/O driver to serve requests while this file is open.
-        let driver = GenericScanDriver {
-            read,
-            footer: footer.clone(),
-            segment_cache: self.segment_cache,
-            segment_queue,
-            metrics: self.metrics.clone(),
-        };
-
-        self.options.io_dispatcher.dispatch(move || async move {
-            let io_stream = driver
-                .io_driver()
-                .buffer_unordered(self.options.io_concurrency);
-            pin_mut!(io_stream);
-            while let Some(r) = io_stream.next().await {
-                if let Err(e) = &r {
-                    // FIXME(ngates): we need to handle these somehow.
-                    log::error!("Error in I/O driver: {:?}", e);
-                }
-            }
-            Ok::<_, VortexError>(())
-        })?;
-
-        let vxf = VortexFile {
+        Ok(VortexFile {
             footer,
-            segment_reader,
+            segment_cache: self.segment_cache,
             metrics: self.metrics,
-        };
-
-        Ok(vxf)
+        })
     }
 }
 
@@ -135,7 +106,7 @@ pub struct GenericScanDriver<R> {
     read: R,
     footer: Footer,
     segment_cache: Arc<dyn SegmentCache>,
-    segment_queue: SegmentQueue,
+    segment_queue: (),
     metrics: VortexMetrics,
 }
 
@@ -146,19 +117,10 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
             loop {
                 // Get the next most important segment to read, or else the stream is complete.
                 let next = this.segment_queue.next().await?;
-
                 let segment_map = this.footer.segment_map().clone();
-                let spec = segment_map
-                    .get(*next.id() as usize)
-                    .vortex_expect("SegmentID not found");
 
                 // If the segment is in the cache, we can skip the I/O.
-                if let Some(cached_buffer) = this
-                    .segment_cache
-                    .get(next.id(), spec.alignment)
-                    .await
-                    .ok()
-                    .flatten()
+                if let Some(cached_buffer) = this.segment_cache.get(next.id()).await.ok().flatten()
                 {
                     log::debug!("Resolving segment {} from cache", next.id());
                     next.resolve(Ok(cached_buffer));

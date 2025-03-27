@@ -30,7 +30,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
         let footer = self.read_footer(&buffer).await?;
         Ok(VortexFile {
             footer: footer.clone(),
-            segment_reader: Arc::new(InMemorySegmentReader { buffer, footer }),
+            segment_cache: self.segment_cache,
             metrics: self.metrics,
         })
     }
