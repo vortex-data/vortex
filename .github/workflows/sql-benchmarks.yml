@@ -9,6 +9,10 @@ on:
 
 jobs:
   bench:
+    # S3 is shared state here, and we want to make sure only one of each job runs at a time
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-${{matrix.id}}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
