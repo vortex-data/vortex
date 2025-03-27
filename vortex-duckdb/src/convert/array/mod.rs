@@ -112,18 +112,12 @@ pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
         Mask::AllTrue(_) => {
             if let Some(slice) = flat_vector.validity_slice() {
                 // This is only needed if the vector as previously allocated.
-                bit_util::round_upto_multiple_of_64(flat_vector.capacity());
-                slice.copy_from_slice(
-                    &ALL_TRUE_SEL_MASK
-                        [0..bit_util::round_upto_multiple_of_64(flat_vector.capacity())],
-                );
+                slice.copy_from_slice(&ALL_TRUE_SEL_MASK[0..flat_vector.capacity().div_ceil(64)]);
             }
         }
         Mask::AllFalse(_) => {
             let slice = flat_vector.init_get_validity_slice();
-            slice.copy_from_slice(
-                &ALL_FALSE_SEL_MASK[0..bit_util::round_upto_multiple_of_64(flat_vector.capacity())],
-            )
+            slice.copy_from_slice(&ALL_FALSE_SEL_MASK[0..flat_vector.capacity().div_ceil(64)])
         }
         Mask::Values(arr) => {
             // TODO(joe): do this MUCH better, with a shifted u64 copy
