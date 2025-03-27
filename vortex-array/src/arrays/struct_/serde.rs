@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::StructEncoding;
 use crate::arrays::StructArray;
@@ -24,12 +24,12 @@ impl EncodingVTable for StructEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let struct_dtype = dtype
-            .as_struct()
-            .ok_or_else(|| vortex_err!("Expected struct dtype, found {:?}", dtype))?;
+        let DType::Struct(struct_dtype, nullability) = dtype else {
+            vortex_bail!("Expected struct dtype, found {:?}", dtype)
+        };
 
         let validity = if parts.nchildren() == struct_dtype.nfields() {
-            Validity::from(dtype.nullability())
+            Validity::from(nullability)
         } else if parts.nchildren() == struct_dtype.nfields() + 1 {
             // Validity is the first child if it exists.
             let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
@@ -52,10 +52,6 @@ impl EncodingVTable for StructEncoding {
                 child_parts.decode(ctx, child_dtype, len)
             })
             .try_collect()?;
-
-        let DType::Struct(struct_dtype, _) = dtype else {
-            unreachable!()
-        };
 
         Ok(StructArray::try_new_with_dtype(children, struct_dtype, len, validity)?.into_array())
     }

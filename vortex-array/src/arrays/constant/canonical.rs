@@ -64,7 +64,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let const_value = value.as_ref().map(|v| v.as_slice());
                 Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
             }
-            DType::Struct(..) => {
+            DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar)?;
                 let fields = value.fields().map(|fields| {
                     fields
@@ -74,7 +74,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                 });
                 Canonical::Struct(StructArray::try_new_with_dtype(
                     fields.unwrap_or_default(),
-                    value.struct_dtype().clone(),
+                    struct_dtype.clone(),
                     self.len(),
                     validity,
                 )?)
