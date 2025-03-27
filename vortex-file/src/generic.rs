@@ -89,7 +89,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open_object_store(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        object: &object_store::ObjectMeta,
+        path: &str,
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
@@ -99,19 +99,15 @@ impl VortexOpenOptions<GenericVortexFile> {
         // file on every read. This check is a little naive... but we hope that ObjectStore will
         // soon expose the scheme in a way that we can check more thoroughly.
         // See: https://github.com/apache/arrow-rs-object-store/issues/259
-        if Path::new(object.location.as_ref()).exists() {
-            self.open(TokioFile::open(object.location.as_ref())?).await
+        if Path::new(path).exists() {
+            self.open(TokioFile::open(path)?).await
         } else {
-            self
-                // We must be careful which options we configure here because the user has no way
-                // to override them, but object size is never a bad thing to have.
-                .with_file_size(object.size as u64)
-                .open(ObjectStoreReadAt::new(
-                    object_store.clone(),
-                    object.location.clone(),
-                    None,
-                ))
-                .await
+            self.open(ObjectStoreReadAt::new(
+                object_store.clone(),
+                path.into(),
+                None,
+            ))
+            .await
         }
     }
 }

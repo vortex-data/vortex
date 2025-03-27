@@ -15,7 +15,7 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
@@ -25,11 +25,11 @@ use crate::array_stream::NativeArrayStream;
 use crate::errors::Throwable;
 
 pub struct NativeFile {
-    inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
+    inner: VortexFile,
 }
 
 impl NativeFile {
-    pub fn new(file: VortexFile<GenericVortexFile<ObjectStoreReadAt>>) -> Box<Self> {
+    pub fn new(file: VortexFile) -> Box<Self> {
         Box::new(NativeFile { inner: file })
     }
 
@@ -93,7 +93,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
     match make_object_store(&url, &properties) {
         Ok((store, scheme)) => {
             let reader = ObjectStoreReadAt::new(store.clone(), url.path().into(), Some(scheme));
-            let open_file = TOKIO_RUNTIME.block_on(VortexOpenOptions::file(reader).open());
+            let open_file = TOKIO_RUNTIME.block_on(VortexOpenOptions::file().open(reader));
             match open_file {
                 Ok(open_file) => NativeFile::new(open_file).into_raw(),
                 Err(err) => {

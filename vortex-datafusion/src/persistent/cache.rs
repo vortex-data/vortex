@@ -100,7 +100,8 @@ impl VortexFileCache {
                         self.metrics
                             .child_with_tags([("filename", object.location.to_string())]),
                     )
-                    .open_object_store(&object_store, object),
+                    .with_file_size(object.size as u64)
+                    .open_object_store(&object_store, object.location.as_ref()),
             )
             .await
             .map_err(|e: Arc<VortexError>| {

@@ -15,15 +15,14 @@ use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
-use vortex::io::ObjectStoreReadAt;
+use vortex::file::{SplitBy, VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 pub struct FFIFile {
-    pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
+    pub(crate) inner: VortexFile,
 }
 
 /// Options supplied for opening a file.
@@ -73,9 +72,12 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
         .vortex_expect("File_open: make_object_store");
-    let read_at = ObjectStoreReadAt::new(object_store, uri.path().into(), None);
 
-    let result = RUNTIME.block_on(async move { VortexOpenOptions::file(read_at).open().await });
+    let result = RUNTIME.block_on(async move {
+        VortexOpenOptions::file()
+            .open_object_store(&object_store, uri.path())
+            .await
+    });
 
     let file = result.vortex_expect("open");
     let ffi_file = FFIFile { inner: file };

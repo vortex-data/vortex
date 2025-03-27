@@ -13,7 +13,7 @@ use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
 use vortex::expr::{ExprRef, ident, select};
 use vortex::file::executor::{TaskExecutor, TokioExecutor};
-use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
+use vortex::file::{SplitBy, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 
@@ -38,13 +38,13 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = TOKIO_RUNTIME.block_on(VortexOpenOptions::file(TokioFile::open(path)?).open())?;
-    Ok(PyVortexFile { vxf: Arc::new(vxf) })
+    let vxf = TOKIO_RUNTIME.block_on(VortexOpenOptions::file().open(TokioFile::open(path)?))?;
+    Ok(PyVortexFile { vxf })
 }
 
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
-    vxf: Arc<VortexFile<GenericVortexFile<TokioFile>>>,
+    vxf: VortexFile,
 }
 
 #[pymethods]

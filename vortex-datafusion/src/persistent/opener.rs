@@ -77,7 +77,7 @@ impl FileOpener for VortexFileOpener {
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
                 .build()?
-                .into_array_stream2()?
+                .into_array_stream()?
                 .map(move |array| {
                     let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
