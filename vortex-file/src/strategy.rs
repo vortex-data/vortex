@@ -178,19 +178,13 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 let mean = prev_compression.mean();
                 let std_dev = prev_compression.std_deviation(Some(mean));
 
-                // let threshold = f64::max(
-                //     mean * RATIO_DRIFT_THRESHOLD,
-                //     mean + std_dev * STD_DEV_THRESHOLD,
-                // );
-
+                // If we only have one sample, the std_dev is 0 and we fallback to a fixed threshold of 20%
                 let threshold = if std_dev == 0.0 {
                     mean * RATIO_DRIFT_THRESHOLD
                 } else {
                     mean + std_dev * STD_DEV_THRESHOLD
                 };
 
-                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-                // If it isn't we  fall back to the compressor.
                 if ratio < threshold {
                     log::trace!(
                         "Reusing compression with ration of {ratio}, which is below the threshold of {threshold}."
