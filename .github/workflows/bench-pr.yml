@@ -52,6 +52,11 @@ jobs:
         with:
           version: v1.2.1
 
+      - name: Build binary
+        shell: bash
+        run: |
+          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
+
       - name: Extract branch name
         shell: bash
         run: echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >>$GITHUB_OUTPUT

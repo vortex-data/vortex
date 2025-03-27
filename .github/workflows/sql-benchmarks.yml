@@ -58,6 +58,10 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
+      - name: Build binary
+        shell: bash
+        run: |
+          cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
       - name: Extract branch name
         shell: bash
