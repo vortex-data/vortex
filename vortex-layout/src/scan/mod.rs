@@ -234,6 +234,7 @@ impl Scan {
     ///
     /// The returned stream should be considered to perform I/O-bound operations and requires
     /// frequent polling to make progress.
+    #[allow(clippy::unused_enumerate_index)]
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
         let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
