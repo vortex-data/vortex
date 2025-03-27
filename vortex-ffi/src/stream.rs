@@ -1,7 +1,6 @@
 use std::pin::Pin;
 
 use futures::StreamExt;
-use vortex::Array;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::stream::ArrayStream;
