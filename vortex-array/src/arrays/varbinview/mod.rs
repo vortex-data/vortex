@@ -9,7 +9,7 @@ use arrow_array::{
 };
 use arrow_buffer::ScalarBuffer;
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{
     VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
@@ -346,6 +346,19 @@ impl VarBinViewArray {
         }
     }
 
+    /// Returns the reference to a slice of bytes at a given index.
+    pub fn slice_at(&self, index: usize) -> &[u8] {
+        let views = self.views();
+        let view = &views[index];
+
+        if !view.is_inlined() {
+            let view_ref = view.as_view();
+            &self.buffer(view_ref.buffer_index() as usize)[view_ref.to_range()]
+        } else {
+            view.as_inlined().value()
+        }
+    }
+
     /// Access one of the backing data buffers.
     ///
     /// # Panics
@@ -372,48 +385,6 @@ impl VarBinViewArray {
     /// Validity of the array
     pub fn validity(&self) -> &Validity {
         &self.validity
-    }
-
-    /// Create a new [`VarBinViewArray`] in compacted form, where all the underlying data in the buffers is pointed to by a [`BinaryView`].
-    pub fn compact(&self) -> VortexResult<Self> {
-        let mut bytes_buffer = ByteBufferMut::empty();
-        let mut views_buffer = BufferMut::<BinaryView>::empty();
-        let mut buffers = vec![];
-
-        for view in self.views().iter() {
-            if view.is_inlined() {
-                views_buffer.push(*view);
-            } else {
-                let view_ref = view.as_view();
-                let bytes = &self.buffer(view_ref.buffer_index() as usize)[view_ref.to_range()];
-
-                // Views can only address data up to a u32, so we have to make sure no value starts after that.
-                if bytes_buffer.len() > u32::MAX as usize {
-                    let closed_buffer =
-                        std::mem::replace(&mut bytes_buffer, ByteBufferMut::empty());
-                    buffers.push(closed_buffer.freeze());
-                }
-                let new_view = BinaryView::make_view(
-                    bytes,
-                    buffers.len().try_into().vortex_unwrap(),
-                    bytes_buffer.len().try_into().vortex_unwrap(),
-                );
-                bytes_buffer.extend_from_slice(bytes);
-                views_buffer.push(new_view);
-            }
-        }
-
-        // If we have data left in the last buffer
-        if !bytes_buffer.is_empty() {
-            buffers.push(bytes_buffer.freeze());
-        }
-
-        Self::try_new(
-            views_buffer.freeze(),
-            buffers,
-            self.dtype().clone(),
-            self.validity().clone(),
-        )
     }
 
     /// Accumulate an iterable set of values into our type here.
