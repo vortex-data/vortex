@@ -20,8 +20,7 @@ use crate::{FileType, VortexFile, VortexOpenOptions};
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
-///
-/// FIXME(ngates): rename to TokioVortexFile
+// TODO(ngates): rename to TokioVortexFile
 pub struct GenericVortexFile;
 
 impl FileType for GenericVortexFile {
