@@ -190,7 +190,7 @@ impl<A: ArrayImpl + 'static> Array for A {
             vortex_bail!(
                 "Builder dtype mismatch: expected {}, got {}",
                 self.dtype(),
-                builder.dtype()
+                builder.dtype(),
             );
         }
         let len = builder.len();
