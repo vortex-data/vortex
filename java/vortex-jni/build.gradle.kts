@@ -143,7 +143,7 @@ val platformLibSuffix =
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
 // TODO(aduffy): fetch the target triple dynamically
-val libraryFile = targetDir.resolve("aarch64-apple-darwin/release/libvortex_jni.$platformLibSuffix")
+val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
     workingDir = vortexJNI
@@ -153,13 +153,13 @@ val cargoCheck by tasks.registering(Exec::class) {
 val cargoBuild by tasks.registering(Exec::class) {
     workingDir = vortexJNI
     // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
-    environment("RUSTFLAGS", "-Zsanitizer=address")
+//    environment("RUSTFLAGS", "-Zsanitizer=address")
     commandLine(
         "cargo",
         "build",
-        "-Zbuild-std",
-        "--target",
-        "aarch64-apple-darwin",
+//        "-Zbuild-std",
+//        "--target",
+//        "aarch64-apple-darwin",
         "--release",
     )
 
