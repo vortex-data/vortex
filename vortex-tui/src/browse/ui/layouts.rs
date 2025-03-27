@@ -20,7 +20,7 @@ use crate::browse::app::{AppState, LayoutCursor};
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
-        Layout::vertical([Constraint::Length(14), Constraint::Min(1)]).areas(area);
+        Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
 
     // Render the header area.
     render_layout_header(&app_state.cursor, header_area, buf);
