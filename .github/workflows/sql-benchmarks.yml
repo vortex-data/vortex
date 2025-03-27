@@ -8,7 +8,30 @@ on:
         type: string
 
 jobs:
+  generate_tpch_s3:
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i.2xlarge
+      - image=ubuntu24-full-x64
+      - spot=false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Generate TPC-H locally
+        shell: bash
+        run: |
+          cargo run --release --bin tpch --package bench-vortex -- --formats vortex -i1
+          aws s3 rm --recursive s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
+          aws s3 cp --recursive bench-vortex/data/tpch/1 s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
+
   bench:
+    needs: generate_tpch_s3
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +47,7 @@ jobs:
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
-            remote_storage: s3://vortex-bench-dev-eu/tpch-sf1/
+            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
@@ -59,6 +82,7 @@ jobs:
         run: |
           cargo run \
               --bin ${{ matrix.binary_name }} \
+              --package bench-vortex \
               --release \
               -- \
               -d gh-json \
@@ -78,6 +102,7 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
           cargo run \
+              --package bench-vortex \
               --bin ${{ matrix.binary_name }} \
               --release \
               -- \

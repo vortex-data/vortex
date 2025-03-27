@@ -12,6 +12,10 @@ permissions:
   pull-requests: write
   id-token: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   label_trigger:
     runs-on: ubuntu-latest
@@ -58,7 +62,7 @@ jobs:
         env:
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          cargo run --bin ${{ matrix.benchmark.id }} --package bench-vortex --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
