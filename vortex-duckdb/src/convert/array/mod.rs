@@ -111,7 +111,7 @@ pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
     match mask {
         Mask::AllTrue(_) => {
             if let Some(slice) = flat_vector.validity_slice() {
-                // This is only needed if the vector as previously allocated.
+                // This is only needed if the vector is previously allocated.
                 bit_util::round_upto_multiple_of_64(flat_vector.capacity());
                 slice.copy_from_slice(
                     &ALL_TRUE_SEL_MASK
