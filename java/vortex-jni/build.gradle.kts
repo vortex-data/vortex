@@ -6,6 +6,7 @@ plugins {
     `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
+    id("me.champeau.jmh") version "0.7.2"
 }
 
 dependencies {
@@ -23,6 +24,12 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
+}
+
+jmh {
+    warmupIterations = 3
+    iterations = 3
+    fork = 1
 }
 
 testing {
@@ -135,7 +142,8 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
+// TODO(aduffy): fetch the target triple dynamically
+val libraryFile = targetDir.resolve("aarch64-apple-darwin/release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
     workingDir = vortexJNI
@@ -149,8 +157,9 @@ val cargoBuild by tasks.registering(Exec::class) {
     commandLine(
         "cargo",
         "build",
-        "-Z",
-        "build-std",
+        "-Zbuild-std",
+        "--target",
+        "aarch64-apple-darwin",
         "--release",
     )
 
@@ -159,6 +168,10 @@ val cargoBuild by tasks.registering(Exec::class) {
     // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
     outputs.upToDateWhen { false }
     outputs.cacheIf { false }
+
+    doFirst {
+        println("Running command: $commandLine @ $workingDir")
+    }
 }
 
 val cargoClean by tasks.registering(Exec::class) {
