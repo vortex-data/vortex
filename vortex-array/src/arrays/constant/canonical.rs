@@ -145,7 +145,7 @@ fn canonical_list_array(
 ) -> VortexResult<ListArray> {
     match values {
         None => ListArray::try_new(
-            Canonical::empty(element_dtype).into_array(),
+            builder_with_capacity(element_dtype, 0).finish(),
             ConstantArray::new(
                 Scalar::new(
                     DType::Primitive(PType::U64, Nullability::NonNullable),
