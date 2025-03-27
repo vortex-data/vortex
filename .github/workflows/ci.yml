@@ -396,7 +396,7 @@ jobs:
           test -z "$(git status --porcelain)"
 
   semver_check:
-    name: "Check semver compatability"
+    name: "Check semver compatibility"
     runs-on: ubuntu-latest
     if: github.ref != 'refs/heads/develop'
     steps:
