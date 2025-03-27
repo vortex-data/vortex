@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >>$GITHUB_OUTPUT
         id: extract_branch
-  
+
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.2.0
         with:
