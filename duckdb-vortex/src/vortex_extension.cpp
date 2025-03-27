@@ -103,7 +103,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 		if (global_state.finished) {
 			local_state.finished = true;
-			std::cout << "Finished ac: " << local_state.array_count << std::endl;
 			return;
 		}
 
@@ -139,7 +138,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			return;
 		}
 		local_state.array = FFIArrayStream_current(global_state.array_stream);
-		local_state.array_count++;
 		local_state.current_row = 0;
 	}
 
