@@ -5,6 +5,7 @@ use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::channel::oneshot;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{
@@ -12,7 +13,7 @@ use object_store::{
     PutPayload,
 };
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
@@ -21,6 +22,7 @@ pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
     scheme: Option<ObjectStoreScheme>,
+    local_threadpool: Arc<rayon::ThreadPool>,
 }
 
 impl ObjectStoreReadAt {
@@ -50,6 +52,12 @@ impl ObjectStoreReadAt {
             object_store,
             location,
             scheme,
+            local_threadpool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(4)
+                    .build()
+                    .unwrap(),
+            ),
         }
     }
 }
@@ -85,12 +93,18 @@ impl VortexReadAt for ObjectStoreReadAt {
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
                 unsafe { buffer.set_len(len) };
-                tokio::task::spawn_blocking(move || {
-                    file.read_exact_at(&mut buffer, range.start)?;
-                    Ok::<_, io::Error>(buffer)
-                })
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+                let (tx, rx) = oneshot::channel();
+                self.local_threadpool.spawn(move || {
+                    file.read_exact_at(&mut buffer, range.start).vortex_unwrap();
+                    tx.send(buffer).unwrap();
+                });
+                rx.await.unwrap()
+                // tokio::task::spawn_blocking(move || {
+                //     file.read_exact_at(&mut buffer, range.start)?;
+                //     Ok::<_, io::Error>(buffer)
+                // })
+                // .await
+                // .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
             }
             GetResultPayload::Stream(mut byte_stream) => {
                 while let Some(bytes) = byte_stream.next().await {

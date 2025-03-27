@@ -6226,6 +6226,7 @@ dependencies = [
  "getrandom 0.3.2",
  "object_store",
  "pin-project",
+ "rayon",
  "tempfile",
  "tokio",
  "tracing",

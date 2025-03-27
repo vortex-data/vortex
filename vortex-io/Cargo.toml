@@ -24,6 +24,7 @@ futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 object_store = { workspace = true, optional = true }
 pin-project = { workspace = true }
+rayon = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true, optional = true }
