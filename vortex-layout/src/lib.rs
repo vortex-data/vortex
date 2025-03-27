@@ -1,6 +1,5 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
-#![allow(dead_code)]
 mod data;
 pub use data::*;
 mod context;
@@ -19,7 +18,6 @@ pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;
-pub mod writers;
 
 pub type LayoutId = ArcRef<str>;
 

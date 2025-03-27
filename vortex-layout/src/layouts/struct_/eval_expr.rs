@@ -64,7 +64,6 @@ impl ExprEvaluator for StructReader {
             .try_collect()?;
 
         Ok(Box::new(StructMaskEvaluation {
-            layout: self.layout().clone(),
             partitioned,
             field_evals,
         }))
@@ -106,7 +105,6 @@ impl ExprEvaluator for StructReader {
 }
 
 struct StructMaskEvaluation {
-    layout: Layout,
     partitioned: Arc<PartitionedExpr>,
     field_evals: Vec<FieldEval>,
 }

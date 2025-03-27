@@ -2,5 +2,6 @@
 pub mod chunked;
 pub mod filter;
 pub mod flat;
+pub mod repartition;
 pub mod stats;
 pub mod struct_;

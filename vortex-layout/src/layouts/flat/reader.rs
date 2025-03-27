@@ -32,10 +32,6 @@ impl FlatReader {
         })
     }
 
-    pub(crate) fn ctx(&self) -> &ArrayContext {
-        &self.ctx
-    }
-
     /// Returns a cached future that resolves this array.
     ///
     /// This method is idempotent, and returns a cached future on subsequent calls, all of which
