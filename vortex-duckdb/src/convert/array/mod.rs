@@ -2,7 +2,6 @@ mod data_chunk_adaptor;
 mod varbinview;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use duckdb::arrow::util::bit_util;
 use duckdb::core::{DataChunkHandle, FlatVector, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
