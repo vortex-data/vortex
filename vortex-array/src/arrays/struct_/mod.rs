@@ -116,8 +116,6 @@ impl StructArray {
         })
     }
 
-    // TODO(joe): add a new struct ctor that doesn't create a dtype
-
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
         let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.to_array()).collect();
