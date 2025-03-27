@@ -3,8 +3,8 @@ mod compare;
 use vortex_array::arrays::varbin_scalar;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{
-    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn, filter,
-    scalar_at, slice, take,
+    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn,
+    fill_null, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
@@ -59,7 +59,10 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
             array.symbols().clone(),
             array.symbol_lengths().clone(),
             take(array.codes(), indices)?,
-            take(array.uncompressed_lengths(), indices)?,
+            fill_null(
+                &take(array.uncompressed_lengths(), indices)?,
+                Scalar::from(0).cast(indices.dtype())?,
+            )?,
         )?
         .into_array())
     }
