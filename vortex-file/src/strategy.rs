@@ -110,46 +110,38 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
 
 struct PreviousCompression {
     chunk: ArrayRef,
-    past_ratios: Vec<f64>,
+    measurements: Vec<f64>,
     sum: f64,
+    sum_squares: f64,
 }
 
 impl PreviousCompression {
     fn new(chunk: ArrayRef, first_measurement: f64) -> Self {
         Self {
             chunk,
-            past_ratios: vec![first_measurement],
+            measurements: vec![first_measurement],
             sum: first_measurement,
+            sum_squares: first_measurement * first_measurement,
         }
     }
 
     fn mean(&self) -> f64 {
-        self.sum / self.past_ratios.len() as f64
+        self.sum / self.measurements.len() as f64
     }
 
     fn std_deviation(&self, mean: Option<f64>) -> f64 {
         let mean = mean.unwrap_or_else(|| self.mean());
-
-        let diff_sum = self
-            .past_ratios
-            .iter()
-            .map(|v| {
-                let diff = mean - *v;
-                diff * diff
-            })
-            .sum::<f64>();
-        let variance = diff_sum / self.past_ratios.len() as f64;
-
-        variance.sqrt()
+        f64::sqrt((self.sum_squares / self.measurements.len() as f64) - (mean * mean))
     }
 
     fn add_measurement(&mut self, measurement: f64) {
-        self.past_ratios.push(measurement);
+        self.measurements.push(measurement);
         self.sum += measurement;
+        self.sum_squares += measurement * measurement;
     }
 }
 
-const STD_DEV_THRESHOLD: f64 = 2.0;
+const STD_DEV_THRESHOLD: f64 = 3.0;
 const RATIO_DRIFT_THRESHOLD: f64 = 1.2;
 
 /// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
@@ -185,6 +177,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
 
                 let mean = prev_compression.mean();
                 let std_dev = prev_compression.std_deviation(Some(mean));
+
+                // let threshold = f64::max(
+                //     mean * RATIO_DRIFT_THRESHOLD,
+                //     mean + std_dev * STD_DEV_THRESHOLD,
+                // );
+
                 let threshold = if std_dev == 0.0 {
                     mean * RATIO_DRIFT_THRESHOLD
                 } else {
