@@ -394,3 +394,16 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+
+  semver_check:
+    name: "Check semver compatability"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: ./.github/actions/setup-rust
+      - name: Run cargo-semver-checks
+        run: |
+          cargo install cargo-semver-checks --locked
+          cargo semver-checks --baseline-rev develop --all-features

@@ -1,5 +1,5 @@
 include = ["**/Cargo.toml", "deny.toml"]
-exclude = ["duckdb-vortex/duckdb-rs/**"]
+exclude = ["duckdb-vortex/duckdb-rs/**", "target/"]
 
 [formatting]
 allowed_blank_lines = 1
