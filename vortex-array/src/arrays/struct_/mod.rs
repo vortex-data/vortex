@@ -43,12 +43,12 @@ impl StructArray {
     }
 
     pub fn struct_dtype(&self) -> &Arc<StructDType> {
-        let DType::Struct(str, _) = &self.dtype else {
+        let Some(struct_dtype) = &self.dtype.as_struct() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
             )
         };
-        str
+        struct_dtype
     }
 
     pub fn try_new(

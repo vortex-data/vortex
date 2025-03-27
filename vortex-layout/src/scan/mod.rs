@@ -291,13 +291,9 @@ impl<D: ScanDriver> Scan<D> {
             .as_ref()
             .map(|filter| {
                 let pruning = Arc::new(FilterExpr::try_new(
-                    reader
-                        .dtype()
-                        .as_struct()
-                        .ok_or_else(|| {
-                            vortex_err!("Vortex scan currently only works for struct arrays")
-                        })?
-                        .clone(),
+                    reader.dtype().as_struct().ok_or_else(|| {
+                        vortex_err!("Vortex scan currently only works for struct arrays")
+                    })?,
                     filter.clone(),
                     self.prefetch_conjuncts,
                 )?);
