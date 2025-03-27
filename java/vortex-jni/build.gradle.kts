@@ -144,9 +144,13 @@ val cargoCheck by tasks.registering(Exec::class) {
 
 val cargoBuild by tasks.registering(Exec::class) {
     workingDir = vortexJNI
+    // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
+    environment("RUSTFLAGS", "-Zsanitizer=address")
     commandLine(
         "cargo",
         "build",
+        "-Z",
+        "build-std",
         "--release",
     )
 
