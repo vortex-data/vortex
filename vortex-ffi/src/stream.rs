@@ -1,11 +1,10 @@
 use std::pin::Pin;
 
-use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
+use vortex::Array;
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
 use vortex::stream::ArrayStream;
-use vortex::{Array, ArrayRef};
 
 use crate::RUNTIME;
 use crate::array::{FFIArray, FFIArray_free};
