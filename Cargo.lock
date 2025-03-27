@@ -6019,11 +6019,13 @@ dependencies = [
  "arrow-array",
  "duckdb",
  "itertools 0.14.0",
+ "num-traits",
  "vortex-array",
  "vortex-buffer",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 

@@ -2,23 +2,25 @@ mod data_chunk_adaptor;
 mod varbinview;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use duckdb::core::{DataChunkHandle, SelectionVector};
+use duckdb::arrow::util::bit_util;
+use duckdb::core::{DataChunkHandle, FlatVector, SelectionVector};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
+use num_traits::AsPrimitive;
 use vortex_array::arrays::{
-    ChunkedArray, ChunkedEncoding, StructArray, VarBinViewArray, VarBinViewEncoding,
+    ChunkedArray, ChunkedEncoding, PrimitiveArray, StructArray, VarBinViewArray, VarBinViewEncoding,
 };
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::compute::{take, to_arrow_preferred, try_cast};
+use vortex_array::compute::{take, to_arrow_preferred};
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PType::U32;
+use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_mask::Mask;
 
 use crate::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::convert::array::data_chunk_adaptor::{
@@ -72,19 +74,63 @@ impl ToDuckDB for ChunkedArray {
 impl ToDuckDB for DictArray {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
         // If the values fit into a single vector, we can efficiently delay the take operation.
-        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE {
+        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE || self.codes().dtype().is_nullable()
+        {
             to_duckdb(self.values().clone(), chunk)?;
-            let indices =
-                try_cast(self.codes(), &DType::Primitive(U32, NonNullable))?.to_primitive()?;
-            let indices = indices.as_slice::<u32>();
-            let sel = SelectionVector::new_copy(indices);
-            chunk.flat_vector().slice(sel);
+            let sel = selection_vector_from_array(self.codes().to_primitive()?);
+            let mut vector = chunk.flat_vector();
+            vector.slice(sel);
+            // Note you can only have nullable values (not selection vectors)
             Ok(())
         } else {
             // TODO(joe): can we do value compression and avoid a take.
             // If the ratio of values to code is low, aka few values to many codes.
             let values = take(self.values(), self.codes())?;
             to_duckdb(values, chunk)
+        }
+    }
+}
+
+pub fn selection_vector_from_array(prim: PrimitiveArray) -> SelectionVector {
+    match_each_integer_ptype!(prim.ptype(), |$P| {
+        selection_vector_from_slice(prim.as_slice::<$P>())
+    })
+}
+
+pub fn selection_vector_from_slice<P: NativePType + AsPrimitive<u32>>(
+    slice: &[P],
+) -> SelectionVector {
+    slice.iter().map(|v| (*v).as_()).collect()
+}
+
+const ALL_TRUE_SEL_MASK: [u64; 32] = [u64::MAX; 32];
+const ALL_FALSE_SEL_MASK: [u64; 32] = [0u64; 32];
+
+pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
+    match mask {
+        Mask::AllTrue(_) => {
+            if let Some(slice) = flat_vector.validity_slice() {
+                // This is only needed if the vector as previously allocated.
+                bit_util::round_upto_multiple_of_64(flat_vector.capacity());
+                slice.copy_from_slice(
+                    &ALL_TRUE_SEL_MASK
+                        [0..bit_util::round_upto_multiple_of_64(flat_vector.capacity())],
+                );
+            }
+        }
+        Mask::AllFalse(_) => {
+            let slice = flat_vector.init_get_validity_slice();
+            slice.copy_from_slice(
+                &ALL_FALSE_SEL_MASK[0..bit_util::round_upto_multiple_of_64(flat_vector.capacity())],
+            )
+        }
+        Mask::Values(arr) => {
+            // TODO(joe): do this MUCH better, with a shifted u64 copy
+            for (idx, v) in arr.boolean_buffer().iter().enumerate() {
+                if !v {
+                    flat_vector.set_null(idx);
+                }
+            }
         }
     }
 }

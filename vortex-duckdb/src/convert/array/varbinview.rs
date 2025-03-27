@@ -2,6 +2,7 @@ use std::ffi::c_char;
 
 use duckdb::vtab::arrow::WritableVector;
 use itertools::Itertools;
+use vortex_array::Array;
 use vortex_array::arrays::{BinaryView, Inlined, VarBinViewArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -10,7 +11,7 @@ use crate::ToDuckDB;
 use crate::buffer::{
     AssignBufferToVec, ExternalBuffer, FFIDuckDBBufferInternal, new_cpp_vector_buffer,
 };
-
+use crate::convert::array::write_validity_from_mask;
 // This is the C++ string view struct
 // private:
 // 	union {
@@ -109,7 +110,9 @@ impl ToDuckDB for VarBinViewArray {
                 unsafe { AssignBufferToVec(vec.unowned_ptr(), extern_buf) };
             });
 
-        chunk.flat_vector().copy(views.as_slice());
+        let mut vector = chunk.flat_vector();
+        vector.copy(views.as_slice());
+        write_validity_from_mask(self.validity_mask()?, &mut vector);
 
         Ok(())
     }
