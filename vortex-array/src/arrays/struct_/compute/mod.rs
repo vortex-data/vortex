@@ -78,14 +78,14 @@ impl CastFn<&StructArray> for StructEncoding {
             .clone()
             .cast_nullability(dtype.nullability())?;
 
-        StructArray::try_new_with_dtype(
+        StructArray::try_new(
+            target_sdtype.names().clone(),
             array
                 .fields()
                 .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| try_cast(field, &dtype))
                 .try_collect()?,
-            array.struct_dtype().clone(),
             array.len(),
             validity,
         )
