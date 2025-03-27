@@ -1,9 +1,11 @@
 use std::pin::Pin;
 
-use futures::StreamExt;
+use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt};
 use vortex::dtype::DType;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::stream::ArrayStream;
+use vortex::{Array, ArrayRef};
 
 use crate::RUNTIME;
 use crate::array::{FFIArray, FFIArray_free};
@@ -17,6 +19,10 @@ pub struct FFIArrayStream {
 /// FFI-compatible interface for dealing with a stream array.
 pub struct FFIArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
+}
+
+pub struct FFIArrayFuture {
+    pub(crate) array_fut: Pin<Box<BoxFuture<VortexResult<ArrayRef>>>>,
 }
 
 #[unsafe(no_mangle)]
@@ -44,7 +50,9 @@ pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> boo
         .as_mut()
         .vortex_expect("FFIArrayStream_next called after finish");
 
-    let element = RUNTIME.block_on(async { inner.stream.next().await });
+    let fut_element = Box::pin(inner.stream.next().boxed());
+
+    // let element = RUNTIME.block_on(async { inner.stream.next().await });
 
     if let Some(element) = element {
         let inner = element.vortex_expect("element");
