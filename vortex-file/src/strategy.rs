@@ -130,6 +130,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
     ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
+        let chunk_statistics = chunk.statistics().to_owned();
 
         // Short circuit the decision if the chunk is constant
         let compressed_chunk = if let Some(constant) = chunk.as_constant() {
@@ -167,7 +168,10 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         };
 
         let compressed_chunk = match compressed_chunk {
-            Some(array) => array,
+            Some(array) => {
+                array.statistics().inherit(chunk.statistics());
+                array
+            }
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
                 let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
@@ -178,6 +182,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 compressed
             }
         };
+
+        let stats = compressed_chunk.statistics().to_owned();
 
         self.child.push_chunk(segment_writer, compressed_chunk)
     }
