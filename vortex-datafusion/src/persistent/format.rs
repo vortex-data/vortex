@@ -43,6 +43,7 @@ use crate::{PrecisionExt as _, can_be_pushed_down};
 pub struct VortexFormat {
     file_cache: VortexFileCache,
     opts: VortexFormatOptions,
+    metrics: VortexMetrics,
 }
 
 impl Debug for VortexFormat {
@@ -78,13 +79,8 @@ impl VortexFormatFactory {
     // Because FileFormatFactory has a default method
     /// Create a new [`VortexFormatFactory`] with the default encoding context.
     pub fn default_config() -> Self {
-        Self::with_registry(DEFAULT_REGISTRY.clone())
-    }
-
-    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::ArrayContext).
-    pub fn with_registry(registry: Arc<ArrayRegistry>) -> Self {
         Self {
-            array_registry: registry,
+            array_registry: DEFAULT_REGISTRY.clone(),
             layout_registry: Arc::new(LayoutRegistry::default()),
             metrics: VortexMetrics::default(),
         }
@@ -149,9 +145,10 @@ impl VortexFormat {
                 opts.cache_size_mb,
                 array_registry,
                 layout_registry,
-                metrics,
+                metrics.clone(),
             ),
             opts,
+            metrics,
         }
     }
 
@@ -186,7 +183,7 @@ impl FileFormat for VortexFormat {
     fn file_source(&self) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
             self.file_cache.clone(),
-            VortexSourceMetrics::default(),
+            VortexSourceMetrics::new(self.metrics.clone()),
         ))
     }
 
@@ -344,7 +341,10 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let mut source = VortexSource::new(self.file_cache.clone(), VortexSourceMetrics::default());
+        let mut source = VortexSource::new(
+            self.file_cache.clone(),
+            VortexSourceMetrics::new(self.metrics.clone()),
+        );
 
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);

@@ -52,8 +52,8 @@ async fn test_read_simple() {
         .await
         .unwrap();
 
-    let stream = VortexOpenOptions::in_memory(buf)
-        .open()
+    let stream = VortexOpenOptions::in_memory()
+        .open(buf)
         .await
         .unwrap()
         .scan()
@@ -138,7 +138,7 @@ async fn test_read_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
     let array = file
         .scan()
         .with_projection(select(["strings".into()], ident()))
@@ -222,8 +222,8 @@ async fn unequal_batches() {
         .unwrap();
 
     let mut stream = pin!(
-        VortexOpenOptions::in_memory(buf)
-            .open()
+        VortexOpenOptions::in_memory()
+            .open(buf)
             .await
             .unwrap()
             .scan()
@@ -285,8 +285,8 @@ async fn write_chunked() {
         .unwrap();
 
     let mut stream = pin!(
-        VortexOpenOptions::in_memory(buf)
-            .open()
+        VortexOpenOptions::in_memory()
+            .open(buf)
             .await
             .unwrap()
             .scan()
@@ -323,8 +323,8 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::in_memory(buf)
-        .open()
+    let result = VortexOpenOptions::in_memory()
+        .open(buf)
         .await
         .unwrap()
         .scan()
@@ -382,8 +382,8 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::in_memory(buf)
-        .open()
+    let result = VortexOpenOptions::in_memory()
+        .open(buf)
         .await
         .unwrap()
         .scan()
@@ -453,8 +453,8 @@ async fn filter_and() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::in_memory(buf)
-        .open()
+    let result = VortexOpenOptions::in_memory()
+        .open(buf)
         .await
         .unwrap()
         .scan()
@@ -514,7 +514,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     // test no indices
     let actual_kept_array = file
@@ -595,7 +595,7 @@ async fn test_with_indices_on_two_columns() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     let kept_indices = [0_u64, 3, 7];
     let array = file
@@ -664,7 +664,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     let actual_kept_array = file
         .scan()
@@ -768,7 +768,7 @@ async fn filter_string_chunked() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     let actual_array = file
         .scan()
@@ -857,7 +857,7 @@ async fn test_pruning_with_or() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     let actual_array = file
         .scan()
@@ -943,7 +943,7 @@ async fn test_repeated_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory(buf).open().await.unwrap();
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
 
     let actual = file
         .scan()
@@ -976,7 +976,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
         .write(vec![], array.to_array_stream())
         .await?
         .into();
-    VortexOpenOptions::in_memory(buffer).open().await
+    VortexOpenOptions::in_memory().open(buffer).await
 }
 
 #[tokio::test]
@@ -1006,12 +1006,12 @@ async fn file_excluding_dtype() -> VortexResult<()> {
         .into();
 
     // Fail to open without DType.
-    let vxf = VortexOpenOptions::in_memory(buffer.clone()).open().await;
+    let vxf = VortexOpenOptions::in_memory().open(buffer.clone()).await;
     assert!(vxf.is_err(), "Opening without DType should fail");
 
-    let vxf = VortexOpenOptions::in_memory(buffer)
+    let vxf = VortexOpenOptions::in_memory()
         .with_dtype(dtype.clone())
-        .open()
+        .open(buffer)
         .await?;
     assert_eq!(vxf.dtype(), &dtype);
     assert_eq!(vxf.row_count(), 9);

@@ -43,13 +43,20 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct VortexSourceMetrics {
-    pub vortex: VortexMetrics,
     pub execution_plan: ExecutionPlanMetricsSet,
+    pub vortex: VortexMetrics,
 }
 
 impl VortexSourceMetrics {
+    pub fn new(metrics: VortexMetrics) -> Self {
+        Self {
+            execution_plan: ExecutionPlanMetricsSet::new(),
+            vortex: metrics,
+        }
+    }
+
     pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> VortexMetrics {
         self.vortex.child_with_tags(additional_tags)
     }

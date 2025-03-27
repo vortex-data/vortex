@@ -208,7 +208,7 @@ mod tests {
     use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::{Layout, RowMask};
+    use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -270,8 +270,13 @@ mod tests {
     ) {
         let reader = layout.reader(segments, ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
-        let result =
-            block_on(reader.evaluate_expr(RowMask::new_valid_between(0, 3), expr)).unwrap();
+        let result = block_on(
+            reader
+                .projection_evaluation(&(0..3), &expr)
+                .unwrap()
+                .invoke(Mask::new_true(3)),
+        )
+        .unwrap();
         assert_eq!(
             vec![true, false, false],
             result
@@ -293,11 +298,12 @@ mod tests {
     ) {
         let reader = layout.reader(segments, ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
-        let result = block_on(reader.evaluate_expr(
-            // Take rows 0 and 1, skip row 2, and anything after that
-            RowMask::new(Mask::from_iter([true, true, false]), 0),
-            expr,
-        ))
+        let result = block_on(
+            reader
+                .projection_evaluation(&(0..3), &expr)
+                .unwrap()
+                .invoke(Mask::from_iter([true, true, false])),
+        )
         .unwrap();
 
         assert_eq!(result.len(), 2);
@@ -323,11 +329,13 @@ mod tests {
     ) {
         let reader = layout.reader(segments, ctx).unwrap();
         let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
-        let result = block_on(reader.evaluate_expr(
-            // Take rows 0 and 1, skip row 2, and anything after that
-            RowMask::new(Mask::from_iter([true, true, false]), 0),
-            expr,
-        ))
+        let result = block_on(
+            reader
+                .projection_evaluation(&(0..3), &expr)
+                .unwrap()
+                // Take rows 0 and 1, skip row 2, and anything after that
+                .invoke(Mask::from_iter([true, true, false])),
+        )
         .unwrap();
 
         assert_eq!(result.len(), 2);

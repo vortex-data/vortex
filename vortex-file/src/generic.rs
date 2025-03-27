@@ -10,7 +10,7 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::SegmentId;
-use vortex_metrics::{Counter, VortexMetrics};
+use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, SegmentSpec};
 use crate::segments::queue::{PendingSegmentLease, SegmentQueue};
@@ -350,71 +350,4 @@ async fn evaluate<R: VortexReadAt + Send>(
     }
 
     Ok(())
-}
-
-#[derive(Clone)]
-struct CoalescingMetrics {
-    bytes_uncoalesced: Arc<Counter>,
-    bytes_coalesced: Arc<Counter>,
-    request_count_uncoalesced: Arc<Counter>,
-    request_count_coalesced: Arc<Counter>,
-    prefetched_segments: Arc<Counter>,
-    requested_segments: Arc<Counter>,
-    cancel_received: Arc<Counter>,
-    cancelled: Arc<Counter>,
-}
-
-impl From<VortexMetrics> for CoalescingMetrics {
-    fn from(metrics: VortexMetrics) -> Self {
-        const BYTES: &str = "vortex.scan.requests.bytes";
-        const COUNT: &str = "vortex.scan.requests.count";
-        Self {
-            bytes_uncoalesced: metrics.counter(format!("{BYTES}.uncoalesced")),
-            bytes_coalesced: metrics.counter(format!("{BYTES}.coalesced")),
-            request_count_uncoalesced: metrics.counter(format!("{COUNT}.uncoalesced")),
-            request_count_coalesced: metrics.counter(format!("{COUNT}.coalesced")),
-            prefetched_segments: metrics.counter("vortex.scan.segments.prefetch_count"),
-            requested_segments: metrics.counter("vortex.scan.segments.request_count"),
-            cancel_received: metrics.counter("vortex.scan.segments.cancel_received"),
-            cancelled: metrics.counter("vortex.scan.segments.cancelled"),
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn test_basic_merge() {
-        let ranges = vec![0..2, 3..5, 1..4];
-        let result = merge_ranges(ranges, 1, None);
-        assert_eq!(result, vec![0..5]);
-    }
-
-    #[test]
-    fn test_coalesce_with_max_read() {
-        // Test interaction between coalesce and max_read
-        let ranges = vec![0..3, 4..7, 8..11];
-
-        // Should merge all with no max_read
-        let result = merge_ranges(ranges.clone(), 2, None);
-        assert_eq!(result, vec![0..11]);
-
-        // Should not merge due to max_read limit
-        let result = merge_ranges(ranges, 2, Some(5));
-        assert_eq!(result, vec![0..3, 4..7, 8..11]);
-    }
-
-    #[test]
-    fn test_overlapping_ranges_with_max_read() {
-        let ranges = vec![0..6, 2..8, 7..10];
-
-        // Should merge all with no max_read
-        let result = merge_ranges(ranges.clone(), 1, None);
-        assert_eq!(result, vec![0..10]);
-
-        // Should merge partially with max_read
-        let result = merge_ranges(ranges, 1, Some(9));
-        assert_eq!(result, vec![0..8, 7..10]);
-    }
 }

@@ -119,6 +119,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::{Identity, gt, lit};
+    use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
@@ -126,7 +127,7 @@ mod test {
     use crate::segments::AsyncSegmentReader;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::{Layout, RowMask};
+    use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
@@ -173,10 +174,9 @@ mod test {
             let result = layout
                 .reader(segments, ctx)
                 .unwrap()
-                .evaluate_expr(
-                    RowMask::new_valid_between(0, layout.row_count()),
-                    Identity::new_expr(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count() as usize))
                 .await
                 .unwrap()
                 .to_primitive()
@@ -203,10 +203,11 @@ mod test {
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .refine_mask(RowMask::new_valid_between(0, row_count), expr.clone())
+                .filter_evaluation(&(0..row_count), &expr)
+                .unwrap()
+                .invoke_approx(Mask::new_true(row_count as usize))
                 .await
                 .unwrap()
-                .filter_mask()
                 .to_boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>();

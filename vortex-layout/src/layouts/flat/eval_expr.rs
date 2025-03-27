@@ -147,8 +147,9 @@ mod test {
     use vortex_array::{Array, ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{Identity, gt, ident, lit};
+    use vortex_mask::Mask;
 
-    use crate::RowMask;
+    use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
@@ -167,10 +168,9 @@ mod test {
             let result = layout
                 .reader(Arc::new(segments), ctx)
                 .unwrap()
-                .evaluate_expr(
-                    RowMask::new_valid_between(0, layout.row_count()),
-                    Identity::new_expr(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count() as usize))
                 .await
                 .unwrap()
                 .to_primitive()
@@ -195,7 +195,9 @@ mod test {
             let result = layout
                 .reader(Arc::new(segments), ctx)
                 .unwrap()
-                .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
+                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count() as usize))
                 .await
                 .unwrap()
                 .to_bool()
@@ -222,7 +224,9 @@ mod test {
             let result = layout
                 .reader(Arc::new(segments), ctx)
                 .unwrap()
-                .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
+                .projection_evaluation(&(2..4), &ident())
+                .unwrap()
+                .invoke(Mask::new_true(2))
                 .await
                 .unwrap()
                 .to_primitive()

@@ -23,7 +23,7 @@ use super::opener::VortexFileOpener;
 /// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
-    pub(crate) footer_cache: VortexFileCache,
+    pub(crate) file_cache: VortexFileCache,
     pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
     pub(crate) projection: Option<Arc<dyn VortexExpr>>,
     pub(crate) batch_size: Option<usize>,
@@ -33,9 +33,9 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(footer_cache: VortexFileCache, metrics: VortexSourceMetrics) -> Self {
+    pub(crate) fn new(file_cache: VortexFileCache, metrics: VortexSourceMetrics) -> Self {
         Self {
-            footer_cache,
+            file_cache,
             metrics,
             projection: None,
             batch_size: None,
@@ -77,7 +77,7 @@ impl FileSource for VortexSource {
             object_store,
             self.projection.clone().unwrap_or_else(Identity::new_expr),
             self.predicate.clone(),
-            self.footer_cache.clone(),
+            self.file_cache.clone(),
             self.arrow_schema
                 .clone()
                 .vortex_expect("We should have a schema here"),
