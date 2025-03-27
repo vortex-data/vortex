@@ -54,6 +54,8 @@ jobs:
 
       - name: Build binary
         shell: bash
+        env:
+          RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
@@ -70,8 +72,6 @@ jobs:
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
-        env:
-          RUSTFLAGS: '-C target-cpu=native'
         run: |
           target/release_debug/${{ matrix.benchmark.id }} \ -d gh-json | tee ${{ matrix.benchmark.id }}.json
 

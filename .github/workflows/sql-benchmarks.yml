@@ -70,7 +70,6 @@ jobs:
         shell: bash
         env:
           AWS_REGION: 'eu-west-1'
-          RUSTFLAGS: '-C target-cpu=native'
         run: |
           # Generate data, running each query once to make sure they don't panic.
           target/release_debug/${{ matrix.binary_name }} \ --formats parquet,vortex -i1
@@ -92,7 +91,6 @@ jobs:
         if: matrix.remote_storage == null
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
@@ -108,7 +106,6 @@ jobs:
         if: matrix.remote_storage != null
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
           AWS_REGION: 'eu-west-1'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
