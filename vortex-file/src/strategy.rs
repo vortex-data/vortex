@@ -167,10 +167,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         };
 
         let compressed_chunk = match compressed_chunk {
-            Some(array) => {
-                array.statistics().inherit(chunk.statistics());
-                array
-            }
+            Some(array) => array,
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
                 let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
@@ -181,6 +178,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 compressed
             }
         };
+
+        compressed_chunk.statistics().inherit(chunk.statistics());
 
         self.child.push_chunk(segment_writer, compressed_chunk)
     }
