@@ -31,20 +31,11 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
-      - name: Generate TPC-H locally
-        shell: bash
-        run: |
-          # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
-          cargo run --release --bin tpch -- --formats parquet,vortex -i1
-          aws s3 rm --recursive s3://vortex-bench-dev-eu/tpch-sf1/
-          aws s3 cp --recursive bench-vortex/data/tpch/1 s3://vortex-bench-dev-eu/tpch-sf1/
-          rm -rf bench-vortex/data/tpch/
-
       - name: Generate clickbench locally
         shell: bash
         run: |
           # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
-          cargo run --release --bin clickbench -- --formats parquet,vortex -i1
-          aws s3 rm --recursive s3://vortex-bench-dev-eu/clickbench/
-          aws s3 cp --recursive bench-vortex/data/clickbench_partitioned s3://vortex-bench-dev-eu/clickbench/
+          cargo run --release --bin clickbench --package bench-vortex -- --formats parquet,vortex -i1
+          aws s3 rm --recursive s3://vortex-bench-dev-eu/develop/clickbench/
+          aws s3 cp --recursive bench-vortex/data/clickbench_partitioned s3://vortex-bench-dev-eu/develop/clickbench/
           rm -rf bench-vortex/data/clickbench_partitioned/

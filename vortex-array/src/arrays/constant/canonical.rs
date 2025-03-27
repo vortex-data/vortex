@@ -145,13 +145,13 @@ fn canonical_list_array(
 ) -> VortexResult<ListArray> {
     match values {
         None => ListArray::try_new(
-            ConstantArray::new(Scalar::null(element_dtype.clone()), 1).into_array(),
+            Canonical::empty(element_dtype).into_array(),
             ConstantArray::new(
                 Scalar::new(
                     DType::Primitive(PType::U64, Nullability::NonNullable),
                     ScalarValue::from(0),
                 ),
-                len,
+                len + 1,
             )
             .into_array(),
             Validity::AllInvalid,
@@ -287,6 +287,31 @@ mod tests {
             vec![],
             Nullability::NonNullable,
         );
+        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let canonical_const = const_array.to_list().unwrap();
+        assert!(
+            canonical_const
+                .elements()
+                .to_primitive()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            canonical_const
+                .offsets()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [0u64, 0, 0]
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_null_list() {
+        let list_scalar = Scalar::null(DType::List(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            Nullability::Nullable,
+        ));
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_list().unwrap();
         assert!(

@@ -170,8 +170,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: rui314/setup-mold@v1
-        with:
-          targets: ${{matrix.config.target || ''}}
       - uses: ./.github/actions/setup-c++
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}

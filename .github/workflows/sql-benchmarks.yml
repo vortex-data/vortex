@@ -9,6 +9,10 @@ on:
 
 jobs:
   bench:
+    # S3 is shared state here, and we want to make sure only one of each job runs at a time
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-${{matrix.id}}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -18,13 +22,16 @@ jobs:
           - id: tpch-nvme
             binary_name: tpch
             name: TPC-H on NVME
+            local_dir: bench-vortex/data/tpch/1
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
+            local_dir: bench-vortex/data/clickbench_partitioned
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
-            remote_storage: s3://vortex-bench-dev-eu/tpch-sf1/
+            local_dir: bench-vortex/data/tpch/1
+            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.8xlarge
@@ -46,6 +53,12 @@ jobs:
         with:
           submodules: "recursive"
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
         shell: bash
@@ -59,6 +72,7 @@ jobs:
         run: |
           cargo run \
               --bin ${{ matrix.binary_name }} \
+              --package bench-vortex \
               --release \
               -- \
               -d gh-json \
@@ -77,21 +91,21 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
+          # Generate data, running each query once to make sure they don't panic.
+          cargo run --release --bin ${{ matrix.binary_name }} --package bench-vortex -- --formats parquet,vortex -i1
+          aws s3 rm --recursive ${{ matrix.remote_storage }}
+          aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
+
           cargo run \
+              --package bench-vortex \
               --bin ${{ matrix.binary_name }} \
               --release \
               -- \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --formats 'parquet,vortex' \
+              --formats parquet,vortex \
               --export-spans \
               -d gh-json \
             | tee results.json
-
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
 
       - name: Install uv
         if: inputs.mode == 'pr'

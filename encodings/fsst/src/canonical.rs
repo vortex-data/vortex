@@ -164,7 +164,7 @@ mod tests {
         let (chunked_arr, data) = make_data_chunked();
 
         let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), chunked_arr.len());
+            VarBinViewBuilder::with_capacity(chunked_arr.dtype().clone(), chunked_arr.len());
         chunked_arr.append_to_builder(&mut builder).unwrap();
 
         {
