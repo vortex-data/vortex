@@ -73,7 +73,7 @@ jobs:
         env:
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          target/release_debug/${{ matrix.benchmark.id }} \ -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
