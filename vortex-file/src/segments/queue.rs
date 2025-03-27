@@ -27,6 +27,7 @@ pub struct SegmentQueue {
     /// Notification queue triggered whenever a new segment is requested
     recv: mpsc::UnboundedReceiver<()>,
     inner: Arc<SegmentQueueInner>,
+    should_prefetch: bool,
 }
 
 struct SegmentQueueInner {
@@ -49,7 +50,10 @@ struct NeededSegments {
 impl SegmentQueue {
     /// Create a new segment queue, returning the queue and a segment reader that can be used to
     /// populate it.
-    pub fn new(metrics: VortexMetrics) -> (Self, Arc<dyn AsyncSegmentReader>) {
+    pub fn new(
+        should_prefetch: bool,
+        metrics: VortexMetrics,
+    ) -> (Self, Arc<dyn AsyncSegmentReader>) {
         let (send, recv) = mpsc::unbounded();
 
         let inner = Arc::new(SegmentQueueInner {
@@ -67,7 +71,14 @@ impl SegmentQueue {
             request_counter: metrics.counter("vortex.scan.segments.requested"),
         });
 
-        (Self { recv, inner }, segment_reader)
+        (
+            Self {
+                recv,
+                inner,
+                should_prefetch,
+            },
+            segment_reader,
+        )
     }
 
     /// Inspect all pending segments.
@@ -111,21 +122,23 @@ impl SegmentQueue {
                 // Otherwise, we start pre-fetching the need_later segments.
                 // FIXME(ngates): make this configurable, and ideally we have a lot more awareness
                 //  of what each segment will be used for.
-                loop {
-                    let Some(segment_id) = needed.need_later.pop_first() else {
-                        // No more need_later segments, break out of the loop.
-                        break;
-                    };
+                if self.should_prefetch {
+                    loop {
+                        let Some(segment_id) = needed.need_later.pop_first() else {
+                            // No more need_later segments, break out of the loop.
+                            break;
+                        };
 
-                    if let Some(lease) = self
-                        .inner
-                        .segments
-                        .get(&segment_id)
-                        .and_then(|p| p.clone().lease())
-                    {
-                        log::trace!("Fetching unrequested segment: {}", lease.id());
-                        return Some(lease);
-                    };
+                        if let Some(lease) = self
+                            .inner
+                            .segments
+                            .get(&segment_id)
+                            .and_then(|p| p.clone().lease())
+                        {
+                            log::trace!("Fetching unrequested segment: {}", lease.id());
+                            return Some(lease);
+                        };
+                    }
                 }
             }
 

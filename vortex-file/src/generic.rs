@@ -48,7 +48,8 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
 
-        let (segment_queue, segment_reader) = SegmentQueue::new(self.metrics.clone());
+        let (segment_queue, segment_reader) =
+            SegmentQueue::new(self.options.prefetch, self.metrics.clone());
 
         // Spawn an I/O driver to serve requests while this file is open.
         let driver = GenericScanDriver {
@@ -86,7 +87,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open_object_store(
-        self,
+        mut self,
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
@@ -98,9 +99,13 @@ impl VortexOpenOptions<GenericVortexFile> {
         // file on every read. This check is a little naive... but we hope that ObjectStore will
         // soon expose the scheme in a way that we can check more thoroughly.
         // See: https://github.com/apache/arrow-rs-object-store/issues/259
-        if Path::new(path).exists() {
-            self.open(TokioFile::open(path)?).await
+        let local_path = Path::new("/").join(path);
+        if local_path.exists() {
+            // Local disk is too fast to justify prefetching.
+            self.options.prefetch = false;
+            self.open(TokioFile::open(local_path)?).await
         } else {
+            self.options.prefetch = true;
             self.open(ObjectStoreReadAt::new(
                 object_store.clone(),
                 path.into(),
@@ -116,7 +121,12 @@ pub struct GenericFileOptions {
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
+    /// The dispatcher to use for I/O requests.
     io_dispatcher: IoDispatcher,
+    /// Whether the file should pre-fetch requested but not-yet-polled segments.
+    // TODO(ngates): this config is too coarse, and we should have a more fine-grained control
+    //  over I/O scheduling.
+    prefetch: bool,
 }
 
 impl Default for GenericFileOptions {
@@ -124,6 +134,7 @@ impl Default for GenericFileOptions {
         Self {
             io_concurrency: 10,
             io_dispatcher: IoDispatcher::default(),
+            prefetch: true,
         }
     }
 }
