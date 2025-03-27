@@ -13,7 +13,6 @@ use crate::compute::{
     MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
     is_constant_opts, scalar_at, slice, take, try_cast, uncompressed_size,
 };
-use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayComputeImpl, ArrayRef, ArrayVisitor};
 
@@ -109,13 +108,13 @@ impl ScalarAtFn<&StructArray> for StructEncoding {
 
 impl TakeFn<&StructArray> for StructEncoding {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        StructArray::try_new(
-            array.names().clone(),
+        StructArray::try_new_with_dtype(
             array
                 .fields()
                 .iter()
                 .map(|field| take(field, indices))
                 .try_collect()?,
+            array.struct_dtype().clone(),
             indices.len(),
             array.validity().take(indices)?,
         )
@@ -130,9 +129,9 @@ impl SliceFn<&StructArray> for StructEncoding {
             .iter()
             .map(|field| slice(field, start, stop))
             .try_collect()?;
-        StructArray::try_new(
-            array.names().clone(),
+        StructArray::try_new_with_dtype(
             fields,
+            array.struct_dtype().clone(),
             stop - start,
             array.validity().slice(start, stop)?,
         )
@@ -154,7 +153,7 @@ impl FilterKernel for StructEncoding {
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        StructArray::try_new(array.names().clone(), fields, length, validity)
+        StructArray::try_new_with_dtype(fields, array.struct_dtype().clone(), length, validity)
             .map(|a| a.into_array())
     }
 }
@@ -163,9 +162,9 @@ impl MaskFn<&StructArray> for StructEncoding {
     fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(&filter_mask)?;
 
-        StructArray::try_new(
-            array.names().clone(),
+        StructArray::try_new_with_dtype(
             array.fields().to_vec(),
+            array.struct_dtype().clone(),
             array.len(),
             validity,
         )

@@ -51,12 +51,12 @@ pub struct FilterExpr {
 
 impl FilterExpr {
     pub fn try_new(
-        scope_dtype: StructDType,
+        scope_dtype: &StructDType,
         expr: ExprRef,
         prefetch_conjuncts: bool,
     ) -> VortexResult<Self> {
         // Find all the fields involved in the expression.
-        let fields: Arc<[FieldName]> = immediate_scope_access(&expr, &scope_dtype)?
+        let fields: Arc<[FieldName]> = immediate_scope_access(&expr, scope_dtype)?
             .into_iter()
             .collect();
 
@@ -66,7 +66,7 @@ impl FilterExpr {
         // Find which fields are referenced by each conjunct.
         let conjunct_fields = conjuncts
             .iter()
-            .map(|expr| immediate_scope_access(expr, &scope_dtype))
+            .map(|expr| immediate_scope_access(expr, scope_dtype))
             .map_ok(|conjunct_fields| {
                 conjunct_fields
                     .iter()

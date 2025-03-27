@@ -100,7 +100,7 @@ futures-executor = "0.3.31"
 futures-util = "0.3.31"
 getrandom = "0.3"
 goldenfile = "1"
-governor = "0.9"
+governor = "0.10"
 half = { version = "2.2.1", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 homedir = "0.3.3"

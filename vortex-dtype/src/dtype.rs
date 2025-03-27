@@ -160,7 +160,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&StructDType> {
+    pub fn as_struct(&self) -> Option<&Arc<StructDType>> {
         match self {
             Struct(s, _) => Some(s),
             _ => None,
