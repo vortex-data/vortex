@@ -61,7 +61,10 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
             take(array.codes(), indices)?,
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
-                Scalar::new(indices.dtype().clone(), ScalarValue::from(0)),
+                Scalar::new(
+                    array.uncompressed_lengths_dtype().clone(),
+                    ScalarValue::from(0),
+                ),
             )?,
         )?
         .into_array())
