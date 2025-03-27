@@ -193,7 +193,7 @@ impl AsyncSegmentReader for SegmentQueueSegmentReader {
                     if let Some(fut) = e.get().future() {
                         break fut;
                     } else {
-                        log::warn!("Removing dropped segment from segment reader {}", id);
+                        log::debug!("Re-requesting dropped segment from segment reader {}", id);
                         e.remove();
                     }
                 }
@@ -233,22 +233,8 @@ pub struct PendingSegment {
     for_whom: Arc<str>,
     fut: WeakShared<SegmentFuture>,
     send: Mutex<Option<oneshot::Sender<VortexResult<ByteBuffer>>>>,
-    // inner: Mutex<PendingSegmentInner>,
     queue: Arc<SegmentQueueInner>,
     created_at: Instant,
-}
-
-struct PendingSegmentInner {
-    /// The sender end of the one-shot channel can be taken by leasing the segment.
-    /// If the lease is dropped before resolving, the sender is put back into this field to allow
-    /// another lease.
-    send: Option<oneshot::Sender<VortexResult<ByteBuffer>>>,
-    /// The receiver end of the one-shot channel.
-    recv: BoxFuture<'static, VortexResult<ByteBuffer>>,
-    /// The cached result of the pending segment.
-    result: Option<SharedVortexResult<ByteBuffer>>,
-    /// Whether the segment has been polled yet.
-    polled: bool,
 }
 
 impl Debug for PendingSegment {
