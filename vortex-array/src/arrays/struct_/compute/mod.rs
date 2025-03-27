@@ -13,7 +13,6 @@ use crate::compute::{
     MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
     is_constant_opts, scalar_at, slice, take, try_cast, uncompressed_size,
 };
-use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayComputeImpl, ArrayRef, ArrayVisitor};
 

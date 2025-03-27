@@ -72,9 +72,12 @@ impl ArrayCanonicalImpl for ConstantArray {
                         .map(|s| ConstantArray::new(s, self.len()).into_array())
                         .collect::<Vec<_>>()
                 });
+                let DType::Struct(struct_dt, _) = value.dtype() else {
+                    unreachable!()
+                };
                 Canonical::Struct(StructArray::try_new_with_dtype(
                     fields.unwrap_or_default(),
-                    value.struct_dtype().clone(),
+                    struct_dt.clone(),
                     self.len(),
                     validity,
                 )?)
