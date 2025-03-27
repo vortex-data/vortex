@@ -14,6 +14,7 @@ use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
+use crate::builders::dict_encode;
 use crate::serde::DictMetadata;
 
 #[derive(Debug, Clone)]
@@ -66,6 +67,12 @@ impl DictArray {
     #[inline]
     pub fn values(&self) -> &ArrayRef {
         &self.values
+    }
+
+    /// Create a new [`DictArray`] in compacted form, where the underlying values array only contains values that are pointed to by the codes.
+    pub fn compact(&self) -> VortexResult<Self> {
+        let canonical = self.to_canonical()?;
+        dict_encode(canonical.as_ref())
     }
 }
 
