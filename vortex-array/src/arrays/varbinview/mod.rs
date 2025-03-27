@@ -399,7 +399,7 @@ impl VarBinViewArray {
                     bytes_buffer.len().try_into().vortex_unwrap(),
                 );
                 bytes_buffer.extend_from_slice(bytes);
-                views_buffer.push(new_view.into());
+                views_buffer.push(new_view);
             }
         }
 
