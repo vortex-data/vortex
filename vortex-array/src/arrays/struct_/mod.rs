@@ -44,7 +44,9 @@ impl StructArray {
 
     pub fn struct_dtype(&self) -> &Arc<StructDType> {
         let DType::Struct(str, _) = &self.dtype else {
-            unreachable!()
+            unreachable!(
+                "struct arrays must have be a DType::Struct, this is likely an internal bug."
+            )
         };
         str
     }
