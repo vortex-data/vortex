@@ -103,6 +103,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 		if (global_state.finished) {
 			local_state.finished = true;
+			std::cout << "Finished ac: " << local_state.array_count << std::endl;
 			return;
 		}
 
@@ -124,7 +125,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			    // This has a few factor effecting it:
 			    //  1. A smaller value means for work for the vortex file reader.
 			    //  2. A larger value reduces the parallelism available to the scanner
-			    .split_by_row_count = 2048 * 32,
+			    .split_by_row_count = 2048 * 32 * 4,
 			};
 
 			global_state.array_stream = File_scan(bind_data.file, &options);
@@ -138,6 +139,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			return;
 		}
 		local_state.array = FFIArrayStream_current(global_state.array_stream);
+		local_state.array_count++;
 		local_state.current_row = 0;
 	}
 
