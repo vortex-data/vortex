@@ -25,6 +25,7 @@ itertools = { workspace = true }
 linked_hash_set = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
+object_store = { workspace = true, optional = true }
 oneshot = { workspace = true, features = ["async"] }
 pin-project-lite = { workspace = true }
 rustc-hash = { workspace = true }
@@ -64,7 +65,7 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
-object_store = ["vortex-error/object_store", "vortex-io/object_store"]
+object_store = ["dep:object_store", "vortex-error/object_store", "vortex-io/object_store"]
 tracing = [
     "dep:tracing",
     "dep:tracing-futures",

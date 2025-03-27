@@ -31,6 +31,7 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct InMemorySegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
 
 impl InMemorySegmentCache {

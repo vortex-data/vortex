@@ -72,8 +72,8 @@ impl PerformanceHint {
 
     pub fn object_storage() -> Self {
         Self::new(
-            1 << 20,        // 1MB,
-            Some(16 << 20), // 16MB,
+            1 << 20,       // 1MB,
+            Some(8 << 20), // 8MB,
         )
     }
 

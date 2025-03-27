@@ -84,30 +84,34 @@ impl SegmentQueue {
     /// Returns `None` if the queue has been closed.
     pub async fn next(&mut self) -> Option<PendingSegmentLease> {
         loop {
-            let mut needed = self.inner.needed.lock().vortex_expect("poisoned lock");
+            {
+                let mut needed = self.inner.needed.lock().vortex_expect("poisoned lock");
 
-            // First, check the need_now queue. These segments have been explicitly polled
-            // and therefore there is CPU work waiting for them.
-            loop {
-                // In a loop, we drain the need_now queue until we find a segment that
-                // hasn't been dropped or leased.
-                let Some(segment_id) = needed.need_now.pop_front() else {
-                    // No more need_now segments, break out of the loop.
-                    break;
-                };
+                // First, check the need_now queue. These segments have been explicitly polled
+                // and therefore there is CPU work waiting for them.
+                loop {
+                    // In a loop, we drain the need_now queue until we find a segment that
+                    // hasn't been dropped or leased.
+                    let Some(segment_id) = needed.need_now.pop_front() else {
+                        // No more need_now segments, break out of the loop.
+                        break;
+                    };
 
-                if let Some(lease) = self
-                    .inner
-                    .segments
-                    .get(&segment_id)
-                    .and_then(|p| p.clone().lease())
-                {
-                    log::trace!("Fetching requested segment: {}", lease.id());
-                    return Some(lease);
-                };
+                    if let Some(lease) = self
+                        .inner
+                        .segments
+                        .get(&segment_id)
+                        .and_then(|p| p.clone().lease())
+                    {
+                        log::trace!("Fetching requested segment: {}", lease.id());
+                        return Some(lease);
+                    };
+                }
             }
 
             // Otherwise, we start pre-fetching the need_later segments.
+            // FIXME(ngates): make this configurable, and ideally we have a lot more awareness
+            //  of what each segment will be used for.
             // loop {
             //     let Some(segment_id) = needed.need_later.pop_first() else {
             //         // No more need_later segments, break out of the loop.
@@ -129,24 +133,8 @@ impl SegmentQueue {
             // reference can no longer be upgraded).
             // self.inner.segments.retain(|_, v| v.fut.upgrade().is_some());
 
-            // Before we await the future, we ensure we unlock the needed mutex.
-            drop(needed);
-
             // Otherwise, await a notification that there may be more work to do.
-            // FIXME(ngates): segment leasing might end up putting work back in the queue....?
-            //  Either we need to notify on PendingSegmentLease::drop, or we need to not allow
-            //  returning a lease to the queue. Probably this one honestly...
             if self.recv.next().await.is_none() {
-                // Or exit if the queue has been closed, and we've consumed all notifications.
-                // assert!(
-                //     self.inner
-                //         .needed
-                //         .lock()
-                //         .vortex_expect("poisoned lock")
-                //         .need_now
-                //         .is_empty(),
-                //     "Segment queue closed with pending _requested_ segments"
-                // );
                 return None;
             }
         }

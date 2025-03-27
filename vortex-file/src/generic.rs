@@ -84,6 +84,38 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 }
 
+#[cfg(feature = "object_store")]
+impl VortexOpenOptions<GenericVortexFile> {
+    pub async fn open_object_store(
+        self,
+        object_store: &Arc<dyn object_store::ObjectStore>,
+        object: &object_store::ObjectMeta,
+    ) -> VortexResult<VortexFile> {
+        use std::path::Path;
+
+        use vortex_io::{ObjectStoreReadAt, TokioFile};
+
+        // If the file is local, we much prefer to use TokioFile since object store re-opens the
+        // file on every read. This check is a little naive... but we hope that ObjectStore will
+        // soon expose the scheme in a way that we can check more thoroughly.
+        // See: https://github.com/apache/arrow-rs-object-store/issues/259
+        if Path::new(object.location.as_ref()).exists() {
+            self.open(TokioFile::open(object.location.as_ref())?).await
+        } else {
+            self
+                // We must be careful which options we configure here because the user has no way
+                // to override them, but object size is never a bad thing to have.
+                .with_file_size(object.size as u64)
+                .open(ObjectStoreReadAt::new(
+                    object_store.clone(),
+                    object.location.clone(),
+                    None,
+                ))
+                .await
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct GenericFileOptions {
     /// The number of concurrent I/O requests to spawn.
@@ -113,20 +145,39 @@ impl<R: VortexReadAt + Send> GenericScanDriver<R> {
     /// Create a stream that is polled every time there is an available slot to perform I/O.
     pub fn io_driver(self) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> {
         stream::unfold(self, move |mut this| async move {
-            // Get the next most important segment to read, or else the stream is complete.
-            let next = this.segment_queue.next().await?;
+            loop {
+                // Get the next most important segment to read, or else the stream is complete.
+                let next = this.segment_queue.next().await?;
 
-            // Build up a coalesced read with other segments from the queue.
-            let coalesced = this.coalesce(next);
+                let segment_map = this.footer.segment_map().clone();
+                let spec = segment_map
+                    .get(*next.id() as usize)
+                    .vortex_expect("SegmentID not found");
 
-            this.metrics.counter("vortex.scan.generic.request").inc();
+                // If the segment is in the cache, we can skip the I/O.
+                if let Some(cached_buffer) = this
+                    .segment_cache
+                    .get(next.id(), spec.alignment)
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    log::debug!("Resolving segment {} from cache", next.id());
+                    next.resolve(Ok(cached_buffer));
+                    continue;
+                }
 
-            // Launch the coalesced read.
-            let read = this.read.clone();
-            let segment_map = this.footer.segment_map().clone();
-            let fut = async move { evaluate(read, coalesced?, segment_map).await };
+                // Build up a coalesced read with other segments from the queue.
+                let coalesced = this.coalesce(next);
 
-            Some((fut, this))
+                this.metrics.counter("vortex.scan.generic.request").inc();
+
+                // Launch the coalesced read.
+                let read = this.read.clone();
+                let fut = async move { evaluate(read, coalesced?, segment_map).await };
+
+                return Some((fut, this));
+            }
         })
     }
 

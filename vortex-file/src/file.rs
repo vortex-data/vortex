@@ -9,6 +9,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::footer::Footer;
 
+#[derive(Clone)]
 pub struct VortexFile {
     pub(crate) footer: Footer,
     pub(crate) segment_reader: Arc<dyn AsyncSegmentReader>,

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use arrow_schema::{Schema, SchemaRef};
@@ -28,21 +29,28 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{VortexExpr, and};
-use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION, VortexOpenOptions};
-use vortex_io::{ObjectStoreReadAt, TokioFile};
+use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex_metrics::VortexMetrics;
 
-use super::cache::FooterCache;
+use super::cache::VortexFileCache;
 use super::metrics::VortexSourceMetrics;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::{PrecisionExt as _, can_be_pushed_down};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
-#[derive(Debug)]
 pub struct VortexFormat {
-    footer_cache: FooterCache,
+    file_cache: VortexFileCache,
     opts: VortexFormatOptions,
+}
+
+impl Debug for VortexFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexFormat")
+            .field("opts", &self.opts)
+            .finish()
+    }
 }
 
 /// Options to configure the [`VortexFormat`].
@@ -63,6 +71,7 @@ impl Default for VortexFormatOptions {
 pub struct VortexFormatFactory {
     array_registry: Arc<ArrayRegistry>,
     layout_registry: Arc<LayoutRegistry>,
+    metrics: VortexMetrics,
 }
 
 impl VortexFormatFactory {
@@ -77,6 +86,7 @@ impl VortexFormatFactory {
         Self {
             array_registry: registry,
             layout_registry: Arc::new(LayoutRegistry::default()),
+            metrics: VortexMetrics::default(),
         }
     }
 }
@@ -103,6 +113,7 @@ impl FileFormatFactory for VortexFormatFactory {
         Ok(Arc::new(VortexFormat::new(
             self.array_registry.clone(),
             self.layout_registry.clone(),
+            self.metrics.clone(),
         )))
     }
 
@@ -120,16 +131,26 @@ impl Default for VortexFormat {
         Self::new(
             DEFAULT_REGISTRY.clone(),
             Arc::new(LayoutRegistry::default()),
+            VortexMetrics::default(),
         )
     }
 }
 
 impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
-    pub fn new(array_registry: Arc<ArrayRegistry>, layout_registry: Arc<LayoutRegistry>) -> Self {
+    pub fn new(
+        array_registry: Arc<ArrayRegistry>,
+        layout_registry: Arc<LayoutRegistry>,
+        metrics: VortexMetrics,
+    ) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            footer_cache: FooterCache::new(opts.cache_size_mb, array_registry, layout_registry),
+            file_cache: VortexFileCache::new(
+                opts.cache_size_mb,
+                array_registry,
+                layout_registry,
+                metrics,
+            ),
             opts,
         }
     }
@@ -164,7 +185,7 @@ impl FileFormat for VortexFormat {
 
     fn file_source(&self) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
-            self.footer_cache.clone(),
+            self.file_cache.clone(),
             VortexSourceMetrics::default(),
         ))
     }
@@ -178,10 +199,10 @@ impl FileFormat for VortexFormat {
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let cache = self.footer_cache.clone();
+                let cache = self.file_cache.clone();
                 async move {
-                    let footer = cache.try_get(&o, store).await?;
-                    let inferred_schema = footer.dtype().to_arrow_schema()?;
+                    let vxf = cache.try_get(&o, store).await?;
+                    let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })
@@ -209,20 +230,7 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let footer = self.footer_cache.try_get(object, store.clone()).await?;
-
-        let vxf = if let Some(file) = ObjectStoreReadAt::maybe_file(store, &object.location).await {
-            VortexOpenOptions::file()
-                .with_footer(footer)
-                .open(TokioFile::new(file))
-                .await?
-        } else {
-            let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
-            VortexOpenOptions::file()
-                .with_footer(footer)
-                .open(os_read_at)
-                .await?
-        };
+        let vxf = self.file_cache.try_get(object, store.clone()).await?;
 
         let struct_dtype = vxf
             .dtype()
@@ -336,8 +344,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let mut source =
-            VortexSource::new(self.footer_cache.clone(), VortexSourceMetrics::default());
+        let mut source = VortexSource::new(self.file_cache.clone(), VortexSourceMetrics::default());
 
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);

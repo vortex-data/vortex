@@ -6139,6 +6139,7 @@ dependencies = [
  "linked_hash_set",
  "log",
  "moka",
+ "object_store",
  "oneshot",
  "pin-project-lite",
  "rustc-hash",

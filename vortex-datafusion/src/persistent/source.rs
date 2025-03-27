@@ -13,7 +13,7 @@ use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
 
-use super::cache::FooterCache;
+use super::cache::VortexFileCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::{PARTITION_LABEL, VortexSourceMetrics};
 use super::opener::VortexFileOpener;
@@ -23,7 +23,7 @@ use super::opener::VortexFileOpener;
 /// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
-    pub(crate) footer_cache: FooterCache,
+    pub(crate) footer_cache: VortexFileCache,
     pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
     pub(crate) projection: Option<Arc<dyn VortexExpr>>,
     pub(crate) batch_size: Option<usize>,
@@ -33,7 +33,7 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(footer_cache: FooterCache, metrics: VortexSourceMetrics) -> Self {
+    pub(crate) fn new(footer_cache: VortexFileCache, metrics: VortexSourceMetrics) -> Self {
         Self {
             footer_cache,
             metrics,

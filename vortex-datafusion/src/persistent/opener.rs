@@ -8,12 +8,11 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::{SplitBy, VortexOpenOptions};
-use vortex_io::{ObjectStoreReadAt, TokioFile};
+use vortex_file::SplitBy;
 use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
-use super::cache::FooterCache;
+use super::cache::VortexFileCache;
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -22,7 +21,7 @@ pub(crate) struct VortexFileOpener {
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
-    pub(crate) footer_cache: FooterCache,
+    pub(crate) file_cache: VortexFileCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
@@ -35,7 +34,7 @@ impl VortexFileOpener {
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
         filter: Option<Arc<dyn VortexExpr>>,
-        footer_cache: FooterCache,
+        footer_cache: VortexFileCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
@@ -45,7 +44,7 @@ impl VortexFileOpener {
             object_store,
             projection,
             filter,
-            footer_cache,
+            file_cache: footer_cache,
             projected_arrow_schema,
             batch_size,
             metrics,
@@ -55,48 +54,17 @@ impl VortexFileOpener {
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let file_metrics = self
-            .metrics
-            .child_with_tags([("filename", file_meta.location().to_string())]);
-
         let filter = self.filter.clone();
         let projection = self.projection.clone();
-        let footer_cache = self.footer_cache.clone();
+        let file_cache = self.file_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
 
         Ok(async move {
-            let vxf = if let Some(file) =
-                ObjectStoreReadAt::maybe_file(&object_store, file_meta.location()).await
-            {
-                VortexOpenOptions::file()
-                    .with_metrics(file_metrics)
-                    .with_footer(
-                        footer_cache
-                            .try_get(&file_meta.object_meta, object_store)
-                            .await?,
-                    )
-                    .open(TokioFile::new(file))
-                    .await?
-            } else {
-                let os_read_at = ObjectStoreReadAt::new(
-                    object_store.clone(),
-                    file_meta.location().clone(),
-                    None,
-                );
-                VortexOpenOptions::file()
-                    .with_metrics(file_metrics)
-                    .with_footer(
-                        footer_cache
-                            .try_get(&file_meta.object_meta, object_store)
-                            .await?,
-                    )
-                    .open(os_read_at)
-                    .await?
-            };
-
-            Ok(vxf
+            Ok(file_cache
+                .try_get(&file_meta.object_meta, object_store)
+                .await?
                 .scan()
                 .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
                     Handle::current().clone(),
