@@ -20,7 +20,7 @@ use crate::browse::app::{AppState, LayoutCursor};
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
-        Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
+        Layout::vertical([Constraint::Length(14), Constraint::Min(1)]).areas(area);
 
     // Render the header area.
     render_layout_header(&app_state.cursor, header_area, buf);
@@ -43,6 +43,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let row_count = cursor.layout().row_count();
 
     let mut rows = vec![
+        Text::from(format!("Cursor encoding ID: {}", cursor.encoding().id())),
         Text::from(format!("Kind: {layout_kind}")).bold(),
         Text::from(format!("Row Count: {row_count}")).bold(),
         Text::from(format!("Schema: {}", cursor.dtype()))
@@ -62,10 +63,13 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         )));
     }
 
-    if cursor.encoding().id() == CHUNKED_LAYOUT_ID {
+    if cursor.encoding().id() == STATS_LAYOUT_ID {
         // Push any columnar stats.
-        if let Some(metadata) = cursor.layout().metadata() {
-            let available_stats = stats_from_bitset_bytes(&metadata);
+        if let Some(available_stats) = cursor
+            .layout()
+            .metadata()
+            .map(|metadata| stats_from_bitset_bytes(&metadata[4..]))
+        {
             let mut line = String::new();
             line.push_str("Statistics: ");
             for stat in available_stats {
