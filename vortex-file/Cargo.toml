@@ -65,7 +65,11 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
-object_store = ["dep:object_store", "vortex-error/object_store", "vortex-io/object_store"]
+object_store = [
+    "dep:object_store",
+    "vortex-error/object_store",
+    "vortex-io/object_store",
+]
 tracing = [
     "dep:tracing",
     "dep:tracing-futures",

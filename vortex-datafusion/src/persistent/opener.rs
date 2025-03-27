@@ -66,9 +66,7 @@ impl FileOpener for VortexFileOpener {
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
                 .scan()
-                .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
-                    Handle::current(),
-                )))
+                .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)
                 .with_some_filter(filter)
                 .with_canonicalize(true)
