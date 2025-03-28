@@ -79,13 +79,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
         let ffi_schema_ptr = Box::into_raw(Box::new(ffi_schema));
         let ffi_array_ptr = Box::into_raw(Box::new(ffi_array));
 
-            // Return native Arrow FFI pointers to caller.
-            env.set_long_array_region(arrow_schema_ptr, 0, &[ffi_schema_ptr as jlong])
-                .expect("set_long_field");
-            env.set_long_array_region(arrow_array_ptr, 0, &[ffi_array_ptr as jlong])
-                .expect("set_long_field");
-        }
-    }
+        // Return native Arrow FFI pointers to caller.
+        env.set_long_array_region(arrow_schema_ptr, 0, &[ffi_schema_ptr as jlong])
+            .expect("set_long_field");
+        env.set_long_array_region(arrow_array_ptr, 0, &[ffi_array_ptr as jlong])
+            .expect("set_long_field");
+        Ok(())
+    });
 }
 
 /// Visit the potentially nested DataType, replacing all instances of Utf8View and BinaryView
