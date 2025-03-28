@@ -47,20 +47,19 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         let time = TemporalMetadata::try_from(self.ext_dtype())?;
         let value = || {
             self.storage()
-                    .as_primitive_opt()
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "Cannot have a temporal time type not packed by a primitive scalar"
-                        )
-                    })?
-                    .as_::<i64>()?
-                    .ok_or_else(|| vortex_err!("temporal types must be convertable to i64"))
+                .as_primitive_opt()
+                .ok_or_else(|| {
+                    vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
+                })?
+                .as_::<i64>()?
+                .ok_or_else(|| vortex_err!("temporal types must be convertable to i64"))
         };
         match time {
             TemporalMetadata::Time(unit) => match unit {
-                TimeUnit::Ms => Ok(Value::time_from_ms(value()?)),
-                TimeUnit::S => Ok(Value::time_from_ms(value()? * 1000)),
-                TimeUnit::Ns | TimeUnit::Us | TimeUnit::D => {
+                TimeUnit::Us => Ok(Value::time_from_us(value()?)),
+                TimeUnit::Ms => Ok(Value::time_from_us(value()? * 1000)),
+                TimeUnit::S => Ok(Value::time_from_us(value()? * 1000 * 1000)),
+                TimeUnit::Ns | TimeUnit::D => {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
                 }
             },
