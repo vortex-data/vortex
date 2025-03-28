@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, VarBinViewArray};
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
@@ -19,28 +17,35 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct StringStats {
     src: VarBinViewArray,
+    exact_distinct_count: Option<u32>,
     estimated_distinct_count: u32,
     value_count: u32,
-    // null_count: u32,
+    null_count: u32,
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
+/// If all are inlined then is count is exact and true is returned.
 #[allow(clippy::cast_possible_truncation)]
-fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
+fn estimate_distinct_count(strings: &VarBinViewArray) -> (u32, bool) {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
+    let mut all_inlined = true;
     views.iter().for_each(|&view| {
         let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
+        all_inlined &= view.is_inlined();
     });
 
-    distinct
-        .len()
-        .try_into()
-        .vortex_expect("distinct count must fit in u32")
+    (
+        distinct
+            .len()
+            .try_into()
+            .vortex_expect("distinct count must fit in u32"),
+        all_inlined,
+    )
 }
 
 impl CompressorStats for StringStats {
@@ -52,17 +57,18 @@ impl CompressorStats for StringStats {
             .compute_null_count()
             .vortex_expect("null count");
         let value_count = input.len() - null_count;
-        let estimated_distinct = if opts.count_distinct_values {
+        let (estimated_distinct, is_exact) = if opts.count_distinct_values {
             estimate_distinct_count(input)
         } else {
-            u32::MAX
+            (u32::MAX, false)
         };
 
         Self {
             src: input.clone(),
             value_count: value_count.try_into().vortex_expect("value_count"),
-            // null_count: null_count.try_into().vortex_expect("null_count"),
+            null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
+            exact_distinct_count: is_exact.then(|| estimated_distinct),
         }
     }
 
@@ -165,9 +171,13 @@ impl Scheme for ConstantScheme {
         CONSTANT_SCHEME
     }
 
+    fn is_constant(&self) -> bool {
+        true
+    }
+
     fn expected_compression_ratio(
         &self,
-        stats: &Self::StatsType,
+        stats: &StringStats,
         is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
@@ -178,7 +188,7 @@ impl Scheme for ConstantScheme {
         }
 
         // Only arrays with one distinct values can be constant compressed.
-        if stats.estimated_distinct_count != 1 {
+        if stats.exact_distinct_count.unwrap_or(stats.value_count) != 1 {
             return Ok(0.0);
         }
 
