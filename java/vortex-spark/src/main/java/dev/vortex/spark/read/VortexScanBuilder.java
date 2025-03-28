@@ -74,7 +74,7 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
 
     @Override
     public void pruneColumns(StructType requiredSchema) {
-        // TODO(aduffy): support deeply nested schema prunes once Vortex does
+        // TODO(aduffy): support deeply nested schema prunes
         columns.clear();
         for (StructField field : requiredSchema.fields()) {
             columns.add(Column.create(field.name(), field.dataType()));

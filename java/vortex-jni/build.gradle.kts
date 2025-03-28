@@ -60,7 +60,6 @@ tasks.withType<ShadowJar> {
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
-        // exclude("org.apache.arrow.vector.**")
         // exclude C Data Interface since JNI cannot be relocated
         exclude("org.apache.arrow.c.jni.JniWrapper")
         exclude("org.apache.arrow.c.jni.PrivateData")
