@@ -26,7 +26,7 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "5")]
+    #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
@@ -40,9 +40,9 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     emit_plan: bool,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
     #[arg(long)]
     export_spans: bool,
@@ -50,7 +50,7 @@ struct Args {
     flavor: Flavor,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     single_file: bool,
 }
 
