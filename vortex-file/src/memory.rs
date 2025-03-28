@@ -31,6 +31,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
         Ok(VortexFile {
             footer: footer.clone(),
             segment_cache: self.segment_cache,
+            io_driver: None,
             metrics: self.metrics,
         })
     }

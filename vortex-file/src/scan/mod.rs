@@ -120,10 +120,7 @@ impl ScanBuilder {
         self
     }
 
-    pub fn build<R: VortexReadAt + Send>(
-        self,
-        read: R,
-    ) -> VortexResult<impl ArrayStream + 'static> {
+    pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
         // Spin up the root layout reader
         let layout_reader = self
             .vxf
@@ -272,34 +269,36 @@ impl ScanBuilder {
         // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
         let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
 
+        // While the queue remains alive (i.e. there is some part of the scan waiting on a
+        // segment future), we drive the I/O forwards, propagating any errors back.
+
         self.io_dispatcher.dispatch(move || async move {
-            // While the queue remains alive (i.e. there is some part of the scan waiting on a
-            // segment future), we drive the I/O forwards, propagating any errors back.
-            stream::unfold(read, |read| {
+            let driver = self
+                .vxf
+                .io_driver
+                .vortex_expect("missing io driver")
+                .clone();
+            let hint = driver.performance_hint();
+
+            let request_stream = stream::unfold((), move |_state| {
+                let hint = hint.clone();
                 let queue = queue.inner.clone();
-                let segment_map = self.vxf.footer().segment_map().clone();
                 async move {
-                    if let Some(coalesced) = queue.drive(&read.performance_hint()).await.transpose()
-                    {
-                        let eval_read = read.clone();
-                        let fut = async move { evaluate(eval_read, coalesced?, segment_map).await };
-                        Some((fut, read))
+                    if let Some(coalesced) = queue.drive(&hint).await.transpose() {
+                        Some((coalesced, _state))
                     } else {
                         None
                     }
                 }
             })
-            // Spawn for I/O concurrency
-            .buffered(10)
-            // Any errors get mapped into the error stream
-            .map(|result| match result {
-                Ok(_) => {}
-                Err(e) => {
+            .boxed_local();
+
+            let mut io_stream = driver.drive(request_stream);
+            while let Some(result) = io_stream.next().await {
+                if let Err(e) = result {
                     let _ = err_send.unbounded_send(e);
                 }
-            })
-            .collect::<()>()
-            .await;
+            }
         })?;
 
         // FIXME(ngates): we need to consume and interleave the error queue with the array
@@ -313,15 +312,12 @@ impl ScanBuilder {
     }
 
     /// Perform the scan operation and return a stream of arrays.
-    pub fn into_array_stream<R: VortexReadAt + Send>(
-        self,
-        read: R,
-    ) -> VortexResult<impl ArrayStream + 'static> {
-        self.build(read)
+    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+        self.build()
     }
 
-    pub async fn read_all<R: VortexReadAt + Send>(self, read: R) -> VortexResult<ArrayRef> {
-        self.into_array_stream(read)?.read_all().await
+    pub async fn read_all(self) -> VortexResult<ArrayRef> {
+        self.into_array_stream()?.read_all().await
     }
 }
 

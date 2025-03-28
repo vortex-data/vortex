@@ -103,6 +103,7 @@ impl SegmentQueueInner {
 
         let Some(next) = self.next_segment_request() else {
             // There's no more work to do
+            log::debug!("Segment queue shutting down, no more work");
             return Ok(None);
         };
         let next_spec = self
@@ -124,41 +125,39 @@ impl SegmentQueueInner {
 
         // We keep expanding our coalesced window until we reach max_read or no more segments
         // can be coalesced.
-        loop {
-            let lowest_segment = self.segment_map.partition_point(|s| {
-                (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
-            });
-            let highest_segment = self
+        let lowest_segment = self.segment_map.partition_point(|s| {
+            (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
+        });
+        let highest_segment = self
+            .segment_map
+            .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window));
+
+        // Loop over the segments within the coalescing range and add them into the request.
+        for id in lowest_segment..highest_segment {
+            let id = SegmentId::try_from(id)?;
+            let Some(request) = self
+                .segments
+                .get_mut(&id)
+                .and_then(|mut pending| pending.send.take())
+                .map(|callback| SegmentRequest { id, callback })
+            else {
+                continue;
+            };
+
+            let spec = self
                 .segment_map
-                .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window));
+                .get(*id as usize)
+                .ok_or_else(|| vortex_err!("SegmentID {} not found", id))?;
 
-            // Loop over the segments within the coalescing range and add them into the request.
-            for id in lowest_segment..highest_segment {
-                let id = SegmentId::try_from(id)?;
-                let Some(request) = self
-                    .segments
-                    .get_mut(&id)
-                    .and_then(|mut pending| pending.send.take())
-                    .map(|callback| SegmentRequest { id, callback })
-                else {
-                    continue;
-                };
+            let segment_start = spec.offset;
+            let segment_end = spec.offset + spec.length as u64;
 
-                let spec = self
-                    .segment_map
-                    .get(*id as usize)
-                    .ok_or_else(|| vortex_err!("SegmentID {} not found", id))?;
-
-                let segment_start = spec.offset;
-                let segment_end = spec.offset + spec.length as u64;
-
-                coalesced.byte_range.start = coalesced.byte_range.start.min(segment_start);
-                coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
-                // Take the maximum alignment of all segments in the coalesced request.
-                // FIXME(ngates): shouldn't this be the _first_ segment?
-                coalesced.alignment = coalesced.alignment.max(spec.alignment);
-                coalesced.requests.push(request);
-            }
+            coalesced.byte_range.start = coalesced.byte_range.start.min(segment_start);
+            coalesced.byte_range.end = coalesced.byte_range.end.max(segment_end);
+            // Take the maximum alignment of all segments in the coalesced request.
+            // FIXME(ngates): shouldn't this be the _first_ segment?
+            coalesced.alignment = coalesced.alignment.max(spec.alignment);
+            coalesced.requests.push(request);
 
             if let Some(max_read) = max_read {
                 if coalesced.byte_range.end - coalesced.byte_range.start > max_read {

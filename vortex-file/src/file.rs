@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use futures::stream::BoxStream;
+use futures::stream::{BoxStream, LocalBoxStream};
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_io::PerformanceHint;
 use vortex_metrics::VortexMetrics;
 
 use crate::ScanBuilder;
@@ -17,6 +18,7 @@ pub struct VortexFile {
     pub(crate) footer: Footer,
     /// Cache containing any segments that were incidentally read as part of the initial read.
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub(crate) io_driver: Option<Arc<dyn IoDriver>>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -45,4 +47,13 @@ impl VortexFile {
     pub fn scan(&self) -> ScanBuilder {
         ScanBuilder::new(self.clone())
     }
+}
+
+pub trait IoDriver: 'static + Send + Sync {
+    fn performance_hint(&self) -> PerformanceHint;
+
+    fn drive(
+        &self,
+        requests: LocalBoxStream<'static, VortexResult<CoalescedSegmentRequest>>,
+    ) -> LocalBoxStream<'static, VortexResult<()>>;
 }

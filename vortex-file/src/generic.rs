@@ -1,20 +1,22 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use futures::stream::{BoxStream, LocalBoxStream};
 use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 use moka::sync::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_io::{IoDispatcher, VortexReadAt};
+use vortex_io::{IoDispatcher, PerformanceHint, VortexReadAt};
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, SegmentSpec};
+use crate::scan::segments::{CoalescedSegmentRequest, evaluate};
 use crate::segments::{InMemorySegmentCache, SegmentCache};
-use crate::{FileType, VortexFile, VortexOpenOptions};
+use crate::{FileType, IoDriver, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -47,8 +49,12 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
         Ok(VortexFile {
-            footer,
+            footer: footer.clone(),
             segment_cache: self.segment_cache,
+            io_driver: Some(Arc::new(ScanDriver {
+                read: Mutex::new(read),
+                segment_map: footer.segment_map().clone(),
+            })),
             metrics: self.metrics,
         })
     }
@@ -99,6 +105,36 @@ impl Default for GenericFileOptions {
             io_concurrency: 10,
             io_dispatcher: IoDispatcher::default(),
         }
+    }
+}
+
+pub struct ScanDriver<R: VortexReadAt> {
+    read: Mutex<R>,
+    segment_map: Arc<[SegmentSpec]>,
+}
+
+impl<R: VortexReadAt + Send> IoDriver for ScanDriver<R> {
+    fn performance_hint(&self) -> PerformanceHint {
+        self.read
+            .lock()
+            .vortex_expect("poisoned lock")
+            .performance_hint()
+    }
+
+    fn drive(
+        &self,
+        requests: LocalBoxStream<'static, VortexResult<CoalescedSegmentRequest>>,
+    ) -> LocalBoxStream<'static, VortexResult<()>> {
+        let read = self.read.lock().vortex_expect("poisoned lock").clone();
+        let segment_map = self.segment_map.clone();
+        requests
+            .map(move |request| {
+                let read = read.clone();
+                let segment_map = segment_map.clone();
+                async move { evaluate(read, request?, segment_map).await }
+            })
+            .buffer_unordered(10)
+            .boxed_local()
     }
 }
 
