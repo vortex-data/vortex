@@ -8,16 +8,11 @@ use ratatui::widgets::{
 };
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
+use vortex::error::VortexExpect;
 use vortex::expr::Identity;
-use vortex::file::SegmentSpec;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::stats::stats_from_bitset_bytes;
-use vortex_layout::layouts::chunked::ChunkedLayout;
-use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
-use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::segments::SegmentId;
 use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
 
 use crate::TOKIO_RUNTIME;
@@ -47,11 +42,7 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let layout_kind = cursor.layout().id().to_string();
     let row_count = cursor.layout().row_count();
-
-    let segments = collect_segment_ids(cursor.layout());
-    let size =
-        total_size(cursor.segment_map(), segments.0) + total_size(cursor.segment_map(), segments.1);
-    let size = format_size(size, DECIMAL);
+    let size = format_size(cursor.total_size(), DECIMAL);
 
     let mut rows = vec![
         Text::from(format!("Kind: {layout_kind}")).bold(),
@@ -60,7 +51,6 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
             .bold()
             .green(),
         Text::from(format!("Children: {}", cursor.layout().nchildren())).bold(),
-        // Text::from(format!("Segments: {}", cursor.layout().nsegments())),
         Text::from(format!("Segment data size: {}", size)).bold(),
     ];
 
@@ -227,27 +217,6 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     }
 }
 
-fn struct_child_layout_size(
-    nth: usize,
-    layout: &vortex_layout::Layout,
-    segment_map: &[SegmentSpec],
-) -> (usize, usize) {
-    let struct_dtype = layout.dtype().as_struct().expect("struct dtype");
-    let field_name = struct_dtype.field_name(nth).expect("field name");
-    let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
-
-    let child_layout = layout
-        .child(nth, field_dtype.clone(), field_name)
-        .vortex_unwrap();
-
-    let (data_segment_ids, stats_segment_ids) = collect_segment_ids(&child_layout);
-
-    let data_size = total_size(segment_map, data_segment_ids);
-    let stats_size = total_size(segment_map, stats_segment_ids);
-
-    (data_size, stats_size)
-}
-
 fn child_name(app: &mut AppState, nth: usize) -> String {
     let cursor = &app.cursor;
     let formatter = make_format(DECIMAL);
@@ -257,33 +226,15 @@ fn child_name(app: &mut AppState, nth: usize) -> String {
         let field_name = struct_dtype.field_name(nth).expect("field name");
         let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
 
-        let (data_size, stats_size) =
-            struct_child_layout_size(nth, cursor.layout(), cursor.segment_map());
+        let total_size = formatter(app.cursor.child(nth).total_size());
 
-        let total_size = data_size + stats_size;
-
-        let data_size = formatter(data_size);
-        let stats_size = formatter(stats_size);
-        let total_size = formatter(total_size);
-
-        format!(
-            "Column {nth} - {field_name} ({field_dtype}) - {data_size} + {stats_size} = {total_size}"
-        )
+        format!("Column {nth} - {field_name} ({field_dtype}) - {total_size}")
     } else if cursor.layout().id() == CHUNKED_LAYOUT_ID {
         let name = format!("Chunk {nth}");
-        let child_layout = app
-            .cursor
-            .layout()
-            .child(nth, app.cursor.dtype().clone(), name.clone())
-            .vortex_unwrap();
+        let child_cursor = app.cursor.child(nth);
 
-        let (data_segment_ids, stats_segment_ids) = collect_segment_ids(&child_layout);
-
-        let data_size = total_size(app.cursor.segment_map(), data_segment_ids);
-        let stats_size = total_size(app.cursor.segment_map(), stats_segment_ids);
-        let total_size = formatter(data_size + stats_size);
-
-        let row_count = child_layout.row_count();
+        let total_size = formatter(child_cursor.total_size());
+        let row_count = child_cursor.layout().row_count();
 
         format!("{name} - {row_count} - {total_size}")
     } else if cursor.layout().id() == FLAT_LAYOUT_ID {
@@ -300,59 +251,4 @@ fn child_name(app: &mut AppState, nth: usize) -> String {
     } else {
         format!("Unknown {nth}")
     }
-}
-
-fn collect_segment_ids(root_layout: &vortex_layout::Layout) -> (Vec<SegmentId>, Vec<SegmentId>) {
-    let mut data_segment_ids = Vec::default();
-    let mut stats_segment_ids = Some(Vec::default());
-
-    collect_segment_ids_impl(root_layout, &mut data_segment_ids, &mut stats_segment_ids)
-        .vortex_unwrap();
-
-    (data_segment_ids, stats_segment_ids.unwrap())
-}
-
-fn total_size(segment_map: &[SegmentSpec], segment_ids: Vec<SegmentId>) -> usize {
-    segment_ids
-        .iter()
-        .map(|seg_id| segment_map[**seg_id as usize].length as usize)
-        .sum::<usize>()
-}
-
-fn collect_segment_ids_impl(
-    root: &vortex_layout::Layout,
-    data_segments: &mut Vec<SegmentId>,
-    stats_segments: &mut Option<Vec<SegmentId>>,
-) -> VortexResult<()> {
-    let layout_id = root.id();
-
-    if layout_id == StructLayout.id() {
-        let dtype = root.dtype().as_struct().vortex_expect("");
-        for child_idx in 0..dtype.fields().len() {
-            let name = dtype.field_name(child_idx)?;
-            let child_dtype = dtype.field_by_index(child_idx)?;
-            let child_layout = root.child(child_idx, child_dtype, name)?;
-            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
-        }
-    } else if layout_id == ChunkedLayout.id() {
-        for child_idx in 0..root.nchildren() {
-            let child_layout =
-                root.child(child_idx, root.dtype().clone(), format!("[{child_idx}]"))?;
-            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
-        }
-    } else if layout_id == StatsLayout.id() {
-        let data_layout = root.child(0, root.dtype().clone(), format!("data"))?;
-        collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
-
-        if let Some(stats_segments) = stats_segments.as_mut() {
-            let stats_layout = root.child(1, root.dtype().clone(), format!("stats"))?;
-            collect_segment_ids_impl(&stats_layout, stats_segments, &mut None)?;
-        }
-    } else if layout_id == FlatLayout.id() {
-        data_segments.extend(root.segments());
-    } else {
-        vortex_bail!("IDK what I'm doing with my life")
-    };
-
-    Ok(())
 }
