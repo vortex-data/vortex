@@ -144,15 +144,14 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
             {
                 let ratio =
-                    encoded_chunk.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64;
+                    canonical_chunk.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
 
-                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-                // If it isn't we  fall back to the compressor.
-                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
+                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
-                        "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                        "Compressed to a ratio of {ratio}, which is below the threshold of {}",
                         prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
