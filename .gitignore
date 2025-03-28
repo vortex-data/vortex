@@ -189,7 +189,6 @@ zls.build.json
 benchmarks/.out
 
 # Scratch
-*.txt
 *.vortex
 *.parquet
 !docs/_static/example.parquet
