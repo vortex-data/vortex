@@ -47,6 +47,11 @@ public final class JNIArray implements Array {
     }
 
     @Override
+    public long nbytes() {
+        return NativeArrayMethods.nbytes(pointer.getAsLong());
+    }
+
+    @Override
     public VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse) {
         // Export the dataset to Arrow over C Data Interface.
         NativeArrayMethods.exportToArrow(pointer.getAsLong(), schemaPtr.get(), arrayPtr.get());

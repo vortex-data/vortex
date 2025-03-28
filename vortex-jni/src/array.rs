@@ -10,6 +10,7 @@ use vortex::arrow::IntoArrowArray;
 use vortex::compute::{preferred_arrow_data_type, scalar_at, slice};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
+use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayRef, ArrayVariants};
 
 use crate::errors::try_or_throw;
@@ -54,6 +55,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_free(
     array_ptr: jlong,
 ) {
     drop(unsafe { NativeArray::from_raw(array_ptr) });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_nbytes(
+    _env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+) -> jlong {
+    let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
+    array_ref.inner.nbytes() as jlong
 }
 
 #[unsafe(no_mangle)]
