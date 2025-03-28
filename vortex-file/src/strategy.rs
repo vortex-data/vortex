@@ -173,7 +173,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
-                    ratio: compressed.nbytes() as f64 / canonical_size,
+                    ratio: canonical_size / compressed.nbytes() as f64,
                 });
                 compressed
             }
