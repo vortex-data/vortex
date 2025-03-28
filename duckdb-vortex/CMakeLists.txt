@@ -30,7 +30,7 @@ execute_process(
 set(VCPKG_INSTALL_DIR "${CMAKE_BINARY_DIR}/vcpkg_installed")
 file(MAKE_DIRECTORY "${VCPKG_INSTALL_DIR}")
 execute_process(
-    COMMAND "${vcpkg_SOURCE_DIR}/vcpkg" install --no-print-usage --x-manifest-root=vcpkg --x-install-root=${VCPKG_INSTALL_DIR}
+    COMMAND "${vcpkg_SOURCE_DIR}/vcpkg" install --no-print-usage --x-manifest-root=${CMAKE_CURRENT_SOURCE_DIR}/vcpkg --x-install-root=${VCPKG_INSTALL_DIR}
     WORKING_DIRECTORY "${vcpkg_SOURCE_DIR}"
 )
 set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/arm64-osx)
