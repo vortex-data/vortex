@@ -16,7 +16,9 @@ use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::segments::SegmentReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+};
 
 impl ExprEvaluator for StructReader {
     fn filter_evaluation(
@@ -115,20 +117,7 @@ enum FieldEval {
 
 #[async_trait]
 impl MaskEvaluation for StructMaskEvaluation {
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
-        // TODO(ngates): if all struct partitions are mask evaluations, we should be able to
-        //   perform an approximate result. But for now, most conjuncts split out by the
-        //   FilterLayoutReader operate over a single column, so we don't yet hit this case.
-        if self
-            .field_evals
-            .iter()
-            .all(|eval| matches!(eval, FieldEval::Mask(_)))
-        {
-            log::info!("COULD PERFORM APPROXIMATE STATS EVALUATION");
-        }
-
-        Ok(mask)
-    }
+    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {}
 
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
