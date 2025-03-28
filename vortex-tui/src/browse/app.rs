@@ -304,11 +304,11 @@ fn collect_segment_ids_impl(
             collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
         }
     } else if layout_id == StatsLayout.id() {
-        let data_layout = root.child(0, root.dtype().clone(), format!("data"))?;
+        let data_layout = root.child(0, root.dtype().clone(), "data")?;
         collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
 
         // For the stats layout, we use the stats segment accumulator
-        let stats_layout = root.child(1, root.dtype().clone(), format!("stats"))?;
+        let stats_layout = root.child(1, root.dtype().clone(), "stats")?;
         collect_segment_ids_impl(&stats_layout, stats_segments, &mut vec![])?;
     } else if layout_id == FlatLayout.id() {
         data_segments.extend(root.segments());
