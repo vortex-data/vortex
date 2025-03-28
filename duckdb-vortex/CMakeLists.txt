@@ -5,7 +5,6 @@ project(${TARGET_NAME}_project)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
-# set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS deployment version" FORCE)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -33,7 +32,14 @@ execute_process(
     COMMAND "${vcpkg_SOURCE_DIR}/vcpkg" install --no-print-usage --x-manifest-root=${CMAKE_CURRENT_SOURCE_DIR}/vcpkg --x-install-root=${VCPKG_INSTALL_DIR}
     WORKING_DIRECTORY "${vcpkg_SOURCE_DIR}"
 )
-set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/arm64-osx)
+
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
+    set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/arm64-osx)
+elseif(APPLE)
+    set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/x64-osx)
+elseif(UNIX AND NOT APPLE)
+    set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/x64-linux)
+endif()
 
 find_package(Catch2 CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)

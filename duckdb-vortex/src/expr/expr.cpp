@@ -1,4 +1,3 @@
-
 #include "expr/expr.hpp"
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
@@ -180,10 +179,10 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::FLOAT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<float32_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<float_t>());
 		return scalar;
 	case LogicalTypeId::DOUBLE:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<float64_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<double_t>());
 		return scalar;
 	case LogicalTypeId::VARCHAR:
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());

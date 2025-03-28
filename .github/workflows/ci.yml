@@ -177,6 +177,27 @@ jobs:
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
 
+  build-duckdb:
+    name: "DuckDB extension build"
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - disk=large
+      - tag=build-duckdb
+
+    steps:
+      - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: DuckDB extension build
+        run: GEN=ninja make debug
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
   check-min-deps:
     name: "Check build with minimal dependencies"
     runs-on:
