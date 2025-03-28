@@ -549,7 +549,7 @@ impl SegmentRequest {
 }
 
 #[derive(Debug)]
-struct CoalescedSegmentRequest {
+pub struct CoalescedSegmentRequest {
     /// The alignment of the first segment.
     // TODO(ngates): is this the best alignment to use?
     pub(crate) alignment: Alignment,
