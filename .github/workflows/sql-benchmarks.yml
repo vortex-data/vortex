@@ -81,10 +81,11 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.2.0
+        uses: spiraldb/gh-actions-ps-profiling@e32eda954eb8018c8fc076a603fea3e8d6d1e94d
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
+          profiling_frequency: 150
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
