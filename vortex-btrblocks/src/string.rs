@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, VarBinViewArray};
-use vortex_array::stats::Precision;
 use vortex_array::stats::Stat::IsConstant;
+use vortex_array::stats::{Precision, StatsProvider};
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
 use crate::downscale::downscale_integer_array;
@@ -213,6 +213,9 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
+        if stats.source().statistics().get_as::<bool>(IsConstant) != Some(Precision::exact(true)) {
+            vortex_bail!("array was thought to be constant, but it is not");
+        }
         let scalar = stats
             .source()
             .as_constant()
