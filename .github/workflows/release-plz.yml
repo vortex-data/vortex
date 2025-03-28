@@ -28,7 +28,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: run-release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+        uses: MarcoIeni/release-plz-action@5280151
         with:
           command: release
         env:
@@ -51,7 +51,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+        uses: MarcoIeni/release-plz-action@5280151
         with:
           command: release-pr
         env:
