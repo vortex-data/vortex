@@ -67,11 +67,18 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
 }
 
 /// A trait for evaluating expressions against a [`LayoutReader`].
-///
-/// FIXME(ngates): what if this was evaluating_predicate(mask, expr) -> mask,
-///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
-#[async_trait]
 pub trait ExprEvaluator: Send + Sync {
+    /// Performs an approximate evaluation of the expression against the layout reader.
+    fn pruning_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+        _segment_reader: &dyn SegmentReader,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        Ok(Box::new(NoOpPruningEvaluation))
+    }
+
+    /// Performs an exact evaluation of the expression against the layout reader.
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -79,6 +86,7 @@ pub trait ExprEvaluator: Send + Sync {
         segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
+    /// Evaluates the expression against the layout.
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -87,8 +95,17 @@ pub trait ExprEvaluator: Send + Sync {
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
-#[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader> {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        self.as_ref()
+            .pruning_evaluation(row_range, expr, segment_reader)
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -107,6 +124,20 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         self.as_ref()
             .projection_evaluation(row_range, expr, segment_reader)
+    }
+}
+
+#[async_trait]
+pub trait PruningEvaluation: 'static + Send + Sync {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+}
+
+pub struct NoOpPruningEvaluation;
+
+#[async_trait]
+impl PruningEvaluation for NoOpPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        Ok(mask)
     }
 }
 

@@ -13,7 +13,9 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
 use crate::segments::SegmentReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -50,8 +52,34 @@ impl LayoutReader for FilterLayoutReader {
     }
 }
 
-#[async_trait]
 impl ExprEvaluator for FilterLayoutReader {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        let filter_expr = self
+            .cache
+            .write()?
+            .entry(expr.clone())
+            .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
+            .clone();
+
+        // Otherwise, we create a new evaluation of the filter expression for this particular
+        // row range.
+        let conjunct_evals: Vec<_> = filter_expr
+            .conjuncts
+            .iter()
+            .map(|expr| {
+                self.child
+                    .pruning_evaluation(row_range, expr, segment_reader)
+            })
+            .try_collect()?;
+
+        Ok(Box::new(FilterPruningEvaluation { conjunct_evals }))
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -182,6 +210,31 @@ impl FilterExpr {
                 ))
                 .join(", ")
         );
+    }
+}
+
+struct FilterPruningEvaluation {
+    /// The pruning evaluations for each conjunct
+    conjunct_evals: Vec<Box<dyn PruningEvaluation>>,
+}
+
+#[async_trait]
+impl PruningEvaluation for FilterPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        let mut mask = mask;
+
+        // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
+        for conjunct in self.conjunct_evals.iter() {
+            if mask.all_false() {
+                // If the mask is all false, we can short-circuit the evaluation.
+                return Ok(mask);
+            }
+
+            let conjunct_mask = conjunct.invoke(mask.clone()).await?;
+            mask = mask.bitand(&conjunct_mask);
+        }
+
+        Ok(mask)
     }
 }
 

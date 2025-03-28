@@ -24,7 +24,7 @@ use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::VortexFile;
 use crate::scan::executor::Executor;
-use crate::scan::segments::{ScanStage, SegmentQueue};
+use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner};
 
 pub mod executor;
 mod row_mask;
@@ -48,7 +48,8 @@ pub struct ScanBuilder {
 }
 
 impl ScanBuilder {
-    pub fn new(vxf: VortexFile, metrics: VortexMetrics) -> Self {
+    pub fn new(vxf: VortexFile) -> Self {
+        let metrics = vxf.metrics().clone();
         Self {
             vxf,
             task_executor: None,
@@ -174,7 +175,11 @@ impl ScanBuilder {
             .collect_vec();
 
         // Set up the segment queue to manage segment state.
-        let queue = SegmentQueue::new(self.metrics.clone());
+        let queue = SegmentQueue::new(
+            self.vxf.footer().segment_map().clone(),
+            self.vxf.segment_cache.clone(),
+            self.metrics.clone(),
+        );
 
         let result_dtype = projection.return_dtype(layout_reader.dtype())?;
 
@@ -188,7 +193,7 @@ impl ScanBuilder {
                 let approx_filter_eval = filter
                     .as_ref()
                     .map(|expr| {
-                        layout_reader.filter_evaluation(
+                        layout_reader.pruning_evaluation(
                             &row_range,
                             expr,
                             queue
@@ -211,7 +216,7 @@ impl ScanBuilder {
                     .transpose()?;
                 let project_eval = layout_reader.projection_evaluation(
                     &row_range,
-                    &self.projection,
+                    &projection,
                     queue
                         .segment_reader(&row_range, ScanStage::Projection)
                         .as_ref(),
@@ -225,7 +230,7 @@ impl ScanBuilder {
 
                     if let Some(approx_filter_eval) = approx_filter_eval {
                         // First, we run an approximate evaluation to prune the row range.
-                        mask = approx_filter_eval.invoke_approx(mask).await?;
+                        mask = approx_filter_eval.invoke(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
                         }
@@ -263,12 +268,20 @@ impl ScanBuilder {
         // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
         let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
         let queue = Arc::downgrade(&queue.inner);
-        self.io_dispatcher.dispatch(move || {
+        self.io_dispatcher.dispatch(move || async move {
             // While the queue remains alive (i.e. there is some part of the scan waiting on a
             // segment future), we drive the I/O forwards, propagating any errors back.
-            while let Some(queue) = queue.upgrade() {
-                if let Err(e) = queue.drive() {
-                    let _ = err_send.unbounded_send(e);
+            loop {
+                match queue.upgrade() {
+                    None => {
+                        log::debug!("SegmentQueue dropped, I/O finished for scan");
+                        break;
+                    }
+                    Some(queue) => {
+                        if let Err(e) = queue.drive().await {
+                            let _ = err_send.unbounded_send(e);
+                        }
+                    }
                 }
             }
         })?;
@@ -377,7 +390,7 @@ impl Scan {
                     .filter
                     .as_ref()
                     .map(|expr| {
-                        layout_reader.filter_evaluation(
+                        layout_reader.pruning_evaluation(
                             &row_range,
                             expr,
                             self.approx_filter_segment_reader.as_ref(),
@@ -409,7 +422,7 @@ impl Scan {
 
                     if let Some(approx_filter_eval) = approx_filter_eval {
                         // First, we run an approximate evaluation to prune the row range.
-                        mask = approx_filter_eval.invoke_approx(mask).await?;
+                        mask = approx_filter_eval.invoke(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
                         }

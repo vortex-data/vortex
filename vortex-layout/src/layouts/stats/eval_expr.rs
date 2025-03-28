@@ -9,48 +9,60 @@ use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
 use crate::segments::SegmentReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+};
 
-#[async_trait]
 impl ExprEvaluator for StatsReader {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        let data_eval = self
+            .data_child
+            .pruning_evaluation(row_range, expr, segment_reader)?;
+
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_reader)
+        else {
+            return Ok(data_eval);
+        };
+
+        let zone_range = self.zone_range(row_range);
+        let zone_lengths = zone_range
+            .clone()
+            .map(|zone_idx| {
+                // Figure out the range in the mask that corresponds to the zone
+                let start =
+                    usize::try_from(self.zone_offset(zone_idx).saturating_sub(row_range.start))?;
+                let end = usize::try_from(
+                    self.zone_offset(zone_idx + 1)
+                        .sub(row_range.start)
+                        .min(row_range.end - row_range.start),
+                )?;
+                Ok::<_, VortexError>(end - start)
+            })
+            .try_collect()?;
+
+        Ok(Box::new(StatsPruningEvaluation {
+            layout: self.layout().clone(),
+            expr: expr.clone(),
+            pruning_mask_future,
+            zone_range,
+            zone_lengths,
+            data_eval,
+        }))
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
         segment_reader: &dyn SegmentReader,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let data_eval = self
-            .data_child
-            .filter_evaluation(row_range, expr, segment_reader)?;
-
-        if let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_reader) {
-            let zone_range = self.zone_range(row_range);
-            let zone_lengths = zone_range
-                .clone()
-                .map(|zone_idx| {
-                    // Figure out the range in the mask that corresponds to the zone
-                    let start = usize::try_from(
-                        self.zone_offset(zone_idx).saturating_sub(row_range.start),
-                    )?;
-                    let end = usize::try_from(
-                        self.zone_offset(zone_idx + 1)
-                            .sub(row_range.start)
-                            .min(row_range.end - row_range.start),
-                    )?;
-                    Ok::<_, VortexError>(end - start)
-                })
-                .try_collect()?;
-            Ok(Box::new(StatsMaskEvaluation {
-                layout: self.layout().clone(),
-                expr: expr.clone(),
-                pruning_mask_future,
-                zone_range,
-                zone_lengths,
-                data_eval,
-            }))
-        } else {
-            Ok(data_eval)
-        }
+        self.data_child
+            .filter_evaluation(row_range, expr, segment_reader)
     }
 
     fn projection_evaluation(
@@ -66,7 +78,7 @@ impl ExprEvaluator for StatsReader {
     }
 }
 
-struct StatsMaskEvaluation {
+struct StatsPruningEvaluation {
     layout: Layout,
     expr: ExprRef,
     pruning_mask_future: SharedPruningResult,
@@ -75,12 +87,12 @@ struct StatsMaskEvaluation {
     // The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     // The evaluation of the data child.
-    data_eval: Box<dyn MaskEvaluation>,
+    data_eval: Box<dyn PruningEvaluation>,
 }
 
 #[async_trait]
-impl MaskEvaluation for StatsMaskEvaluation {
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
+impl PruningEvaluation for StatsPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
             // If the expression is not prune-able, we just return the input mask.
             return Ok(mask);
@@ -95,7 +107,13 @@ impl MaskEvaluation for StatsMaskEvaluation {
         assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
         // Intersect the masks.
-        let stats_mask = mask.bitand(&stats_mask);
+        let mut stats_mask = mask.bitand(&stats_mask);
+
+        // Forward to data child for further pruning.
+        if !stats_mask.all_false() {
+            let data_mask = self.data_eval.invoke(stats_mask.clone()).await?;
+            stats_mask = stats_mask.bitand(&data_mask);
+        }
 
         log::debug!(
             "Stats evaluation approx {} - {} (mask = {}) => {}",
@@ -106,10 +124,6 @@ impl MaskEvaluation for StatsMaskEvaluation {
         );
 
         Ok(stats_mask)
-    }
-
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        self.data_eval.invoke(mask).await
     }
 }
 

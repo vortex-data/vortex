@@ -18,7 +18,6 @@ use crate::layouts::struct_::reader::StructReader;
 use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
-#[async_trait]
 impl ExprEvaluator for StructReader {
     fn filter_evaluation(
         &self,

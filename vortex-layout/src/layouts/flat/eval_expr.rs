@@ -11,7 +11,6 @@ use crate::layouts::flat::reader::{FlatReader, SharedArray};
 use crate::segments::SegmentReader;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
-#[async_trait]
 impl ExprEvaluator for FlatReader {
     fn filter_evaluation(
         &self,

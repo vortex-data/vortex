@@ -15,9 +15,32 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, MaskEvaluation};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, MaskEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for ChunkedReader {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        segment_reader: &dyn SegmentReader,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        let mut chunk_evals = vec![];
+        let mut mask_ranges = vec![];
+
+        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+            let chunk_reader = self.child(chunk_idx)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, segment_reader)?;
+            chunk_evals.push(chunk_eval);
+            mask_ranges.push(mask_range);
+        }
+
+        Ok(Box::new(ChunkedPruningEvaluation {
+            layout: self.layout().clone(),
+            chunk_evals,
+            mask_ranges,
+        }))
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -64,6 +87,44 @@ impl ExprEvaluator for ChunkedReader {
             chunk_evals,
             mask_ranges,
         }))
+    }
+}
+
+struct ChunkedPruningEvaluation {
+    layout: Layout,
+    chunk_evals: Vec<Box<dyn PruningEvaluation>>,
+    mask_ranges: Vec<Range<usize>>,
+}
+
+#[async_trait]
+impl PruningEvaluation for ChunkedPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        log::debug!(
+            "Chunked pruning evaluation {} (mask = {})",
+            self.layout.name(),
+            mask.density()
+        );
+
+        // Split the mask over each chunk.
+        let masks: Vec<_> = FuturesOrdered::from_iter(
+            self.mask_ranges
+                .iter()
+                .map(|range| mask.slice(range.start, range.end - range.start))
+                .zip_eq(&self.chunk_evals)
+                .map(|(mask, chunk_eval)| {
+                    if mask.all_false() {
+                        // If the mask is all false, we can skip the evaluation.
+                        ready(Ok(mask)).boxed()
+                    } else {
+                        chunk_eval.invoke(mask).boxed()
+                    }
+                }),
+        )
+        .try_collect()
+        .await?;
+
+        // Combine the masks.
+        Ok(Mask::from_iter(masks))
     }
 }
 

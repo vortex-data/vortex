@@ -4,6 +4,7 @@ use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_metrics::VortexMetrics;
 
+use crate::ScanBuilder;
 use crate::footer::Footer;
 use crate::segments::SegmentCache;
 
@@ -36,5 +37,9 @@ impl VortexFile {
 
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
+    }
+
+    pub fn scan(&self) -> ScanBuilder {
+        ScanBuilder::new(self.clone())
     }
 }
