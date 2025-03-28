@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
+use futures::stream::BoxStream;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_metrics::VortexMetrics;
 
 use crate::ScanBuilder;
 use crate::footer::Footer;
+use crate::scan::segments::CoalescedSegmentRequest;
 use crate::segments::SegmentCache;
 
 #[derive(Clone)]

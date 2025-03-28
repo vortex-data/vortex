@@ -28,9 +28,9 @@ use crate::scan::executor::Executor;
 use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner, evaluate};
 
 pub mod executor;
-mod row_mask;
-mod segments;
-mod split_by;
+pub mod row_mask;
+pub mod segments;
+pub mod split_by;
 pub mod unified;
 
 /// A struct for building a scan operation.
