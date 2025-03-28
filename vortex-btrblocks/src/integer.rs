@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
-use vortex_scalar::Scalar;
+use vortex_scalar::{PrimitiveScalar, Scalar};
 use vortex_sparse::SparseArray;
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
@@ -241,8 +241,7 @@ impl Scheme for FORScheme {
 
         // Difference between max and min
         let full_width: u32 = stats.src.ptype().bit_width().try_into().vortex_unwrap();
-        let padding = 64 - full_width;
-        let bw = full_width + padding - stats.typed.max_minus_min().leading_zeros();
+        let bw = 64 - stats.typed.max_minus_min().leading_zeros();
 
         // If we're not saving at least 1 byte, don't bother with FOR
         if full_width - bw < 8 {
@@ -379,6 +378,11 @@ impl Scheme for BitPackingScheme {
             return Ok(0.0);
         }
 
+        let bw = 64 - stats.typed.max_minus_min().leading_zeros();
+        if bw == 0 {
+            return Ok(0.0);
+        }
+
         estimate_compression_ratio_with_sampling(
             self,
             stats,
@@ -400,6 +404,10 @@ impl Scheme for BitPackingScheme {
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
+        }
+        if bw == 0 {
+            let fill = PrimitiveScalar::try_new(stats.source().dtype(), &0.into())?;
+            return SparseArray::encode(stats.source(), Some(fill.into()));
         }
         let mut packed = bitpack_encode(stats.source(), bw)?;
 
