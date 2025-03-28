@@ -68,7 +68,7 @@ impl CompressorStats for StringStats {
             value_count: value_count.try_into().vortex_expect("value_count"),
             null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
-            exact_distinct_count: is_exact.then(|| estimated_distinct),
+            exact_distinct_count: is_exact.then_some(estimated_distinct),
         }
     }
 
