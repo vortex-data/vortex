@@ -1,5 +1,6 @@
 use vortex_error::VortexResult;
 
+use crate::accessor::ArrayAccessor;
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::OptimizeFn;
@@ -9,10 +10,11 @@ impl OptimizeFn<&VarBinViewArray> for VarBinViewEncoding {
     fn optimize(&self, array: &VarBinViewArray) -> VortexResult<ArrayRef> {
         let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
 
-        for idx in 0..array.len() {
-            let value = array.is_valid(idx)?.then(|| array.slice_at(idx));
-            builder.append_option(value);
-        }
+        array.with_iterator(|iter| {
+            for item in iter {
+                builder.append_option(item);
+            }
+        })?;
 
         Ok(builder.finish())
     }

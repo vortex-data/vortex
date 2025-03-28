@@ -346,19 +346,6 @@ impl VarBinViewArray {
         }
     }
 
-    /// Returns the reference to a slice of bytes at a given index.
-    pub fn slice_at(&self, index: usize) -> &[u8] {
-        let views = self.views();
-        let view = &views[index];
-
-        if !view.is_inlined() {
-            let view_ref = view.as_view();
-            &self.buffer(view_ref.buffer_index() as usize)[view_ref.to_range()]
-        } else {
-            view.as_inlined().value()
-        }
-    }
-
     /// Access one of the backing data buffers.
     ///
     /// # Panics
