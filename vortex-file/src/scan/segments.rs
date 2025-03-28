@@ -73,10 +73,10 @@ impl SegmentQueueInner {
     /// Drive the segment queue to perform more I/O.
     ///
     /// The given performance hint helps identify coalescing opportunities.
-    pub async fn drive<R: VortexReadAt + Send>(
+    pub async fn drive(
         self: Arc<Self>,
-        read: R,
-    ) -> VortexResult<Option<BoxFuture<'static, VortexResult<()>>>> {
+        performance_hint: &PerformanceHint,
+    ) -> VortexResult<Option<CoalescedSegmentRequest>> {
         // Process any outstanding events in order to bring our state up to date.
         let next_events = self
             .events
@@ -119,9 +119,8 @@ impl SegmentQueueInner {
             requests: vec![next],
         };
 
-        let perf_hint = read.performance_hint();
-        let window = perf_hint.coalescing_window();
-        let max_read = perf_hint.max_read();
+        let window = performance_hint.coalescing_window();
+        let max_read = performance_hint.max_read();
 
         // We keep expanding our coalesced window until we reach max_read or no more segments
         // can be coalesced.
@@ -139,7 +138,7 @@ impl SegmentQueueInner {
                 let Some(request) = self
                     .segments
                     .get_mut(&id)
-                    .and_then(|pending| pending.send.take())
+                    .and_then(|mut pending| pending.send.take())
                     .map(|callback| SegmentRequest { id, callback })
                 else {
                     continue;
@@ -171,9 +170,7 @@ impl SegmentQueueInner {
         // Ensure the coalesced requests are sorted
         coalesced.requests.sort_by_key(|r| r.id);
 
-        Ok(Some(
-            evaluate(read.clone(), coalesced, self.segment_map.clone()).boxed(),
-        ))
+        Ok(Some(coalesced))
     }
 
     fn next_segment_request(&self) -> Option<SegmentRequest> {
@@ -187,7 +184,7 @@ impl SegmentQueueInner {
             .filter_map(|id| {
                 self.segments
                     .get_mut(id)
-                    .and_then(|pending| pending.send.take())
+                    .and_then(|mut pending| pending.send.take())
                     .map(|send| SegmentRequest {
                         id: *id,
                         callback: send,
@@ -206,7 +203,7 @@ impl SegmentQueueInner {
             .filter_map(|id| {
                 self.segments
                     .get_mut(id)
-                    .and_then(|pending| pending.send.take())
+                    .and_then(|mut pending| pending.send.take())
                     .map(|send| SegmentRequest {
                         id: *id,
                         callback: send,
@@ -237,7 +234,7 @@ impl SegmentQueueInner {
     /// Event handler for [`SegmentEvent::Registered`].
     async fn on_registered(&self, id: SegmentId) {
         // On registration, check the cache to see if we can resolve it immediately.
-        if let Some(buffer_result) = self.segment_cache.get(id).await.transpose() {
+        if let Some(buffer_result) = self.segment_cache.get(id).transpose() {
             self.submit_event(SegmentEvent::Resolve(id, buffer_result));
             return;
         }
@@ -251,9 +248,8 @@ impl SegmentQueueInner {
     async fn on_polled(&self, id: SegmentId) {
         // The first time a segment is polled, we bump it to the front of the queue.
         let mut needed = self.needed.lock().vortex_expect("poisoned lock");
-        if needed.need_later.retain(|i| i != &id) {
-            needed.need_now.push(id);
-        }
+        needed.need_later.retain(|i| i != &id);
+        needed.need_now.push(id);
         if let Some(mut pending) = self.segments.get_mut(&id) {
             pending.polled = true;
         }
@@ -282,7 +278,7 @@ impl SegmentQueueInner {
         // If a segment is dropped, we need to remove it from the queue.
         let mut needed = self.needed.lock().vortex_expect("poisoned lock");
         needed.need_now.retain(|&x| x != id);
-        needed.need_later.remove(&id);
+        needed.need_later.retain(|&x| x != id);
         self.segments.remove(&id);
     }
 
@@ -569,7 +565,7 @@ impl CoalescedSegmentRequest {
     }
 }
 
-async fn evaluate<R: VortexReadAt + Send>(
+pub(crate) async fn evaluate<R: VortexReadAt + Send>(
     read: R,
     request: CoalescedSegmentRequest,
     segment_map: Arc<[SegmentSpec]>,

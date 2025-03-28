@@ -25,7 +25,7 @@ use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::VortexFile;
 use crate::scan::executor::Executor;
-use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner};
+use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner, evaluate};
 
 pub mod executor;
 mod row_mask;
@@ -271,26 +271,22 @@ impl ScanBuilder {
 
         // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
         let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
-        let queue = Arc::downgrade(&queue.inner);
 
         self.io_dispatcher.dispatch(move || async move {
             // While the queue remains alive (i.e. there is some part of the scan waiting on a
             // segment future), we drive the I/O forwards, propagating any errors back.
             stream::unfold(read, |read| {
-                let queue = queue.clone();
+                let queue = queue.inner.clone();
+                let segment_map = self.vxf.footer().segment_map().clone();
                 async move {
-                    if let Some(fut) = queue.upgrade().map(|queue| queue.drive(read.clone())) {
-                        Some((fut.await, read))
+                    if let Some(coalesced) = queue.drive(&read.performance_hint()).await.transpose()
+                    {
+                        let eval_read = read.clone();
+                        let fut = async move { evaluate(eval_read, coalesced?, segment_map).await };
+                        Some((fut, read))
                     } else {
                         None
                     }
-                }
-            })
-            .filter_map(|result| async move { result.transpose() })
-            .map(|fut| async move {
-                match fut {
-                    Ok(fut) => fut.await,
-                    Err(e) => Err(e),
                 }
             })
             // Spawn for I/O concurrency
