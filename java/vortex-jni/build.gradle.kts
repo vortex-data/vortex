@@ -215,7 +215,7 @@ tasks.named("build").configure {
 val osName = System.getProperty("os.name")
 val osArch =
     when (System.getProperty("os.arch")) {
-        "amd64", "x86_64" -> "x86-64"
+        "amd64", "x86_64" -> "amd64"
         else -> System.getProperty("os.arch")
     }
 val resourceDir =
