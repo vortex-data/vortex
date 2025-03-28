@@ -33,7 +33,7 @@ pub trait ToDuckDB {
 
 pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
     if let Some(constant) = array.as_constant() {
-        let value = constant.to_duckdb_scalar();
+        let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
         Ok(())
     } else if array.is_encoding(ChunkedEncoding.id()) {
@@ -203,14 +203,17 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
+
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use vortex_array::arrays::{
-        BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray,
+        BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::validity::Validity;
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{Array, ArrayRef, ToCanonical};
+    use vortex_dict::DictArray;
     use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_scalar::Scalar;
 
     use crate::convert::array::data_chunk_adaptor::NamedDataChunk;
     use crate::convert::array::to_duckdb_chunk;
@@ -280,5 +283,56 @@ mod tests {
             format!("{:?}", output_chunk),
             "Chunk - [2 Columns]\n- CONSTANT BIGINT: 100 = [ 23444233]\n- CONSTANT INTEGER: 100 = [ 234]\n"
         )
+    }
+
+    #[test]
+    fn test_big_struct() {
+        let len = 5;
+        let mut chunk = DataChunkHandle::new(&[
+            LogicalTypeHandle::from(LogicalTypeId::Integer),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            LogicalTypeHandle::from(LogicalTypeId::Boolean),
+            LogicalTypeHandle::from(LogicalTypeId::SQLNull),
+        ]);
+        let pr: PrimitiveArray = (0i32..len as i32).collect();
+        let varbin: VarBinViewArray =
+            VarBinViewArray::from_iter_str(&["a", "ab", "abc", "abcd", "abcde"]);
+        let dict_varbin = DictArray::try_new(
+            [0u32, 3, 4, 2, 1]
+                .into_iter()
+                .collect::<PrimitiveArray>()
+                .to_array(),
+            varbin.clone().to_array(),
+        )
+        .unwrap();
+        let const1 = ConstantArray::new(
+            Scalar::new(DType::Bool(Nullability::Nullable), true.into()),
+            len,
+        );
+        let const2 = ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), len);
+        let str = StructArray::from_fields(&[
+            ("pr", pr.to_array()),
+            ("varbin", varbin.to_array()),
+            ("dict_varbin", dict_varbin.to_array()),
+            ("const1", const1.to_array()),
+            ("const2", const2.to_array()),
+        ])
+        .unwrap()
+        .to_struct()
+        .unwrap();
+        to_duckdb_chunk(&str, &mut chunk).unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [5 Columns]
+- FLAT INTEGER: 5 = [ 0, 1, 2, 3, 4]
+- FLAT VARCHAR: 5 = [ a, ab, abc, abcd, abcde]
+- DICTIONARY VARCHAR: 5 = [ a, abcd, abcde, abc, ab]
+- CONSTANT BOOLEAN: 5 = [ true]
+- CONSTANT "NULL": 5 = [ NULL]
+"#
+        );
     }
 }

@@ -13,6 +13,7 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
     // Converts a DuckDB logical type handle to a `DType` based on the logical type ID.
     fn from_duckdb(type_: LogicalTypeHandle, nullable: Nullability) -> Self {
         match type_.id() {
+            LogicalTypeId::SQLNull => DType::Null,
             LogicalTypeId::Boolean => DType::Bool(nullable),
             LogicalTypeId::Tinyint => DType::Primitive(PType::I8, nullable),
             LogicalTypeId::Smallint => DType::Primitive(PType::I16, nullable),
