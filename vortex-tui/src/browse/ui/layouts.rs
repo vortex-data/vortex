@@ -169,9 +169,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 }
 
 fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
-    // let cursor = &;
     // TODO: add selection state.
-    // let layout = app.cursor.layout();
     let search_filter = app.search_filter.clone();
 
     if app.cursor.layout().nchildren() > 0 {
