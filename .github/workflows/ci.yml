@@ -396,6 +396,11 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
