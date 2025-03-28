@@ -36,7 +36,7 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> (u32, bool) {
     let mut distinct = HashSet::with_capacity(views.len() / 2);
     let mut all_inlined = true;
     views.iter().for_each(|&view| {
-        let len_and_prefix = view.as_u128() as u64;
+        let len_and_prefix = view.as_u128();
         distinct.insert(len_and_prefix);
         all_inlined &= view.is_inlined();
     });
