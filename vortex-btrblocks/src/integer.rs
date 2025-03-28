@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
@@ -392,7 +392,6 @@ impl Scheme for BitPackingScheme {
         )
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn compress(
         &self,
         stats: &IntegerStats,
@@ -401,14 +400,12 @@ impl Scheme for BitPackingScheme {
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let bw = find_best_bit_width(stats.source())?;
-        // If best bw is determined to be the current bit-width, return the original array.
-        if bw as usize == stats.source().ptype().bit_width() {
+        // If best bw is determined to be the current bit-width or zero, return the original array.
+        // So another scheme is chosen.
+        if bw as usize == stats.source().ptype().bit_width() || bw == 0 {
             return Ok(stats.source().clone().into_array());
         }
-        if bw == 0 {
-            let fill = PrimitiveScalar::try_new(stats.source().dtype(), &0.into())?;
-            return SparseArray::encode(stats.source(), Some(fill.into()));
-        }
+
         let mut packed = bitpack_encode(stats.source(), bw)?;
 
         let patches = packed.patches().map(compress_patches).transpose()?;
