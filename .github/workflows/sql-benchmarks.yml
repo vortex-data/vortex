@@ -85,7 +85,7 @@ jobs:
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
-          profiling_frequency: 150
+          profiling_frequency: 200
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
