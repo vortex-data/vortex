@@ -295,15 +295,15 @@ mod tests {
             LogicalTypeHandle::from(LogicalTypeId::Boolean),
             LogicalTypeHandle::from(LogicalTypeId::SQLNull),
         ]);
-        let pr: PrimitiveArray = (0i32..len as i32).collect();
+        let pr: PrimitiveArray = (0i32..i32::try_from(len).unwrap()).collect();
         let varbin: VarBinViewArray =
-            VarBinViewArray::from_iter_str(&["a", "ab", "abc", "abcd", "abcde"]);
+            VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
         let dict_varbin = DictArray::try_new(
             [0u32, 3, 4, 2, 1]
                 .into_iter()
                 .collect::<PrimitiveArray>()
                 .to_array(),
-            varbin.clone().to_array(),
+            varbin.to_array(),
         )
         .unwrap();
         let const1 = ConstantArray::new(

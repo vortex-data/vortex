@@ -21,7 +21,6 @@ impl ToDuckDBScalar for Scalar {
     }
 }
 
-// fn prim_to_duckdb_scalar(scalar: PrimitiveScalar) -> Value {}
 impl ToDuckDBScalar for PrimitiveScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.ptype() == PType::F16 {
@@ -46,8 +45,25 @@ impl ToDuckDBScalar for BoolScalar<'_> {
 impl ToDuckDBScalar for ExtScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let time = TemporalMetadata::try_from(self.ext_dtype())?;
+        let value = || {
+            self.storage()
+                    .as_primitive_opt()
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "Cannot have a temporal time type not packed by a primitive scalar"
+                        )
+                    })?
+                    .as_::<i64>()?
+                    .ok_or_else(|| vortex_err!("temporal types must be convertable to i64"))
+        };
         match time {
-            TemporalMetadata::Time(_) => todo!(),
+            TemporalMetadata::Time(unit) => match unit {
+                TimeUnit::Ms => Ok(Value::time_from_ms(value()?)),
+                TimeUnit::S => Ok(Value::time_from_ms(value()? * 1000)),
+                TimeUnit::Ns | TimeUnit::Us | TimeUnit::D => {
+                    vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
+                }
+            },
             TemporalMetadata::Date(unit) => match unit {
                 TimeUnit::D => Ok(self
                     .storage()
@@ -60,7 +76,20 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     .unwrap_or_else(Value::null)),
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
-            TemporalMetadata::Timestamp(..) => todo!(),
+            TemporalMetadata::Timestamp(unit, tz) => {
+                if tz.is_some() {
+                    todo!("timezones to duckdb scalar")
+                }
+                match unit {
+                    TimeUnit::Ns => Ok(Value::timestamp_ns(value()?)),
+                    TimeUnit::Us => Ok(Value::timestamp_us(value()?)),
+                    TimeUnit::Ms => Ok(Value::timestamp_ms(value()?)),
+                    TimeUnit::S => Ok(Value::timestamp_s(value()?)),
+                    TimeUnit::D => {
+                        vortex_bail!("timestamp(d) is cannot be converted to duckdb scalar")
+                    }
+                }
+            }
         }
     }
 }

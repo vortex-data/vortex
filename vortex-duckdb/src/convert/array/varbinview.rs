@@ -131,7 +131,7 @@ mod tests {
     // This tests the sharing of buffers between data chunk, while dropping these buffers early.
     #[test]
     fn test_multi_buffer_ref() {
-        let varbin = VarBinViewArray::from_iter_str(&["a", "ab", "abc", "abcd", "abcde"]);
+        let varbin = VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
         {
             let start_view = slice(&varbin, 0, 2).unwrap().to_varbinview().unwrap();
             let mut chunk =
