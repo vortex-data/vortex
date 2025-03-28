@@ -55,20 +55,20 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
+          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
-      - name: Extract branch name
-        shell: bash
-        run: echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >>$GITHUB_OUTPUT
-        id: extract_branch
+      # - name: Extract branch name
+      #   shell: bash
+      #   run: echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >>$GITHUB_OUTPUT
+      #   id: extract_branch
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.2.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: 'branch=${{ steps.extract_branch.outputs.branch }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
+          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
