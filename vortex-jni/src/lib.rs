@@ -14,6 +14,7 @@ mod array_stream;
 mod dtype;
 mod errors;
 mod file;
+mod logging;
 
 // Shared Tokio runtime for all of the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
