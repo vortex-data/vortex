@@ -6019,11 +6019,13 @@ dependencies = [
  "arrow-array",
  "duckdb",
  "itertools 0.14.0",
+ "num-traits",
  "vortex-array",
  "vortex-buffer",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -6244,6 +6246,8 @@ dependencies = [
  "log",
  "object_store",
  "prost",
+ "simplelog",
+ "thiserror 2.0.12",
  "tokio",
  "url",
  "vortex",
@@ -6367,6 +6371,7 @@ dependencies = [
 name = "vortex-tui"
 version = "0.25.2"
 dependencies = [
+ "anyhow",
  "async-trait",
  "clap",
  "crossterm",

@@ -170,14 +170,17 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             Some(array) => array,
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
-                let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
+                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
-                    ratio: compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
+                    ratio: compressed.nbytes() as f64 / canonical_size,
                 });
                 compressed
             }
         };
+
+        compressed_chunk.statistics().inherit(chunk.statistics());
 
         self.child.push_chunk(segment_writer, compressed_chunk)
     }

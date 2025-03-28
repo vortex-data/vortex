@@ -62,10 +62,13 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         )));
     }
 
-    if cursor.encoding().id() == CHUNKED_LAYOUT_ID {
+    if cursor.encoding().id() == STATS_LAYOUT_ID {
         // Push any columnar stats.
-        if let Some(metadata) = cursor.layout().metadata() {
-            let available_stats = stats_from_bitset_bytes(&metadata);
+        if let Some(available_stats) = cursor
+            .layout()
+            .metadata()
+            .map(|metadata| stats_from_bitset_bytes(&metadata[4..]))
+        {
             let mut line = String::new();
             line.push_str("Statistics: ");
             for stat in available_stats {

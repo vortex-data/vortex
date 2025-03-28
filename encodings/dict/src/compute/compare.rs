@@ -17,6 +17,10 @@ impl CompareFn<&DictArray> for DictEncoding {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
+        // if we have more values than codes, it is faster to canonicalise first.
+        if lhs.values().len() > lhs.codes().len() {
+            return Ok(None);
+        }
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(

@@ -59,9 +59,8 @@ impl LayoutCursor {
             dtype = if layout.id() == CHUNKED_LAYOUT_ID {
                 // If metadata is present, last child is stats table
                 if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
-                    let present_stats = stats_from_bitset_bytes(
-                        layout.metadata().expect("extracting stats").as_ref(),
-                    );
+                    let metadata_bytes = layout.metadata().expect("extracting stats");
+                    let present_stats = stats_from_bitset_bytes(&metadata_bytes[4..]);
 
                     StatsTable::dtype_for_stats_table(&dtype, &present_stats)
                 } else {
@@ -148,7 +147,7 @@ impl LayoutCursor {
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.encoding().id() == CHUNKED_LAYOUT_ID
+        parent.encoding().id() == STATS_LAYOUT_ID
             && parent.layout().metadata().is_some()
             && self.path.last().copied().unwrap_or_default() == (parent.layout().nchildren() - 1)
     }

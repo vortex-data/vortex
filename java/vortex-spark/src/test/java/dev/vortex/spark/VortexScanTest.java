@@ -16,6 +16,7 @@
 package dev.vortex.spark;
 
 import com.google.common.collect.ImmutableMap;
+import dev.vortex.jni.NativeLogging;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.spark.sql.SparkSession;
@@ -23,6 +24,10 @@ import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
     private static final Path TPCH_ROOT = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/vortex_compressed");
+
+    static {
+        NativeLogging.initLogging(NativeLogging.DEBUG);
+    }
 
     @Test
     public void testSparkRead() {

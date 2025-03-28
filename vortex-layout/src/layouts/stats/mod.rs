@@ -53,7 +53,7 @@ impl LayoutVTable for StatsLayout {
         row_offset: u64,
         filter_field_mask: &[FieldMask],
         projection_field_mask: &[FieldMask],
-        segments: &mut SegmentCollector,
+        segments_collector: &mut SegmentCollector,
     ) -> VortexResult<()> {
         if !filter_field_mask.is_empty() {
             layout
@@ -62,7 +62,7 @@ impl LayoutVTable for StatsLayout {
                     row_offset,
                     filter_field_mask,
                     projection_field_mask,
-                    &mut segments.with_priority_hint(RequiredSegmentKind::PRUNING),
+                    &mut segments_collector.with_priority_hint(RequiredSegmentKind::Pruning),
                 )?;
         }
         layout
@@ -71,7 +71,7 @@ impl LayoutVTable for StatsLayout {
                 row_offset,
                 filter_field_mask,
                 projection_field_mask,
-                segments,
+                segments_collector,
             )
     }
 }

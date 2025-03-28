@@ -59,10 +59,10 @@ pub trait SegmentWriter {
 
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub enum RequiredSegmentKind {
-    PRUNING = 1,
-    FILTER = 2,
+    Pruning = 1,
+    Filter = 2,
     #[default]
-    PROJECTION = 3,
+    Projection = 3,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
@@ -84,7 +84,7 @@ impl SegmentPriority {
 
 const TOP_PRIORITY: SegmentPriority = SegmentPriority {
     row_end: 0,
-    kind: RequiredSegmentKind::PRUNING,
+    kind: RequiredSegmentKind::Pruning,
     row_start: 0,
 };
 
@@ -106,7 +106,7 @@ impl SegmentCollector {
     }
 
     pub fn with_priority_hint(&self, kind: RequiredSegmentKind) -> Self {
-        SegmentCollector {
+        Self {
             store: self.store.clone(),
             // highest priority wins
             kind: kind.min(self.kind),
@@ -117,7 +117,7 @@ impl SegmentCollector {
     pub fn push(&mut self, row_start: u64, row_end: u64, segment: SegmentId) {
         let (start, end) = match self.kind {
             // row offset inside the stats table is not our concern
-            RequiredSegmentKind::PRUNING => (0, 0),
+            RequiredSegmentKind::Pruning => (0, 0),
             _ => (row_start, row_end),
         };
         self.increment_metrics();
@@ -195,7 +195,7 @@ impl RowRangePruner {
             let mut store = self.store.write()?;
             let to_remove: Vec<_> = store
                 .keys()
-                .filter(|key| key.kind != RequiredSegmentKind::PRUNING)
+                .filter(|key| key.kind != RequiredSegmentKind::Pruning)
                 .skip_while(|key| key.row_end < first_row)
                 .take_while(|key| key.row_end <= last_row)
                 .filter(|key| first_row <= key.row_start)
@@ -229,7 +229,7 @@ impl RowRangePruner {
             .write()
             .vortex_expect("poisoned lock")
             .retain(|key, _| {
-                if key.kind == RequiredSegmentKind::PRUNING {
+                if key.kind == RequiredSegmentKind::Pruning {
                     return true; // keep segments required for pruning
                 }
                 let keep =
@@ -346,23 +346,23 @@ pub mod test {
 
         // Add segments that span different ranges
         store.insert(
-            SegmentPriority::new(0, 100, RequiredSegmentKind::PROJECTION),
+            SegmentPriority::new(0, 100, RequiredSegmentKind::Projection),
             vec![SegmentId(1)],
         );
         store.insert(
-            SegmentPriority::new(50, 150, RequiredSegmentKind::PROJECTION),
+            SegmentPriority::new(50, 150, RequiredSegmentKind::Projection),
             vec![SegmentId(2)],
         );
         store.insert(
-            SegmentPriority::new(150, 250, RequiredSegmentKind::FILTER),
+            SegmentPriority::new(150, 250, RequiredSegmentKind::Filter),
             vec![SegmentId(3)],
         );
         store.insert(
-            SegmentPriority::new(200, 300, RequiredSegmentKind::PROJECTION),
+            SegmentPriority::new(200, 300, RequiredSegmentKind::Projection),
             vec![SegmentId(4)],
         );
         store.insert(
-            SegmentPriority::new(0, 0, RequiredSegmentKind::PRUNING),
+            SegmentPriority::new(0, 0, RequiredSegmentKind::Pruning),
             vec![SegmentId(5)],
         );
 
@@ -391,27 +391,27 @@ pub mod test {
             assert!(!store_lock.contains_key(&SegmentPriority::new(
                 0,
                 100,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             )));
             assert!(!store_lock.contains_key(&SegmentPriority::new(
                 50,
                 150,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             )));
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 150,
                 250,
-                RequiredSegmentKind::FILTER
+                RequiredSegmentKind::Filter
             ))); // Not fully encompassed
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 200,
                 300,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             )));
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 0,
                 0,
-                RequiredSegmentKind::PRUNING
+                RequiredSegmentKind::Pruning
             )));
 
             // Check that the correct cancellation messages were sent
@@ -502,17 +502,17 @@ pub mod test {
             assert!(!store_lock.contains_key(&SegmentPriority::new(
                 0,
                 100,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             )));
             assert!(!store_lock.contains_key(&SegmentPriority::new(
                 50,
                 150,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             )));
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 150,
                 250,
-                RequiredSegmentKind::FILTER
+                RequiredSegmentKind::Filter
             ))); // Not fully encompassed
         })
     }
@@ -543,29 +543,29 @@ pub mod test {
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 0,
                 100,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             ))); // Contains 75
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 50,
                 150,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             ))); // Contains 75, 125
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 150,
                 250,
-                RequiredSegmentKind::FILTER
+                RequiredSegmentKind::Filter
             ))); // Contains 175, 225
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 200,
                 300,
-                RequiredSegmentKind::PROJECTION
+                RequiredSegmentKind::Projection
             ))); // Contains 225
 
             // PRUNING segments should always be kept
             assert!(store_lock.contains_key(&SegmentPriority::new(
                 0,
                 0,
-                RequiredSegmentKind::PRUNING
+                RequiredSegmentKind::Pruning
             )));
         })
     }
