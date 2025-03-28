@@ -67,21 +67,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
     // Return the arrow array here instead...I think?
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
-    let preferred_arrow_type = preferred_arrow_data_type(array_ref.inner.as_ref())
-        .vortex_expect("conversion to Arrow DataType");
-    let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
+    try_or_throw(&mut env, |env| {
+        let preferred_arrow_type = preferred_arrow_data_type(array_ref.inner.as_ref())?;
+        let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
 
-    match array_ref.inner.clone().into_arrow(&viewless_arrow_type) {
-        Err(err) => err.throw_runtime(&mut env, "into_arrow_preferred failed"),
-        Ok(arrow_array) => {
-            let Ok((ffi_array, ffi_schema)) = arrow::ffi::to_ffi(&arrow_array.to_data()) else {
-                vortex_err!("Failed to convert Arrow schema")
-                    .throw_runtime(&mut env, "FFI_ArrowSchema::try_from(&DataType) failed");
-                return;
-            };
+        let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;
+        let Ok((ffi_array, ffi_schema)) = arrow::ffi::to_ffi(&arrow_array.to_data()) else {
+            throw_runtime!("FFI_ArrowSchema::try_from(&DataType) failed");
+        };
 
-            let ffi_schema_ptr = Box::into_raw(Box::new(ffi_schema));
-            let ffi_array_ptr = Box::into_raw(Box::new(ffi_array));
+        let ffi_schema_ptr = Box::into_raw(Box::new(ffi_schema));
+        let ffi_array_ptr = Box::into_raw(Box::new(ffi_array));
 
             // Return native Arrow FFI pointers to caller.
             env.set_long_array_region(arrow_schema_ptr, 0, &[ffi_schema_ptr as jlong])
