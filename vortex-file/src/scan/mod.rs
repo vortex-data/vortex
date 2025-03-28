@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
 use futures::channel::mpsc;
-use futures::{StreamExt, stream};
+use futures::future::BoxFuture;
+use futures::{StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
 pub use row_mask::*;
 pub use split_by::*;
@@ -15,7 +16,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_io::{Dispatch, IoDispatcher};
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::layouts::filter::FilterLayoutReader;
 use vortex_layout::segments::SegmentReader;
 use vortex_layout::{ExprEvaluator, LayoutReader};
@@ -119,7 +120,10 @@ impl ScanBuilder {
         self
     }
 
-    pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
+    pub fn build<R: VortexReadAt + Send>(
+        self,
+        read: R,
+    ) -> VortexResult<impl ArrayStream + 'static> {
         // Spin up the root layout reader
         let layout_reader = self
             .vxf
@@ -268,22 +272,38 @@ impl ScanBuilder {
         // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
         let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
         let queue = Arc::downgrade(&queue.inner);
+
         self.io_dispatcher.dispatch(move || async move {
             // While the queue remains alive (i.e. there is some part of the scan waiting on a
             // segment future), we drive the I/O forwards, propagating any errors back.
-            loop {
-                match queue.upgrade() {
-                    None => {
-                        log::debug!("SegmentQueue dropped, I/O finished for scan");
-                        break;
-                    }
-                    Some(queue) => {
-                        if let Err(e) = queue.drive().await {
-                            let _ = err_send.unbounded_send(e);
-                        }
+            stream::unfold(read, |read| {
+                let queue = queue.clone();
+                async move {
+                    if let Some(fut) = queue.upgrade().map(|queue| queue.drive(read.clone())) {
+                        Some((fut.await, read))
+                    } else {
+                        None
                     }
                 }
-            }
+            })
+            .filter_map(|result| async move { result.transpose() })
+            .map(|fut| async move {
+                match fut {
+                    Ok(fut) => fut.await,
+                    Err(e) => Err(e),
+                }
+            })
+            // Spawn for I/O concurrency
+            .buffered(10)
+            // Any errors get mapped into the error stream
+            .map(|result| match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let _ = err_send.unbounded_send(e);
+                }
+            })
+            .collect::<()>()
+            .await;
         })?;
 
         // FIXME(ngates): we need to consume and interleave the error queue with the array
@@ -297,12 +317,15 @@ impl ScanBuilder {
     }
 
     /// Perform the scan operation and return a stream of arrays.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        self.build()
+    pub fn into_array_stream<R: VortexReadAt + Send>(
+        self,
+        read: R,
+    ) -> VortexResult<impl ArrayStream + 'static> {
+        self.build(read)
     }
 
-    pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
+    pub async fn read_all<R: VortexReadAt + Send>(self, read: R) -> VortexResult<ArrayRef> {
+        self.into_array_stream(read)?.read_all().await
     }
 }
 

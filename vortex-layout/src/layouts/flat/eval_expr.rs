@@ -59,11 +59,6 @@ struct FlatEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for FlatEvaluation {
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
-        // Nothing we can do really, possibly use statistics?
-        Ok(mask)
-    }
-
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior

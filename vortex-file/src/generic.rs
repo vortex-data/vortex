@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
-use moka::future::CacheBuilder;
+use moka::sync::CacheBuilder;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_io::{IoDispatcher, VortexReadAt};

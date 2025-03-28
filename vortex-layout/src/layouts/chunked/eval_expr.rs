@@ -134,12 +134,12 @@ struct ChunkedMaskEvaluation {
     mask_ranges: Vec<Range<usize>>,
 }
 
-impl ChunkedMaskEvaluation {
-    async fn invoke_on_child(&self, mask: Mask, approximate: bool) -> VortexResult<Mask> {
+#[async_trait]
+impl MaskEvaluation for ChunkedMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
-            "Chunked mask evaluation {} approx={} (mask = {})",
+            "Chunked mask evaluation {} (mask = {})",
             self.layout.name(),
-            approximate,
             mask.density()
         );
 
@@ -153,8 +153,6 @@ impl ChunkedMaskEvaluation {
                     if mask.all_false() {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
-                    } else if approximate {
-                        chunk_eval.invoke_approx(mask).boxed()
                     } else {
                         chunk_eval.invoke(mask).boxed()
                     }
@@ -165,17 +163,6 @@ impl ChunkedMaskEvaluation {
 
         // Combine the masks.
         Ok(Mask::from_iter(masks))
-    }
-}
-
-#[async_trait]
-impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {
-        self.invoke_on_child(mask, true).await
-    }
-
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        self.invoke_on_child(mask, false).await
     }
 }
 

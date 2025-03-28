@@ -144,9 +144,6 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 /// Refines the given mask, returning a mask equal in length to the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
-    /// Returns an approximate refinement of the mask with relatively cheap computation.
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask>;
-
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 

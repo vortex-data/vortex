@@ -16,9 +16,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::segments::SegmentReader;
-use crate::{
-    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 impl ExprEvaluator for StructReader {
     fn filter_evaluation(
@@ -117,8 +115,6 @@ enum FieldEval {
 
 #[async_trait]
 impl MaskEvaluation for StructMaskEvaluation {
-    async fn invoke_approx(&self, mask: Mask) -> VortexResult<Mask> {}
-
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
         let field_arrays: Vec<_> = FuturesOrdered::from_iter(self.field_evals.iter().map(|eval| {
