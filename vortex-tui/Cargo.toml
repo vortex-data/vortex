@@ -19,6 +19,7 @@ async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
 futures-util = { workspace = true }
+humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }

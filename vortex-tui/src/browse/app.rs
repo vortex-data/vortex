@@ -35,7 +35,6 @@ pub struct LayoutCursor {
     path: Vec<usize>,
     footer: Footer,
     layout: Layout,
-    #[allow(unused)]
     segment_map: Arc<[SegmentSpec]>,
 }
 
@@ -137,12 +136,12 @@ impl LayoutCursor {
             .unwrap_or_default()
     }
 
-    pub fn segment_size(&self) -> usize {
-        self.layout()
-            .segments()
-            .map(|id| self.segment_spec(id).length as usize)
-            .sum()
-    }
+    // pub fn segment_size(&self) -> usize {
+    //     self.layout()
+    //         .segments()
+    //         .map(|id| self.segment_spec(id).length as usize)
+    //         .sum()
+    // }
 
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
@@ -166,6 +165,10 @@ impl LayoutCursor {
 
     pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
+    }
+
+    pub fn segment_map(&self) -> &[SegmentSpec] {
+        &self.segment_map
     }
 }
 

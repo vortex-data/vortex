@@ -6376,6 +6376,7 @@ dependencies = [
  "clap",
  "crossterm",
  "futures-util",
+ "humansize",
  "indicatif",
  "parquet",
  "ratatui",

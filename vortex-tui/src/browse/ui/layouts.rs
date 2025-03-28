@@ -1,3 +1,4 @@
+use humansize::{DECIMAL, format_size, make_format};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -7,11 +8,16 @@ use ratatui::widgets::{
 };
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex::expr::Identity;
+use vortex::file::SegmentSpec;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::stats::stats_from_bitset_bytes;
+use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::layouts::struct_::StructLayout;
+use vortex_layout::segments::SegmentId;
 use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
 
 use crate::TOKIO_RUNTIME;
@@ -42,17 +48,20 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let layout_kind = cursor.layout().id().to_string();
     let row_count = cursor.layout().row_count();
 
+    let segments = collect_segment_ids(cursor.layout());
+    let size =
+        total_size(cursor.segment_map(), segments.0) + total_size(cursor.segment_map(), segments.1);
+    let size = format_size(size, DECIMAL);
+
     let mut rows = vec![
         Text::from(format!("Kind: {layout_kind}")).bold(),
         Text::from(format!("Row Count: {row_count}")).bold(),
         Text::from(format!("Schema: {}", cursor.dtype()))
             .bold()
             .green(),
-        Text::from(format!("Segments: {}", cursor.layout().nsegments())),
-        Text::from(format!(
-            "Segment data size: {} bytes",
-            cursor.segment_size()
-        )),
+        Text::from(format!("Children: {}", cursor.layout().nchildren())).bold(),
+        // Text::from(format!("Segments: {}", cursor.layout().nsegments())),
+        Text::from(format!("Segment data size: {}", size)).bold(),
     ];
 
     if cursor.encoding().id() == FLAT_LAYOUT_ID {
@@ -62,7 +71,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         )));
     }
 
-    if cursor.encoding().id() == STATS_LAYOUT_ID {
+    if cursor.encoding().id() == StatsLayout.id() {
         // Push any columnar stats.
         if let Some(available_stats) = cursor
             .layout()
@@ -97,13 +106,11 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
 // Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
-    let reader = FlatLayout
-        .reader(
-            app.cursor.layout().clone(),
-            app.footer.ctx().clone(),
-            app.reader.clone(),
-        )
-        .vortex_expect("Failed to create FlatLayout reader");
+    let reader = app
+        .cursor
+        .layout()
+        .reader(app.reader.clone(), app.footer.ctx().clone())
+        .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME
         .block_on(reader.evaluate_expr(
@@ -172,27 +179,27 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 }
 
 fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
-    let cursor = &app.cursor;
+    // let cursor = &;
     // TODO: add selection state.
-    let layout = cursor.layout();
-    let state = &mut app.layouts_list_state;
+    // let layout = app.cursor.layout();
+    let search_filter = app.search_filter.clone();
 
-    if layout.nchildren() > 0 {
-        let filter: Vec<bool> = (0..layout.nchildren())
-            .map(|idx| child_name(cursor, idx))
+    if app.cursor.layout().nchildren() > 0 {
+        let filter: Vec<bool> = (0..app.cursor.layout().nchildren())
+            .map(|idx| child_name(app, idx))
             .map(|name| {
-                if app.search_filter.is_empty() {
+                if search_filter.is_empty() {
                     true
                 } else {
-                    name.contains(&app.search_filter)
+                    name.contains(&search_filter)
                 }
             })
             .collect();
 
-        let list_items: Vec<String> = (0..layout.nchildren())
+        let list_items: Vec<String> = (0..app.cursor.layout().nchildren())
             .zip(filter.iter())
             .filter(|&(_, keep)| *keep)
-            .map(|(idx, _)| child_name(cursor, idx))
+            .map(|(idx, _)| child_name(app, idx))
             .collect();
 
         if !app.search_filter.is_empty() {
@@ -215,28 +222,70 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
             List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
             inner_area,
             buf,
-            state,
+            &mut app.layouts_list_state,
         );
     }
 }
 
-fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
+fn struct_child_layout_size(
+    nth: usize,
+    layout: &vortex_layout::Layout,
+    segment_map: &[SegmentSpec],
+) -> (usize, usize) {
+    let struct_dtype = layout.dtype().as_struct().expect("struct dtype");
+    let field_name = struct_dtype.field_name(nth).expect("field name");
+    let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
+
+    let child_layout = layout
+        .child(nth, field_dtype.clone(), field_name)
+        .vortex_unwrap();
+
+    let (data_segment_ids, stats_segment_ids) = collect_segment_ids(&child_layout);
+
+    let data_size = total_size(segment_map, data_segment_ids);
+    let stats_size = total_size(segment_map, stats_segment_ids);
+
+    (data_size, stats_size)
+}
+
+fn child_name(app: &mut AppState, nth: usize) -> String {
+    let cursor = &app.cursor;
+    let formatter = make_format(DECIMAL);
     // TODO(ngates): layout visitors
     if cursor.layout().id() == STRUCT_LAYOUT_ID {
         let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
         let field_name = struct_dtype.field_name(nth).expect("field name");
         let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
-        format!("Column {nth} - {field_name} ({field_dtype})")
+
+        let (data_size, stats_size) =
+            struct_child_layout_size(nth, cursor.layout(), cursor.segment_map());
+
+        let total_size = data_size + stats_size;
+
+        let data_size = formatter(data_size);
+        let stats_size = formatter(stats_size);
+        let total_size = formatter(total_size);
+
+        format!(
+            "Column {nth} - {field_name} ({field_dtype}) - {data_size} + {stats_size} = {total_size}"
+        )
     } else if cursor.layout().id() == CHUNKED_LAYOUT_ID {
-        // 0th child of a ChunkedLayout is the chunk stats array.
-        // The rest of the chunks are child arrays
-        if cursor.layout().metadata().is_none() {
-            format!("Chunk {nth}")
-        } else if nth == (cursor.layout().nchildren() - 1) {
-            "Chunk Statistics".to_string()
-        } else {
-            format!("Chunk {}", nth)
-        }
+        let name = format!("Chunk {nth}");
+        let child_layout = app
+            .cursor
+            .layout()
+            .child(nth, app.cursor.dtype().clone(), name.clone())
+            .vortex_unwrap();
+
+        let (data_segment_ids, stats_segment_ids) = collect_segment_ids(&child_layout);
+
+        let data_size = total_size(app.cursor.segment_map(), data_segment_ids);
+        let stats_size = total_size(app.cursor.segment_map(), stats_segment_ids);
+        let total_size = formatter(data_size + stats_size);
+
+        let row_count = child_layout.row_count();
+
+        format!("{name} - {row_count} - {total_size}")
     } else if cursor.layout().id() == FLAT_LAYOUT_ID {
         format!("Page {nth}")
     } else if cursor.layout().id() == STATS_LAYOUT_ID {
@@ -251,4 +300,59 @@ fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
     } else {
         format!("Unknown {nth}")
     }
+}
+
+fn collect_segment_ids(root_layout: &vortex_layout::Layout) -> (Vec<SegmentId>, Vec<SegmentId>) {
+    let mut data_segment_ids = Vec::default();
+    let mut stats_segment_ids = Some(Vec::default());
+
+    collect_segment_ids_impl(root_layout, &mut data_segment_ids, &mut stats_segment_ids)
+        .vortex_unwrap();
+
+    (data_segment_ids, stats_segment_ids.unwrap())
+}
+
+fn total_size(segment_map: &[SegmentSpec], segment_ids: Vec<SegmentId>) -> usize {
+    segment_ids
+        .iter()
+        .map(|seg_id| segment_map[**seg_id as usize].length as usize)
+        .sum::<usize>()
+}
+
+fn collect_segment_ids_impl(
+    root: &vortex_layout::Layout,
+    data_segments: &mut Vec<SegmentId>,
+    stats_segments: &mut Option<Vec<SegmentId>>,
+) -> VortexResult<()> {
+    let layout_id = root.id();
+
+    if layout_id == StructLayout.id() {
+        let dtype = root.dtype().as_struct().vortex_expect("");
+        for child_idx in 0..dtype.fields().len() {
+            let name = dtype.field_name(child_idx)?;
+            let child_dtype = dtype.field_by_index(child_idx)?;
+            let child_layout = root.child(child_idx, child_dtype, name)?;
+            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
+        }
+    } else if layout_id == ChunkedLayout.id() {
+        for child_idx in 0..root.nchildren() {
+            let child_layout =
+                root.child(child_idx, root.dtype().clone(), format!("[{child_idx}]"))?;
+            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
+        }
+    } else if layout_id == StatsLayout.id() {
+        let data_layout = root.child(0, root.dtype().clone(), format!("data"))?;
+        collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
+
+        if let Some(stats_segments) = stats_segments.as_mut() {
+            let stats_layout = root.child(1, root.dtype().clone(), format!("stats"))?;
+            collect_segment_ids_impl(&stats_layout, stats_segments, &mut None)?;
+        }
+    } else if layout_id == FlatLayout.id() {
+        data_segments.extend(root.segments());
+    } else {
+        vortex_bail!("IDK what I'm doing with my life")
+    };
+
+    Ok(())
 }
