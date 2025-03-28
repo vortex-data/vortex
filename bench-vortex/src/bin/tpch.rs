@@ -35,7 +35,7 @@ struct Args {
     threads: Option<usize>,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
-    #[arg(short, long, default_value = "5")]
+    #[arg(short, long, default_value = "10")]
     iterations: usize,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
