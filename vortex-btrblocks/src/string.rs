@@ -1,11 +1,9 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::{ConstantArray, VarBinViewArray};
-use vortex_array::stats::Precision;
-use vortex_array::stats::Stat::IsConstant;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
 use crate::downscale::downscale_integer_array;
@@ -19,35 +17,28 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct StringStats {
     src: VarBinViewArray,
-    exact_distinct_count: Option<u32>,
     estimated_distinct_count: u32,
     value_count: u32,
-    null_count: u32,
+    // null_count: u32,
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-/// If all are inlined then is count is exact and true is returned.
 #[allow(clippy::cast_possible_truncation)]
-fn estimate_distinct_count(strings: &VarBinViewArray) -> (u32, bool) {
+fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
-    let mut all_inlined = true;
     views.iter().for_each(|&view| {
         let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
-        all_inlined &= view.is_inlined();
     });
 
-    (
-        distinct
-            .len()
-            .try_into()
-            .vortex_expect("distinct count must fit in u32"),
-        all_inlined,
-    )
+    distinct
+        .len()
+        .try_into()
+        .vortex_expect("distinct count must fit in u32")
 }
 
 impl CompressorStats for StringStats {
@@ -59,22 +50,17 @@ impl CompressorStats for StringStats {
             .compute_null_count()
             .vortex_expect("null count");
         let value_count = input.len() - null_count;
-        let (estimated_distinct, is_exact) = if opts.count_distinct_values {
+        let estimated_distinct = if opts.count_distinct_values {
             estimate_distinct_count(input)
         } else {
-            (u32::MAX, false)
+            u32::MAX
         };
-
-        if is_exact && estimated_distinct == 1 && null_count == 0 {
-            input.statistics().set(IsConstant, Precision::exact(true));
-        }
 
         Self {
             src: input.clone(),
             value_count: value_count.try_into().vortex_expect("value_count"),
-            null_count: null_count.try_into().vortex_expect("null_count"),
+            // null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
-            exact_distinct_count: is_exact.then_some(estimated_distinct),
         }
     }
 
@@ -99,12 +85,7 @@ impl Compressor for StringCompressor {
     type StatsType = StringStats;
 
     fn schemes() -> &'static [&'static Self::SchemeType] {
-        &[
-            &UncompressedScheme,
-            &ConstantScheme,
-            &DictScheme,
-            &FSSTScheme,
-        ]
+        &[&UncompressedScheme, &DictScheme, &FSSTScheme]
     }
 
     fn default_scheme() -> &'static Self::SchemeType {
@@ -124,9 +105,6 @@ impl<T> StringScheme for T where T: Scheme<StatsType = StringStats, CodeType = S
 pub struct UncompressedScheme;
 
 #[derive(Debug, Copy, Clone)]
-pub struct ConstantScheme;
-
-#[derive(Debug, Copy, Clone)]
 pub struct DictScheme;
 
 #[derive(Debug, Copy, Clone)]
@@ -138,7 +116,6 @@ pub struct StringCode(u8);
 const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
 const DICT_SCHEME: StringCode = StringCode(1);
 const FSST_SCHEME: StringCode = StringCode(2);
-const CONSTANT_SCHEME: StringCode = StringCode(3);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
@@ -166,62 +143,6 @@ impl Scheme for UncompressedScheme {
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
-    }
-}
-
-impl Scheme for ConstantScheme {
-    type StatsType = StringStats;
-    type CodeType = StringCode;
-
-    fn code(&self) -> Self::CodeType {
-        CONSTANT_SCHEME
-    }
-
-    fn is_constant(&self) -> bool {
-        true
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        stats: &StringStats,
-        is_sample: bool,
-        _allowed_cascading: usize,
-        _excludes: &[Self::CodeType],
-    ) -> VortexResult<f64> {
-        // Never yield ConstantScheme for a sample, it could be a false-positive.
-        if is_sample {
-            return Ok(0.0);
-        }
-
-        // Only arrays with one distinct values can be constant compressed.
-        if stats.exact_distinct_count.unwrap_or(stats.value_count) != 1 {
-            return Ok(0.0);
-        }
-
-        // Cannot have mix of nulls and non-nulls
-        if stats.null_count > 0 && stats.value_count > 0 {
-            return Ok(0.0);
-        }
-
-        Ok(stats.value_count as f64)
-    }
-
-    fn compress(
-        &self,
-        stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
-        _excludes: &[Self::CodeType],
-    ) -> VortexResult<ArrayRef> {
-        if stats.source().statistics().get_as::<bool>(IsConstant) != Some(Precision::exact(true)) {
-            vortex_bail!("array was thought to be constant, but it is not");
-        }
-        let scalar = stats
-            .source()
-            .as_constant()
-            .vortex_expect("constant array expected");
-
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
     }
 }
 
