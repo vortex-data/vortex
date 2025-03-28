@@ -73,7 +73,7 @@ impl ToDuckDB for ChunkedArray {
 impl ToDuckDB for DictArray {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
         // If the values fit into a single vector, we can efficiently delay the take operation.
-        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE && self.codes().dtype().is_nullable()
+        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE && !self.codes().dtype().is_nullable()
         {
             to_duckdb(self.values().clone(), chunk)?;
             let sel = selection_vector_from_array(self.codes().to_primitive()?);
