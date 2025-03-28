@@ -1,6 +1,8 @@
+use std::error::Error;
+
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::arrays::{ConstantArray, VarBinViewArray};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
@@ -85,7 +87,12 @@ impl Compressor for StringCompressor {
     type StatsType = StringStats;
 
     fn schemes() -> &'static [&'static Self::SchemeType] {
-        &[&UncompressedScheme, &DictScheme, &FSSTScheme]
+        &[
+            &UncompressedScheme,
+            &ConstantScheme,
+            &DictScheme,
+            &FSSTScheme,
+        ]
     }
 
     fn default_scheme() -> &'static Self::SchemeType {
@@ -105,6 +112,9 @@ impl<T> StringScheme for T where T: Scheme<StatsType = StringStats, CodeType = S
 pub struct UncompressedScheme;
 
 #[derive(Debug, Copy, Clone)]
+pub struct ConstantScheme;
+
+#[derive(Debug, Copy, Clone)]
 pub struct DictScheme;
 
 #[derive(Debug, Copy, Clone)]
@@ -116,6 +126,7 @@ pub struct StringCode(u8);
 const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
 const DICT_SCHEME: StringCode = StringCode(1);
 const FSST_SCHEME: StringCode = StringCode(2);
+const CONSTANT_SCHEME: StringCode = StringCode(3);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
@@ -143,6 +154,55 @@ impl Scheme for UncompressedScheme {
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
+    }
+}
+
+impl Scheme for ConstantScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> Self::CodeType {
+        CONSTANT_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<f64> {
+        // Never yield ConstantScheme for a sample, it could be a false-positive.
+        if is_sample {
+            return Ok(0.0);
+        }
+
+        // Only arrays with one distinct values can be constant compressed.
+        if stats.estimated_distinct_count != 1 {
+            return Ok(0.0);
+        }
+
+        // Cannot have mix of nulls and non-nulls
+        if stats.null_count > 0 && stats.value_count > 0 {
+            return Ok(0.0);
+        }
+
+        Ok(stats.value_count as f64)
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<ArrayRef> {
+        let scalar = stats
+            .source()
+            .as_constant()
+            .vortex_expect("constant array expected");
+
+        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
     }
 }
 
