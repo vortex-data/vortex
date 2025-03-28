@@ -1,6 +1,6 @@
-use humansize::{DECIMAL, format_size, make_format};
+use humansize::{DECIMAL, make_format};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
 use ratatui::widgets::{
@@ -42,7 +42,8 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let layout_kind = cursor.layout().id().to_string();
     let row_count = cursor.layout().row_count();
-    let size = format_size(cursor.total_size(), DECIMAL);
+    let size_formatter = make_format(DECIMAL);
+    let size = size_formatter(cursor.total_size());
 
     let mut rows = vec![
         Text::from(format!("Kind: {layout_kind}")).bold(),
@@ -56,8 +57,8 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
     if cursor.encoding().id() == FLAT_LAYOUT_ID {
         rows.push(Text::from(format!(
-            "FlatBuffer Size: {} bytes",
-            cursor.flatbuffer_size()
+            "FlatBuffer Size: {}",
+            size_formatter(cursor.flatbuffer_size())
         )));
     }
 
@@ -162,8 +163,30 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             buf,
         );
     } else {
+        let header = ["Name", "Value"]
+            .into_iter()
+            .map(Cell::from)
+            .collect::<Row>()
+            .style(Style::new().bold())
+            .height(1);
+
+        let rows = array.statistics().into_iter().map(|(stat, value)| {
+            let stat = Cell::from(Text::from(format!("{stat}")));
+            let value = Cell::from(Text::from(format!("{value}")));
+            Row::new(vec![stat, value])
+        });
+
+        let layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(widget_area);
+        let table = Table::new(rows, [Constraint::Min(4), Constraint::Min(4)]).header(header);
         // Tree-display the active array
-        Paragraph::new(array.tree_display().to_string()).render(widget_area, buf);
+        let tree = Paragraph::new(array.tree_display().to_string());
+
+        Widget::render(tree, layout[0], buf);
+        Widget::render(table, layout[1], buf);
+
         // Split view, show information about the child arrays (metadata, count, etc.)
     };
 }
