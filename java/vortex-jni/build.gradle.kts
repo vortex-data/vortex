@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.io.ByteArrayOutputStream
 
 plugins {
     `java-library`
@@ -149,20 +150,49 @@ val cargoCheck by tasks.registering(Exec::class) {
     commandLine("cargo", "check")
 }
 
+val getTargetTriple by tasks.registering(Exec::class) {
+    workingDir = vortexJNI
+    commandLine("rustc", "--print", "target-triple")
+}
+
 val cargoBuild by tasks.registering(Exec::class) {
     workingDir = vortexJNI
-    // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
-//    environment("RUSTFLAGS", "-Zsanitizer=address")
-    commandLine(
-        "cargo",
-        "build",
-//        "-Zbuild-std",
-//        "--target",
-//        "aarch64-apple-darwin",
-        "--release",
-    )
 
-    outputs.files(libraryFile)
+    val buildWithAsan = project.findProperty("buildWithAsan")?.toString()?.toBoolean() ?: false
+    println("buildWithAsan: $buildWithAsan")
+    if (buildWithAsan) {
+        // Force a rebuild
+        outputs.upToDateWhen { false }
+
+        // Get the target triple for the current platform. We need it
+        // so we can tell cargo to recompile the std crate for this target with ASAN enabled.
+        val output = ByteArrayOutputStream()
+        exec {
+            commandLine("rustc", "--print", "host-tuple")
+            standardOutput = output
+        }
+        val targetTriple = output.toString().trim()
+
+        // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
+        environment("RUSTFLAGS", "-Zsanitizer=address")
+        commandLine(
+            "cargo",
+            "build",
+            "-Zbuild-std",
+            "--target",
+            targetTriple,
+            "--release",
+        )
+        // cargo puts the built artifact in a target-dependent directory when you specify the triple
+        outputs.files(targetDir.resolve("$targetTriple/release/libvortex_jni.$platformLibSuffix"))
+    } else {
+        commandLine(
+            "cargo",
+            "build",
+            "--release",
+        )
+        outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
+    }
 
     // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
     outputs.upToDateWhen { false }
@@ -199,19 +229,11 @@ val resourceDir =
         "linux-$osArch"
     }
 
-// Create a release build for every platform we care about.
-// Or we distribute different JARs for each platform...not sure the best approach here.
-// Honestly, fat JAR is probably the move. No one cares about JAR size in Java land, portability
-// is more important.
 val copySharedLibrary by tasks.registering(Copy::class) {
     dependsOn(cargoBuild)
 
-    from(libraryFile)
+    from(cargoBuild.get().outputs.files)
     into(projectDir.resolve("src/main/resources/native/$resourceDir"))
-
-    doLast {
-        println("Copied $libraryFile into resource directory")
-    }
 }
 
 tasks.withType<ProcessResources>().configureEach {
@@ -220,5 +242,6 @@ tasks.withType<ProcessResources>().configureEach {
 
 // Remove the JAR task, replace it with shadowJar
 tasks.named("jar").configure {
+    dependsOn("shadowJar")
     enabled = false
 }

@@ -1,6 +1,6 @@
 com.google.errorprone:error_prone_core = 2.36.0
 com.google.guava:failureaccess = 1.0.3
-com.google.guava:guava = 33.4.5-jre
+com.google.guava:guava = 33.4.6-jre
 com.google.guava:listenablefuture = 9999.0-empty-to-avoid-conflict-with-guava
 com.jakewharton.nopen:* = 1.0.1
 org.apache.spark:* = 3.5.5
