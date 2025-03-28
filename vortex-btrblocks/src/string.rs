@@ -1,5 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, VarBinViewArray};
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat::IsConstant;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
@@ -62,6 +64,10 @@ impl CompressorStats for StringStats {
         } else {
             (u32::MAX, false)
         };
+
+        if is_exact && estimated_distinct == 1 && null_count == 0 {
+            input.statistics().set(IsConstant, Precision::exact(true));
+        }
 
         Self {
             src: input.clone(),
