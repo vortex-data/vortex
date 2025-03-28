@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, VarBinViewArray};
+use vortex_array::stats::Precision;
 use vortex_array::stats::Stat::IsConstant;
-use vortex_array::stats::{Precision, StatsProvider};
 use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
