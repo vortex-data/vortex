@@ -117,3 +117,59 @@ impl ToDuckDB for VarBinViewArray {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::compute::slice;
+    use vortex_array::{Array, ToCanonical};
+
+    use crate::ToDuckDB;
+    use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
+
+    // This tests the sharing of buffers between data chunk, while dropping these buffers early.
+    #[test]
+    fn test_multi_buffer_ref() {
+        let varbin = VarBinViewArray::from_iter_str(&["a", "ab", "abc", "abcd", "abcde"]);
+        {
+            let start_view = slice(&varbin, 0, 2).unwrap().to_varbinview().unwrap();
+            let mut chunk =
+                DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+            chunk.set_len(start_view.len());
+            start_view
+                .to_duckdb(&mut DataChunkHandleSlice::new(&mut chunk, 0))
+                .unwrap();
+
+            chunk.verify();
+            assert_eq!(
+                format!("{:?}", chunk),
+                r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 2 = [ a, ab]
+"#
+            );
+            drop(chunk)
+        }
+        {
+            let end_view = slice(&varbin, 2, 5).unwrap().to_varbinview().unwrap();
+            drop(varbin);
+            let mut chunk =
+                DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+            chunk.set_len(end_view.len());
+            end_view
+                .to_duckdb(&mut DataChunkHandleSlice::new(&mut chunk, 0))
+                .unwrap();
+            drop(end_view);
+
+            chunk.verify();
+            assert_eq!(
+                format!("{:?}", chunk),
+                r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 3 = [ abc, abcd, abcde]
+"#
+            );
+
+            drop(chunk)
+        }
+    }
+}

@@ -286,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn test_big_struct() {
+    fn test_large_struct_to_duckdb() {
         let len = 5;
         let mut chunk = DataChunkHandle::new(&[
             LogicalTypeHandle::from(LogicalTypeId::Integer),
