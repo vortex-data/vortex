@@ -121,12 +121,51 @@ impl ToDuckDB for VarBinViewArray {
 #[cfg(test)]
 mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::{ConstantArray, VarBinViewArray};
     use vortex_array::compute::slice;
     use vortex_array::{Array, ToCanonical};
 
     use crate::ToDuckDB;
     use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
+    use crate::convert::array::to_duckdb;
+
+    #[test]
+    fn constant_empty_str_array() {
+        let len = 100;
+        let const_ = ConstantArray::new("", len).to_array();
+        println!("{}", const_.tree_display());
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+        to_duckdb(const_, &mut DataChunkHandleSlice::new(&mut chunk, 0)).unwrap();
+        chunk.set_len(len);
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [1 Columns]
+- CONSTANT VARCHAR: 100 = [ ]
+"#
+        );
+    }
+
+    #[test]
+    fn constant_long_str_array() {
+        let len = 100;
+        let const_ = ConstantArray::new(
+            "long string 100000000000000000000000000000000000000000000000000000000000",
+            len,
+        )
+        .to_array();
+        println!("{}", const_.tree_display());
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+        to_duckdb(const_, &mut DataChunkHandleSlice::new(&mut chunk, 0)).unwrap();
+        chunk.set_len(len);
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [1 Columns]
+- CONSTANT VARCHAR: 100 = [ long string 100000000000000000000000000000000000000000000000000000000000]
+"#
+        );
+    }
 
     // This tests the sharing of buffers between data chunk, while dropping these buffers early.
     #[test]

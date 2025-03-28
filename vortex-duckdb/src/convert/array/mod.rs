@@ -73,7 +73,7 @@ impl ToDuckDB for ChunkedArray {
 impl ToDuckDB for DictArray {
     fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
         // If the values fit into a single vector, we can efficiently delay the take operation.
-        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE || self.codes().dtype().is_nullable()
+        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE && self.codes().dtype().is_nullable()
         {
             to_duckdb(self.values().clone(), chunk)?;
             let sel = selection_vector_from_array(self.codes().to_primitive()?);
@@ -332,6 +332,33 @@ mod tests {
 - DICTIONARY VARCHAR: 5 = [ a, abcd, abcde, abc, ab]
 - CONSTANT BOOLEAN: 5 = [ true]
 - CONSTANT "NULL": 5 = [ NULL]
+"#
+        );
+    }
+
+    // The values of the dict don't fit in a vectors, this can cause problems.
+    #[test]
+    fn test_large_dict_to_duckdb() {
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
+        let dict_varbin = DictArray::try_new(
+            [0u32, 3, 4, 2, 1]
+                .into_iter()
+                .collect::<PrimitiveArray>()
+                .to_array(),
+            (0i32..100000).collect::<PrimitiveArray>().to_array(),
+        )
+        .unwrap();
+        let str = StructArray::from_fields(&[("dict", dict_varbin.to_array())])
+            .unwrap()
+            .to_struct()
+            .unwrap();
+        to_duckdb_chunk(&str, &mut chunk).unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 5 = [ 0, 3, 4, 2, 1]
 "#
         );
     }

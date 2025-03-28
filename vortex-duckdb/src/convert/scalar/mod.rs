@@ -3,7 +3,7 @@ use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType, match_each_native_simd_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{BoolScalar, ExtScalar, PrimitiveScalar, Scalar};
+use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, PrimitiveScalar, Scalar, Utf8Scalar};
 
 pub trait ToDuckDBScalar {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value>;
@@ -16,7 +16,9 @@ impl ToDuckDBScalar for Scalar {
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
-            DType::Utf8(_) | DType::Binary(_) | DType::Struct(..) | DType::List(..) => todo!(),
+            DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
+            DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
+            DType::Struct(..) | DType::List(..) => todo!(),
         }
     }
 }
@@ -39,6 +41,24 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
 impl ToDuckDBScalar for BoolScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         Ok(Value::from(self.value()))
+    }
+}
+
+impl ToDuckDBScalar for Utf8Scalar<'_> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        Ok(match self.value() {
+            Some(value) => Value::from(value.as_str()),
+            None => Value::null(),
+        })
+    }
+}
+
+impl ToDuckDBScalar for BinaryScalar<'_> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        Ok(match self.value() {
+            Some(value) => Value::from(value.as_slice()),
+            None => Value::null(),
+        })
     }
 }
 
