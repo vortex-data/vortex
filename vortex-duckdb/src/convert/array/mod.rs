@@ -107,17 +107,20 @@ const ALL_TRUE_SEL_MASK: [u64; 32] = [u64::MAX; 32];
 const ALL_FALSE_SEL_MASK: [u64; 32] = [u64::MIN; 32];
 
 pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
+    // Check that both the target vector is large enough and the mask too.
+    // If we later allow vectors larger than 2k (against duckdb defaults), we can revisit this.
     assert!(mask.len() <= DUCKDB_STANDARD_VECTOR_SIZE);
+    assert!(flat_vector.capacity() <= DUCKDB_STANDARD_VECTOR_SIZE);
     match mask {
-        Mask::AllTrue(_) => {
+        Mask::AllTrue(len) => {
             if let Some(slice) = flat_vector.validity_slice() {
                 // This is only needed if the vector as previously allocated.
-                slice.copy_from_slice(&ALL_TRUE_SEL_MASK[0..flat_vector.capacity().div_ceil(64)]);
+                slice.copy_from_slice(&ALL_TRUE_SEL_MASK[0..len]);
             }
         }
-        Mask::AllFalse(_) => {
+        Mask::AllFalse(len) => {
             let slice = flat_vector.init_get_validity_slice();
-            slice.copy_from_slice(&ALL_FALSE_SEL_MASK[0..flat_vector.capacity().div_ceil(64)])
+            slice.copy_from_slice(&ALL_FALSE_SEL_MASK[0..len])
         }
         Mask::Values(arr) => {
             // TODO(joe): do this MUCH better, with a shifted u64 copy
