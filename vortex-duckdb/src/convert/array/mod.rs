@@ -107,6 +107,7 @@ const ALL_TRUE_SEL_MASK: [u64; 32] = [u64::MAX; 32];
 const ALL_FALSE_SEL_MASK: [u64; 32] = [0u64; 32];
 
 pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
+    assert!(mask.len() <= DUCKDB_STANDARD_VECTOR_SIZE);
     match mask {
         Mask::AllTrue(_) => {
             if let Some(slice) = flat_vector.validity_slice() {
