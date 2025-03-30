@@ -28,7 +28,7 @@ final class VortexScanTest {
     private static final Path TPCH_PARQUET = Paths.get("/Volumes/Code/vortex/bench-vortex/data/tpch/1/parquet");
 
     static {
-        NativeLogging.initLogging(NativeLogging.DEBUG);
+        NativeLogging.initLogging(NativeLogging.ERROR);
     }
 
     private void registerTables(SparkSession spark, Path root, String format) {
@@ -88,7 +88,7 @@ final class VortexScanTest {
         long start = System.nanoTime();
         var results = plan.collectAsList();
         long duration = System.nanoTime() - start;
-        plan.queryExecution().debug().codegen();
+        // plan.queryExecution().debug().codegen();
         System.out.println("Q1 (" + duration + " nanos) results: " + results);
     }
 

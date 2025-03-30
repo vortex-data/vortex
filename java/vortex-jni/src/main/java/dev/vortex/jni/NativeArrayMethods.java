@@ -22,6 +22,8 @@ public final class NativeArrayMethods {
 
     private NativeArrayMethods() {}
 
+    public static native long nbytes(long pointer);
+
     public static native void exportToArrow(long pointer, long[] schemaPointer, long[] arrayPointer);
 
     public static native void dropArrowSchema(long arrowSchemaPtr);

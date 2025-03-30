@@ -24,23 +24,26 @@ import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 public final class VortexColumnarBatchIterator implements Iterator<ColumnarBatch>, AutoCloseable {
+    public static final long MAX_BUFFER_BYTES = 16 * 1024 * 1024; // 16MB
     private final ArrayStream backing;
+    private final PrefetchingIterator<Array> prefetching;
 
     // Reusable root
     private VectorSchemaRoot root = null;
 
     public VortexColumnarBatchIterator(ArrayStream backing) {
         this.backing = backing;
+        this.prefetching = new PrefetchingIterator<>(backing, MAX_BUFFER_BYTES, Array::nbytes);
     }
 
     @Override
     public boolean hasNext() {
-        return backing.hasNext();
+        return prefetching.hasNext();
     }
 
     @Override
     public ColumnarBatch next() {
-        Array next = backing.next();
+        Array next = prefetching.next();
 
         root = next.exportToArrow(ArrowAllocation.rootAllocator(), root);
 
@@ -54,6 +57,7 @@ public final class VortexColumnarBatchIterator implements Iterator<ColumnarBatch
 
     @Override
     public void close() {
+        this.prefetching.close();
         this.backing.close();
         if (root != null) {
             root.close();
