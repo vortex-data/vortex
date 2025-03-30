@@ -9,7 +9,7 @@ use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{preferred_arrow_data_type, scalar_at, slice};
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
 use crate::errors::try_or_throw;
@@ -64,7 +64,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
     arrow_schema_ptr: JLongArray<'local>,
     arrow_array_ptr: JLongArray<'local>,
 ) {
-    // Return the arrow array here instead...I think?
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |env| {
@@ -72,9 +71,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
         let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
 
         let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;
-        let Ok((ffi_array, ffi_schema)) = arrow::ffi::to_ffi(&arrow_array.to_data()) else {
-            throw_runtime!("FFI_ArrowSchema::try_from(&DataType) failed");
-        };
+        let (ffi_array, ffi_schema) =
+            arrow::ffi::to_ffi(&arrow_array.to_data()).map_err(VortexError::from)?;
 
         let ffi_schema_ptr = Box::into_raw(Box::new(ffi_schema));
         let ffi_array_ptr = Box::into_raw(Box::new(ffi_array));

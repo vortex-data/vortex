@@ -49,6 +49,7 @@ allprojects {
                 palantirJavaFormat()
                 licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
                 targetExclude("**/generated/**")
+                targetExcludeIfContentContains("// spotless:disabled")
             }
         }
 

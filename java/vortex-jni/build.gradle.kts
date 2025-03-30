@@ -150,11 +150,6 @@ val cargoCheck by tasks.registering(Exec::class) {
     commandLine("cargo", "check")
 }
 
-val getTargetTriple by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-    commandLine("rustc", "--print", "target-triple")
-}
-
 val cargoBuild by tasks.registering(Exec::class) {
     workingDir = vortexJNI
 
