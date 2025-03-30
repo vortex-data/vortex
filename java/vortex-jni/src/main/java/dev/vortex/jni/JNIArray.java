@@ -31,9 +31,8 @@ public final class JNIArray implements Array {
         NativeLoader.loadJni();
     }
 
-    // TODO(aduffy): safe to assume this class doesn't need to be threadsafe?
-    private final long[] schemaPtr = new long[1];
-    private final long[] arrayPtr = new long[1];
+    private final ThreadLocal<long[]> schemaPtr = ThreadLocal.withInitial(() -> new long[1]);
+    private final ThreadLocal<long[]> arrayPtr = ThreadLocal.withInitial(() -> new long[1]);
 
     private OptionalLong pointer;
 
@@ -50,9 +49,9 @@ public final class JNIArray implements Array {
     @Override
     public VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse) {
         // Export the dataset to Arrow over C Data Interface.
-        NativeArrayMethods.exportToArrow(pointer.getAsLong(), schemaPtr, arrayPtr);
-        try (ArrowSchema arrowSchema = ArrowSchema.wrap(schemaPtr[0]);
-                ArrowArray arrowArray = ArrowArray.wrap(arrayPtr[0]);
+        NativeArrayMethods.exportToArrow(pointer.getAsLong(), schemaPtr.get(), arrayPtr.get());
+        try (ArrowSchema arrowSchema = ArrowSchema.wrap(schemaPtr.get()[0]);
+                ArrowArray arrowArray = ArrowArray.wrap(arrayPtr.get()[0]);
                 CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
             if (reuse != null) {
                 Data.importIntoVectorSchemaRoot(allocator, arrowArray, reuse, provider);
@@ -61,8 +60,8 @@ public final class JNIArray implements Array {
                 return Data.importVectorSchemaRoot(allocator, arrowArray, arrowSchema, new CDataDictionaryProvider());
             }
         } finally {
-            NativeArrayMethods.dropArrowSchema(schemaPtr[0]);
-            NativeArrayMethods.dropArrowArray(arrayPtr[0]);
+            NativeArrayMethods.dropArrowSchema(schemaPtr.get()[0]);
+            NativeArrayMethods.dropArrowArray(arrayPtr.get()[0]);
         }
     }
 
