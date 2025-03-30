@@ -38,7 +38,7 @@ public final class VortexColumnarBatchIterator implements Iterator<ColumnarBatch
 
     @Override
     public boolean hasNext() {
-        return backing.hasNext();
+        return prefetching.hasNext();
     }
 
     @Override
