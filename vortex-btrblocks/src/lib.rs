@@ -9,7 +9,7 @@ use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArr
 use vortex_array::{Array, ArrayRef, Canonical};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 pub use crate::float::FloatCompressor;
 pub use crate::integer::IntCompressor;
@@ -39,6 +39,8 @@ impl Default for GenerateStatsOptions {
     }
 }
 
+const SAMPLE_SIZE: u32 = 64;
+
 /// Stats for the compressor.
 pub trait CompressorStats: Debug + Clone {
     type ArrayType: Array;
@@ -52,11 +54,11 @@ pub trait CompressorStats: Debug + Clone {
 
     fn source(&self) -> &Self::ArrayType;
 
-    fn sample(&self, sample_size: u16, sample_count: u16) -> Self {
+    fn sample(&self, sample_size: u32, sample_count: u32) -> Self {
         self.sample_opts(sample_size, sample_count, GenerateStatsOptions::default())
     }
 
-    fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
+    fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self;
 }
 
 /// Top-level compression scheme trait.
@@ -127,7 +129,16 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     let sample = if is_sample {
         stats.clone()
     } else {
-        stats.sample(64, 10)
+        // We want to sample about 1% of data
+        let source_len = stats.source().len();
+
+        // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
+        let sample_count = usize::max(
+            (source_len / 100) / usize::try_from(SAMPLE_SIZE).vortex_unwrap(),
+            10 * SAMPLE_SIZE as usize,
+        );
+
+        stats.sample(SAMPLE_SIZE, sample_count.try_into().vortex_unwrap())
     };
 
     let after = compressor

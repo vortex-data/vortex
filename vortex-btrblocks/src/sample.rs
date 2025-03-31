@@ -5,7 +5,7 @@ use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexExpect;
 
-pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u16, sample_count: u16) -> ArrayRef {
+pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
         return input.to_array();
     }
@@ -31,8 +31,8 @@ pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u16, sample_count:
 
 pub fn stratified_slices(
     length: usize,
-    sample_size: u16,
-    sample_count: u16,
+    sample_size: u32,
+    sample_count: u32,
     rng: &mut StdRng,
 ) -> Vec<(usize, usize)> {
     let total_num_samples: usize = (sample_count as usize) * (sample_size as usize);
@@ -62,7 +62,7 @@ pub fn stratified_slices(
 
 /// Split a range of array indices into as-equal-as-possible slices. If the provided `num_partitions` doesn't
 /// evenly divide into `length`, then the first `(length % num_partitions)` slices will have an extra element.
-pub fn partition_indices(length: usize, num_partitions: u16) -> Vec<(usize, usize)> {
+pub fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> {
     let num_long_parts = length % num_partitions as usize;
     let short_step = length / num_partitions as usize;
     let long_step = short_step + 1;
