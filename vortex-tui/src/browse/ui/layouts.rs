@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
+    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
@@ -178,14 +178,32 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
         let layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(widget_area);
-        let table = Table::new(rows, [Constraint::Min(4), Constraint::Min(4)]).header(header);
+        let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.tree_display().to_string());
+        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
 
-        Widget::render(tree, layout[0], buf);
-        Widget::render(table, layout[1], buf);
+        let stats_container = Block::new()
+            .title("Statistics")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        let tree_container = Block::new()
+            .title("Encoding Tree Display")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        let tree_inner = tree_container.inner(layout[0]);
+        let stats_inner = stats_container.inner(layout[1]);
+
+        tree_container.render(layout[0], buf);
+        stats_container.render(layout[1], buf);
+
+        Widget::render(tree, tree_inner, buf);
+        Widget::render(table, stats_inner, buf);
 
         // Split view, show information about the child arrays (metadata, count, etc.)
     };
