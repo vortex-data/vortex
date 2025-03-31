@@ -71,10 +71,16 @@ impl IntCompressor {
         let scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
         let output = scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
 
-        if output.nbytes() < array.nbytes() {
+        let array_bytes = array.nbytes();
+        let output_bytes = output.nbytes();
+
+        if output_bytes < array_bytes {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.tree_display());
+            log::debug!(
+                "resulting tree too large, original is {array_bytes} and compressed output is {output_bytes} :\n{}",
+                output.tree_display()
+            );
             Ok(array.to_array())
         }
     }
@@ -239,10 +245,11 @@ impl Scheme for FORScheme {
             return Ok(0.0);
         }
 
-        // Difference between max and min
         let full_width: u32 = stats.src.ptype().bit_width().try_into().vortex_unwrap();
-        let padding = 64 - full_width;
-        let bw = full_width + padding - stats.typed.max_minus_min().leading_zeros();
+        let bw = match stats.typed.max_minus_min().checked_ilog2() {
+            Some(l) => l + 1,
+            None => return Ok(0.0),
+        };
 
         // If we're not saving at least 1 byte, don't bother with FOR
         if full_width - bw < 8 {

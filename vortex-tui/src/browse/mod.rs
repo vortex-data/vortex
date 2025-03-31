@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use app::{AppState, KeyMode, Tab, create_file_app};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
-use ratatui::widgets::ListState;
+use ratatui::style::{Color, Style};
+use ratatui::widgets::{Block, BorderType, ListState};
 use ui::render_app;
 use vortex::error::{VortexExpect, VortexResult};
 
@@ -19,8 +20,13 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
 
         let event = event::read()?;
         let event_result = match app.key_mode {
-            KeyMode::Normal => handle_normal_mode(&mut app, event),
+            KeyMode::Normal if app.current_tab != Tab::Query => {
+                app.sql_state.is_input = false;
+                handle_normal_mode(&mut app, event)
+            }
+            KeyMode::Normal if app.current_tab == Tab::Query => handle_sql_mode(&mut app, event),
             KeyMode::Search => handle_search_mode(&mut app, event),
+            _ => unreachable!(),
         };
 
         match event_result {
@@ -48,7 +54,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 (KeyCode::Tab, _) => {
                     // toggle between tabs
                     app.current_tab = match app.current_tab {
-                        Tab::Layout => Tab::Encodings,
+                        Tab::Layout => Tab::Query,
+                        Tab::Query => Tab::Encodings,
                         Tab::Encodings => Tab::Layout,
                     };
                 }
@@ -94,6 +101,9 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
 
                         // Reset the list scroll state.
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
+                    }
+                    if app.current_tab == Tab::Query {
+                        // TODO(adam): Execute query
                     }
                 }
                 (KeyCode::Left | KeyCode::Char('h'), _)
@@ -212,6 +222,49 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
     }
 
     HandleResult::Continue
+}
+
+fn handle_sql_mode(app: &mut AppState, event: Event) -> HandleResult {
+    // Check if we want to go into sql-input-mode
+    if !app.sql_state.is_input
+        && matches!(
+            event,
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('i'),
+                ..
+            })
+        )
+    {
+        app.sql_state.is_input = true;
+        return HandleResult::Continue;
+    };
+
+    if app.sql_state.is_input {
+        match event {
+            Event::Key(key) => match (key.code, key.modifiers) {
+                (KeyCode::Enter, KeyModifiers::CONTROL) => {
+                    app.sql_state.execute_query(app.)
+                    todo!("Run query");
+                }
+                (KeyCode::Esc, _) => {
+                    app.sql_state.is_input = false;
+                }
+                _ => {
+                    app.sql_state.input.input(key);
+                }
+            },
+            other => return handle_normal_mode(app, other),
+        }
+    }
+
+    handle_normal_mode(app, event)
+}
+
+fn make_container(title: &str) -> Block {
+    Block::bordered()
+        .title(title)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray))
 }
 
 // TODO: add tui_logger and have a logs tab so we can see the log output from

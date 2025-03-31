@@ -292,8 +292,10 @@ pub fn clickbench_queries() -> Vec<(usize, String)> {
 
 #[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Flavor {
+    /// Partitioned into 100 consecutive files
     #[default]
     Partitioned,
+    /// One single file, containing all records
     Single,
 }
 

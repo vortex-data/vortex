@@ -1,10 +1,12 @@
 mod encodings;
 mod layouts;
+mod sql;
 
 use encodings::encodings_ui;
 use layouts::render_layouts;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Tabs};
+use sql::render_sql;
 
 use super::app::{AppState, KeyMode, Tab};
 
@@ -45,20 +47,12 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame) {
     .areas(inner_area);
 
     // Display a tab indicator.
-    let selected_tab = match app.current_tab {
-        Tab::Layout => 0,
-        Tab::Encodings => 1,
-    };
+    let selected_tab = app.current_tab as usize;
 
-    let tabs = Tabs::new([
-        "File Layout",
-        "Arrays",
-        // TODO(aduffy): add SQL query interface
-        // "Query",
-    ])
-    .style(Style::default().bold().white())
-    .highlight_style(Style::default().bold().black().on_white())
-    .select(Some(selected_tab));
+    let tabs = Tabs::new(["File Layout", "Query", "Arrays"])
+        .style(Style::default().bold().white())
+        .highlight_style(Style::default().bold().black().on_white())
+        .select(Some(selected_tab));
 
     frame.render_widget(tabs, tab_view);
 
@@ -69,6 +63,9 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame) {
         }
         Tab::Encodings => {
             frame.render_widget(encodings_ui(app), app_view);
+        }
+        Tab::Query => {
+            render_sql(app, app_view, frame.buffer_mut());
         }
     }
 }

@@ -1,16 +1,23 @@
+use std::fmt::Display;
 use std::ops::Range;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use datafusion::prelude::SessionContext;
 use ratatui::widgets::ListState;
+use tui_textarea::TextArea;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex_datafusion::persistent::VortexFormat;
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
@@ -22,15 +29,16 @@ use vortex_layout::{
     STRUCT_LAYOUT_ID,
 };
 
+use crate::TOKIO_RUNTIME;
+
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
     /// The layout tree browser.
     #[default]
     Layout,
+    Query,
     /// The encoding tree viewer
     Encodings,
-    // TODO(aduffy): SQL query page powered by DF
-    // Query,
 }
 
 /// A pointer into the `Layout` hierarchy that can be advanced.
@@ -195,7 +203,7 @@ pub enum KeyMode {
 /// State saved across all Tabs.
 ///
 /// Holding them all allows us to switch between tabs without resetting view state.
-pub struct AppState {
+pub struct AppState<'a> {
     pub key_mode: KeyMode,
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
@@ -207,17 +215,51 @@ pub struct AppState {
 
     /// List state for the Layouts view
     pub layouts_list_state: ListState,
+    pub sql_state: SqlState<'a>,
 }
 
-impl AppState {
+impl AppState<'_> {
     pub fn clear_search(&mut self) {
         self.search_filter.clear();
         self.filter.take();
     }
 }
 
+#[derive(Default)]
+pub struct SqlState<'a> {
+    pub input: TextArea<'a>,
+    pub is_input: bool,
+    #[allow(dead_code)]
+    pub results: Option<String>,
+}
+
+impl SqlState<'_> {
+    pub fn execute_query(&mut self, path: &str) -> VortexResult<()> {
+        use datafusion::prelude::*;
+
+        let file_url = ListingTableUrl::parse(path)?;
+        let config = ListingTableConfig::new(file_url)
+            .with_listing_options(ListingOptions::new(Arc::new(VortexFormat::default())));
+        let listing_table = Arc::new(ListingTable::try_new(config)?);
+
+        let ctx = SessionContext::default();
+        ctx.register_table("file", listing_table)?;
+
+        let query = self.input.lines().join("\n");
+        let result_batches = TOKIO_RUNTIME.block_on(async move {
+            VortexResult::Ok(ctx.sql(&query).await?.limit(0, Some(10))?.collect().await?)
+        })?;
+
+        let display = datafusion::arrow::util::pretty::pretty_format_batches(&result_batches)?;
+
+        self.results = Some(format!("{display}"));
+
+        Ok(())
+    }
+}
+
 /// Create an app backed from a file path.
-pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
+pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
     let file = TokioFile::open(path)?;
     let footer = VortexOpenOptions::file(file.clone())
         .open()
@@ -241,6 +283,7 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         filter: None,
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
+        sql_state: SqlState::default(),
     })
 }
 

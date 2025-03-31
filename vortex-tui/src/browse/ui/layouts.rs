@@ -3,9 +3,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
-use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
-};
+use ratatui::widgets::{Cell, List, Paragraph, Row, StatefulWidget, Table, Widget};
 use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
@@ -17,6 +15,7 @@ use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
+use crate::browse::make_container;
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
@@ -82,11 +81,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         }
     }
 
-    let container = Block::new()
-        .title("Layout Info")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray));
+    let container = make_container("Layout Info");
 
     let inner_area = container.inner(area);
 
@@ -112,11 +107,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
-    let container = Block::new()
-        .title("Array Info")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray));
+    let container = make_container("Array Info");
 
     let widget_area = container.inner(area);
 
@@ -217,11 +208,7 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
             app.filter = Some(filter);
         }
 
-        let container = Block::new()
-            .title("Child Layouts")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
+        let container = make_container("Child Layouts");
 
         let inner_area = container.inner(area);
 

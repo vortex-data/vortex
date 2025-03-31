@@ -52,10 +52,12 @@ pub trait CompressorStats: Debug + Clone {
 
     fn source(&self) -> &Self::ArrayType;
 
+    /// Sample `sample_count` slices of `sample_size` values each.
     fn sample(&self, sample_size: u16, sample_count: u16) -> Self {
         self.sample_opts(sample_size, sample_count, GenerateStatsOptions::default())
     }
 
+    /// Sample `sample_count` slices of `sample_size` values each.
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
 }
 
@@ -189,10 +191,16 @@ pub trait Compressor {
         let best_scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
 
         let output = best_scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
-        if output.nbytes() < array.nbytes() {
+        let array_bytes = array.nbytes();
+        let output_bytes = output.nbytes();
+
+        if output_bytes < array_bytes {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.tree_display());
+            log::debug!(
+                "resulting tree too large, original is {array_bytes} and compressed output is {output_bytes} :\n{}",
+                output.tree_display()
+            );
             Ok(array.to_array())
         }
     }
@@ -203,6 +211,11 @@ pub trait Compressor {
         allowed_cascading: usize,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
     ) -> VortexResult<&'static Self::SchemeType> {
+        log::debug!(
+            "Choosing compression scheme for {} array",
+            stats.source().dtype()
+        );
+
         let mut best_ratio = 1.0;
         let mut best_scheme: Option<&'static Self::SchemeType> = None;
 
@@ -223,15 +236,16 @@ pub trait Compressor {
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
+
             log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:#?} ratio = {ratio}");
 
             if ratio > best_ratio {
                 best_ratio = ratio;
-                let _ = best_scheme.insert(*scheme);
+                best_scheme = Some(*scheme);
             }
         }
 
-        log::trace!("depth={depth} best scheme = {best_scheme:#?}  ratio = {best_ratio}");
+        log::debug!("depth={depth} best scheme = {best_scheme:#?}  ratio = {best_ratio}");
 
         if let Some(best) = best_scheme {
             Ok(best)
