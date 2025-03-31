@@ -22,15 +22,10 @@ use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
-use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use url::Url;
-use vortex::Array;
-use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
-use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::error::VortexResult;
-use vortex::validity::Validity;
 
 pub mod bench_run;
 pub mod blob;
@@ -193,23 +188,6 @@ pub async fn execute_query(
     Ok((result, physical_plan))
 }
 
-pub async fn execute_physical_plan(
-    ctx: &SessionContext,
-    plan: Arc<dyn ExecutionPlan>,
-) -> VortexResult<Vec<RecordBatch>> {
-    let result = collect(plan.clone(), ctx.state().task_ctx()).await?;
-    Ok(result)
-}
-
-pub async fn physical_plan(
-    ctx: &SessionContext,
-    query: &str,
-) -> anyhow::Result<Arc<dyn ExecutionPlan>> {
-    let plan = ctx.sql(query).await?;
-    let (state, plan) = plan.into_parts();
-    Ok(state.create_physical_plan(&plan).await?)
-}
-
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     String::from_utf8(
         Command::new("git")
@@ -244,57 +222,6 @@ pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
         .expect("could not build runtime environment");
 
     SessionContext::new_with_config_rt(SessionConfig::default(), rt)
-}
-
-/// Creates a randomly generated struct array, where each field is a list of
-/// i64 of size one.
-pub fn generate_struct_of_list_of_ints_array(
-    num_columns: u32,
-    rows: u32,
-    chunk_count: u32,
-) -> VortexResult<ChunkedArray> {
-    let int_dtype = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
-    let list_of_ints_dtype = DType::List(int_dtype.clone(), Nullability::Nullable);
-    let struct_dtype: Arc<StructDType> = Arc::new(
-        (0..num_columns)
-            .map(|col_idx| (col_idx.to_string(), list_of_ints_dtype.clone()))
-            .collect(),
-    );
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-
-    let rows_per_chunk = (rows / chunk_count).max(1u32);
-    let arrays = (0..rows)
-        .step_by(rows_per_chunk as usize)
-        .map(|starting_row| rows_per_chunk.min(rows - starting_row))
-        .map(|chunk_row_count| {
-            let fields = (0u32..num_columns)
-                .map(|_| {
-                    let elements = PrimitiveArray::from_iter(
-                        (0u32..chunk_row_count).map(|_| rng.random::<i64>()),
-                    );
-                    let offsets = PrimitiveArray::from_iter(0u32..=chunk_row_count);
-                    ListArray::try_new(
-                        elements.into_array(),
-                        offsets.into_array(),
-                        Validity::AllValid,
-                    )
-                    .map(|a| a.into_array())
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
-            StructArray::try_new(
-                struct_dtype.names().clone(),
-                fields,
-                chunk_row_count as usize,
-                Validity::NonNullable,
-            )
-            .map(|a| a.into_array())
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    ChunkedArray::try_new(
-        arrays,
-        DType::Struct(struct_dtype.clone(), Nullability::NonNullable),
-    )
 }
 
 pub fn make_object_store(

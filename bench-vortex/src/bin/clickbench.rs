@@ -6,8 +6,8 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::{
-    Format, IdempotentPath as _, default_env_filter, execute_physical_plan,
-    feature_flagged_allocator, get_session_with_cache, make_object_store, physical_plan,
+    Format, IdempotentPath as _, default_env_filter, execute_query, feature_flagged_allocator,
+    get_session_with_cache, make_object_store,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -201,16 +201,11 @@ fn main() -> anyhow::Result<()> {
                     let context = context.clone();
                     let query = query.clone();
                     last_plan = tokio::task::spawn(async move {
-                        let execution_plan = physical_plan(&context, &query)
-                            .instrument(info_span!("create_physical_plan", query_idx, iteration))
-                            .await
-                            .unwrap_or_else(|e| panic!("physical plan {query_idx}: {e}"));
-
-                        execute_physical_plan(&context, execution_plan.clone())
+                        let (_, plan) = execute_query(&context, &query)
                             .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
                             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
-                        Some(execution_plan.clone())
+                        Some(plan.clone())
                     })
                     .await
                     .unwrap();
