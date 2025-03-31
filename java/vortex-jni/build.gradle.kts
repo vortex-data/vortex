@@ -142,8 +142,6 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-// TODO(aduffy): fetch the target triple dynamically
-val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
     workingDir = vortexJNI
