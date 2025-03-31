@@ -127,7 +127,7 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     let sample = if is_sample {
         stats.clone()
     } else {
-        stats.sample(64, 10)
+        stats.sample(640, 20)
     };
 
     let after = compressor
