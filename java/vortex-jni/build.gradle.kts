@@ -7,7 +7,7 @@ plugins {
     `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
-    id("me.champeau.jmh") version "0.7.2"
+    id("me.champeau.jmh") version "0.7.3"
 }
 
 dependencies {
