@@ -170,7 +170,7 @@ static File *OpenFile(const std::string &filename, vector<LogicalType> &column_t
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
-	// ExtractVortexSchema(file_dtype, column_types, column_names);
+	ExtractVortexSchema(file_dtype, column_types, column_names);
 
 	return file;
 }
