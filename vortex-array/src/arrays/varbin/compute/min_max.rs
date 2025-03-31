@@ -22,19 +22,33 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
-            let scalar = Scalar::new(dtype.clone(), value.into());
+            let scalar = make_scalar(dtype, value);
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), (*min).into()),
-            max: Scalar::new(dtype.clone(), (*max).into()),
+            min: make_scalar(dtype, min),
+            max: make_scalar(dtype, max),
         }),
     })?;
 
     Ok(minmax)
+}
+
+/// Helper function to make sure that min/max has the right [`ScalarValue`] type.
+fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
+    match dtype {
+        DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),
+        DType::Utf8(_) => {
+            // Safety:
+            // We trust the array's dtype here
+            let value = unsafe { str::from_utf8_unchecked(value) };
+            Scalar::new(dtype.clone(), value.into())
+        }
+        _ => unreachable!(),
+    }
 }
 
 #[cfg(test)]
