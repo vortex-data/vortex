@@ -68,7 +68,6 @@ struct ThreadSlot {
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
-	std::atomic_uint32_t next_file;
 	// Must be <= MAX_THREAD_COUNT.
 	std::atomic_uint32_t thread_id_counter;
 	std::atomic_bool finished;
@@ -78,6 +77,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	// Allocate MAX_THREAD_COUNT threads, the max number threads allowed by this extension.
 	duckdb::vector<unique_ptr<ThreadSlot>> file_slots;
 
+	std::atomic_uint32_t next_file;
 	vector<string> expanded_files;
 
 	optional_ptr<TableFilterSet> filter;
