@@ -163,16 +163,14 @@ static File *OpenFile(const std::string &filename, vector<LogicalType> &column_t
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
+	// This Ptr is owned by the file
 	const DType *file_dtype = File_dtype(file);
 	if (DType_get(file_dtype) != DTYPE_STRUCT) {
 		File_free(file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
-	ExtractVortexSchema(file_dtype, column_types, column_names);
-
-	// TODO(joe): double free?
-	// DType_free(const_cast<DType *>(file_dtype));
+	// ExtractVortexSchema(file_dtype, column_types, column_names);
 
 	return file;
 }
