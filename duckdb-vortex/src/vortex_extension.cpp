@@ -19,7 +19,7 @@
 
 namespace duckdb {
 
-const uint32_t MAX_THREAD_COUNT = 192;
+constexpr uint32_t MAX_THREAD_COUNT = 192;
 
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
@@ -92,7 +92,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 
 	explicit VortexScanGlobalState()
-	    : next_file(0), thread_id_counter(0), finished(false), file_slots(duckdb::vector<unique_ptr<ThreadSlot>>()),
+	    : thread_id_counter(0), finished(false), file_slots(duckdb::vector<unique_ptr<ThreadSlot>>()), next_file(0),
 	      filter(nullptr) {
 
 		file_slots.reserve(MAX_THREAD_COUNT);
@@ -229,26 +229,36 @@ static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanG
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &bind_data = data.bind_data->Cast<VortexBindData>();              // NOLINT
-	auto &local_state = data.local_state->Cast<VortexScanLocalState>();    // NOLINT
 	auto &global_state = data.global_state->Cast<VortexScanGlobalState>(); // NOLINT
+	auto &local_state = data.local_state->Cast<VortexScanLocalState>();    // NOLINT
 
 	if (local_state.array == nullptr) {
 		auto &slot = *global_state.file_slots[local_state.thread_id];
 		std::lock_guard _l(slot.slot_lock);
+
+		if (global_state.finished.load()) {
+			output.SetCardinality(0);
+			return;
+		}
 
 		// 1. check we can make progress on current owned file
 		// 2. check we can get another file
 		// todo: 3.
 		// 4. we are done
 
-		auto next = FFIArrayStream_next(slot.array_stream);
+		auto next = slot.array_stream != nullptr ? FFIArrayStream_next(slot.array_stream) : false;
 		if (!next) {
-			FFIArrayStream_free(slot.array_stream);
+			if (slot.array_stream != nullptr) {
+				FFIArrayStream_free(slot.array_stream);
+				slot.array_stream = nullptr;
+			}
 
 			auto file_idx = global_state.next_file.fetch_add(1);
 
 			if (file_idx >= global_state.expanded_files.size()) {
 				local_state.finished = true;
+				global_state.finished.exchange(true);
+				output.SetCardinality(0);
 				return;
 			}
 
@@ -318,7 +328,7 @@ void VortexExtension::Load(DuckDB &db) {
 
 	vortex_func.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
-		auto bind = input.bind_data->Cast<VortexBindData>();
+		auto &bind = input.bind_data->Cast<VortexBindData>();
 		auto state = make_uniq<VortexScanGlobalState>();
 
 		state->filter = input.filters;
