@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -75,6 +74,8 @@ fn main() -> ExitCode {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()

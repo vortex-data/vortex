@@ -1,5 +1,4 @@
 use std::fs::{self};
-use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
@@ -67,6 +66,8 @@ fn main() -> anyhow::Result<()> {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
