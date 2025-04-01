@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
@@ -41,6 +43,13 @@ impl VortexFile {
 
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
+    }
+
+    /// Create a new layout reader for the file.
+    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
+        self.footer
+            .layout()
+            .reader(self.segment_source(), self.footer().ctx())
     }
 
     pub fn scan(&self) -> ScanBuilder {

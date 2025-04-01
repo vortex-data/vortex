@@ -114,14 +114,9 @@ impl ScanBuilder {
     }
 
     pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
-        // Spin up the root layout reader
-        let layout_reader = self
-            .vxf
-            .footer()
-            .layout()
-            .reader(self.vxf.segment_source(), self.vxf.footer().ctx())?;
-        // And then wrap it in a FilterLayoutReader to perform conjunction splitting.
-        let layout_reader: Arc<dyn LayoutReader> = Arc::new(FilterLayoutReader::new(layout_reader));
+        // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
+        // conjunction splitting.
+        let layout_reader = Arc::new(FilterLayoutReader::new(self.vxf.layout_reader()?));
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
