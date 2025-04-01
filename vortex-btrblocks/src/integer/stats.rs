@@ -149,6 +149,10 @@ impl CompressorStats for IntegerStats {
 
         Self::generate_opts(&sampled, opts)
     }
+
+    fn sampling_percentage(&self) -> u32 {
+        5
+    }
 }
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats

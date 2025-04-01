@@ -59,6 +59,11 @@ pub trait CompressorStats: Debug + Clone {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self;
+
+    /// What percentage of values we should sample, in a whole integer (e.g. 1% will be 1).
+    fn sampling_percentage(&self) -> u32 {
+        1
+    }
 }
 
 /// Top-level compression scheme trait.
@@ -134,7 +139,8 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
 
         // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
         let sample_count = usize::max(
-            (source_len / 100) / usize::try_from(SAMPLE_SIZE).vortex_unwrap(),
+            stats.sampling_percentage() as usize * (source_len / 100)
+                / usize::try_from(SAMPLE_SIZE).vortex_unwrap(),
             10,
         );
 

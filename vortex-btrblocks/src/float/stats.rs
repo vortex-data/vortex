@@ -77,6 +77,10 @@ impl CompressorStats for FloatStats {
 
         Self::generate_opts(&sampled, opts)
     }
+
+    fn sampling_percentage(&self) -> u32 {
+        5
+    }
 }
 
 fn typed_float_stats<T: NativePType + Float>(
