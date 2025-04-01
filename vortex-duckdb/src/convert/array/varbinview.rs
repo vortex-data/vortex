@@ -137,7 +137,6 @@ mod tests {
     fn constant_empty_str_array() {
         let len = 100;
         let const_ = ConstantArray::new("", len).to_array();
-        println!("{}", const_.tree_display());
         let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
         to_duckdb(
             &const_,
@@ -163,7 +162,6 @@ mod tests {
             len,
         )
         .to_array();
-        println!("{}", const_.tree_display());
         let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
         to_duckdb(
             &const_,
