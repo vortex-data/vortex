@@ -114,20 +114,20 @@ impl EncodingVTable for BitPackedEncoding {
             None => find_best_bit_width(&parray)?,
         };
 
-        let r = match (bit_width as usize).cmp(&parray.ptype().bit_width()) {
-            Ordering::Less => bitpack_encode(&parray, bit_width)?.into_array(),
-            Ordering::Equal => parray.to_array(),
-            Ordering::Greater => {
-                let new_bit_width = find_best_bit_width(&parray)?;
-                if new_bit_width as usize >= parray.ptype().bit_width() {
-                    parray.to_array()
-                } else {
-                    bitpack_encode(&parray, new_bit_width)?.into_array()
+        Ok(Some(
+            match (bit_width as usize).cmp(&parray.ptype().bit_width()) {
+                Ordering::Less => bitpack_encode(&parray, bit_width)?.into_array(),
+                Ordering::Equal => parray.to_array(),
+                Ordering::Greater => {
+                    let new_bit_width = find_best_bit_width(&parray)?;
+                    if new_bit_width as usize >= parray.ptype().bit_width() {
+                        parray.to_array()
+                    } else {
+                        bitpack_encode(&parray, new_bit_width)?.into_array()
+                    }
                 }
-            }
-        };
-
-        Ok(Some(r))
+            },
+        ))
     }
 }
 
