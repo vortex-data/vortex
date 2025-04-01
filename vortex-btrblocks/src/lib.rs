@@ -16,7 +16,6 @@ pub use crate::integer::IntCompressor;
 pub use crate::string::StringCompressor;
 pub use crate::temporal::compress_temporal;
 
-mod downscale;
 mod float;
 pub mod integer;
 mod patches;
