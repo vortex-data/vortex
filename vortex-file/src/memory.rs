@@ -4,7 +4,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_layout::source::SegmentSource;
 
 use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
@@ -29,10 +29,15 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
         let footer = self.read_footer(&buffer).await?;
-        Ok(VortexFile {
+
+        let source = Arc::new(InMemorySegmentReader {
+            buffer,
             footer: footer.clone(),
-            segment_cache: self.segment_cache,
-            io_driver: None,
+        });
+
+        Ok(VortexFile {
+            footer,
+            source,
             metrics: self.metrics,
         })
     }

@@ -6,11 +6,12 @@ use futures::stream::LocalBoxStream;
 use itertools::Itertools;
 use moka::sync::CacheBuilder;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_io::{IoDispatcher, PerformanceHint, VortexReadAt};
+use vortex_io::{Dispatch, IoDispatcher, PerformanceHint, VortexReadAt};
+use vortex_layout::segments::SegmentEvents;
 
 use crate::footer::SegmentSpec;
-use crate::segments::InMemorySegmentCache;
 use crate::segments::coalesced::{CoalescedSegmentRequest, evaluate};
+use crate::segments::{CachedSegmentSource, InMemorySegmentCache};
 use crate::{FileType, IoDriver, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
@@ -43,13 +44,23 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
+
+        // We use segment events for driving I/O.
+        let (source, events) = SegmentEvents::create(self.metrics.clone());
+
+        // Wrap the source to resolve segments from the initial read cache.
+        let source = Arc::new(CachedSegmentSource::new(self.segment_cache.clone(), source));
+
+        // Spawn an I/O driver onto the dispatcher.
+        self.options.io_dispatcher.dispatch(move || {
+            async move {
+                // Drive the segment event stream.
+            }
+        })?;
+
         Ok(VortexFile {
             footer: footer.clone(),
-            segment_cache: self.segment_cache,
-            io_driver: Some(Arc::new(ScanDriver {
-                read: Mutex::new(read),
-                segment_map: footer.segment_map().clone(),
-            })),
+            source,
             metrics: self.metrics,
         })
     }

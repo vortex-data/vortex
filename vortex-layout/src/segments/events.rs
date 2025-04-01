@@ -54,24 +54,27 @@ pub enum SegmentEvent {
     Requested(SegmentRequest),
     Polled(SegmentId),
     Dropped(SegmentId),
+    Resolved(SegmentId),
 }
 
 impl Debug for SegmentEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SegmentEvent::Requested(id) => write!(f, "SegmentEvent::Registered({:?})", id),
+            SegmentEvent::Requested(req) => write!(f, "SegmentEvent::Registered({:?})", req.id),
             SegmentEvent::Polled(id) => write!(f, "SegmentEvent::Polled({:?})", id),
             SegmentEvent::Dropped(id) => write!(f, "SegmentEvent::Dropped({:?})", id),
+            SegmentEvent::Resolved(id) => write!(f, "SegmentEvent::Resolved({:?})", id),
         }
     }
 }
 
-#[derive(Debug)]
 pub struct SegmentRequest {
-    // The ID of the requested segment
+    /// The ID of the requested segment
     id: SegmentId,
-    // The one-shot channel to send the segment back to the caller
+    /// The one-shot channel to send the segment back to the caller
     callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    /// A handle back to the segment events.
+    events: Arc<SegmentEvents>,
 }
 
 impl SegmentRequest {
@@ -84,7 +87,10 @@ impl SegmentRequest {
         self.callback
             .send(buffer)
             .map_err(|_| vortex_err!("send failed"))
+            // TODO(ngates): I think this is actually expected if the segment is dropped while
+            //  in flight...
             .vortex_expect("send failed");
+        self.events.submit_event(SegmentEvent::Resolved(self.id));
     }
 }
 
@@ -140,6 +146,7 @@ impl SegmentEvents {
                     self.submit_event(SegmentEvent::Requested(SegmentRequest {
                         id,
                         callback: send,
+                        events: self.clone(),
                     }));
 
                     break fut;
