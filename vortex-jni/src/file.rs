@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JObject, JString};
@@ -13,7 +13,7 @@ use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::ObjectStoreReadAt;
@@ -164,14 +164,28 @@ fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
 ) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
+    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
+    {
+        if let Some(cached) = OBJECT_STORES
+            .lock()
+            .vortex_expect("poison")
+            .get(&url_cache_key(url))
+        {
+            return Ok((cached.clone(), scheme));
+        }
+        // guard dropped at close of scope
+    }
+
     // Configure extra properties on that scheme instead.
-    match scheme {
+    let store: Arc<dyn ObjectStore> = match scheme {
         ObjectStoreScheme::Local => {
             log::trace!("using LocalFileSystem object store");
-            Ok((Arc::new(LocalFileSystem::default()), scheme))
+            Arc::new(LocalFileSystem::default())
         }
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
@@ -184,8 +198,7 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
@@ -199,8 +212,7 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::GoogleCloudStorage => {
             log::trace!("using GoogleCloudStorage object store");
@@ -214,11 +226,28 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         store => {
             vortex_bail!("Unsupported store scheme: {store:?}");
         }
+    };
+
+    {
+        OBJECT_STORES
+            .lock()
+            .vortex_expect("poison")
+            .insert(url_cache_key(url), store.clone());
+        // Guard dropped at close of scope.
     }
+
+    Ok((store, scheme))
+}
+
+fn url_cache_key(url: &Url) -> String {
+    format!(
+        "{}://{}",
+        url.scheme(),
+        &url[url::Position::BeforeHost..url::Position::AfterPort],
+    )
 }
