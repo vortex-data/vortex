@@ -73,10 +73,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             let opts = env.get_map(&options)?;
             let mut iterator = opts.iter(env)?;
             while let Some((key, val)) = iterator.next(env)? {
-                let key_str: JString = key.into();
-                let val_str: JString = val.into();
-                let key_str = env.get_string(&key_str)?;
-                let val_str = env.get_string(&val_str)?;
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
                 properties.insert(key_str.into(), val_str.into());
             }
         }
@@ -132,7 +132,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
                 let mut projection: Vec<Arc<str>> = Vec::new();
                 let mut iterator = proj.iter(env)?;
                 while let Some(field) = iterator.next(env)? {
-                    let field_name: String = env.get_string(&JString::from(field))?.into();
+                    let field = env.auto_local(field);
+
+                    let field_name: String = env.get_string(field.as_ref().into())?.into();
                     projection.push(field_name.into());
                 }
                 let project_expr = select(projection, Identity::new_expr());
