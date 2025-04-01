@@ -205,14 +205,6 @@ static File *OpenFileAndVerify(const std::string &filename, const VortexBindData
 }
 
 static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanGlobalState &global_state, File *file) {
-
-	std::cout << "Opening array stream" << std::endl;
-	std::cout << "Projection ids count: " << global_state.projected_column_names.size() << std::endl;
-	std::cout << "Projection ids: " << std::endl;
-	for (auto idx : global_state.projected_column_names) {
-		std::cout << std::string(idx) << std::endl;
-	}
-
 	auto options = FileScanOptions {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
@@ -248,7 +240,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		// 4. we are done
 
 		auto next = slot.array_stream != nullptr ? FFIArrayStream_next(slot.array_stream) : false;
-		if (!next) {
+		while (!next) {
 			if (slot.array_stream != nullptr) {
 				FFIArrayStream_free(slot.array_stream);
 				slot.array_stream = nullptr;
@@ -259,7 +251,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			if (file_idx >= global_state.expanded_files.size()) {
 				local_state.finished = true;
 				global_state.finished = true;
-				output.SetCardinality(0);
+				output.Reset();
 				return;
 			}
 
@@ -267,11 +259,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			auto file = OpenFileAndVerify(file_name, bind_data);
 
 			slot.array_stream = OpenArrayStream(bind_data, global_state, file);
-			auto next_next = FFIArrayStream_next(slot.array_stream);
-			if (!next_next) {
-				// TODO(joe): handle empty streams.
-				throw FatalException("Cannot have empty array_stream from file: " + file_name);
-			}
+			next = FFIArrayStream_next(slot.array_stream);
 		}
 		local_state.array = FFIArrayStream_current(slot.array_stream);
 		local_state.current_row = 0;
