@@ -77,7 +77,8 @@ fn main() -> anyhow::Result<()> {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_level(true)
-            .with_line_number(true);
+            .with_line_number(true)
+            .with_ansi(std::io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)
