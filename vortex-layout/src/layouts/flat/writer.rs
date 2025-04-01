@@ -107,6 +107,8 @@ impl LayoutWriter for FlatLayoutWriter {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::{Precision, Stat};
@@ -118,7 +120,7 @@ mod tests {
 
     use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
@@ -134,11 +136,12 @@ mod tests {
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
                     .push_one(&mut segments, array.into_array())
                     .unwrap();
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident(), &segments)
+                .projection_evaluation(&(0..layout.row_count()), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await

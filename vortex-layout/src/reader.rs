@@ -11,14 +11,13 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::Layout;
-use crate::segments::SegmentSource;
 
 /// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
 /// operations.
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: 'static + Send + Sync + ExprEvaluator {
+pub trait LayoutReader: 'static + ExprEvaluator {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;
 
@@ -33,16 +32,6 @@ pub trait LayoutReader: 'static + Send + Sync + ExprEvaluator {
     }
 
     fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
-}
-
-impl LayoutReader for Arc<dyn LayoutReader> {
-    fn layout(&self) -> &Layout {
-        self.as_ref().layout()
-    }
-
-    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
-        self.as_ref().children()
-    }
 }
 
 pub trait LayoutReaderExt: LayoutReader {
@@ -73,7 +62,6 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-        _segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
@@ -83,7 +71,6 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     /// Evaluates the expression against the layout.
@@ -91,7 +78,6 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
@@ -100,30 +86,24 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        self.as_ref()
-            .pruning_evaluation(row_range, expr, segment_source)
+        self.as_ref().pruning_evaluation(row_range, expr)
     }
 
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.as_ref()
-            .filter_evaluation(row_range, expr, segment_source)
+        self.as_ref().filter_evaluation(row_range, expr)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        self.as_ref()
-            .projection_evaluation(row_range, expr, segment_source)
+        self.as_ref().projection_evaluation(row_range, expr)
     }
 }
 

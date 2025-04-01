@@ -15,18 +15,24 @@ pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<Array
 
 pub struct FlatReader {
     pub(crate) layout: Layout,
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     pub(crate) ctx: ArrayContext,
     pub(crate) array: OnceLock<SharedArray>,
 }
 
 impl FlatReader {
-    pub(crate) fn try_new(layout: Layout, ctx: ArrayContext) -> VortexResult<Self> {
+    pub(crate) fn try_new(
+        layout: Layout,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
+    ) -> VortexResult<Self> {
         if layout.vtable().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 
         Ok(Self {
             layout,
+            segment_source,
             ctx,
             array: Default::default(),
         })
@@ -39,10 +45,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    pub(crate) fn array_future(
-        &self,
-        segment_source: &dyn SegmentSource,
-    ) -> VortexResult<SharedArray> {
+    pub(crate) fn array_future(&self) -> VortexResult<SharedArray> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -52,7 +55,7 @@ impl FlatReader {
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a better solution.
-        let segment_fut = segment_source.request(segment_id, self.layout.name());
+        let segment_fut = self.segment_source.request(segment_id, self.layout.name());
 
         Ok(self
             .array

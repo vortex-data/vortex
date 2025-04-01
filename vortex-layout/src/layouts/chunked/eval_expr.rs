@@ -14,7 +14,6 @@ use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, MaskEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for ChunkedReader {
@@ -22,14 +21,13 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, segment_source)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -45,14 +43,13 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr, segment_source)?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -68,7 +65,6 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
@@ -76,8 +72,7 @@ impl ExprEvaluator for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval =
-                chunk_reader.projection_evaluation(&chunk_range, expr, segment_source)?;
+            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -242,13 +237,9 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(
-                    &(0..layout.row_count()),
-                    &Identity::new_expr(),
-                    segments.as_ref(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await

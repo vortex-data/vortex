@@ -8,7 +8,6 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::{FlatReader, SharedArray};
-use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 impl ExprEvaluator for FlatReader {
@@ -16,7 +15,6 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -25,7 +23,7 @@ impl ExprEvaluator for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future(segment_source)?,
+            array: self.array_future()?,
             row_range,
             expr: expr.clone(),
         }))
@@ -35,7 +33,6 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -43,7 +40,7 @@ impl ExprEvaluator for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future(segment_source)?,
+            array: self.array_future()?,
             row_range,
             expr: expr.clone(),
         }))
@@ -135,6 +132,8 @@ impl ArrayEvaluation for FlatEvaluation {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
@@ -146,7 +145,7 @@ mod test {
 
     use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
 
     #[test]
@@ -160,10 +159,12 @@ mod test {
                     .push_one(&mut segments, array.to_array().into_array())
                     .unwrap();
 
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr(), &segments)
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -186,11 +187,13 @@ mod test {
                     .push_one(&mut segments, array.into_array())
                     .unwrap();
 
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expr, &segments)
+                .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -216,10 +219,12 @@ mod test {
                     .push_one(&mut segments, array.to_array().into_array())
                     .unwrap();
 
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(2..4), &ident(), &segments)
+                .projection_evaluation(&(2..4), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

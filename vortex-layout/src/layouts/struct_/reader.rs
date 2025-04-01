@@ -10,10 +10,12 @@ use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
+use crate::segments::SegmentSource;
 use crate::{Layout, LayoutReader, LayoutVTable};
 
 pub struct StructReader {
     layout: Layout,
+    segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
 
     field_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
@@ -22,7 +24,11 @@ pub struct StructReader {
 }
 
 impl StructReader {
-    pub(super) fn try_new(layout: Layout, ctx: ArrayContext) -> VortexResult<Self> {
+    pub(super) fn try_new(
+        layout: Layout,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
+    ) -> VortexResult<Self> {
         if layout.vtable().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
@@ -48,6 +54,7 @@ impl StructReader {
         // different scans for different fields.
         Ok(Self {
             layout,
+            segment_source,
             ctx,
             field_readers,
             field_lookup,
@@ -76,7 +83,7 @@ impl StructReader {
             let child_layout =
                 self.layout
                     .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
-            child_layout.reader(self.ctx.clone())
+            child_layout.reader(&self.segment_source, &self.ctx)
         })
     }
 

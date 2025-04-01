@@ -48,7 +48,11 @@ pub struct StatsReader {
 }
 
 impl StatsReader {
-    pub(super) fn try_new(layout: Layout, ctx: ArrayContext) -> VortexResult<Self> {
+    pub(super) fn try_new(
+        layout: Layout,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
+    ) -> VortexResult<Self> {
         if layout.vtable().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
@@ -63,12 +67,12 @@ impl StatsReader {
 
         let data_child = layout
             .child(0, layout.dtype().clone(), "data")?
-            .reader(ctx.clone())?;
+            .reader(segment_source, ctx)?;
 
         let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
         let stats_child = layout
             .child(1, stats_dtype, "stats_table")?
-            .reader(ctx.clone())?;
+            .reader(segment_source, ctx)?;
 
         Ok(Self {
             layout,
@@ -98,7 +102,7 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) fn stats_table(&self, segment_source: &dyn SegmentSource) -> SharedStatsTable {
+    pub(crate) fn stats_table(&self) -> SharedStatsTable {
         self.stats_table
             .get_or_init(move || {
                 let nzones = self.nzones;
@@ -106,11 +110,7 @@ impl StatsReader {
 
                 let stats_eval = self
                     .stats_child
-                    .projection_evaluation(
-                        &(0..nzones as u64),
-                        &Identity::new_expr(),
-                        segment_source,
-                    )
+                    .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())
                     .vortex_expect("Failed construct stats table evaluation");
 
                 async move {
@@ -126,11 +126,7 @@ impl StatsReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    pub(crate) fn pruning_mask_future(
-        &self,
-        expr: ExprRef,
-        segment_source: &dyn SegmentSource,
-    ) -> Option<SharedPruningResult> {
+    pub(crate) fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         match self
             .pruning_result
             .write()
@@ -144,7 +140,7 @@ impl StatsReader {
                     Some(pred) => {
                         log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
                         Some(
-                            self.stats_table(segment_source)
+                            self.stats_table()
                                 .map(move |stats_table| {
                                     stats_table.and_then(move |stats_table| {
                                         pred.evaluate(stats_table.array())?

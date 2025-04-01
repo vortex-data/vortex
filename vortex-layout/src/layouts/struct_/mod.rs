@@ -12,6 +12,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
@@ -23,8 +24,13 @@ impl LayoutVTable for StructLayout {
         STRUCT_LAYOUT_ID
     }
 
-    fn reader(&self, layout: Layout, ctx: ArrayContext) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(StructReader::try_new(layout, ctx)?.into_arc())
+    fn reader(
+        &self,
+        layout: Layout,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(StructReader::try_new(layout, segment_source.clone(), ctx.clone())?.into_arc())
     }
 
     fn register_splits(

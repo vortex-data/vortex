@@ -8,7 +8,6 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
-use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
 };
@@ -18,14 +17,10 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        let data_eval = self
-            .data_child
-            .pruning_evaluation(row_range, expr, segment_source)?;
+        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
-        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_source)
-        else {
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             return Ok(data_eval);
         };
 
@@ -59,22 +54,18 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child
-            .filter_evaluation(row_range, expr, segment_source)
+        self.data_child.filter_evaluation(row_range, expr)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child
-            .projection_evaluation(row_range, expr, segment_source)
+        self.data_child.projection_evaluation(row_range, expr)
     }
 }
 
@@ -191,13 +182,9 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .reader(ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(
-                    &(0..layout.row_count()),
-                    &Identity::new_expr(),
-                    segments.as_ref(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -220,13 +207,13 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.reader(ctx).unwrap();
+            let reader = layout.reader(&segments, &ctx).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .pruning_evaluation(&(0..row_count), &expr, segments.as_ref())
+                .pruning_evaluation(&(0..row_count), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await
