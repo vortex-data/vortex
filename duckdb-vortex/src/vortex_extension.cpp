@@ -19,6 +19,9 @@
 
 namespace duckdb {
 
+// A value large enough that most systems can use all their threads.
+// This is used to allocate `file_slots`, we could remove this later by having the init_local method increase the
+// file slots size for each running.
 constexpr uint32_t MAX_THREAD_COUNT = 192;
 
 /// Bind data for the Vortex table function that holds information about the
@@ -62,7 +65,7 @@ struct VortexScanLocalState : public LocalTableFunctionState {
 	}
 };
 
-struct ThreadSlot {
+struct FileSlot {
 	std::mutex slot_lock;
 	ArrayStream *array_stream;
 };
@@ -72,15 +75,17 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_uint32_t thread_id_counter;
 	std::atomic_bool finished;
 
-	// each thread owns a thread slot and is the only one allowed to modify the slot itself,
-	// however other threads can work-steal array batches from the slot, but taking out the mutex in the ThreadSlot
-	// Allocate MAX_THREAD_COUNT threads, the max number threads allowed by this extension.
-	duckdb::vector<unique_ptr<ThreadSlot>> file_slots;
+	// Each thread owns a file slot and is the thing only one allowed to modify the slot itself.
+	// Other threads can work-steal array batches from the slot, by taking out the mutex in the FileSlot.
+	// We allocate MAX_THREAD_COUNT threads, the max number threads allowed by this extension.
+	std::array<FileSlot, MAX_THREAD_COUNT> file_slots;
 
 	std::atomic_uint32_t next_file;
 	vector<string> expanded_files;
 
 	optional_ptr<TableFilterSet> filter;
+	std::string filter_str;
+	std::vector<char const *> projected_column_names;
 	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
 
@@ -92,14 +97,13 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 
 	explicit VortexScanGlobalState()
-	    : thread_id_counter(0), finished(false), file_slots(duckdb::vector<unique_ptr<ThreadSlot>>()), next_file(0),
-	      filter(nullptr) {
+	    : thread_id_counter(0), finished(false), file_slots(), next_file(0), filter(nullptr) {
 
-		file_slots.reserve(MAX_THREAD_COUNT);
+		// file_slots.reserve(MAX_THREAD_COUNT);
 
-		for (size_t i = 0; i < MAX_THREAD_COUNT; ++i) {
-			file_slots.emplace_back(make_uniq<ThreadSlot>());
-		}
+		// for (size_t i = 0; i < MAX_THREAD_COUNT; ++i) {
+		// file_slots.
+		// }
 	}
 };
 
@@ -204,24 +208,17 @@ static File *OpenFileAndVerify(const std::string &filename, const VortexBindData
 }
 
 static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanGlobalState &global_state, File *file) {
-	auto column_names = std::vector<char const *>();
-	for (auto col_id : global_state.projection_ids) {
-		assert(col_id < bind_data.column_names.size());
-		column_names.push_back(bind_data.column_names[col_id].c_str());
-	}
-
-	auto str = create_filter_expression(bind_data, global_state);
 
 	auto options = FileScanOptions {
-	    .projection = column_names.data(),
-	    .projection_len = static_cast<int>(global_state.projection_ids.size()),
-	    .filter_expression = str.data(),
-	    .filter_expression_len = static_cast<int>(str.length()),
+	    .projection = global_state.projected_column_names.data(),
+	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
+	    .filter_expression = global_state.filter_str.data(),
+	    .filter_expression_len = static_cast<int>(global_state.filter_str.length()),
 	    // This is a multiple of the 2048 duckdb vector size, it needs tuning
 	    // This has a few factor effecting it:
 	    //  1. A smaller value means for work for the vortex file reader.
 	    //  2. A larger value reduces the parallelism available to the scanner
-	    .split_by_row_count = 2048 * 16,
+	    .split_by_row_count = 2048 * 8,
 	};
 
 	return File_scan(file, &options);
@@ -233,7 +230,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &local_state = data.local_state->Cast<VortexScanLocalState>();    // NOLINT
 
 	if (local_state.array == nullptr) {
-		auto &slot = *global_state.file_slots[local_state.thread_id];
+		auto &slot = global_state.file_slots[local_state.thread_id];
 		std::lock_guard _l(slot.slot_lock);
 
 		if (global_state.finished.load()) {
@@ -243,7 +240,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 		// 1. check we can make progress on current owned file
 		// 2. check we can get another file
-		// todo: 3.
+		// todo: 3. check if we can work steal from another thread
 		// 4. we are done
 
 		auto next = slot.array_stream != nullptr ? FFIArrayStream_next(slot.array_stream) : false;
@@ -297,7 +294,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
                                            vector<LogicalType> &column_types, vector<string> &column_names) {
 	auto result = make_uniq<VortexBindData>();
 
-	// Get the filename from the input.
+	// Get the filename glob from the input.
 	auto vec = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
 	result->file_list = make_shared_ptr<GlobMultiFileList>(context, vec, FileGlobOptions::DISALLOW_EMPTY);
 
@@ -342,8 +339,16 @@ void VortexExtension::Load(DuckDB &db) {
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
 		state->expanded_files = bind.file_list->GetAllFiles();
 
+		state->filter_str = create_filter_expression(bind, *state);
+		auto column_names = std::vector<char const *>();
+		for (auto col_id : state->projection_ids) {
+			assert(col_id < bind.column_names.size());
+			column_names.push_back(bind.column_names[col_id].c_str());
+		}
+		state->projected_column_names = column_names;
+
 		// Can ignore mutex since no other threads are running now.
-		state->file_slots[0]->array_stream = OpenArrayStream(bind, *state, bind.initial_file);
+		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file);
 		state->next_file = 1;
 
 		return std::move(state);
@@ -356,7 +361,7 @@ void VortexExtension::Load(DuckDB &db) {
 		auto thread_id = v_global_state.thread_id_counter.fetch_add(1);
 		assert(thread_id < MAX_THREAD_COUNT);
 
-		auto state = make_uniq<VortexScanLocalState>(0);
+		auto state = make_uniq<VortexScanLocalState>(thread_id);
 		return state;
 	};
 
