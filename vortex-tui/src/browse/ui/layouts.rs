@@ -13,9 +13,8 @@ use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_
 use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{ArrayRef, ArrayVariants};
-use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
-use vortex_layout::{ExprEvaluator, LayoutReader, LayoutReaderExt, LayoutVTable};
+use vortex_layout::{ExprEvaluator, LayoutReader, LayoutVTable};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -102,13 +101,17 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .reader(app.footer.ctx().clone())
+        .reader(app.vxf.footer().ctx().clone())
         .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME
         .block_on(
             reader
-                .projection_evaluation(&(0..reader.row_count()), &Identity::new_expr())
+                .projection_evaluation(
+                    &(0..reader.row_count()),
+                    &Identity::new_expr(),
+                    app.vxf.segment_source(),
+                )
                 .vortex_expect("Failed to construct projection")
                 .invoke(Mask::new_true(
                     reader.row_count().try_into().vortex_expect("row count"),

@@ -76,7 +76,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             .vortex_expect("Failed to spawn I/O driver");
 
         Ok(VortexFile {
-            footer: footer.clone(),
+            footer,
             segment_source,
             metrics: self.metrics,
         })

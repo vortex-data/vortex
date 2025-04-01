@@ -163,9 +163,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
-            builder.build()?.into_array_stream()?,
-        ));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.build()?));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -193,7 +191,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let stream = ArrayStreamExt::boxed(builder.build()?.into_array_stream()?);
+        let stream = ArrayStreamExt::boxed(builder.build()?);
         let dtype = stream.dtype().clone();
 
         // The I/O of the array stream won't make progress unless it's polled. So we need to spawn it.

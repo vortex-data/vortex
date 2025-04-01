@@ -1,14 +1,10 @@
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use futures_util::FutureExt;
-use futures_util::future::BoxFuture;
 use ratatui::widgets::ListState;
-use vortex::buffer::{ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
+use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::chunked::ChunkedLayout;
@@ -16,7 +12,7 @@ use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::SegmentId;
 use vortex_layout::{
     CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef, STATS_LAYOUT_ID,
     STRUCT_LAYOUT_ID,
@@ -200,8 +196,7 @@ pub struct AppState {
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
 
-    pub footer: Footer,
-    pub reader: Arc<dyn SegmentSource>,
+    pub vxf: VortexFile,
     pub cursor: LayoutCursor,
     pub current_tab: Tab,
 
@@ -218,23 +213,14 @@ impl AppState {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
-    let file = TokioFile::open(path)?;
-    let footer = VortexOpenOptions::file()
-        .open(file.clone())
-        .await?
-        .footer()
-        .clone();
+    let vxf = VortexOpenOptions::file()
+        .open(TokioFile::open(path)?)
+        .await?;
 
-    let reader = Arc::new(SegmentSource {
-        reader: file.clone(),
-        footer: footer.clone(),
-    }) as _;
-
-    let cursor = LayoutCursor::new(footer.clone());
+    let cursor = LayoutCursor::new(vxf.footer().clone());
 
     Ok(AppState {
-        footer,
-        reader,
+        vxf,
         cursor,
         key_mode: KeyMode::default(),
         search_filter: String::new(),
@@ -242,35 +228,6 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
     })
-}
-
-struct SegmentReader {
-    pub reader: TokioFile,
-    pub footer: Footer,
-}
-
-impl SegmentSource for SegmentSource {
-    fn request(
-        &self,
-        id: SegmentId,
-        _for_whom: &Arc<str>,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let segment = self.footer.segment_map()[*id as usize].clone();
-        let range = segment.offset..(segment.offset + segment.length as u64);
-        let reader = self.reader.clone();
-
-        async move {
-            let mut buf = ByteBufferMut::zeroed_aligned(
-                (range.end - range.start).try_into().vortex_expect("range"),
-                segment.alignment,
-            );
-            reader
-                .read_exact_at(&mut buf, range.start)
-                .expect("read_exact_at sync");
-            Ok(buf.freeze())
-        }
-        .boxed()
-    }
 }
 
 pub fn collect_segment_ids(root_layout: &Layout) -> (Vec<SegmentId>, Vec<SegmentId>) {

@@ -35,7 +35,7 @@ impl SegmentEvents {
         });
 
         let source = Arc::new(EventsSegmentSource {
-            events: events.clone(),
+            events,
         });
         let stream = recv.boxed();
 
@@ -140,7 +140,7 @@ impl SegmentEvents {
                     // Set up a SegmentRequest tied to the send end of the channel.
                     self.submit_event(SegmentEvent::Requested(SegmentRequest {
                         id,
-                        for_whom: for_whom.clone(),
+                        for_whom,
                         callback: send,
                         events: self.clone(),
                     }));
