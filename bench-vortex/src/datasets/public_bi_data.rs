@@ -2,11 +2,11 @@ use std::fmt;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
+use datafusion::prelude::{CsvReadOptions, SessionContext};
 use enum_iterator::Sequence;
 use futures::{StreamExt, TryStreamExt, stream};
 use humansize::{DECIMAL, format_size};
@@ -16,17 +16,17 @@ use tokio::fs::File;
 use tokio::runtime::Handle;
 use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::VortexExpect;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef};
 
+use crate::conversions::{csv_to_parquet_file, parquet_to_vortex};
 use crate::datasets::BenchmarkDataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
 use crate::datasets::public_bi_data::PBIDataset::*;
-use crate::parquet_reader::parquet_to_vortex;
-use crate::{IdempotentPath, idempotent, idempotent_async};
+use crate::{IdempotentPath, idempotent_async};
 
 // NB: we do not expect this to change, otherwise we'd crawl the site and populate it at runtime
 // We will eventually switch over to self-hosting this data, at which time this map will need
@@ -496,16 +496,27 @@ impl PBIDataset {
         }
     }
 
-    fn write_as_parquet(&self) {
+    async fn write_as_parquet(&self) {
         self.download_bzip();
         self.unzip();
+        let session = SessionContext::new();
 
         for f in self.list_files(FileType::Csv) {
             let output_fname = f.file_stem().unwrap().to_str().unwrap();
-            let compressed = idempotent(
+            let compressed = idempotent_async(
                 &self.path_for_file_type(output_fname, FileType::Parquet),
-                |output_path| write_csv_as_parquet(f, output_path),
+                async |output_path| {
+                    info!("Compressing {} to parquet", f.to_str().unwrap());
+                    csv_to_parquet_file(
+                        &session,
+                        CsvReadOptions::default().has_header(false).delimiter(b'|'),
+                        f.to_str().unwrap(),
+                        output_path.to_str().unwrap(),
+                    )
+                    .await
+                },
             )
+            .await
             .vortex_expect("Failed to compress to parquet");
             let pq_size = compressed.metadata().unwrap().size();
             info!(
@@ -517,7 +528,7 @@ impl PBIDataset {
     }
 
     async fn write_as_vortex(&self) {
-        self.write_as_parquet();
+        self.write_as_parquet().await;
         for f in self.list_files(FileType::Parquet) {
             let output_fname = f.file_stem().unwrap().to_str().unwrap();
             let compressed = idempotent_async(

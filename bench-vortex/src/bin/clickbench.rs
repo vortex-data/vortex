@@ -171,12 +171,9 @@ fn main() -> anyhow::Result<()> {
             Format::OnDiskVortex => {
                 runtime.block_on(async {
                     if url.scheme() == "file" {
-                        clickbench::convert_parquet_to_vortex(
-                            context.clone(),
-                            &url.to_file_path().unwrap(),
-                        )
-                        .await
-                        .unwrap();
+                        clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
+                            .await
+                            .unwrap();
                     }
                     clickbench::register_vortex_files(
                         context.clone(),

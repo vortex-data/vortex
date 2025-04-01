@@ -31,11 +31,11 @@ pub mod bench_run;
 pub mod blob;
 pub mod clickbench;
 pub mod compress;
+pub mod conversions;
 pub mod datasets;
 pub mod display;
 pub mod measurements;
 pub mod metrics;
-pub mod parquet_reader;
 pub mod random_access;
 pub mod tpch;
 

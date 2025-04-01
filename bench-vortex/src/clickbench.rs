@@ -9,7 +9,7 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
@@ -17,14 +17,10 @@ use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{info, warn};
 use url::Url;
-use vortex::TryIntoArray;
-use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
-use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
 
+use crate::conversions::parquet_to_vortex;
 use crate::{idempotent, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
@@ -146,10 +142,7 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     ])
 });
 
-pub async fn convert_parquet_to_vortex(
-    session: SessionContext,
-    input_path: &Path,
-) -> anyhow::Result<()> {
+pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> {
     let vortex_dir = input_path.join("vortex");
     let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
@@ -175,32 +168,12 @@ pub async fn convert_parquet_to_vortex(
             };
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
             let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
-            let session = session.clone();
 
             tokio::spawn(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     info!("Processing file '{filename}'");
-                    let record_batches = session
-                        .read_parquet(
-                            parquet_file_path.to_str().unwrap(),
-                            ParquetReadOptions::default(),
-                        )
-                        .await?
-                        .execute_stream()
-                        .await?;
-
-                    // Convert the arrow schema to a Vortex DType
-                    let array_stream = ArrayStreamAdapter::new(
-                        // TODO(ngates): or should we use the provided schema?
-                        DType::from_arrow(record_batches.schema()),
-                        record_batches.map(|batch| {
-                            batch
-                                .map_err(VortexError::from)
-                                .and_then(|b| b.try_into_array())
-                        }),
-                    );
-
+                    let array_stream = parquet_to_vortex(parquet_file_path).await?;
                     let f = OpenOptions::new()
                         .write(true)
                         .truncate(true)

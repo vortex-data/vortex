@@ -10,9 +10,9 @@ use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 
+use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
 use crate::datasets::data_downloads::download_data;
-use crate::parquet_reader::parquet_to_vortex;
 use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
