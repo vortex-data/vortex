@@ -1,10 +1,9 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use tokio::runtime::Handle;
-use tokio::task::JoinSet;
 use vortex_error::VortexExpect;
 
 use super::Executor;
@@ -17,17 +16,11 @@ pub struct TokioExecutor {
 
 struct Inner {
     handle: Handle,
-    // We use a joinset here so when the executor is dropped, it'll abort all running tasks
-    join_set: Mutex<JoinSet<()>>,
 }
 
 impl TokioExecutor {
     pub fn new(handle: Handle) -> Self {
-        let inner = Inner {
-            handle,
-            join_set: Mutex::new(JoinSet::new()),
-        };
-
+        let inner = Inner { handle };
         Self {
             inner: Arc::new(inner),
         }
