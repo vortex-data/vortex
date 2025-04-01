@@ -185,12 +185,10 @@ vortex-bytebool = { version = "0.25.2", path = "./encodings/bytebool" }
 vortex-datafusion = { version = "0.25.2", path = "./vortex-datafusion" }
 vortex-datetime-parts = { version = "0.25.2", path = "./encodings/datetime-parts" }
 vortex-dict = { version = "0.25.2", path = "./encodings/dict" }
-vortex-duckdb = { version = "0.25.2", path = "./vortex-duckdb" }
 vortex-dtype = { version = "0.25.2", path = "./vortex-dtype", default-features = false }
 vortex-error = { version = "0.25.2", path = "./vortex-error" }
 vortex-expr = { version = "0.25.2", path = "./vortex-expr" }
 vortex-fastlanes = { version = "0.25.2", path = "./encodings/fastlanes" }
-vortex-ffi = { version = "0.25.2", path = "./vortex-ffi" }
 vortex-file = { version = "0.25.2", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.25.2", path = "./vortex-flatbuffers" }
 vortex-fsst = { version = "0.25.2", path = "./encodings/fsst" }
@@ -205,6 +203,10 @@ vortex-scalar = { version = "0.25.2", path = "./vortex-scalar", default-features
 vortex-sparse = { version = "0.25.2", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.25.2", path = "./encodings/zigzag" }
 # END crates published by this project
+
+# No version contraints for unpublished crates.
+vortex-duckdb = { path = "./vortex-duckdb" }
+vortex-ffi = { path = "./vortex-ffi" }
 
 worker = "0.5.0"
 xshell = "0.2.6"
