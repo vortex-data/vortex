@@ -1,4 +1,5 @@
 use std::fs::{self};
+use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
