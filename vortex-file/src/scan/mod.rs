@@ -176,7 +176,7 @@ impl ScanBuilder {
 
         let result_dtype = projection.return_dtype(layout_reader.dtype())?;
 
-        let (segment_source, io_errors) = self.vxf.driver.spawn();
+        let segment_source = self.vxf.segment_source.clone();
 
         // Create a future to process each row split of the scan.
         let array_futures: Vec<_> = row_masks
@@ -246,15 +246,9 @@ impl ScanBuilder {
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
 
-        // Create a unified stream that propagates any I/O errors
-        let unified = UnifiedDriverStream {
-            exec_stream: array_stream,
-            io_stream: io_errors.map(|e| Err(e)),
-        };
-
         Ok(ArrayStreamAdapter::new(
             result_dtype,
-            instrument!("array_stream", unified),
+            instrument!("array_stream", array_stream),
         ))
     }
 

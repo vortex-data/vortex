@@ -7,16 +7,17 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, stream};
 use pin_project_lite::pin_project;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_io::{PerformanceHint, VortexReadAt};
+use vortex_layout::LayoutWriterExt;
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::VortexMetrics;
 
 use crate::segments::CoalescedSegmentRequest;
 use crate::{Footer, SegmentSpec};
 
-pub struct CoalescedDriver<R> {
-    read: R,
+pub struct CoalescedDriver {
+    performance_hint: PerformanceHint,
     footer: Footer,
     events: BoxStream<'static, SegmentEvent>,
     metrics: VortexMetrics,
@@ -28,8 +29,8 @@ pub struct CoalescedDriver<R> {
 }
 
 struct PendingSegment {
-    request: SegmentRequest,
     state: SegmentState,
+    request: Option<SegmentRequest>,
 }
 
 enum SegmentState {
@@ -39,15 +40,15 @@ enum SegmentState {
     Resolved,
 }
 
-impl<R: VortexReadAt> CoalescedDriver<R> {
+impl CoalescedDriver {
     pub fn new(
-        read: R,
+        performance_hint: PerformanceHint,
         footer: Footer,
         events: BoxStream<'static, SegmentEvent>,
         metrics: VortexMetrics,
     ) -> Self {
         Self {
-            read,
+            performance_hint,
             footer,
             events,
             metrics,
@@ -58,8 +59,8 @@ impl<R: VortexReadAt> CoalescedDriver<R> {
         }
     }
 
-    pub fn into_stream(self) -> impl Stream<Item = VortexResult<()>> {
-        stream::once(async move { Ok(()) })
+    pub fn into_stream(self) -> impl Stream<Item = CoalescedSegmentRequest> {
+        self
     }
 
     fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
@@ -83,16 +84,26 @@ impl<R: VortexReadAt> CoalescedDriver<R> {
 
     fn on_resolved(&mut self, _id: SegmentId) {}
 
-    fn launch_request(
-        &mut self,
-        _coalesced: CoalescedSegmentRequest,
-    ) -> BoxFuture<'static, VortexResult<()>> {
-        todo!()
+    /// Request a segment from the underlying storage.
+    fn coalesce_request(&mut self, request: SegmentRequest) -> CoalescedSegmentRequest {
+        let spec = self.segment_spec(request.id());
+
+        // We start with the requested segment, and then loop in any additional segments that fall
+        // within the coalescing window.
+        let coalesced = CoalescedSegmentRequest {
+            byte_range: spec.byte_range(),
+            requests: vec![request],
+            segment_map: self.footer.segment_map().clone(),
+        };
+
+        // TODO(ngates): coalesce
+
+        coalesced
     }
 }
 
-impl<R: VortexReadAt + Unpin> Stream for CoalescedDriver<R> {
-    type Item = VortexResult<BoxFuture<'static, VortexResult<()>>>;
+impl Stream for CoalescedDriver {
+    type Item = CoalescedSegmentRequest;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -119,7 +130,17 @@ impl<R: VortexReadAt + Unpin> Stream for CoalescedDriver<R> {
         }
 
         // Now we check to see if we should launch any I/O.
+        while let Some(id) = this.polled.pop_front() {
+            if let Some(request) = this
+                .state
+                .get_mut(&id)
+                .and_then(|state| state.request.take())
+            {
+                return Poll::Ready(Some(this.coalesce_request(request)));
+            }
+        }
 
-        todo!()
+        // Otherwise, wait for more events.
+        Poll::Pending
     }
 }

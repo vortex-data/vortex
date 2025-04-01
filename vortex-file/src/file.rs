@@ -19,7 +19,7 @@ pub struct VortexFile {
     /// The footer of the Vortex file.
     pub(crate) footer: Footer,
     /// A source for reading segments from the file.
-    pub(crate) driver: Arc<dyn FileDriver>,
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -48,8 +48,4 @@ impl VortexFile {
     pub fn scan(&self) -> ScanBuilder {
         ScanBuilder::new(self.clone())
     }
-}
-
-pub trait FileDriver {
-    fn spawn(&self) -> (Arc<dyn SegmentSource>, BoxStream<'static, VortexError>);
 }

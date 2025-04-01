@@ -14,7 +14,7 @@ use vortex_metrics::VortexMetrics;
 use crate::driver::CoalescedDriver;
 use crate::footer::SegmentSpec;
 use crate::segments::{CachedSegmentSource, InMemorySegmentCache, SegmentCache};
-use crate::{FileDriver, FileType, Footer, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -46,45 +46,19 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
-        let driver = Arc::new(GenericFileDriver {
-            read,
-            footer: footer.clone(),
-            options: self.options,
-            initial_segments: self.segment_cache.clone(),
-            metrics: self.metrics.clone(),
-        });
-        Ok(VortexFile {
-            footer: footer.clone(),
-            driver,
-            metrics: self.metrics,
-        })
-    }
-}
 
-struct GenericFileDriver<R> {
-    read: R,
-    footer: Footer,
-    options: GenericFileOptions,
-    initial_segments: Arc<dyn SegmentCache>,
-    metrics: VortexMetrics,
-}
-
-impl<R: VortexReadAt + Send> FileDriver for GenericFileDriver<R> {
-    fn spawn(&self) -> (Arc<dyn SegmentSource>, BoxStream<'static, VortexError>) {
         // We use segment events for driving I/O.
-        let (source, events) = SegmentEvents::create(self.metrics.clone());
+        let (segment_source, events) = SegmentEvents::create(self.metrics.clone());
 
         // Wrap the source to resolve segments from the initial read cache.
-        let source = Arc::new(CachedSegmentSource::new(
-            self.initial_segments.clone(),
-            source,
+        let segment_source = Arc::new(CachedSegmentSource::new(
+            self.segment_cache.clone(),
+            segment_source,
         ));
 
-        let (error_send, error_recv) = mpsc::unbounded();
-
         let driver = CoalescedDriver::new(
-            self.read.clone(),
-            self.footer.clone(),
+            read.performance_hint(),
+            footer.clone(),
             events,
             self.metrics.clone(),
         );
@@ -98,19 +72,18 @@ impl<R: VortexReadAt + Send> FileDriver for GenericFileDriver<R> {
                     let stream = driver.into_stream();
                     pin_mut!(stream);
 
-                    while let Some(result) = stream.next().await {
-                        if let Err(err) = result {
-                            error_send
-                                .unbounded_send(err)
-                                .map_err(|e| vortex_err!("Failed to send error {:?}", e))
-                                .vortex_expect("Failed to send error");
-                        }
+                    while let Some(coalesced_request) = stream.next().await {
+                        coalesced_request.launch(read.clone()).await
                     }
                 }
             })
             .vortex_expect("Failed to spawn I/O driver");
 
-        (source, error_recv.boxed())
+        Ok(VortexFile {
+            footer: footer.clone(),
+            segment_source,
+            metrics: self.metrics,
+        })
     }
 }
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentRequest};
 
@@ -55,5 +55,16 @@ impl CoalescedSegmentRequest {
                 usize::try_from(start + spec.length as usize).vortex_expect("length too large");
             request.resolve(Ok(buffer.slice(start..stop).aligned(spec.alignment)))
         }
+    }
+
+    /// Launch the request, reading the byte range from the provided reader.
+    pub async fn launch<R: VortexReadAt>(self, read: R) {
+        let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
+        let byte_range = self.byte_range.clone();
+        self.resolve(
+            read.read_byte_range(byte_range, alignment)
+                .await
+                .map_err(VortexError::from),
+        )
     }
 }
