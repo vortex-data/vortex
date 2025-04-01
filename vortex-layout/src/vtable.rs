@@ -25,7 +25,6 @@ pub trait LayoutVTable: Debug + Send + Sync {
         layout: Layout,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
-        // FIXME(ngates): return Box<dyn LayoutReader> instead of Arc<dyn LayoutReader>
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 
     /// Register the row splits for this layout, these represent natural boundaries at which
