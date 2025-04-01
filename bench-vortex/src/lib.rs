@@ -7,7 +7,7 @@ use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatch;
 use blob::SlowObjectStoreRegistry;
