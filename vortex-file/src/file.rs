@@ -35,8 +35,8 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    pub fn segment_source(&self) -> &dyn SegmentSource {
-        self.segment_source.as_ref()
+    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        &self.segment_source
     }
 
     pub fn metrics(&self) -> &VortexMetrics {

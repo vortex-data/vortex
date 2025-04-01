@@ -119,7 +119,7 @@ impl ScanBuilder {
             .vxf
             .footer()
             .layout()
-            .reader(self.vxf.footer().ctx().clone())?;
+            .reader(self.vxf.segment_source(), self.vxf.footer().ctx())?;
         // And then wrap it in a FilterLayoutReader to perform conjunction splitting.
         let layout_reader: Arc<dyn LayoutReader> = Arc::new(FilterLayoutReader::new(layout_reader));
 
@@ -170,8 +170,6 @@ impl ScanBuilder {
 
         let result_dtype = projection.return_dtype(layout_reader.dtype())?;
 
-        let segment_source = self.vxf.segment_source.clone();
-
         // Create a future to process each row split of the scan.
         let array_futures: Vec<_> = row_masks
             .into_iter()
@@ -181,21 +179,13 @@ impl ScanBuilder {
 
                 let approx_filter_eval = filter
                     .as_ref()
-                    .map(|expr| {
-                        layout_reader.pruning_evaluation(&row_range, expr, segment_source.as_ref())
-                    })
+                    .map(|expr| layout_reader.pruning_evaluation(&row_range, expr))
                     .transpose()?;
                 let exact_filter_eval = filter
                     .as_ref()
-                    .map(|expr| {
-                        layout_reader.filter_evaluation(&row_range, expr, segment_source.as_ref())
-                    })
+                    .map(|expr| layout_reader.filter_evaluation(&row_range, expr))
                     .transpose()?;
-                let project_eval = layout_reader.projection_evaluation(
-                    &row_range,
-                    &projection,
-                    segment_source.as_ref(),
-                )?;
+                let project_eval = layout_reader.projection_evaluation(&row_range, &projection)?;
 
                 Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
                     let mut mask = row_mask.filter_mask().clone();
