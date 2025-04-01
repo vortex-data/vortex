@@ -21,8 +21,10 @@ impl SegmentSource for CachedSegmentSource {
     fn request(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture {
         let cache = self.cache.clone();
         let delegate = self.delegate.request(id, for_whom);
+        let for_whom = for_whom.clone();
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
+                log::debug!("Resolved segment {} for {} from cache", id, &for_whom);
                 return Ok(segment);
             }
             delegate.await

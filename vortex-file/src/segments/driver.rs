@@ -26,6 +26,7 @@ pub struct CoalescedDriver {
     requested_counter: Arc<Counter>,
     polled_counter: Arc<Counter>,
     coalesced_counter: Arc<Counter>,
+    coalesced_bytes_counter: Arc<Counter>,
 
     performance_hint: PerformanceHint,
     /// The maximum number of bytes to hold in the prefetch buffer.
@@ -64,9 +65,10 @@ impl CoalescedDriver {
             requested_counter: metrics.counter("vortex.file.segments.requested"),
             polled_counter: metrics.counter("vortex.file.segments.polled"),
             coalesced_counter: metrics.counter("vortex.file.coalesced"),
+            coalesced_bytes_counter: metrics.counter("vortex.file.coalesced.bytes"),
 
             performance_hint,
-            max_prefetch_bytes: 128 << 20, // 128 MB
+            max_prefetch_bytes: 32 << 20, // 32 MB
 
             first_poll: false,
             state: Default::default(),
@@ -153,6 +155,20 @@ impl CoalescedDriver {
     fn on_dropped(&mut self, id: SegmentId) {
         // If the segment has been pre-fetched, we can remove its bytes from the buffer.
         self.unmark_as_prefetched(id);
+
+        let state = self.segment_state(id);
+        if !state.polled && !state.is_prefetched {
+            log::debug!("Dropped before launch {}", id);
+        } else if !state.polled && state.is_prefetched {
+            log::debug!("Dropped after prefetch {}", id);
+        } else if state.request.is_some() {
+            log::debug!("Dropped after poll, before launch {}", id);
+        } else if state.request.is_none() {
+            log::debug!("Dropped after launch {}", id);
+        } else {
+            log::debug!("Dropped??? {}", id);
+        }
+
         self.state.remove(&id);
     }
 
@@ -268,6 +284,8 @@ impl CoalescedDriver {
 
         log::debug!("Coalesced request: {:?}", coalesced);
         self.coalesced_counter.inc();
+        self.coalesced_bytes_counter
+            .add(coalesced.size_bytes().try_into().vortex_expect("isize"));
         coalesced
     }
 }

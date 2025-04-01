@@ -18,9 +18,15 @@ impl ExprEvaluator for StatsReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        log::debug!(
+            "Stats pruning evaluation: {} - {}",
+            self.layout().name(),
+            expr
+        );
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
+            log::debug!("Stats pruning evaluation: not prune-able {}", expr);
             return Ok(data_eval);
         };
 
@@ -84,6 +90,11 @@ struct StatsPruningEvaluation {
 #[async_trait]
 impl PruningEvaluation for StatsPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        log::debug!(
+            "Invoking stats pruning evaluation {}: {}",
+            self.layout.name(),
+            self.expr,
+        );
         let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
             // If the expression is not prune-able, we just return the input mask.
             return Ok(mask);

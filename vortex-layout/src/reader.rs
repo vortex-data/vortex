@@ -60,11 +60,9 @@ pub trait ExprEvaluator: Send + Sync {
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        Ok(Box::new(NoOpPruningEvaluation))
-    }
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn PruningEvaluation>>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
     fn filter_evaluation(

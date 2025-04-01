@@ -113,6 +113,7 @@ impl ScanBuilder {
         self
     }
 
+    #[allow(clippy::unused_enumerate_index)]
     pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting.
@@ -190,6 +191,7 @@ impl ScanBuilder {
 
                     if let Some(approx_filter_eval) = approx_filter_eval {
                         // First, we run an approximate evaluation to prune the row range.
+                        log::debug!("Pruning row range {:?}", row_range);
                         mask = approx_filter_eval.invoke(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
@@ -198,14 +200,17 @@ impl ScanBuilder {
 
                     if let Some(exact_filter_eval) = exact_filter_eval {
                         // Then, we run the full evaluation.
+                        log::debug!("Filtering row range {:?}", row_range);
                         mask = exact_filter_eval.invoke(mask).await?;
                         if mask.all_false() {
                             return Ok(None);
                         }
                     }
 
+                    log::debug!("Projecting row range {:?}", row_range);
                     let mut array = project_eval.invoke(mask).await?;
                     if self.canonicalize {
+                        log::debug!("Canonicalizing row range {:?}", row_range);
                         let mut builder = builder_with_capacity(array.dtype(), array.len());
                         array.append_to_builder(builder.as_mut())?;
                         array = builder.finish();

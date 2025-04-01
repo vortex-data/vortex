@@ -15,9 +15,31 @@ use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 
 impl ExprEvaluator for StructReader {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let partitioned = self.partition_expr(expr.clone());
+
+        if partitioned.partition_names.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .pruning_evaluation(row_range, &partitioned.partitions[0]);
+        }
+
+        // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
+        //  there's not much we can do? Maybe... it's complicated...
+        Ok(Box::new(NoOpPruningEvaluation))
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,

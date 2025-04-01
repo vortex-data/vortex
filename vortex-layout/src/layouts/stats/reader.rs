@@ -136,7 +136,10 @@ impl StatsReader {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => e
                 .insert(match self.pruning_predicate(expr.clone()) {
-                    None => None,
+                    None => {
+                        log::debug!("No pruning predicate for expr: {}", expr);
+                        None
+                    }
                     Some(pred) => {
                         log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
                         Some(

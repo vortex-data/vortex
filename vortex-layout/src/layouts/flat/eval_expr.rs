@@ -8,9 +8,20 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::{FlatReader, SharedArray};
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 
 impl ExprEvaluator for FlatReader {
+    fn pruning_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        Ok(Box::new(NoOpPruningEvaluation))
+    }
+
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
