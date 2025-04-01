@@ -7,7 +7,7 @@ plugins {
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     id("net.ltgt.errorprone") version "4.1.0" apply false
     id("org.inferred.processors") version "3.7.0" apply false
-    id("com.google.protobuf") version "0.9.4" apply false
+    id("com.google.protobuf") version "0.9.5" apply false
 }
 
 val gitVersion: groovy.lang.Closure<String> by extra
