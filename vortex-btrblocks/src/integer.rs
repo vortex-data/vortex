@@ -379,6 +379,11 @@ impl Scheme for BitPackingScheme {
             return Ok(0.0);
         }
 
+        // If the best bit width is 0, array should be const/run-end.
+        if find_best_bit_width(stats.source())? == 0 {
+            return Ok(0.0);
+        }
+
         estimate_compression_ratio_with_sampling(
             self,
             stats,

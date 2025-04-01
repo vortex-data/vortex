@@ -138,6 +138,12 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
             10,
         );
 
+        log::trace!(
+            "Sampling {} values out of {}",
+            SAMPLE_SIZE as usize * sample_count,
+            source_len
+        );
+
         stats.sample(SAMPLE_SIZE, sample_count.try_into().vortex_unwrap())
     };
 
@@ -230,19 +236,25 @@ pub trait Compressor {
                 continue;
             }
 
-            log::debug!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
+            log::trace!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:#?} ratio = {ratio}");
+            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
 
-            if ratio > best_ratio {
-                best_ratio = ratio;
-                let _ = best_scheme.insert(*scheme);
+            if ratio.is_normal() {
+                if ratio > best_ratio {
+                    best_ratio = ratio;
+                    best_scheme = Some(*scheme);
+                }
+            } else {
+                log::warn!(
+                    "Calculated non-normal compression ratio {ratio} for scheme: {scheme:?}"
+                );
             }
         }
 
-        log::trace!("depth={depth} best scheme = {best_scheme:#?}  ratio = {best_ratio}");
+        log::debug!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
 
         if let Some(best) = best_scheme {
             Ok(best)
