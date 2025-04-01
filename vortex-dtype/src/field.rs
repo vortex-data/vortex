@@ -25,6 +25,18 @@ impl From<&str> for Field {
     }
 }
 
+impl From<Arc<str>> for Field {
+    fn from(value: Arc<str>) -> Self {
+        Self::Name(value)
+    }
+}
+
+impl From<&Arc<str>> for Field {
+    fn from(value: &Arc<str>) -> Self {
+        Self::Name(value.clone())
+    }
+}
+
 impl From<String> for Field {
     fn from(value: String) -> Self {
         Field::Name(value.into())

@@ -6,6 +6,7 @@ com.jakewharton.nopen:* = 1.0.1
 org.apache.spark:* = 3.5.5
 org.immutables:value = 2.10.1
 com.google.protobuf:protobuf-java = 4.30.2
+org.apache.arrow:* = 18.2.0
 
 # Test dependencies
 org.junit.jupiter:* = 5.12.1

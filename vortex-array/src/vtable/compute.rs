@@ -1,8 +1,9 @@
 use crate::Array;
 use crate::compute::{
     BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
-    InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
+    InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn,
+    UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -91,7 +92,16 @@ pub trait ComputeVTable {
     }
 
     /// Compute the min, max of an array.
+    ///
+    /// See: [`MinMaxFn`].
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        None
+    }
+
+    /// Try and optimize the layout of an array.
+    ///
+    /// See: [`OptimizeFn`]
+    fn optimize_fn(&self) -> Option<&dyn OptimizeFn<&dyn Array>> {
         None
     }
 

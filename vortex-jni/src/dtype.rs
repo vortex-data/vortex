@@ -1,11 +1,10 @@
 use jni::JNIEnv;
-use jni::objects::{JClass, JList, JObject, JString, JValue};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jlong};
+use jni::objects::{JClass, JObject, JValue};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jlong, jobject, jstring};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, PType};
-use vortex::error::vortex_err;
 
-use crate::errors::Throwable;
+use crate::errors::{JNIError, try_or_throw};
 
 pub const DTYPE_NULL: jbyte = 0;
 pub const DTYPE_BOOL: jbyte = 1;
@@ -90,25 +89,23 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames<'loc
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     dtype_ptr: jlong,
-) -> JObject<'local> {
+) -> jobject {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
-    let array_list = env
-        .new_object("java/util/ArrayList", "()V", &[])
-        .expect("Failed to create ArrayList");
-    let field_names = JList::from_env(&mut env, &array_list).expect("ArrayList as JList");
-    let Some(struct_dtype) = dtype.as_struct() else {
-        vortex_err!("DType should be STRUCT, was {dtype}").throw_illegal_argument(&mut env);
-        return array_list;
-    };
 
-    struct_dtype.names().iter().for_each(|name| {
-        let field = env.new_string(name).expect("create new string");
-        field_names
-            .add(&mut env, field.as_ref())
-            .expect("JList::add");
-    });
+    try_or_throw(&mut env, |env| {
+        let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let field_names = env.get_list(&array_list)?;
+        let Some(struct_dtype) = dtype.as_struct() else {
+            throw_runtime!("DType should be STRUCT, was {dtype}");
+        };
 
-    array_list
+        for name in struct_dtype.names().iter() {
+            let field = env.new_string(name)?;
+            field_names.add(env, field.as_ref())?;
+        }
+
+        Ok::<jobject, JNIError>(array_list.into_raw())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -116,33 +113,31 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes<'loc
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     dtype_ptr: jlong,
-) -> JObject<'local> {
+) -> jobject {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
-    let array_list = env
-        .new_object("java/util/ArrayList", "()V", &[])
-        .expect("Failed to create ArrayList");
-    let field_types = JList::from_env(&mut env, &array_list).expect("JList.from_env");
-    let Some(struct_dtype) = dtype.as_struct() else {
-        vortex_err!("DType should be STRUCT, was {dtype}").throw_illegal_argument(&mut env);
-        return array_list;
-    };
 
-    struct_dtype.fields().for_each(|field_dtype| {
-        let ptr: *mut DType = Box::into_raw(Box::new(field_dtype));
-        let boxed = env
-            .call_static_method(
-                LONG_CLASS,
-                "valueOf",
-                "(J)Ljava/lang/Long;",
-                &[JValue::Long(ptr.addr() as jlong)],
-            )
-            .expect("Long.valueOf")
-            .l()
-            .expect("Long.valueOf should return an Object");
-        field_types.add(&mut env, &boxed).expect("JList::add");
-    });
+    try_or_throw(&mut env, |env| {
+        let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let field_types = env.get_list(&array_list)?;
+        let Some(struct_dtype) = dtype.as_struct() else {
+            throw_runtime!("DType should be STRUCT, was {dtype}");
+        };
 
-    array_list
+        for field_dtype in struct_dtype.fields() {
+            let ptr: *mut DType = Box::into_raw(Box::new(field_dtype));
+            let boxed = env
+                .call_static_method(
+                    LONG_CLASS,
+                    "valueOf",
+                    "(J)Ljava/lang/Long;",
+                    &[JValue::Long(ptr.addr() as jlong)],
+                )?
+                .l()?;
+            field_types.add(env, &boxed)?;
+        }
+
+        Ok(array_list.into_raw())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -152,12 +147,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getElementType(
     dtype_ptr: jlong,
 ) -> jlong {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
-    let Some(element_type) = dtype.as_list_element() else {
-        vortex_err!("DType should be LIST, was {dtype}").throw_illegal_argument(&mut env);
-        return 0;
-    };
 
-    element_type as *const DType as jlong
+    try_or_throw(&mut env, |_| {
+        let Some(element_type) = dtype.as_list_element() else {
+            throw_runtime!("DType should be LIST, was {dtype}");
+        };
+
+        Ok(element_type as *const DType as jlong)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -168,16 +165,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isDate(
 ) -> jboolean {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_err!("DType should be an EXTENSION, was {dtype}").throw_illegal_argument(&mut env);
-        return JNI_FALSE;
-    };
+    try_or_throw(&mut env, |_| {
+        let DType::Extension(ext_dtype) = dtype else {
+            throw_runtime!("DType should be an EXTENSION, was {dtype}");
+        };
 
-    if ext_dtype.id().as_ref() == DATE_ID.as_ref() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+        if ext_dtype.id().as_ref() == DATE_ID.as_ref() {
+            Ok(JNI_TRUE)
+        } else {
+            Ok(JNI_FALSE)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -188,16 +186,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTime(
 ) -> jboolean {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_err!("DType should be an EXTENSION, was {dtype}").throw_illegal_argument(&mut env);
-        return JNI_FALSE;
-    };
+    try_or_throw(&mut env, |_| {
+        let DType::Extension(ext_dtype) = dtype else {
+            throw_runtime!("DType should be an EXTENSION, was {dtype}");
+        };
 
-    if ext_dtype.id().as_ref() == TIME_ID.as_ref() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+        if ext_dtype.id().as_ref() == TIME_ID.as_ref() {
+            Ok(JNI_TRUE)
+        } else {
+            Ok(JNI_FALSE)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -208,16 +207,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTimestamp(
 ) -> jboolean {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_err!("DType should be an EXTENSION, was {dtype}").throw_illegal_argument(&mut env);
-        return JNI_FALSE;
-    };
+    try_or_throw(&mut env, |_| {
+        let DType::Extension(ext_dtype) = dtype else {
+            throw_runtime!("DType should be an EXTENSION, was {dtype}");
+        };
 
-    if ext_dtype.id().as_ref() == TIMESTAMP_ID.as_ref() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+        if ext_dtype.id().as_ref() == TIMESTAMP_ID.as_ref() {
+            Ok(JNI_TRUE)
+        } else {
+            Ok(JNI_FALSE)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -228,24 +228,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
 ) -> jbyte {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_err!("DType should be an EXTENSION, was {dtype}").throw_illegal_argument(&mut env);
-        return -1;
-    };
+    try_or_throw(&mut env, |_| {
+        let DType::Extension(ext_dtype) = dtype else {
+            throw_runtime!("DType should be an EXTENSION, was {dtype}");
+        };
 
-    match TemporalMetadata::try_from(ext_dtype) {
-        Ok(temporal) => match temporal.time_unit() {
+        let temporal = TemporalMetadata::try_from(ext_dtype)?;
+        Ok(match temporal.time_unit() {
             TimeUnit::Ns => 0,
             TimeUnit::Us => 1,
             TimeUnit::Ms => 2,
             TimeUnit::S => 3,
             TimeUnit::D => 4,
-        },
-        Err(err) => {
-            err.throw_illegal_argument(&mut env);
-            -1
-        }
-    }
+        })
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -253,30 +249,24 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone<'local
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     dtype_ptr: jlong,
-) -> JString<'local> {
+) -> jstring {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_err!("DType should be an EXTENSION, was {dtype}").throw_illegal_argument(&mut env);
-        return JObject::null().into();
-    };
+    try_or_throw(&mut env, |env| {
+        let DType::Extension(ext_dtype) = dtype else {
+            throw_runtime!("DType should be an EXTENSION, was {dtype}");
+        };
 
-    if ext_dtype.id().as_ref() != TIMESTAMP_ID.as_ref() {
-        vortex_err!("DType should be a TIMESTAMP, was {dtype}").throw_illegal_argument(&mut env);
-        return JObject::null().into();
-    }
+        if ext_dtype.id().as_ref() != TIMESTAMP_ID.as_ref() {
+            throw_runtime!("DType should be a TIMESTAMP, was {dtype}");
+        }
 
-    match TemporalMetadata::try_from(ext_dtype) {
-        Ok(temporal) => {
-            if let Some(time_zone) = temporal.time_zone() {
-                env.new_string(time_zone).expect("Failed to create JString")
-            } else {
-                JObject::null().into()
-            }
+        let temporal = TemporalMetadata::try_from(ext_dtype)?;
+
+        if let Some(time_zone) = temporal.time_zone() {
+            Ok(env.new_string(time_zone)?.into_raw())
+        } else {
+            Ok(JObject::null().into_raw())
         }
-        Err(err) => {
-            err.throw_illegal_argument(&mut env);
-            JObject::null().into()
-        }
-    }
+    })
 }

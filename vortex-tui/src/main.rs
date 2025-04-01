@@ -47,16 +47,16 @@ enum Commands {
     },
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file)).expect("exec_tree"),
-        Commands::Convert { file, quiet } => TOKIO_RUNTIME
-            .block_on(exec_convert(file, Flags { quiet }))
-            .expect("exec_convert"),
-        Commands::Browse { file } => exec_tui(file).expect("exec_tui"),
-        Commands::Segments { file } => TOKIO_RUNTIME
-            .block_on(segments::segments(file))
-            .expect("segments"),
-    }
+        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file))?,
+        Commands::Convert { file, quiet } => {
+            TOKIO_RUNTIME.block_on(exec_convert(file, Flags { quiet }))?
+        }
+        Commands::Browse { file } => exec_tui(file)?,
+        Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,
+    };
+
+    Ok(())
 }

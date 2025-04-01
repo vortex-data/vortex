@@ -7,15 +7,19 @@ use futures_util::future::BoxFuture;
 use ratatui::widgets::ListState;
 use vortex::buffer::{ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex_layout::layouts::chunked::ChunkedLayout;
+use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::source::SegmentSource;
+use vortex_layout::layouts::struct_::StructLayout;
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef, STATS_LAYOUT_ID,
+    STRUCT_LAYOUT_ID,
 };
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -36,7 +40,6 @@ pub struct LayoutCursor {
     path: Vec<usize>,
     footer: Footer,
     layout: Layout,
-    #[allow(unused)]
     segment_map: Arc<[SegmentSpec]>,
 }
 
@@ -60,9 +63,8 @@ impl LayoutCursor {
             dtype = if layout.id() == CHUNKED_LAYOUT_ID {
                 // If metadata is present, last child is stats table
                 if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
-                    let present_stats = stats_from_bitset_bytes(
-                        layout.metadata().expect("extracting stats").as_ref(),
-                    );
+                    let metadata_bytes = layout.metadata().expect("extracting stats");
+                    let present_stats = stats_from_bitset_bytes(&metadata_bytes[4..]);
 
                     StatsTable::dtype_for_stats_table(&dtype, &present_stats)
                 } else {
@@ -139,17 +141,22 @@ impl LayoutCursor {
             .unwrap_or_default()
     }
 
-    pub fn segment_size(&self) -> usize {
-        self.layout()
-            .segments()
-            .map(|id| self.segment_spec(id).length as usize)
+    pub fn total_size(&self) -> usize {
+        self.layout_segments()
+            .iter()
+            .map(|id| self.segment_spec(*id).length as usize)
             .sum()
+    }
+
+    fn layout_segments(&self) -> Vec<SegmentId> {
+        let segments = collect_segment_ids(&self.layout);
+        [segments.0, segments.1].concat()
     }
 
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.encoding().id() == CHUNKED_LAYOUT_ID
+        parent.encoding().id() == STATS_LAYOUT_ID
             && parent.layout().metadata().is_some()
             && self.path.last().copied().unwrap_or_default() == (parent.layout().nchildren() - 1)
     }
@@ -264,4 +271,51 @@ impl SegmentSource for SegmentSource {
         }
         .boxed()
     }
+}
+
+pub fn collect_segment_ids(root_layout: &Layout) -> (Vec<SegmentId>, Vec<SegmentId>) {
+    let mut data_segment_ids = Vec::default();
+    let mut stats_segment_ids = Vec::default();
+
+    collect_segment_ids_impl(root_layout, &mut data_segment_ids, &mut stats_segment_ids)
+        .vortex_unwrap();
+
+    (data_segment_ids, stats_segment_ids)
+}
+
+fn collect_segment_ids_impl(
+    root: &Layout,
+    data_segments: &mut Vec<SegmentId>,
+    stats_segments: &mut Vec<SegmentId>,
+) -> VortexResult<()> {
+    let layout_id = root.id();
+
+    if layout_id == StructLayout.id() {
+        let dtype = root.dtype().as_struct().vortex_expect("");
+        for child_idx in 0..dtype.fields().len() {
+            let name = dtype.field_name(child_idx)?;
+            let child_dtype = dtype.field_by_index(child_idx)?;
+            let child_layout = root.child(child_idx, child_dtype, name)?;
+            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
+        }
+    } else if layout_id == ChunkedLayout.id() {
+        for child_idx in 0..root.nchildren() {
+            let child_layout =
+                root.child(child_idx, root.dtype().clone(), format!("[{child_idx}]"))?;
+            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
+        }
+    } else if layout_id == StatsLayout.id() {
+        let data_layout = root.child(0, root.dtype().clone(), "data")?;
+        collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
+
+        // For the stats layout, we use the stats segment accumulator
+        let stats_layout = root.child(1, root.dtype().clone(), "stats")?;
+        collect_segment_ids_impl(&stats_layout, stats_segments, &mut vec![])?;
+    } else if layout_id == FlatLayout.id() {
+        data_segments.extend(root.segments());
+    } else {
+        unreachable!()
+    };
+
+    Ok(())
 }

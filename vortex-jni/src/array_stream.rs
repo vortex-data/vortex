@@ -5,13 +5,13 @@ use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jlong;
 use vortex::dtype::DType;
-use vortex::error::vortex_err;
 use vortex::stream::ArrayStream;
 
-use crate::TOKIO_RUNTIME;
 use crate::array::NativeArray;
-use crate::errors::Throwable;
+use crate::block_on;
+use crate::errors::try_or_throw;
 
+/// Blocking JNI bridge to a Vortex [`ArrayStream`].
 pub struct NativeArrayStream {
     inner: Option<Pin<Box<dyn ArrayStream>>>,
 }
@@ -27,6 +27,7 @@ impl NativeArrayStream {
         Box::into_raw(self) as jlong
     }
 
+    #[allow(clippy::expect_used)]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeArrayStream)
@@ -35,7 +36,8 @@ impl NativeArrayStream {
         }
     }
 
-    pub unsafe fn from_ptr_mtr<'a>(pointer: jlong) -> &'a mut Self {
+    #[allow(clippy::expect_used)]
+    pub unsafe fn from_ptr_mut<'a>(pointer: jlong) -> &'a mut Self {
         unsafe {
             (pointer as *mut NativeArrayStream)
                 .as_mut()
@@ -63,31 +65,24 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayStreamMethods_take(
     _class: JClass,
     pointer: jlong,
 ) -> jlong {
-    let stream = unsafe { NativeArrayStream::from_ptr_mtr(pointer) };
+    let stream = unsafe { NativeArrayStream::from_ptr_mut(pointer) };
 
-    if let Some(mut inner) = stream.inner.take() {
-        let next_fut = inner.next();
-        match TOKIO_RUNTIME.block_on(next_fut) {
-            Some(Ok(array_ref)) => {
-                stream.inner = Some(inner);
-                // return the pointer to the next array element
-                NativeArray::new(array_ref).into_raw()
+    try_or_throw(&mut env, |_| {
+        if let Some(mut inner) = stream.inner.take() {
+            let next_fut = inner.next();
+            match block_on("stream.next", next_fut) {
+                Some(result) => {
+                    let array_ref = result?;
+                    stream.inner = Some(inner);
+                    // return the pointer to the next array element
+                    Ok(NativeArray::new(array_ref).into_raw())
+                }
+                None => Ok(-1),
             }
-            Some(Err(err)) => {
-                // Rethrow the exception in Java. Resources get cleaned up on drop.
-                err.throw_runtime(&mut env, "ArrayStream failed to read next batch");
-                -1
-            }
-            None => {
-                // No next element available, drop the stream and return -1 to indicate
-                // no more elements.
-                -1
-            }
+        } else {
+            throw_runtime!("attempted to take() on a closed ArrayStream");
         }
-    } else {
-        vortex_err!("closed stream").throw_runtime(&mut env, "NativeArrayMethods.take");
-        -1
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -98,11 +93,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayStreamMethods_getDType(
 ) -> jlong {
     let stream = unsafe { NativeArrayStream::from_ptr(pointer) };
 
-    if let Some(ref inner) = stream.inner {
-        let dtype = inner.dtype();
-        dtype as *const DType as jlong
-    } else {
-        vortex_err!("closed stream").throw_runtime(&mut env, "NativeArrayMethods.getDType");
-        -1
-    }
+    try_or_throw(&mut env, |_| {
+        if let Some(ref inner) = stream.inner {
+            let dtype = inner.dtype();
+            Ok(dtype as *const DType as jlong)
+        } else {
+            throw_runtime!("NativeArrayMethods.getDType: closed stream");
+        }
+    })
 }

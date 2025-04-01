@@ -13,6 +13,11 @@ impl BinaryNumericFn<&DictArray> for DictEncoding {
         rhs: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
+        // if we have more values than codes, it is faster to canonicalise first.
+        if array.values().len() > array.codes().len() {
+            return Ok(None);
+        }
+
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };

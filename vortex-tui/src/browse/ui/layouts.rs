@@ -1,9 +1,10 @@
+use humansize::{DECIMAL, make_format};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
+    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
@@ -13,7 +14,8 @@ use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{ArrayRef, ArrayVariants};
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::{ExprEvaluator, LayoutReader, LayoutVTable};
+use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::{ExprEvaluator, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -42,6 +44,8 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     let layout_kind = cursor.layout().id().to_string();
     let row_count = cursor.layout().row_count();
+    let size_formatter = make_format(DECIMAL);
+    let size = size_formatter(cursor.total_size());
 
     let mut rows = vec![
         Text::from(format!("Kind: {layout_kind}")).bold(),
@@ -49,24 +53,24 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         Text::from(format!("Schema: {}", cursor.dtype()))
             .bold()
             .green(),
-        Text::from(format!("Segments: {}", cursor.layout().nsegments())),
-        Text::from(format!(
-            "Segment data size: {} bytes",
-            cursor.segment_size()
-        )),
+        Text::from(format!("Children: {}", cursor.layout().nchildren())).bold(),
+        Text::from(format!("Segment data size: {}", size)).bold(),
     ];
 
     if cursor.encoding().id() == FLAT_LAYOUT_ID {
         rows.push(Text::from(format!(
-            "FlatBuffer Size: {} bytes",
-            cursor.flatbuffer_size()
+            "FlatBuffer Size: {}",
+            size_formatter(cursor.flatbuffer_size())
         )));
     }
 
-    if cursor.encoding().id() == CHUNKED_LAYOUT_ID {
+    if cursor.encoding().id() == StatsLayout.id() {
         // Push any columnar stats.
-        if let Some(metadata) = cursor.layout().metadata() {
-            let available_stats = stats_from_bitset_bytes(&metadata);
+        if let Some(available_stats) = cursor
+            .layout()
+            .metadata()
+            .map(|metadata| stats_from_bitset_bytes(&metadata[4..]))
+        {
             let mut line = String::new();
             line.push_str("Statistics: ");
             for stat in available_stats {
@@ -95,13 +99,11 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
 // Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
-    let reader = FlatLayout
-        .reader(
-            app.cursor.layout().clone(),
-            app.footer.ctx().clone(),
-            app.reader.clone(),
-        )
-        .vortex_expect("Failed to create FlatLayout reader");
+    let reader = app
+        .cursor
+        .layout()
+        .reader(app.footer.ctx().clone())
+        .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME
         .block_on(
@@ -167,34 +169,72 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             buf,
         );
     } else {
+        let header = ["Name", "Value"]
+            .into_iter()
+            .map(Cell::from)
+            .collect::<Row>()
+            .style(Style::new().bold())
+            .height(1);
+
+        let rows = array.statistics().into_iter().map(|(stat, value)| {
+            let stat = Cell::from(Text::from(format!("{stat}")));
+            let value = Cell::from(Text::from(format!("{value}")));
+            Row::new(vec![stat, value])
+        });
+
+        let layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(widget_area);
+        let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        Paragraph::new(array.tree_display().to_string()).render(widget_area, buf);
+        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
+
+        let stats_container = Block::new()
+            .title("Statistics")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        let tree_container = Block::new()
+            .title("Encoding Tree Display")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        let tree_inner = tree_container.inner(layout[0]);
+        let stats_inner = stats_container.inner(layout[1]);
+
+        tree_container.render(layout[0], buf);
+        stats_container.render(layout[1], buf);
+
+        Widget::render(tree, tree_inner, buf);
+        Widget::render(table, stats_inner, buf);
+
         // Split view, show information about the child arrays (metadata, count, etc.)
     };
 }
 
 fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
-    let cursor = &app.cursor;
     // TODO: add selection state.
-    let layout = cursor.layout();
-    let state = &mut app.layouts_list_state;
+    let search_filter = app.search_filter.clone();
 
-    if layout.nchildren() > 0 {
-        let filter: Vec<bool> = (0..layout.nchildren())
-            .map(|idx| child_name(cursor, idx))
+    if app.cursor.layout().nchildren() > 0 {
+        let filter: Vec<bool> = (0..app.cursor.layout().nchildren())
+            .map(|idx| child_name(app, idx))
             .map(|name| {
-                if app.search_filter.is_empty() {
+                if search_filter.is_empty() {
                     true
                 } else {
-                    name.contains(&app.search_filter)
+                    name.contains(&search_filter)
                 }
             })
             .collect();
 
-        let list_items: Vec<String> = (0..layout.nchildren())
+        let list_items: Vec<String> = (0..app.cursor.layout().nchildren())
             .zip(filter.iter())
             .filter(|&(_, keep)| *keep)
-            .map(|(idx, _)| child_name(cursor, idx))
+            .map(|(idx, _)| child_name(app, idx))
             .collect();
 
         if !app.search_filter.is_empty() {
@@ -217,28 +257,31 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
             List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
             inner_area,
             buf,
-            state,
+            &mut app.layouts_list_state,
         );
     }
 }
 
-fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
+fn child_name(app: &mut AppState, nth: usize) -> String {
+    let cursor = &app.cursor;
+    let formatter = make_format(DECIMAL);
     // TODO(ngates): layout visitors
     if cursor.layout().id() == STRUCT_LAYOUT_ID {
         let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
         let field_name = struct_dtype.field_name(nth).expect("field name");
         let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
-        format!("Column {nth} - {field_name} ({field_dtype})")
+
+        let total_size = formatter(app.cursor.child(nth).total_size());
+
+        format!("Column {nth} - {field_name} ({field_dtype}) - {total_size}")
     } else if cursor.layout().id() == CHUNKED_LAYOUT_ID {
-        // 0th child of a ChunkedLayout is the chunk stats array.
-        // The rest of the chunks are child arrays
-        if cursor.layout().metadata().is_none() {
-            format!("Chunk {nth}")
-        } else if nth == (cursor.layout().nchildren() - 1) {
-            "Chunk Statistics".to_string()
-        } else {
-            format!("Chunk {}", nth)
-        }
+        let name = format!("Chunk {nth}");
+        let child_cursor = app.cursor.child(nth);
+
+        let total_size = formatter(child_cursor.total_size());
+        let row_count = child_cursor.layout().row_count();
+
+        format!("{name} - {row_count} - {total_size}")
     } else if cursor.layout().id() == FLAT_LAYOUT_ID {
         format!("Page {nth}")
     } else if cursor.layout().id() == STATS_LAYOUT_ID {

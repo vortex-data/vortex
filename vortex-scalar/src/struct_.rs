@@ -60,7 +60,7 @@ impl<'a> StructScalar<'a> {
     }
 
     #[inline]
-    pub fn struct_dtype(&self) -> &'a StructDType {
+    pub fn struct_dtype(&self) -> &Arc<StructDType> {
         let DType::Struct(sdtype, ..) = self.dtype else {
             vortex_panic!("StructScalar always has struct dtype");
         };

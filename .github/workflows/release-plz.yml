@@ -10,7 +10,6 @@ on:
       - develop
 
 jobs:
-
   # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
@@ -28,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: run-release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+        uses: ./.github/actions/release-plz
         with:
           command: release
         env:
@@ -51,7 +50,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+        uses: ./.github/actions/release-plz
         with:
           command: release-pr
         env:

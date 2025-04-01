@@ -244,7 +244,7 @@ impl Layout {
         (0..self.nsegments()).map(move |i| self.segment_id(i).vortex_expect("segment bounds"))
     }
 
-    /// Returns the layout metadata
+    /// Returns the bytes of the metadata stored in the layout's flatbuffer.
     pub fn metadata(&self) -> Option<Bytes> {
         match &self.0 {
             Inner::Owned(owned) => owned.metadata.clone(),

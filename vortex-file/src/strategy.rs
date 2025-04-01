@@ -144,15 +144,14 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
             {
                 let ratio =
-                    encoded_chunk.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64;
+                    canonical_chunk.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
 
-                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-                // If it isn't we  fall back to the compressor.
-                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
+                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
-                        "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                        "Compressed to a ratio of {ratio}, which is below the threshold of {}",
                         prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
@@ -170,14 +169,17 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             Some(array) => array,
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
-                let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
+                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
-                    ratio: compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
+                    ratio: canonical_size / compressed.nbytes() as f64,
                 });
                 compressed
             }
         };
+
+        compressed_chunk.statistics().inherit(chunk.statistics());
 
         self.child.push_chunk(segment_writer, compressed_chunk)
     }
