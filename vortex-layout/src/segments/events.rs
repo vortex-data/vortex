@@ -1,23 +1,18 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{Debug, Formatter};
-use std::ops::Range;
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, atomic};
-use std::task::{Context, Poll, ready};
+use std::sync::{Arc, atomic};
+use std::task::{Context, Poll};
 use std::time::Instant;
 
 use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, Shared, WeakShared};
-use futures::stream::{BoxStream, ReadyChunks};
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt};
-use itertools::Itertools;
-use vortex_buffer::{Alignment, ByteBuffer};
+use futures::stream::BoxStream;
+use futures::{FutureExt, StreamExt, TryFutureExt};
+use vortex_buffer::ByteBuffer;
 use vortex_error::{
     ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
-    vortex_panic,
 };
 use vortex_metrics::{Counter, VortexMetrics};
 
@@ -55,7 +50,7 @@ impl SegmentEvents {
     }
 }
 
-enum SegmentEvent {
+pub enum SegmentEvent {
     Requested(SegmentRequest),
     Polled(SegmentId),
     Dropped(SegmentId),
@@ -95,7 +90,11 @@ impl SegmentRequest {
 
 impl SegmentEvents {
     /// Get or create a segment future for the given segment ID.
-    fn segment_future(self: Arc<Self>, id: SegmentId, for_whom: Arc<str>) -> Shared<SegmentFuture> {
+    fn segment_future(
+        self: Arc<Self>,
+        id: SegmentId,
+        for_whom: Arc<str>,
+    ) -> Shared<SegmentEventsFuture> {
         loop {
             // Loop in case the pending future has no strong references, in which case we clear it
             // out of the map and create a new one on the next iteration.
@@ -114,7 +113,7 @@ impl SegmentEvents {
                     let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
 
                     // Set up the segment future tied to the recv end of the channel.
-                    let fut = SegmentFuture {
+                    let fut = SegmentEventsFuture {
                         future: recv
                             .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
                             .map(|r| r.unnest())
@@ -131,10 +130,9 @@ impl SegmentEvents {
                         id,
                         for_whom,
                         created_at: Instant::now(),
-                        resolved: false,
-                        polled: false,
-                        fut: fut.downgrade(),
-                        source: self.clone(),
+                        fut: fut
+                            .downgrade()
+                            .vortex_expect("cannot fail, only just created"),
                     };
                     e.insert(pending);
 
@@ -169,6 +167,7 @@ impl SegmentSource for EventsSegmentSource {
         id: SegmentId,
         for_whom: &Arc<str>,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.request_counter.inc();
         self.events
             .clone()
             .segment_future(id, for_whom.clone())
@@ -184,46 +183,39 @@ pub struct PendingSegment {
     for_whom: Arc<str>,
     /// The time at which the segment was requested.
     created_at: Instant,
-
-    /// Whether the segment has been resolved.
-    resolved: bool,
-    /// Whether the segment has been polled.
-    polled: bool,
-
     /// A weak shared future that we hand out to all requesters. Once all requesters have been
     /// dropped, typically because their row split has completed (or been pruned), then the weak
     /// feature is no longer upgradable, and the segment can be dropped.
-    fut: WeakShared<SegmentFuture>,
-
-    /// Handle back into the queue state.
-    source: Arc<SegmentEvents>,
+    fut: WeakShared<SegmentEventsFuture>,
 }
 
 impl Debug for PendingSegment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PendingSegment")
             .field("id", &self.id)
+            .field("for_whom", &self.for_whom)
+            .field("created_at", &self.created_at)
             .finish()
     }
 }
 
 impl PendingSegment {
     /// Create a new future resolving this segment, provided the segment is still alive.
-    fn future(&self) -> Option<Shared<SegmentFuture>> {
+    fn future(&self) -> Option<Shared<SegmentEventsFuture>> {
         self.fut.upgrade()
     }
 }
 
 /// A future that notifies the segment queue when it is first polled, as well as logging
 /// when it is dropped.
-pub struct SegmentFuture {
+struct SegmentEventsFuture {
     future: BoxFuture<'static, SharedVortexResult<ByteBuffer>>,
     id: SegmentId,
     source: Arc<SegmentEvents>,
     polled: AtomicBool,
 }
 
-impl Future for SegmentFuture {
+impl Future for SegmentEventsFuture {
     type Output = SharedVortexResult<ByteBuffer>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -234,7 +226,7 @@ impl Future for SegmentFuture {
     }
 }
 
-impl Drop for SegmentFuture {
+impl Drop for SegmentEventsFuture {
     fn drop(&mut self) {
         self.source.submit_event(SegmentEvent::Dropped(self.id));
     }

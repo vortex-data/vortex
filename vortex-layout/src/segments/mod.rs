@@ -6,6 +6,7 @@ mod test;
 use std::fmt::Display;
 use std::ops::Deref;
 
+pub use events::*;
 pub use sink::*;
 pub use source::*;
 pub use test::*;
