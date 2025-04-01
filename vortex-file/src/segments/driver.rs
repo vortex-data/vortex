@@ -235,11 +235,11 @@ impl CoalescedDriver {
                 // prior segments unnecessary, e.g. when we read stats tables. This is quite a
                 // generalization to appear here in the codebase, but in practice it works well
                 // assuming a file is generally written in a forward direction.
-                if segment_range.start < coalesced.byte_range.start {
-                    if !self.segment_state(segment_id).polled {
-                        continue;
-                    }
-                }
+                // if segment_range.start < coalesced.byte_range.start {
+                //     if !self.segment_state(segment_id).polled {
+                //         continue;
+                //     }
+                // }
 
                 coalesced.byte_range = new_range;
                 coalesced.requests.push(
@@ -284,7 +284,7 @@ impl Stream for CoalescedDriver {
             };
 
             // Process the event.
-            log::debug!("Processing segment event: {:?}", event);
+            log::debug!("Processing: {:?}", event);
             match event {
                 SegmentEvent::Requested(req) => this.on_requested(req),
                 SegmentEvent::Polled(id) => this.on_polled(id),

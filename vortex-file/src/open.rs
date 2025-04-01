@@ -283,7 +283,7 @@ impl<F: FileType> VortexOpenOptions<F> {
                     let buffer = initial_read
                         .slice(offset..offset + (segment.length as usize))
                         .aligned(segment.alignment);
-                    self.segment_cache.put(segment_id, buffer)
+                    self.segment_cache.put(segment_id, buffer).await
                 }),
         )
         .collect::<FuturesUnordered<_>>()

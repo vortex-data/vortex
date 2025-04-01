@@ -25,7 +25,7 @@ getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 linked_hash_set = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["sync"] }
+moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
 oneshot = { workspace = true, features = ["async"] }
 pin-project-lite = { workspace = true }

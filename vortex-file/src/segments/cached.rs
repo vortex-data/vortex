@@ -19,9 +19,14 @@ impl CachedSegmentSource {
 
 impl SegmentSource for CachedSegmentSource {
     fn request(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture {
-        if let Ok(Some(segment)) = self.cache.get(id) {
-            return async move { Ok(segment) }.boxed();
+        let cache = self.cache.clone();
+        let delegate = self.delegate.request(id, for_whom);
+        async move {
+            if let Ok(Some(segment)) = cache.get(id).await {
+                return Ok(segment);
+            }
+            delegate.await
         }
-        self.delegate.request(id, for_whom)
+        .boxed()
     }
 }

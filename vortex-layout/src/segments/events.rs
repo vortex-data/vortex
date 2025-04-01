@@ -83,11 +83,13 @@ impl SegmentRequest {
 
     /// Resolve the segment request with the given buffer result.
     pub fn resolve(self, buffer: VortexResult<ByteBuffer>) {
-        self.callback
-            .send(buffer)
-            .map_err(|_| vortex_err!("send failed"))
-            .vortex_expect("send failed");
-        self.events.submit_event(SegmentEvent::Resolved(self.id));
+        // The callback may fail if the caller was dropped while the request was in-flight, as
+        // may be the case with pre-fetched segments.
+        if self.callback.send(buffer).is_err() {
+            log::debug!("Segment {} dropped while request in-flight", self.id);
+        } else {
+            self.events.submit_event(SegmentEvent::Resolved(self.id));
+        }
     }
 }
 

@@ -52,7 +52,7 @@ impl Default for PerformanceHint {
     fn default() -> Self {
         Self {
             coalescing_window: 2 << 20, //1MB,
-            max_read: None,
+            max_read: Some(8 << 20),    // 8MB,
         }
     }
 }
@@ -67,7 +67,8 @@ impl PerformanceHint {
 
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
-        Self::new(0, None)
+        // Coalesce ~8K page size, also ensures we span padding for adjacent segments.
+        Self::new(8192, Some(8192))
     }
 
     pub fn object_storage() -> Self {

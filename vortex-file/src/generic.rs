@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::{StreamExt, pin_mut};
-use moka::sync::CacheBuilder;
+use moka::future::CacheBuilder;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::SegmentEvents;
@@ -125,7 +125,7 @@ pub struct GenericFileOptions {
 impl Default for GenericFileOptions {
     fn default() -> Self {
         Self {
-            io_concurrency: 10,
+            io_concurrency: 8,
             io_dispatcher: IoDispatcher::default(),
         }
     }
