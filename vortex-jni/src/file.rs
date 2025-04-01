@@ -170,12 +170,10 @@ fn make_object_store(
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
+    let cache_key = url_cache_key(url);
+
     {
-        if let Some(cached) = OBJECT_STORES
-            .lock()
-            .vortex_expect("poison")
-            .get(&url_cache_key(url))
-        {
+        if let Some(cached) = OBJECT_STORES.lock().vortex_expect("poison").get(&cache_key) {
             return Ok((cached.clone(), scheme));
         }
         // guard dropped at close of scope
@@ -237,7 +235,7 @@ fn make_object_store(
         OBJECT_STORES
             .lock()
             .vortex_expect("poison")
-            .insert(url_cache_key(url), store.clone());
+            .insert(cache_key, store.clone());
         // Guard dropped at close of scope.
     }
 
