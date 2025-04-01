@@ -206,6 +206,13 @@ static File *OpenFileAndVerify(const std::string &filename, const VortexBindData
 
 static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanGlobalState &global_state, File *file) {
 
+	std::cout << "Opening array stream" << std::endl;
+	std::cout << "Projection ids count: " << global_state.projected_column_names.size() << std::endl;
+	std::cout << "Projection ids: " << std::endl;
+	for (auto idx : global_state.projected_column_names) {
+		std::cout << std::string(idx) << std::endl;
+	}
+
 	auto options = FileScanOptions {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
