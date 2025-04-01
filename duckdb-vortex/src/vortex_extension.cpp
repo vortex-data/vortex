@@ -229,7 +229,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		auto &slot = global_state.file_slots[local_state.thread_id];
 		std::lock_guard _l(slot.slot_lock);
 
-		if (global_state.finished.load()) {
+		if (global_state.finished.load() && slot.array_stream == nullptr) {
 			output.SetCardinality(0);
 			return;
 		}
