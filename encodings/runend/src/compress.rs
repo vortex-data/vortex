@@ -284,7 +284,7 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.to_primitive().unwrap();
 
-        assert_eq!(ends.as_slice::<u64>(), vec![2, 5, 10]);
+        assert_eq!(ends.as_slice::<u8>(), vec![2, 5, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
     }
 
@@ -299,7 +299,7 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.to_primitive().unwrap();
 
-        assert_eq!(ends.as_slice::<u64>(), vec![2, 4, 5, 8, 10]);
+        assert_eq!(ends.as_slice::<u8>(), vec![2, 4, 5, 8, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
     }
 
