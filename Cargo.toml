@@ -71,7 +71,7 @@ bit-vec = "0.8.0"
 bytes = "1.10"
 bzip2 = "0.5.0"
 cfg-if = "1"
-chrono = "0.4.38"
+chrono = "0.4.40"
 clap = "4"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
@@ -127,6 +127,7 @@ pin-project-lite = "0.2.15"
 prost = "0.13.4"
 prost-build = "0.13.4"
 prost-types = "0.13.4"
+# bump pyo3 to >0.24 on next arrow release, for RUSTSEC-2025-0020
 pyo3 = { version = "0.23.4", features = ["extension-module", "abi3-py310"] }
 pyo3-log = "0.12.1"
 rancor = "0.1.0"
