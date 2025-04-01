@@ -31,12 +31,12 @@ where
 
 /// Computes the min & max of an array, returning the (min, max) values
 /// The return values are (min, max) scalars, where None indicates that the value is non-existent
-/// (e.g. for an empty array)
-/// The return value dtype is the non-nullable version of the array dtype
+/// (e.g. for an empty array).
+/// The return value dtype is the non-nullable version of the array dtype.
 ///
 /// This will update the stats set of this array (as a side effect).
 pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
-    if array.is_empty() {
+    if array.is_empty() || array.valid_count()? == 0 {
         return Ok(None);
     }
 

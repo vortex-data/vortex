@@ -6,11 +6,11 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_dict::builders::downscale_integer_array;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
