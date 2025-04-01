@@ -27,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: run-release-plz
-        uses: release-plz/release-plz-action@v0.5.101
+        uses: release-plz/action@v0.5.101
         with:
           command: release
         env:
@@ -50,7 +50,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
-        uses: release-plz/release-plz-action@v0.5.101
+        uses: release-plz/action@v0.5.101
         with:
           command: release-pr
         env:
