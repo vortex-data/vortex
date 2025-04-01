@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
@@ -112,11 +114,16 @@ impl EncodingVTable for BitPackedEncoding {
             None => find_best_bit_width(&parray)?,
         };
 
-        if bit_width as usize == parray.ptype().bit_width() {
-            return Ok(Some(parray.to_array()));
-        }
+        let r = match (bit_width as usize).cmp(&parray.ptype().bit_width()) {
+            Ordering::Less => bitpack_encode(&parray, bit_width)?.into_array(),
+            Ordering::Equal => parray.to_array(),
+            Ordering::Greater => {
+                let new_bit_width = find_best_bit_width(&parray)?;
+                bitpack_encode(&parray, new_bit_width)?.into_array()
+            }
+        };
 
-        Ok(Some(bitpack_encode(&parray, bit_width)?.into_array()))
+        Ok(Some(r))
     }
 }
 

@@ -14,7 +14,6 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);
         };
-        // let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = if new_nullability == &array.dtype().nullability() {

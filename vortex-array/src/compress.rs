@@ -3,8 +3,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::try_cast;
-use crate::stats::Stat;
+use crate::compute::{min_max, try_cast};
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayExt, ArrayRef, ToCanonical};
 
@@ -21,10 +20,7 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
         .as_opt::<PrimitiveArray>()
         .vortex_expect("Checked earlier");
 
-    let min = array.statistics().compute_stat(Stat::Min)?;
-    let max = array.statistics().compute_stat(Stat::Max)?;
-
-    let (Some(min), Some(max)) = (min, max) else {
+    let Some(min_max) = min_max(array)? else {
         // This array but be all nulls.
         return Ok(
             ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
@@ -33,10 +29,10 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
 
     // If we can't cast to i64, then leave the array as its original type.
     // It's too big to downcast anyway.
-    let Ok(min) = i64::try_from(&min) else {
+    let Ok(min) = i64::try_from(min_max.min.value()) else {
         return Ok(array.to_array());
     };
-    let Ok(max) = i64::try_from(&max) else {
+    let Ok(max) = i64::try_from(min_max.max.value()) else {
         return Ok(array.to_array());
     };
 
