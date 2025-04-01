@@ -84,11 +84,14 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	vector<string> expanded_files;
 
 	optional_ptr<TableFilterSet> filter;
+
+	// The precomputed filter string used in the query
 	std::string filter_str;
+	// The precomputed column names used in the query
 	std::vector<char const *> projected_column_names;
+
 	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
-
 	vector<idx_t> projection_ids;
 
 	// This is the max number threads that the extension might use.
