@@ -5,6 +5,7 @@ use std::env::temp_dir;
 use std::fmt::Display;
 use std::fs::create_dir_all;
 use std::future::Future;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
@@ -173,6 +174,7 @@ pub fn setup_logger(filter: EnvFilter) {
         .with_level(true)
         .with_line_number(true)
         .with_env_filter(filter)
+        .with_ansi(std::io::stderr().is_terminal())
         .init();
 }
 

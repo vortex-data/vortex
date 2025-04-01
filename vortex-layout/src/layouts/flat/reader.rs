@@ -45,7 +45,7 @@ impl FlatReader {
         self.array
             .get_or_try_init(instrument!(
                 "flat_read",
-                { name = self.layout().name() },
+                [name = self.layout().name()],
                 async move {
                     let segment_id = self
                         .layout()
