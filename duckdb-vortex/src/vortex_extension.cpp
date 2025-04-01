@@ -251,7 +251,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 			if (file_idx >= global_state.expanded_files.size()) {
 				local_state.finished = true;
-				global_state.finished.exchange(true);
+				global_state.finished = true;
 				output.SetCardinality(0);
 				return;
 			}
