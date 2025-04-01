@@ -6026,6 +6026,7 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-scalar",
 ]

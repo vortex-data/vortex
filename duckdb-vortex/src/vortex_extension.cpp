@@ -58,10 +58,11 @@ struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t current_row;
 	bool finished;
 	Array *array;
+	FFIConversionCache *cache;
 	uint32_t thread_id;
 
 	explicit VortexScanLocalState(uint32_t thread_id)
-	    : current_row(0), finished(false), array(nullptr), thread_id(thread_id) {
+	    : current_row(0), finished(false), array(nullptr), cache(nullptr), thread_id(thread_id) {
 	}
 };
 
@@ -214,7 +215,7 @@ static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanG
 	    // This has a few factor effecting it:
 	    //  1. A smaller value means for work for the vortex file reader.
 	    //  2. A larger value reduces the parallelism available to the scanner
-	    .split_by_row_count = 2048 * 8,
+	    .split_by_row_count = 2048 * 64 * 4,
 	};
 
 	return File_scan(file, &options);
@@ -265,11 +266,16 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		local_state.current_row = 0;
 	}
 
+	if (local_state.cache == nullptr) {
+		local_state.cache = ConversionCache_create();
+	}
 	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
-	                                                   reinterpret_cast<duckdb_data_chunk>(&output));
+	                                                   reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache);
 
 	if (local_state.current_row == 0) {
 		FFIArray_free(local_state.array);
+		// ConversionCache_free(local_state.cache);
+		local_state.cache = nullptr;
 		local_state.array = nullptr;
 	}
 }

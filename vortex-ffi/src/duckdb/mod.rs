@@ -1,3 +1,5 @@
+mod cache;
+
 use std::cmp::min;
 use std::ffi::c_uint;
 
@@ -7,9 +9,10 @@ use vortex::compute::slice;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::{Array, ToCanonical};
-use vortex_duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
+use vortex_duckdb::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
+use crate::duckdb::cache::FFIConversionCache;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
@@ -30,6 +33,7 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     stream: *mut FFIArray,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
+    cache: *mut FFIConversionCache,
 ) -> c_uint {
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
@@ -41,11 +45,16 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+    let mut cache: Box<ConversionCache> = unsafe { Box::from_raw(cache.cast()) };
+
     to_duckdb_chunk(
         &slice.to_struct().vortex_expect("must be a struct"),
         &mut data_chunk_handle,
+        &mut cache,
     )
     .vortex_expect("to_duckdb");
+
+    Box::leak(cache);
 
     if is_end {
         0
