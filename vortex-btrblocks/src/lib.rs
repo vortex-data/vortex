@@ -242,14 +242,14 @@ pub trait Compressor {
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
             log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
 
-            if ratio.is_normal() {
+            if !(ratio.is_subnormal() || ratio.is_infinite() || ratio.is_nan()) {
                 if ratio > best_ratio {
                     best_ratio = ratio;
                     best_scheme = Some(*scheme);
                 }
             } else {
                 log::warn!(
-                    "Calculated non-normal compression ratio {ratio} for scheme: {scheme:?}"
+                    "Calculated invalid compression ratio {ratio} for scheme: {scheme:?}. Must not be sub-normal, infinite or nan."
                 );
             }
         }
