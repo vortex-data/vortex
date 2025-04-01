@@ -226,9 +226,9 @@ mod test {
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .filter_evaluation(&(0..row_count), &expr, segments.as_ref())
+                .pruning_evaluation(&(0..row_count), &expr, segments.as_ref())
                 .unwrap()
-                .invoke_approx(Mask::new_true(row_count.try_into().unwrap()))
+                .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_boolean_buffer()
