@@ -62,6 +62,22 @@ vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
 	return value->second;
 }
 
+TimeUnit timestamp_to_time_unit(const LogicalType &type) {
+	switch (type.id()) {
+	case LogicalTypeId::TIMESTAMP_SEC:
+		return TimeUnit::S;
+	case LogicalTypeId::TIMESTAMP_MS:
+		return TimeUnit::Ms;
+	case LogicalTypeId::TIMESTAMP:
+		return TimeUnit::Us;
+	case LogicalTypeId::TIMESTAMP_NS:
+		return TimeUnit::Ns;
+	default:
+		throw Exception(ExceptionType::INVALID, "timestamp_to_time_unit given none timestamp type",
+		                {{"id", type.ToString()}});
+	}
+}
+
 vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, bool nullable) {
 	auto *dtype = Arena::Create<vortex::dtype::DType>(&arena);
 	switch (type_.id()) {
@@ -127,6 +143,28 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::D)}));
 		return dtype;
 	}
+	case LogicalTypeId::TIME: {
+		dtype->mutable_extension()->set_id(VORTEX_TIME_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::Us)}));
+		return dtype;
+	}
+	case LogicalTypeId::TIMESTAMP_SEC:
+	case LogicalTypeId::TIMESTAMP_MS:
+	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_NS: {
+		dtype->mutable_extension()->set_id(VORTEX_TIMESTAMP_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I64);
+		auto time_unit = static_cast<char>(timestamp_to_time_unit(type_));
+		// This signifies a timestamp without a timezone
+		// TODO(joe): support timezones
+		dtype->mutable_extension()->set_metadata(std::string({time_unit, 0, 0}));
+		return dtype;
+	}
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
@@ -189,6 +227,21 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		return scalar;
 	case LogicalTypeId::DATE:
 		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
+	case LogicalTypeId::TIME:
+		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_SEC:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_MS:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_NS:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});

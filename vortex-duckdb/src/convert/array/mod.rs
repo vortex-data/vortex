@@ -137,6 +137,15 @@ pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<()> {
+    if struct_array.fields().is_empty() {
+        // This happens If the file result is a count(*), then there will be struct fields,
+        // but a single chunk, column.
+        // We just need to set the length and can ignore the values.
+        assert!(chunk.num_columns() <= 1);
+        chunk.set_len(struct_array.len());
+        return Ok(());
+    }
+
     assert_eq!(struct_array.fields().len(), chunk.num_columns());
 
     chunk.set_len(struct_array.len());
@@ -203,7 +212,6 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
-
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use vortex_array::arrays::{
         BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
