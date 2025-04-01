@@ -70,7 +70,7 @@ fn random_access(
     let mut measurements = Vec::new();
 
     let taxi_vortex = runtime.block_on(taxi_data_vortex());
-    let taxi_parquet = taxi_data_parquet();
+    let taxi_parquet = runtime.block_on(taxi_data_parquet());
     measurements.push(TimingMeasurement {
         name: "random-access/vortex-tokio-local-disk".to_string(),
         storage: "nvme".to_string(),

@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use vortex::ArrayRef;
 
 pub mod data_downloads;
-pub mod public_bi_data;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;

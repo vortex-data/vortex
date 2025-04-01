@@ -173,7 +173,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     info!("Processing file '{filename}'");
-                    let array_stream = parquet_to_vortex(parquet_file_path).await?;
+                    let array_stream = parquet_to_vortex(parquet_file_path)?;
                     let f = OpenOptions::new()
                         .write(true)
                         .truncate(true)

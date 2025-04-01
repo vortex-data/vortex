@@ -12,7 +12,7 @@ use vortex::error::{VortexError, VortexResult};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
 
-pub async fn parquet_to_vortex(parquet_path: PathBuf) -> VortexResult<impl ArrayStream> {
+pub fn parquet_to_vortex(parquet_path: PathBuf) -> VortexResult<impl ArrayStream> {
     let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?.build()?;
 
     let array_iter = ArrayIteratorAdapter::new(

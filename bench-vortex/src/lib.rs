@@ -36,6 +36,7 @@ pub mod datasets;
 pub mod display;
 pub mod measurements;
 pub mod metrics;
+pub mod public_bi;
 pub mod random_access;
 pub mod tpch;
 
