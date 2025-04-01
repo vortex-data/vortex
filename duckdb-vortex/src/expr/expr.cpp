@@ -159,6 +159,8 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		storage->mutable_primitive()->set_nullable(nullable);
 		storage->mutable_primitive()->set_type(vortex::dtype::I64);
 		auto time_unit = static_cast<char>(timestamp_to_time_unit(type_));
+		// This signifies a timestamp without a timezone
+		// TODO(joe): support timezones
 		dtype->mutable_extension()->set_metadata(std::string({time_unit, 0, 0}));
 		return dtype;
 	}
