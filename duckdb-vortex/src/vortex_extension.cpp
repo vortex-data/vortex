@@ -263,10 +263,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 		local_state.array = FFIArrayStream_current(slot.array_stream);
 		local_state.current_row = 0;
-
-		if (global_state.next_file.load() >= global_state.expanded_files.size()) {
-			global_state.finished = true;
-		}
 	}
 
 	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
