@@ -18,13 +18,13 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let data_eval = self
             .data_child
-            .pruning_evaluation(row_range, expr, segment_reader)?;
+            .pruning_evaluation(row_range, expr, segment_source)?;
 
-        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_reader)
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), segment_source)
         else {
             return Ok(data_eval);
         };
@@ -59,22 +59,22 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         self.data_child
-            .filter_evaluation(row_range, expr, segment_reader)
+            .filter_evaluation(row_range, expr, segment_source)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child
-            .projection_evaluation(row_range, expr, segment_reader)
+            .projection_evaluation(row_range, expr, segment_source)
     }
 }
 

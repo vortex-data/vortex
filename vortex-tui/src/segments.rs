@@ -15,7 +15,7 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let reader = vxf
         .footer()
         .layout()
-        .reader(vxf.segment_reader().clone(), vxf.footer().ctx().clone())?;
+        .reader(vxf.segment_source().clone(), vxf.footer().ctx().clone())?;
 
     let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
 

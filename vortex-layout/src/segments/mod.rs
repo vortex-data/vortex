@@ -1,3 +1,4 @@
+mod events;
 mod sink;
 mod source;
 mod test;

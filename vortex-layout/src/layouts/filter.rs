@@ -57,7 +57,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let filter_expr = self
             .cache
@@ -73,7 +73,7 @@ impl ExprEvaluator for FilterLayoutReader {
             .iter()
             .map(|expr| {
                 self.child
-                    .pruning_evaluation(row_range, expr, segment_reader)
+                    .pruning_evaluation(row_range, expr, segment_source)
             })
             .try_collect()?;
 
@@ -84,7 +84,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let filter_expr = self
             .cache
@@ -100,7 +100,7 @@ impl ExprEvaluator for FilterLayoutReader {
             .iter()
             .map(|expr| {
                 self.child
-                    .filter_evaluation(row_range, expr, segment_reader)
+                    .filter_evaluation(row_range, expr, segment_source)
             })
             .try_collect()?;
 
@@ -114,11 +114,11 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Pass-through all projection expressions to the child layout reader.
         self.child
-            .projection_evaluation(row_range, expr, segment_reader)
+            .projection_evaluation(row_range, expr, segment_source)
     }
 }
 

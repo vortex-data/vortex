@@ -41,7 +41,7 @@ impl FlatReader {
     //  projection future before a pruning future, the pruning isn't blocked.
     pub(crate) fn array_future(
         &self,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<SharedArray> {
         let segment_id = self
             .layout
@@ -52,7 +52,7 @@ impl FlatReader {
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a better solution.
-        let segment_fut = segment_reader.request(segment_id, self.layout.name());
+        let segment_fut = segment_source.request(segment_id, self.layout.name());
 
         Ok(self
             .array

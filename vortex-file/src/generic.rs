@@ -1,21 +1,16 @@
-use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use futures::stream::{BoxStream, LocalBoxStream};
-use futures::{Stream, StreamExt, stream};
+use futures::StreamExt;
+use futures::stream::LocalBoxStream;
 use itertools::Itertools;
 use moka::sync::CacheBuilder;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::{IoDispatcher, PerformanceHint, VortexReadAt};
-use vortex_layout::segments::SegmentId;
-use vortex_metrics::VortexMetrics;
 
-use crate::footer::{Footer, SegmentSpec};
-use crate::scan::segments::{CoalescedSegmentRequest, evaluate};
-use crate::segments::{InMemorySegmentCache, SegmentCache};
+use crate::footer::SegmentSpec;
+use crate::segments::InMemorySegmentCache;
+use crate::segments::coalesced::{CoalescedSegmentRequest, evaluate};
 use crate::{FileType, IoDriver, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.

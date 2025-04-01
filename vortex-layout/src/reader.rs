@@ -73,7 +73,7 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-        _segment_reader: &dyn SegmentSource,
+        _segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
@@ -83,7 +83,7 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     /// Evaluates the expression against the layout.
@@ -91,7 +91,7 @@ pub trait ExprEvaluator: Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
@@ -100,30 +100,30 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         self.as_ref()
-            .pruning_evaluation(row_range, expr, segment_reader)
+            .pruning_evaluation(row_range, expr, segment_source)
     }
 
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         self.as_ref()
-            .filter_evaluation(row_range, expr, segment_reader)
+            .filter_evaluation(row_range, expr, segment_source)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         self.as_ref()
-            .projection_evaluation(row_range, expr, segment_reader)
+            .projection_evaluation(row_range, expr, segment_source)
     }
 }
 

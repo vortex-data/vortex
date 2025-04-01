@@ -18,6 +18,7 @@ arrow-buffer = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
+dashmap = { workspace = true }
 exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
@@ -36,6 +37,7 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }

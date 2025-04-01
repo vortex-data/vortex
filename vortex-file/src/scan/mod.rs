@@ -25,7 +25,8 @@ use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::VortexFile;
 use crate::scan::executor::Executor;
-use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner, evaluate};
+use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner};
+use crate::segments::coalesced::evaluate;
 use crate::unified::UnifiedDriverStream;
 
 pub mod executor;
@@ -199,7 +200,7 @@ impl ScanBuilder {
                             &row_range,
                             expr,
                             queue
-                                .segment_reader(&row_range, ScanStage::ApproxFilter)
+                                .segment_source(&row_range, ScanStage::ApproxFilter)
                                 .as_ref(),
                         )
                     })
@@ -211,7 +212,7 @@ impl ScanBuilder {
                             &row_range,
                             expr,
                             queue
-                                .segment_reader(&row_range, ScanStage::ExactFilter)
+                                .segment_source(&row_range, ScanStage::ExactFilter)
                                 .as_ref(),
                         )
                     })
@@ -220,7 +221,7 @@ impl ScanBuilder {
                     &row_range,
                     &projection,
                     queue
-                        .segment_reader(&row_range, ScanStage::Projection)
+                        .segment_source(&row_range, ScanStage::Projection)
                         .as_ref(),
                 )?;
 

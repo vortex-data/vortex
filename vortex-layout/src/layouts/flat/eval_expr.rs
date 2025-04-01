@@ -16,7 +16,7 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -25,7 +25,7 @@ impl ExprEvaluator for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future(segment_reader)?,
+            array: self.array_future(segment_source)?,
             row_range,
             expr: expr.clone(),
         }))
@@ -35,7 +35,7 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -43,7 +43,7 @@ impl ExprEvaluator for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             layout: self.layout().clone(),
-            array: self.array_future(segment_reader)?,
+            array: self.array_future(segment_source)?,
             row_range,
             expr: expr.clone(),
         }))

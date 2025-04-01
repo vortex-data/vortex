@@ -12,8 +12,8 @@ use vortex_metrics::VortexMetrics;
 
 use crate::ScanBuilder;
 use crate::footer::Footer;
-use crate::scan::segments::CoalescedSegmentRequest;
 use crate::segments::SegmentCache;
+use crate::segments::coalesced::CoalescedSegmentRequest;
 
 #[derive(Clone)]
 pub struct VortexFile {
@@ -51,6 +51,9 @@ impl VortexFile {
         ScanBuilder::new(self.clone())
     }
 }
+
+/// Implementations of [`VortexFile`] provide a way to perform coalesced reads from the file.
+pub trait FileSegmentReader {}
 
 pub trait IoDriver: 'static + Send + Sync {
     fn drive(

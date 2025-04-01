@@ -22,14 +22,14 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, segment_reader)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, segment_source)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -45,14 +45,14 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr, segment_reader)?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr, segment_source)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -68,7 +68,7 @@ impl ExprEvaluator for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
@@ -77,7 +77,7 @@ impl ExprEvaluator for ChunkedReader {
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.child(chunk_idx)?;
             let chunk_eval =
-                chunk_reader.projection_evaluation(&chunk_range, expr, segment_reader)?;
+                chunk_reader.projection_evaluation(&chunk_range, expr, segment_source)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }

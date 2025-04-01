@@ -6255,6 +6255,7 @@ dependencies = [
  "async-trait",
  "bit-vec",
  "bytes",
+ "dashmap",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
  "futures",
@@ -6272,6 +6273,7 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
+ "vortex-metrics",
 ]
 
 [[package]]

@@ -98,7 +98,7 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) fn stats_table(&self, segment_reader: &dyn SegmentSource) -> SharedStatsTable {
+    pub(crate) fn stats_table(&self, segment_source: &dyn SegmentSource) -> SharedStatsTable {
         self.stats_table
             .get_or_init(move || {
                 let nzones = self.nzones;
@@ -109,7 +109,7 @@ impl StatsReader {
                     .projection_evaluation(
                         &(0..nzones as u64),
                         &Identity::new_expr(),
-                        segment_reader,
+                        segment_source,
                     )
                     .vortex_expect("Failed construct stats table evaluation");
 
@@ -129,7 +129,7 @@ impl StatsReader {
     pub(crate) fn pruning_mask_future(
         &self,
         expr: ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> Option<SharedPruningResult> {
         match self
             .pruning_result
@@ -144,7 +144,7 @@ impl StatsReader {
                     Some(pred) => {
                         log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
                         Some(
-                            self.stats_table(segment_reader)
+                            self.stats_table(segment_source)
                                 .map(move |stats_table| {
                                     stats_table.and_then(move |stats_table| {
                                         pred.evaluate(stats_table.array())?

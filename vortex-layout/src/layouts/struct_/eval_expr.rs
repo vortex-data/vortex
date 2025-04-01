@@ -23,7 +23,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -32,7 +32,7 @@ impl ExprEvaluator for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .filter_evaluation(row_range, &partitioned.partitions[0], segment_reader);
+                .filter_evaluation(row_range, &partitioned.partitions[0], segment_source);
         }
 
         // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
@@ -49,14 +49,14 @@ impl ExprEvaluator for StructReader {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
                     // can often be more efficient since nulls are turned into `false` early on,
                     // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(reader.filter_evaluation(row_range, expr, segment_reader)?)
+                    FieldEval::Mask(reader.filter_evaluation(row_range, expr, segment_source)?)
                 } else {
                     // Otherwise, we evaluate the projection as an array, and combine the results
                     // at the end.
                     FieldEval::Array(reader.projection_evaluation(
                         row_range,
                         expr,
-                        segment_reader,
+                        segment_source,
                     )?)
                 })
             })
@@ -72,7 +72,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentSource,
+        segment_source: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -81,7 +81,7 @@ impl ExprEvaluator for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .projection_evaluation(row_range, &partitioned.partitions[0], segment_reader);
+                .projection_evaluation(row_range, &partitioned.partitions[0], segment_source);
         }
 
         // Construct evaluations for each child.
@@ -91,7 +91,7 @@ impl ExprEvaluator for StructReader {
             .zip_eq(partitioned.partitions.iter())
             .map(|(name, expr)| {
                 self.child(name)?
-                    .projection_evaluation(row_range, expr, segment_reader)
+                    .projection_evaluation(row_range, expr, segment_source)
             })
             .try_collect()?;
 
