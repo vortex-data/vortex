@@ -8,7 +8,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
 };
@@ -18,7 +18,7 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let data_eval = self
             .data_child
@@ -59,7 +59,7 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         self.data_child
             .filter_evaluation(row_range, expr, segment_reader)
@@ -69,7 +69,7 @@ impl ExprEvaluator for StatsReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
@@ -144,14 +144,13 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
-    use crate::segments::SegmentReader;
-    use crate::segments::test::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
@@ -186,7 +185,7 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {
@@ -215,7 +214,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {

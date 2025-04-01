@@ -118,7 +118,7 @@ mod tests {
 
     use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
+    use crate::segments::TestSegments;
     use crate::writer::LayoutWriterExt;
 
     // Currently, flat layouts do not force compute stats during write, they only retain

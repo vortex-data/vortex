@@ -8,7 +8,7 @@ use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{Layout, LayoutVTable};
 
 pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
@@ -41,7 +41,7 @@ impl FlatReader {
     //  projection future before a pruning future, the pruning isn't blocked.
     pub(crate) fn array_future(
         &self,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<SharedArray> {
         let segment_id = self
             .layout
@@ -52,7 +52,7 @@ impl FlatReader {
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a better solution.
-        let segment_fut = segment_reader.get(segment_id, self.layout.name());
+        let segment_fut = segment_reader.request(segment_id, self.layout.name());
 
         Ok(self
             .array

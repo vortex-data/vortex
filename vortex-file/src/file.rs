@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::stream::{BoxStream, LocalBoxStream};
 use vortex_array::stats::StatsSet;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::PerformanceHint;
+use vortex_layout::segments::SegmentId;
 use vortex_metrics::VortexMetrics;
 
 use crate::ScanBuilder;
@@ -50,8 +53,6 @@ impl VortexFile {
 }
 
 pub trait IoDriver: 'static + Send + Sync {
-    fn performance_hint(&self) -> PerformanceHint;
-
     fn drive(
         &self,
         requests: LocalBoxStream<'static, VortexResult<CoalescedSegmentRequest>>,

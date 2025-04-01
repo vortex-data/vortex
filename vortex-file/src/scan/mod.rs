@@ -18,7 +18,7 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::layouts::filter::FilterLayoutReader;
-use vortex_layout::segments::SegmentReader;
+use vortex_layout::source::SegmentSource;
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
 use vortex_metrics::{VortexMetrics, instrument};
@@ -26,6 +26,7 @@ use vortex_metrics::{VortexMetrics, instrument};
 use crate::VortexFile;
 use crate::scan::executor::Executor;
 use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner, evaluate};
+use crate::unified::UnifiedDriverStream;
 
 pub mod executor;
 pub mod row_mask;
@@ -301,13 +302,15 @@ impl ScanBuilder {
             }
         })?;
 
-        // FIXME(ngates): we need to consume and interleave the error queue with the array
-        //  stream.
-        let _ = err_recv;
+        // Create a unified stream that propagates any I/O errors
+        let unified = UnifiedDriverStream {
+            exec_stream: array_stream,
+            io_stream: err_recv.map(|e| Err(e)),
+        };
 
         Ok(ArrayStreamAdapter::new(
             result_dtype,
-            instrument!("array_stream", array_stream),
+            instrument!("array_stream", unified),
         ))
     }
 
@@ -358,124 +361,4 @@ fn filter_and_projection_masks(
 
 fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
-}
-
-pub struct Scan {
-    task_executor: TaskExecutor,
-    layout_reader: Arc<dyn LayoutReader>,
-
-    // We allow the caller to configure segment readers for each stage of the scan, in case
-    // they wish to prioritise or fetch the segments differently.
-    project_segment_reader: Arc<dyn SegmentReader>,
-    approx_filter_segment_reader: Arc<dyn SegmentReader>,
-    exact_filter_segment_reader: Arc<dyn SegmentReader>,
-
-    // Guaranteed to be simplified
-    projection: ExprRef,
-    // Guaranteed to be simplified
-    filter: Option<ExprRef>,
-    row_masks: Vec<RowMask>,
-    canonicalize: bool,
-    concurrency: usize,
-}
-
-impl Scan {
-    /// Perform the scan operation and return a stream of arrays.
-    ///
-    /// The returned stream should be considered to perform I/O-bound operations and requires
-    /// frequent polling to make progress.
-    #[allow(clippy::unused_enumerate_index)]
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        // Create a single LayoutReader that is reused for the entire scan.
-        let result_dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-
-        // If there's a filter expression, set up a shared FilterLayoutReader to store stats.
-        let layout_reader = FilterLayoutReader::new(self.layout_reader.clone());
-        //let filter_reader =
-        //    FilterLayoutReader::new(layout_reader.clone(), self.task_executor.clone());
-
-        let array_futures: Vec<_> = self
-            .row_masks
-            .into_iter()
-            .enumerate()
-            .map(|(_i, row_mask)| {
-                let row_range = row_mask.begin()..row_mask.end();
-
-                let approx_filter_eval = self
-                    .filter
-                    .as_ref()
-                    .map(|expr| {
-                        layout_reader.pruning_evaluation(
-                            &row_range,
-                            expr,
-                            self.approx_filter_segment_reader.as_ref(),
-                        )
-                    })
-                    .transpose()?;
-                let exact_filter_eval = self
-                    .filter
-                    .as_ref()
-                    .map(|expr| {
-                        layout_reader.filter_evaluation(
-                            &row_range,
-                            expr,
-                            self.exact_filter_segment_reader.as_ref(),
-                        )
-                    })
-                    .transpose()?;
-                let project_eval = layout_reader.projection_evaluation(
-                    &row_range,
-                    &self.projection,
-                    self.project_segment_reader.as_ref(),
-                )?;
-
-                Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
-                    let mut mask = row_mask.filter_mask().clone();
-                    if mask.all_false() {
-                        return Ok(None);
-                    }
-
-                    if let Some(approx_filter_eval) = approx_filter_eval {
-                        // First, we run an approximate evaluation to prune the row range.
-                        mask = approx_filter_eval.invoke(mask).await?;
-                        if mask.all_false() {
-                            return Ok(None);
-                        }
-                    }
-
-                    if let Some(exact_filter_eval) = exact_filter_eval {
-                        // Then, we run the full evaluation.
-                        mask = exact_filter_eval.invoke(mask).await?;
-                        if mask.all_false() {
-                            return Ok(None);
-                        }
-                    }
-
-                    let mut array = project_eval.invoke(mask).await?;
-                    if self.canonicalize {
-                        let mut builder = builder_with_capacity(array.dtype(), array.len());
-                        array.append_to_builder(builder.as_mut())?;
-                        array = builder.finish();
-                    }
-
-                    Ok(Some(array))
-                }))
-            })
-            .try_collect()?;
-
-        let task_executor = self.task_executor.clone();
-        let exec_stream = stream::iter(array_futures)
-            .map(move |task| task_executor.spawn(task))
-            .buffered(self.concurrency)
-            .filter_map(|v| async move { v.transpose() });
-
-        Ok(ArrayStreamAdapter::new(
-            result_dtype,
-            instrument!("exec_stream", exec_stream),
-        ))
-    }
-
-    pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
-    }
 }

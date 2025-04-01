@@ -39,6 +39,7 @@ vortex-mask = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
+rstest = { workspace = true }
 
 [features]
 tokio = ["dep:tokio", "vortex-error/tokio"]

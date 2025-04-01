@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
@@ -98,7 +98,7 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) fn stats_table(&self, segment_reader: &dyn SegmentReader) -> SharedStatsTable {
+    pub(crate) fn stats_table(&self, segment_reader: &dyn SegmentSource) -> SharedStatsTable {
         self.stats_table
             .get_or_init(move || {
                 let nzones = self.nzones;
@@ -129,7 +129,7 @@ impl StatsReader {
     pub(crate) fn pruning_mask_future(
         &self,
         expr: ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> Option<SharedPruningResult> {
         match self
             .pruning_result

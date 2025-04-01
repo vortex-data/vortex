@@ -12,7 +12,8 @@ use vortex::file::{Footer, SegmentSpec, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::segments::{SegmentId, SegmentReader};
+use vortex_layout::segments::SegmentId;
+use vortex_layout::source::SegmentSource;
 use vortex_layout::{
     CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTableRef, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
@@ -193,7 +194,7 @@ pub struct AppState {
     pub filter: Option<Vec<bool>>,
 
     pub footer: Footer,
-    pub reader: Arc<dyn SegmentReader>,
+    pub reader: Arc<dyn SegmentSource>,
     pub cursor: LayoutCursor,
     pub current_tab: Tab,
 
@@ -217,7 +218,7 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         .footer()
         .clone();
 
-    let reader = Arc::new(SegmentReader {
+    let reader = Arc::new(SegmentSource {
         reader: file.clone(),
         footer: footer.clone(),
     }) as _;
@@ -241,8 +242,8 @@ struct SegmentReader {
     pub footer: Footer,
 }
 
-impl SegmentReader for SegmentReader {
-    fn get(
+impl SegmentSource for SegmentSource {
+    fn request(
         &self,
         id: SegmentId,
         _for_whom: &Arc<str>,

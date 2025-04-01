@@ -15,7 +15,7 @@ use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 impl ExprEvaluator for StructReader {
@@ -23,7 +23,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -72,7 +72,7 @@ impl ExprEvaluator for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
@@ -197,14 +197,13 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::segments::SegmentReader;
-    use crate::segments::test::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
     use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentReader>, Layout) {
+    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
@@ -256,7 +255,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {
@@ -284,7 +283,7 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {
@@ -315,7 +314,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn SegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {

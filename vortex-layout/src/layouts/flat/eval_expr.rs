@@ -8,7 +8,7 @@ use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::reader::{FlatReader, SharedArray};
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation};
 
 impl ExprEvaluator for FlatReader {
@@ -16,7 +16,7 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -35,7 +35,7 @@ impl ExprEvaluator for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -146,7 +146,7 @@ mod test {
 
     use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
+    use crate::segments::TestSegments;
     use crate::writer::LayoutWriterExt;
 
     #[test]

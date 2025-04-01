@@ -20,7 +20,8 @@ use vortex_error::{
     vortex_panic,
 };
 use vortex_io::{PerformanceHint, VortexReadAt};
-use vortex_layout::segments::{SegmentId, SegmentReader};
+use vortex_layout::segments::SegmentId;
+use vortex_layout::source::SegmentSource;
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::SegmentSpec;
@@ -108,13 +109,14 @@ impl SegmentQueueInner {
         };
         let next_spec = self
             .segment_map
-            .get(*next.id as usize)
-            .ok_or_else(|| vortex_err!("SegmentID {} not found", next.id))?;
+            .get(*next as usize)
+            .ok_or_else(|| vortex_err!("SegmentID {} not found", next))?;
 
         // We build up a single coalesced read from the pending segments.
         // Since pending segments are ordered by priority, we _always_ launch a request
         // for the highest priority segment.
         let mut coalesced = CoalescedSegmentRequest {
+            queue: self.clone(),
             alignment: next_spec.alignment,
             byte_range: next_spec.offset..next_spec.offset + next_spec.length as u64,
             requests: vec![next],
@@ -172,7 +174,7 @@ impl SegmentQueueInner {
         Ok(Some(coalesced))
     }
 
-    fn next_segment_request(&self) -> Option<SegmentRequest> {
+    fn next_segment_request(&self) -> Option<SegmentId> {
         let mut needed = self.needed.lock().vortex_expect("poisoned lock");
 
         // First, we sort the "need now" queue by priority.
@@ -180,18 +182,10 @@ impl SegmentQueueInner {
         if let Some(next) = needed
             .need_now
             .iter()
-            .filter_map(|id| {
-                self.segments
-                    .get_mut(id)
-                    .and_then(|mut pending| pending.send.take())
-                    .map(|send| SegmentRequest {
-                        id: *id,
-                        callback: send,
-                    })
-            })
+            .filter(|id| self.segments.contains_key(id))
             .next()
         {
-            return Some(next);
+            return Some(*next);
         }
 
         // Otherwise, we fall back to the need later queue.
@@ -199,16 +193,9 @@ impl SegmentQueueInner {
         needed
             .need_later
             .iter()
-            .filter_map(|id| {
-                self.segments
-                    .get_mut(id)
-                    .and_then(|mut pending| pending.send.take())
-                    .map(|send| SegmentRequest {
-                        id: *id,
-                        callback: send,
-                    })
-            })
+            .filter(|id| self.segments.contains_key(id))
             .next()
+            .copied()
     }
 
     fn sort_by_priority(&self, needed: &mut Vec<SegmentId>) {
@@ -402,12 +389,12 @@ impl SegmentQueue {
         Self { inner }
     }
 
-    /// Create a new [`SegmentReader`] that can be used to populate the segment queue.
+    /// Create a new [`SegmentSource`] that can be used to populate the segment queue.
     pub fn segment_reader(
         &self,
         row_range: &Range<u64>,
         stage: ScanStage,
-    ) -> Arc<dyn SegmentReader> {
+    ) -> Arc<dyn SegmentSource> {
         // We return a segment reader (instead of holding a strong reference to the send channel)
         // such that when all segment readers are dropped, the "send" end of the queue is closed,
         // and we can return `None` from the next function.
@@ -441,8 +428,8 @@ impl SegmentQueueSegmentReader {
     }
 }
 
-impl SegmentReader for SegmentQueueSegmentReader {
-    fn get(
+impl SegmentSource for SegmentQueueSegmentReader {
+    fn request(
         &self,
         id: SegmentId,
         for_whom: &Arc<str>,
@@ -455,7 +442,7 @@ impl SegmentReader for SegmentQueueSegmentReader {
     }
 }
 
-/// A pending segment returned by the [`SegmentReader`].
+/// A pending segment returned by the [`SegmentSource`].
 pub struct PendingSegment {
     id: SegmentId,
     /// The row range of the scan that requested the segment.
@@ -547,15 +534,15 @@ impl SegmentRequest {
     }
 }
 
-#[derive(Debug)]
 pub struct CoalescedSegmentRequest {
+    pub(crate) queue: Arc<SegmentQueueInner>,
     /// The alignment of the first segment.
     // TODO(ngates): is this the best alignment to use?
     pub(crate) alignment: Alignment,
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
-    pub(crate) requests: Vec<SegmentRequest>,
+    pub(crate) requests: Vec<SegmentId>,
 }
 
 impl CoalescedSegmentRequest {
@@ -571,7 +558,7 @@ pub(crate) async fn evaluate<R: VortexReadAt + Send>(
 ) -> VortexResult<()> {
     log::debug!(
         "Reading byte range for [{}] requests {:?} size={}",
-        request.requests.iter().map(|r| r.id).join(", "),
+        request.requests,
         request.byte_range,
         request.byte_range.end - request.byte_range.start,
     );
@@ -597,18 +584,16 @@ pub(crate) async fn evaluate<R: VortexReadAt + Send>(
         // Find any request callbacks and send the buffer
         while let Some(req) = requests_iter.peek() {
             // If the request is before the current segment, we should have already resolved it.
-            match req.id.cmp(&segment_id) {
+            match req.cmp(&segment_id) {
                 Ordering::Less => {
                     // This should never happen, it means we missed a segment request.
                     vortex_panic!("Skipped segment request");
                 }
                 Ordering::Equal => {
                     // Resolve the request
-                    let _ = requests_iter
-                        .next()
-                        .vortex_expect("next request")
-                        .callback //
-                        .send(Ok(buf.clone()));
+                    request
+                        .queue
+                        .submit_event(SegmentEvent::Resolve(segment_id, Ok(buf.clone())));
                 }
                 Ordering::Greater => {
                     // No request for this segment, so we continue

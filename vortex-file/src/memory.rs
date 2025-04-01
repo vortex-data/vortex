@@ -4,7 +4,8 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_layout::segments::{SegmentId, SegmentReader};
+use vortex_layout::segments::SegmentId;
+use vortex_layout::source::SegmentSource;
 
 use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 
@@ -42,8 +43,8 @@ struct InMemorySegmentReader {
     footer: Footer,
 }
 
-impl SegmentReader for InMemorySegmentReader {
-    fn get(
+impl SegmentSource for InMemorySegmentReader {
+    fn request(
         &self,
         id: SegmentId,
         _for_whom: &Arc<str>,

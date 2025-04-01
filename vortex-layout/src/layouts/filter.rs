@@ -12,7 +12,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::segments::SegmentReader;
+use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
 };
@@ -57,7 +57,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let filter_expr = self
             .cache
@@ -84,7 +84,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let filter_expr = self
             .cache
@@ -114,7 +114,7 @@ impl ExprEvaluator for FilterLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        segment_reader: &dyn SegmentReader,
+        segment_reader: &dyn SegmentSource,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Pass-through all projection expressions to the child layout reader.
         self.child
