@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
-use futures::channel::mpsc;
-use futures::future::BoxFuture;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{StreamExt, stream};
 use itertools::Itertools;
 pub use row_mask::*;
 pub use split_by::*;
@@ -16,7 +14,6 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::layouts::filter::FilterLayoutReader;
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
@@ -24,7 +21,6 @@ use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::VortexFile;
 use crate::scan::executor::Executor;
-use crate::unified::UnifiedDriverStream;
 
 pub mod executor;
 pub mod row_mask;
@@ -43,7 +39,6 @@ pub struct ScanBuilder {
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
     concurrency: usize,
-    io_dispatcher: IoDispatcher,
     metrics: VortexMetrics,
 }
 
@@ -61,7 +56,6 @@ impl ScanBuilder {
             // How many row splits to make progress on concurrently (not necessarily in parallel,
             // that is decided by the TaskExecutor).
             concurrency: 16,
-            io_dispatcher: IoDispatcher::default(),
             metrics,
         }
     }

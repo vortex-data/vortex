@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::segments::SegmentCache;

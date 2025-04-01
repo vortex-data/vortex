@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use moka::policy::EvictionPolicy;
 use moka::sync::{Cache, CacheBuilder};
 use rustc_hash::FxBuildHasher;

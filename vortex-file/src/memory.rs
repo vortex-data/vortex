@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt, stream};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 
 use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};

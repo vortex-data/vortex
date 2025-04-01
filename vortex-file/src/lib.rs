@@ -1,7 +1,5 @@
-#![allow(dead_code)]
 #![allow(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
-#![allow(unused_imports)]
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
 //!
 //! A layout is a serialized array which is stored in some linear and contiguous block of
@@ -92,9 +90,6 @@
 //! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
-extern crate core;
-
-mod driver;
 mod file;
 mod footer;
 mod generic;

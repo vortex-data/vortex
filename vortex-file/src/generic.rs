@@ -1,20 +1,13 @@
-use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use futures::channel::mpsc;
-use futures::stream::{BoxStream, LocalBoxStream};
-use futures::{Stream, StreamExt, pin_mut, stream};
-use itertools::Itertools;
+use futures::{StreamExt, pin_mut};
 use moka::sync::CacheBuilder;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, IoDispatcher, PerformanceHint, VortexReadAt};
-use vortex_layout::segments::{SegmentEvents, SegmentSource};
-use vortex_metrics::VortexMetrics;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
+use vortex_layout::segments::SegmentEvents;
 
-use crate::driver::CoalescedDriver;
-use crate::footer::SegmentSpec;
-use crate::segments::{CachedSegmentSource, InMemorySegmentCache, SegmentCache};
-use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
+use crate::segments::{CachedSegmentSource, CoalescedDriver, InMemorySegmentCache};
+use crate::{FileType, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -48,7 +41,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         let footer = self.read_footer(&read).await?;
 
         // We use segment events for driving I/O.
-        let (segment_source, events) = SegmentEvents::create(self.metrics.clone());
+        let (segment_source, events) = SegmentEvents::create();
 
         // Wrap the source to resolve segments from the initial read cache.
         let segment_source = Arc::new(CachedSegmentSource::new(
@@ -64,17 +57,20 @@ impl VortexOpenOptions<GenericVortexFile> {
         );
 
         // Spawn an I/O driver onto the dispatcher.
+        let io_concurrency = self.options.io_concurrency;
         self.options
             .io_dispatcher
             .dispatch(move || {
                 async move {
                     // Drive the segment event stream.
-                    let stream = driver.into_stream();
+                    let stream = driver
+                        .into_stream()
+                        .map(|coalesced_req| coalesced_req.launch(read.clone()))
+                        .buffer_unordered(io_concurrency);
                     pin_mut!(stream);
 
-                    while let Some(coalesced_request) = stream.next().await {
-                        coalesced_request.launch(read.clone()).await
-                    }
+                    // Drive the stream to completion.
+                    stream.collect::<()>().await
                 }
             })
             .vortex_expect("Failed to spawn I/O driver");

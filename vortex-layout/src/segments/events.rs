@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, atomic};
 use std::task::{Context, Poll};
-use std::time::Instant;
 
 use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
@@ -14,7 +13,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{
     ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
 };
-use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::segments::{SegmentId, SegmentSource};
 
@@ -25,24 +23,19 @@ use crate::segments::{SegmentId, SegmentSource};
 pub struct SegmentEvents {
     pending: DashMap<SegmentId, PendingSegment>,
     events: mpsc::UnboundedSender<SegmentEvent>,
-    metrics: VortexMetrics,
 }
 
 impl SegmentEvents {
-    pub fn create(
-        metrics: VortexMetrics,
-    ) -> (Arc<dyn SegmentSource>, BoxStream<'static, SegmentEvent>) {
+    pub fn create() -> (Arc<dyn SegmentSource>, BoxStream<'static, SegmentEvent>) {
         let (send, recv) = mpsc::unbounded();
 
         let events = Arc::new(Self {
             pending: Default::default(),
             events: send,
-            metrics: metrics.clone(),
         });
 
         let source = Arc::new(EventsSegmentSource {
             events: events.clone(),
-            request_counter: events.metrics.counter("vortex.scan.segments.requested"),
         });
         let stream = recv.boxed();
 
@@ -60,7 +53,11 @@ pub enum SegmentEvent {
 impl Debug for SegmentEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SegmentEvent::Requested(req) => write!(f, "SegmentEvent::Registered({:?})", req.id),
+            SegmentEvent::Requested(req) => write!(
+                f,
+                "SegmentEvent::Registered({:?}, {})",
+                req.id, req.for_whom
+            ),
             SegmentEvent::Polled(id) => write!(f, "SegmentEvent::Polled({:?})", id),
             SegmentEvent::Dropped(id) => write!(f, "SegmentEvent::Dropped({:?})", id),
             SegmentEvent::Resolved(id) => write!(f, "SegmentEvent::Resolved({:?})", id),
@@ -71,6 +68,8 @@ impl Debug for SegmentEvent {
 pub struct SegmentRequest {
     /// The ID of the requested segment
     id: SegmentId,
+    /// The name of the layout that requested the segment, used only for debugging.
+    for_whom: Arc<str>,
     /// The one-shot channel to send the segment back to the caller
     callback: oneshot::Sender<VortexResult<ByteBuffer>>,
     /// A handle back to the segment events.
@@ -87,8 +86,6 @@ impl SegmentRequest {
         self.callback
             .send(buffer)
             .map_err(|_| vortex_err!("send failed"))
-            // TODO(ngates): I think this is actually expected if the segment is dropped while
-            //  in flight...
             .vortex_expect("send failed");
         self.events.submit_event(SegmentEvent::Resolved(self.id));
     }
@@ -114,8 +111,6 @@ impl SegmentEvents {
                     }
                 }
                 Entry::Vacant(e) => {
-                    log::debug!("Pending segment {} for {}: REGISTERED", id, &for_whom);
-                    self.metrics.counter("vortex.scan.segments.requests").inc();
                     let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
 
                     // Set up the segment future tied to the recv end of the channel.
@@ -134,8 +129,6 @@ impl SegmentEvents {
                     // Create a new pending segment.
                     let pending = PendingSegment {
                         id,
-                        for_whom,
-                        created_at: Instant::now(),
                         fut: fut
                             .downgrade()
                             .vortex_expect("cannot fail, only just created"),
@@ -145,6 +138,7 @@ impl SegmentEvents {
                     // Set up a SegmentRequest tied to the send end of the channel.
                     self.submit_event(SegmentEvent::Requested(SegmentRequest {
                         id,
+                        for_whom: for_whom.clone(),
                         callback: send,
                         events: self.clone(),
                     }));
@@ -165,7 +159,6 @@ impl SegmentEvents {
 
 struct EventsSegmentSource {
     events: Arc<SegmentEvents>,
-    request_counter: Arc<Counter>,
 }
 
 impl SegmentSource for EventsSegmentSource {
@@ -174,7 +167,6 @@ impl SegmentSource for EventsSegmentSource {
         id: SegmentId,
         for_whom: &Arc<str>,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        self.request_counter.inc();
         self.events
             .clone()
             .segment_future(id, for_whom.clone())
@@ -186,10 +178,6 @@ impl SegmentSource for EventsSegmentSource {
 /// A pending segment returned by the [`SegmentSource`].
 pub struct PendingSegment {
     id: SegmentId,
-    /// A debug string identifying which layout requested the segment.
-    for_whom: Arc<str>,
-    /// The time at which the segment was requested.
-    created_at: Instant,
     /// A weak shared future that we hand out to all requesters. Once all requesters have been
     /// dropped, typically because their row split has completed (or been pruned), then the weak
     /// feature is no longer upgradable, and the segment can be dropped.
@@ -200,8 +188,6 @@ impl Debug for PendingSegment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PendingSegment")
             .field("id", &self.id)
-            .field("for_whom", &self.for_whom)
-            .field("created_at", &self.created_at)
             .finish()
     }
 }

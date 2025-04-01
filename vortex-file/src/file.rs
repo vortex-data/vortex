@@ -1,18 +1,12 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::stream::{BoxStream, LocalBoxStream};
 use vortex_array::stats::StatsSet;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult};
-use vortex_io::PerformanceHint;
-use vortex_layout::segments::{SegmentId, SegmentSource};
+use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
 use crate::ScanBuilder;
 use crate::footer::Footer;
-use crate::segments::SegmentCache;
 
 #[derive(Clone)]
 pub struct VortexFile {
