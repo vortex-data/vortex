@@ -1,8 +1,7 @@
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_io::VortexWrite;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::sink::SegmentWriter;
+use vortex_layout::segments::{SegmentId, SegmentWriter};
 
 use crate::footer::SegmentSpec;
 

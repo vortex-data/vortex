@@ -1,18 +1,20 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use futures::StreamExt;
-use futures::stream::LocalBoxStream;
+use futures::channel::mpsc;
+use futures::stream::{BoxStream, LocalBoxStream};
+use futures::{Stream, StreamExt, pin_mut, stream};
 use itertools::Itertools;
 use moka::sync::CacheBuilder;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, IoDispatcher, PerformanceHint, VortexReadAt};
-use vortex_layout::segments::SegmentEvents;
+use vortex_layout::segments::{SegmentEvents, SegmentSource};
+use vortex_metrics::VortexMetrics;
 
+use crate::driver::CoalescedDriver;
 use crate::footer::SegmentSpec;
-use crate::segments::coalesced::{CoalescedSegmentRequest, evaluate};
-use crate::segments::{CachedSegmentSource, InMemorySegmentCache};
-use crate::{FileType, IoDriver, VortexFile, VortexOpenOptions};
+use crate::segments::{CachedSegmentSource, InMemorySegmentCache, SegmentCache};
+use crate::{FileDriver, FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -44,25 +46,71 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
+        let driver = Arc::new(GenericFileDriver {
+            read,
+            footer: footer.clone(),
+            options: self.options,
+            initial_segments: self.segment_cache.clone(),
+            metrics: self.metrics.clone(),
+        });
+        Ok(VortexFile {
+            footer: footer.clone(),
+            driver,
+            metrics: self.metrics,
+        })
+    }
+}
 
+struct GenericFileDriver<R> {
+    read: R,
+    footer: Footer,
+    options: GenericFileOptions,
+    initial_segments: Arc<dyn SegmentCache>,
+    metrics: VortexMetrics,
+}
+
+impl<R: VortexReadAt + Send> FileDriver for GenericFileDriver<R> {
+    fn spawn(&self) -> (Arc<dyn SegmentSource>, BoxStream<'static, VortexError>) {
         // We use segment events for driving I/O.
         let (source, events) = SegmentEvents::create(self.metrics.clone());
 
         // Wrap the source to resolve segments from the initial read cache.
-        let source = Arc::new(CachedSegmentSource::new(self.segment_cache.clone(), source));
+        let source = Arc::new(CachedSegmentSource::new(
+            self.initial_segments.clone(),
+            source,
+        ));
+
+        let (error_send, error_recv) = mpsc::unbounded();
+
+        let driver = CoalescedDriver::new(
+            self.read.clone(),
+            self.footer.clone(),
+            events,
+            self.metrics.clone(),
+        );
 
         // Spawn an I/O driver onto the dispatcher.
-        self.options.io_dispatcher.dispatch(move || {
-            async move {
-                // Drive the segment event stream.
-            }
-        })?;
+        self.options
+            .io_dispatcher
+            .dispatch(move || {
+                async move {
+                    // Drive the segment event stream.
+                    let stream = driver.into_stream();
+                    pin_mut!(stream);
 
-        Ok(VortexFile {
-            footer: footer.clone(),
-            source,
-            metrics: self.metrics,
-        })
+                    while let Some(result) = stream.next().await {
+                        if let Err(err) = result {
+                            error_send
+                                .unbounded_send(err)
+                                .map_err(|e| vortex_err!("Failed to send error {:?}", e))
+                                .vortex_expect("Failed to send error");
+                        }
+                    }
+                }
+            })
+            .vortex_expect("Failed to spawn I/O driver");
+
+        (source, error_recv.boxed())
     }
 }
 
@@ -111,36 +159,6 @@ impl Default for GenericFileOptions {
             io_concurrency: 10,
             io_dispatcher: IoDispatcher::default(),
         }
-    }
-}
-
-pub struct ScanDriver<R: VortexReadAt> {
-    read: Mutex<R>,
-    segment_map: Arc<[SegmentSpec]>,
-}
-
-impl<R: VortexReadAt + Send> IoDriver for ScanDriver<R> {
-    fn performance_hint(&self) -> PerformanceHint {
-        self.read
-            .lock()
-            .vortex_expect("poisoned lock")
-            .performance_hint()
-    }
-
-    fn drive(
-        &self,
-        requests: LocalBoxStream<'static, VortexResult<CoalescedSegmentRequest>>,
-    ) -> LocalBoxStream<'static, VortexResult<()>> {
-        let read = self.read.lock().vortex_expect("poisoned lock").clone();
-        let segment_map = self.segment_map.clone();
-        requests
-            .map(move |request| {
-                let read = read.clone();
-                let segment_map = segment_map.clone();
-                async move { evaluate(read, request?, segment_map).await }
-            })
-            .buffer_unordered(10)
-            .boxed_local()
     }
 }
 

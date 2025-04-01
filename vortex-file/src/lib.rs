@@ -94,6 +94,7 @@
 
 extern crate core;
 
+mod driver;
 mod file;
 mod footer;
 mod generic;

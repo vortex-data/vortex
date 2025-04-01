@@ -24,8 +24,7 @@ use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::SegmentSpec;
-use crate::segments::SegmentCache;
-use crate::segments::coalesced::CoalescedSegmentRequest;
+use crate::segments::{CoalescedSegmentRequest, SegmentCache};
 
 /// Pre-fetch queue for segments for the generic file reader.
 ///
@@ -50,13 +49,6 @@ pub struct SegmentQueueInner {
         Mutex<ReadyChunks<mpsc::UnboundedReceiver<SegmentEvent>>>,
     ),
     metrics: VortexMetrics,
-}
-
-enum SegmentEvent {
-    Registered(SegmentId),
-    Polled(SegmentId),
-    Dropped(SegmentId),
-    Resolve(SegmentId, VortexResult<ByteBuffer>),
 }
 
 impl Debug for SegmentEvent {

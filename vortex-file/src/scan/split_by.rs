@@ -64,7 +64,7 @@ mod test {
     use vortex_dtype::{DType, FieldPath};
     use vortex_layout::LayoutWriterExt;
     use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
-    use vortex_layout::segments::test::TestSegments;
+    use vortex_layout::segments::TestSegments;
 
     use super::*;
 

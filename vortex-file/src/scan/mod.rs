@@ -18,20 +18,17 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::layouts::filter::FilterLayoutReader;
-use vortex_layout::source::SegmentSource;
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
 use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::VortexFile;
 use crate::scan::executor::Executor;
-use crate::scan::segments::{ScanStage, SegmentQueue, SegmentQueueInner};
-use crate::segments::coalesced::evaluate;
 use crate::unified::UnifiedDriverStream;
 
 pub mod executor;
 pub mod row_mask;
-pub mod segments;
+// pub mod segments;
 pub mod split_by;
 pub mod unified;
 
@@ -177,14 +174,9 @@ impl ScanBuilder {
             })
             .collect_vec();
 
-        // Set up the segment queue to manage segment state.
-        let queue = SegmentQueue::new(
-            self.vxf.footer().segment_map().clone(),
-            self.vxf.segment_cache.clone(),
-            self.metrics.clone(),
-        );
-
         let result_dtype = projection.return_dtype(layout_reader.dtype())?;
+
+        let (segment_source, io_errors) = self.vxf.driver.spawn();
 
         // Create a future to process each row split of the scan.
         let array_futures: Vec<_> = row_masks
@@ -196,33 +188,19 @@ impl ScanBuilder {
                 let approx_filter_eval = filter
                     .as_ref()
                     .map(|expr| {
-                        layout_reader.pruning_evaluation(
-                            &row_range,
-                            expr,
-                            queue
-                                .segment_source(&row_range, ScanStage::ApproxFilter)
-                                .as_ref(),
-                        )
+                        layout_reader.pruning_evaluation(&row_range, expr, segment_source.as_ref())
                     })
                     .transpose()?;
                 let exact_filter_eval = filter
                     .as_ref()
                     .map(|expr| {
-                        layout_reader.filter_evaluation(
-                            &row_range,
-                            expr,
-                            queue
-                                .segment_source(&row_range, ScanStage::ExactFilter)
-                                .as_ref(),
-                        )
+                        layout_reader.filter_evaluation(&row_range, expr, segment_source.as_ref())
                     })
                     .transpose()?;
                 let project_eval = layout_reader.projection_evaluation(
                     &row_range,
                     &projection,
-                    queue
-                        .segment_source(&row_range, ScanStage::Projection)
-                        .as_ref(),
+                    segment_source.as_ref(),
                 )?;
 
                 Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
@@ -268,45 +246,10 @@ impl ScanBuilder {
             .buffered(self.concurrency)
             .filter_map(|v| async move { v.transpose() });
 
-        // We now need to spawn the I/O driver, and zip the error stream back into the array stream.
-        let (err_send, err_recv) = mpsc::unbounded::<VortexError>();
-
-        // While the queue remains alive (i.e. there is some part of the scan waiting on a
-        // segment future), we drive the I/O forwards, propagating any errors back.
-
-        self.io_dispatcher.dispatch(move || async move {
-            let driver = self
-                .vxf
-                .io_driver
-                .vortex_expect("missing io driver")
-                .clone();
-            let hint = driver.performance_hint();
-
-            let request_stream = stream::unfold((), move |_state| {
-                let hint = hint.clone();
-                let queue = queue.inner.clone();
-                async move {
-                    if let Some(coalesced) = queue.drive(&hint).await.transpose() {
-                        Some((coalesced, _state))
-                    } else {
-                        None
-                    }
-                }
-            })
-            .boxed_local();
-
-            let mut io_stream = driver.drive(request_stream);
-            while let Some(result) = io_stream.next().await {
-                if let Err(e) = result {
-                    let _ = err_send.unbounded_send(e);
-                }
-            }
-        })?;
-
         // Create a unified stream that propagates any I/O errors
         let unified = UnifiedDriverStream {
             exec_stream: array_stream,
-            io_stream: err_recv.map(|e| Err(e)),
+            io_stream: io_errors.map(|e| Err(e)),
         };
 
         Ok(ArrayStreamAdapter::new(

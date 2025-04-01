@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use moka::future::FutureExt;
+use futures::FutureExt;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
@@ -20,7 +20,7 @@ impl CachedSegmentSource {
 
 impl SegmentSource for CachedSegmentSource {
     fn request(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture {
-        if let Some(segment) = self.cache.get(id) {
+        if let Ok(Some(segment)) = self.cache.get(id) {
             return async move { Ok(segment) }.boxed();
         }
         self.delegate.request(id, for_whom)

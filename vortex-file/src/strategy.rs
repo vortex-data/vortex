@@ -17,7 +17,7 @@ use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
-use vortex_layout::segments::sink::SegmentWriter;
+use vortex_layout::segments::SegmentWriter;
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 const ROW_BLOCK_SIZE: usize = 8192;

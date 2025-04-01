@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::{FutureExt, StreamExt, stream};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSource};
-use vortex_layout::source::SegmentSource;
 
-use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use crate::{FileDriver, FileType, Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -30,22 +30,29 @@ impl VortexOpenOptions<InMemoryVortexFile> {
         let buffer = buffer.into();
         let footer = self.read_footer(&buffer).await?;
 
-        let source = Arc::new(InMemorySegmentReader {
+        let driver = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),
         });
 
         Ok(VortexFile {
             footer,
-            source,
+            driver,
             metrics: self.metrics,
         })
     }
 }
 
+#[derive(Clone)]
 struct InMemorySegmentReader {
     buffer: ByteBuffer,
     footer: Footer,
+}
+
+impl FileDriver for InMemorySegmentReader {
+    fn spawn(&self) -> (Arc<dyn SegmentSource>, BoxStream<'static, VortexError>) {
+        (Arc::new(self.clone()), stream::empty().boxed())
+    }
 }
 
 impl SegmentSource for InMemorySegmentReader {

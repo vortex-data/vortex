@@ -5,7 +5,7 @@ use futures::stream::{BoxStream, LocalBoxStream};
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 use vortex_io::PerformanceHint;
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
@@ -19,7 +19,7 @@ pub struct VortexFile {
     /// The footer of the Vortex file.
     pub(crate) footer: Footer,
     /// A source for reading segments from the file.
-    pub(crate) source: Arc<dyn SegmentSource>,
+    pub(crate) driver: Arc<dyn FileDriver>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -41,10 +41,6 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.source.clone()
-    }
-
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
     }
@@ -52,4 +48,8 @@ impl VortexFile {
     pub fn scan(&self) -> ScanBuilder {
         ScanBuilder::new(self.clone())
     }
+}
+
+pub trait FileDriver {
+    fn spawn(&self) -> (Arc<dyn SegmentSource>, BoxStream<'static, VortexError>);
 }
