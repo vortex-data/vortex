@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, atomic};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
@@ -34,9 +34,7 @@ impl SegmentEvents {
             events: send,
         });
 
-        let source = Arc::new(EventsSegmentSource {
-            events,
-        });
+        let source = Arc::new(EventsSegmentSource { events });
         let stream = recv.boxed();
 
         (source, stream)
@@ -72,8 +70,6 @@ pub struct SegmentRequest {
     for_whom: Arc<str>,
     /// The one-shot channel to send the segment back to the caller
     callback: oneshot::Sender<VortexResult<ByteBuffer>>,
-    /// A handle back to the segment events.
-    events: Arc<SegmentEvents>,
 }
 
 impl SegmentRequest {
@@ -83,12 +79,10 @@ impl SegmentRequest {
 
     /// Resolve the segment request with the given buffer result.
     pub fn resolve(self, buffer: VortexResult<ByteBuffer>) {
-        // The callback may fail if the caller was dropped while the request was in-flight, as
-        // may be the case with pre-fetched segments.
         if self.callback.send(buffer).is_err() {
+            // The callback may fail if the caller was dropped while the request was in-flight, as
+            // may be the case with pre-fetched segments.
             log::debug!("Segment {} dropped while request in-flight", self.id);
-        } else {
-            self.events.submit_event(SegmentEvent::Resolved(self.id));
         }
     }
 }
@@ -113,38 +107,14 @@ impl SegmentEvents {
                     }
                 }
                 Entry::Vacant(e) => {
-                    let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
-
-                    // Set up the segment future tied to the recv end of the channel.
-                    let fut = SegmentEventsFuture {
-                        future: recv
-                            .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
-                            .map(|r| r.unnest())
-                            .map_err(Arc::new)
-                            .boxed(),
-                        id,
-                        source: self.clone(),
-                        polled: AtomicBool::new(false),
-                    }
-                    .shared();
-
-                    // Create a new pending segment.
-                    let pending = PendingSegment {
+                    let fut = SegmentEventsFuture::new(id, for_whom, self.clone()).shared();
+                    // Create a new pending segment with a weak reference to the future.
+                    e.insert(PendingSegment {
                         id,
                         fut: fut
                             .downgrade()
                             .vortex_expect("cannot fail, only just created"),
-                    };
-                    e.insert(pending);
-
-                    // Set up a SegmentRequest tied to the send end of the channel.
-                    self.submit_event(SegmentEvent::Requested(SegmentRequest {
-                        id,
-                        for_whom,
-                        callback: send,
-                        events: self.clone(),
-                    }));
-
+                    });
                     break fut;
                 }
             }
@@ -208,6 +178,35 @@ struct SegmentEventsFuture {
     id: SegmentId,
     source: Arc<SegmentEvents>,
     polled: AtomicBool,
+    resolved: AtomicBool,
+}
+
+impl SegmentEventsFuture {
+    fn new(id: SegmentId, for_whom: Arc<str>, events: Arc<SegmentEvents>) -> Self {
+        let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
+
+        // Set up the segment future tied to the recv end of the channel.
+        let this = SegmentEventsFuture {
+            future: recv
+                .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
+                .map(|r| r.unnest())
+                .map_err(Arc::new)
+                .boxed(),
+            id,
+            source: events.clone(),
+            polled: AtomicBool::new(false),
+            resolved: AtomicBool::new(false),
+        };
+
+        // Set up a SegmentRequest tied to the send end of the channel.
+        events.submit_event(SegmentEvent::Requested(SegmentRequest {
+            id,
+            for_whom,
+            callback: send,
+        }));
+
+        this
+    }
 }
 
 impl Future for SegmentEventsFuture {
@@ -217,7 +216,11 @@ impl Future for SegmentEventsFuture {
         if !self.polled.fetch_or(true, atomic::Ordering::Relaxed) {
             self.source.submit_event(SegmentEvent::Polled(self.id));
         }
-        self.future.poll_unpin(cx)
+        let result = ready!(self.future.poll_unpin(cx));
+        if !self.resolved.fetch_or(true, atomic::Ordering::Relaxed) {
+            self.source.submit_event(SegmentEvent::Resolved(self.id));
+        }
+        Poll::Ready(result)
     }
 }
 

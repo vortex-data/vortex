@@ -89,7 +89,9 @@ impl CoalescedDriver {
     }
 
     fn segment_state(&self, id: SegmentId) -> &PendingSegment {
-        self.state.get(&id).vortex_expect("segment does not exist")
+        self.state
+            .get(&id)
+            .vortex_expect(&format!("segment {} does not exist", id))
     }
 
     fn segment_state_mut(&mut self, id: SegmentId) -> &mut PendingSegment {
