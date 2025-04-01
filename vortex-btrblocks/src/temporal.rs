@@ -3,9 +3,9 @@
 use vortex_array::arrays::TemporalArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_datetime_parts::{DateTimePartsArray, TemporalParts, split_temporal};
+use vortex_dict::builders::downscale_integer_array;
 use vortex_error::VortexResult;
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
 use crate::{Compressor, MAX_CASCADE};
 

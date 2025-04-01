@@ -2,11 +2,10 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_dict::builders::dict_encode;
+use vortex_dict::builders::{dict_encode, downscale_integer_array};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{

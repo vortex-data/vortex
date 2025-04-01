@@ -10,6 +10,7 @@ use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
+use vortex_dict::builders::downscale_integer_array;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
@@ -18,7 +19,6 @@ use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::{
