@@ -248,7 +248,7 @@ pub trait Compressor {
                     best_scheme = Some(*scheme);
                 }
             } else {
-                log::warn!(
+                log::trace!(
                     "Calculated invalid compression ratio {ratio} for scheme: {scheme:?}. Must not be sub-normal, infinite or nan."
                 );
             }
