@@ -119,7 +119,11 @@ impl EncodingVTable for BitPackedEncoding {
             Ordering::Equal => parray.to_array(),
             Ordering::Greater => {
                 let new_bit_width = find_best_bit_width(&parray)?;
-                bitpack_encode(&parray, new_bit_width)?.into_array()
+                if new_bit_width as usize >= parray.ptype().bit_width() {
+                    parray.to_array()
+                } else {
+                    bitpack_encode(&parray, new_bit_width)?.into_array()
+                }
             }
         };
 
