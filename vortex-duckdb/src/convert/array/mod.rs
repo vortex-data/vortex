@@ -2,7 +2,7 @@ mod data_chunk_adaptor;
 mod varbinview;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use duckdb::core::{DataChunkHandle, FlatVector, SelectionVector};
+use duckdb::core::{DataChunkHandle, FlatVector, SelectionVector, Value};
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
@@ -137,7 +137,15 @@ pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
 ) -> VortexResult<()> {
-    assert_eq!(struct_array.fields().len(), chunk.num_columns());
+    if struct_array.fields().len() > 0 {
+        assert_eq!(struct_array.fields().len(), chunk.num_columns());
+    } else {
+        // If the file result is a count(*), then there will be zero open files, but a single chunk.
+        assert_eq!(chunk.num_columns(), 1);
+        chunk.flat_vector(0).assign_to_constant(&Value::from(0i64));
+        chunk.set_len(struct_array.len());
+        return Ok(());
+    }
 
     chunk.set_len(struct_array.len());
     for (idx, field) in struct_array.fields().iter().enumerate() {
