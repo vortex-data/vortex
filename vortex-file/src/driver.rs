@@ -67,7 +67,15 @@ impl CoalescedDriver {
         &self.footer.segment_map()[*id as usize]
     }
 
-    fn on_requested(&mut self, _request: SegmentRequest) {}
+    fn on_requested(&mut self, request: SegmentRequest) {
+        self.state.insert(
+            request.id(),
+            PendingSegment {
+                state: SegmentState::Requested,
+                request: Some(request),
+            },
+        );
+    }
 
     fn on_polled(&mut self, id: SegmentId) {
         // We don't launch _any_ I/O until the first poll.
@@ -80,9 +88,19 @@ impl CoalescedDriver {
         self.polled.push_back(id);
     }
 
-    fn on_dropped(&mut self, _id: SegmentId) {}
+    fn on_dropped(&mut self, id: SegmentId) {
+        self.state
+            .get_mut(&id)
+            .vortex_expect("dropped segment does not exist")
+            .state = SegmentState::Dropped;
+    }
 
-    fn on_resolved(&mut self, _id: SegmentId) {}
+    fn on_resolved(&mut self, id: SegmentId) {
+        self.state
+            .get_mut(&id)
+            .vortex_expect("resolved segment does not exist")
+            .state = SegmentState::Resolved;
+    }
 
     /// Request a segment from the underlying storage.
     fn coalesce_request(&mut self, request: SegmentRequest) -> CoalescedSegmentRequest {
@@ -116,6 +134,7 @@ impl Stream for CoalescedDriver {
             };
 
             // Process the event.
+            log::debug!("Processing segment event: {:?}", event);
             match event {
                 SegmentEvent::Requested(req) => this.on_requested(req),
                 SegmentEvent::Polled(id) => this.on_polled(id),

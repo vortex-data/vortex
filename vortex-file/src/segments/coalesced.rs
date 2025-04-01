@@ -27,7 +27,10 @@ impl CoalescedSegmentRequest {
     /// Resolve the requests with the provided buffer.
     pub fn resolve(self, buffer: VortexResult<ByteBuffer>) {
         let buffer = match buffer {
-            Ok(buffer) => buffer,
+            Ok(buffer) => {
+                // Strip the alignment from the buffer so we can slice it arbitrarily.
+                buffer.aligned(Alignment::none())
+            }
             Err(e) => {
                 // If we fail to read the buffer, we need to resolve all the requests with the error.
                 let err = Arc::new(e);
