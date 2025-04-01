@@ -149,6 +149,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		storage->mutable_primitive()->set_nullable(nullable);
 		storage->mutable_primitive()->set_type(vortex::dtype::I32);
 		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::Us)}));
+		return dtype;
 	}
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
