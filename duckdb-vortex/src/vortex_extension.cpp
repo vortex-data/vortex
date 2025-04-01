@@ -98,12 +98,6 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 
 	explicit VortexScanGlobalState()
 	    : thread_id_counter(0), finished(false), file_slots(), next_file(0), filter(nullptr) {
-
-		// file_slots.reserve(MAX_THREAD_COUNT);
-
-		// for (size_t i = 0; i < MAX_THREAD_COUNT; ++i) {
-		// file_slots.
-		// }
 	}
 };
 
