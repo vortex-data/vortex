@@ -97,10 +97,12 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-            target/release_debug/${{ matrix.binary_name }} \
-              -d gh-json \
-              --export-spans \
-            | tee results.json
+          target/release_debug/${{ matrix.binary_name }} \
+            -d gh-json \
+            --export-spans \
+          | tee results.json
+      - name: Sleep
+        run: sleep 100000000
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null

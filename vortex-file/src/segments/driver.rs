@@ -117,7 +117,9 @@ impl CoalescedDriver {
 
     /// Unmark a segment as prefetched, and update the prefetch buffer count.
     fn unmark_as_prefetched(&mut self, id: SegmentId) {
-        let state = self.segment_state(id);
+        let Some(state) = self.state.get(&id) else {
+            return;
+        };
 
         // If the segment has been pre-fetched, we can remove its bytes from the buffer.
         if state.is_prefetched {
@@ -172,10 +174,7 @@ impl CoalescedDriver {
         self.state.remove(&id);
     }
 
-    fn on_resolved(&mut self, id: SegmentId) {
-        // If the segment has been pre-fetched, we can remove its bytes from the buffer.
-        self.unmark_as_prefetched(id);
-    }
+    fn on_resolved(&mut self, _id: SegmentId) {}
 
     /// Request a segment from the underlying storage.
     fn coalesce_request(&mut self, request: SegmentRequest) -> CoalescedSegmentRequest {
@@ -330,6 +329,11 @@ impl Stream for CoalescedDriver {
         }
 
         // Only perform pre-fetching if we have spare capacity.
+        log::trace!(
+            "Used {} / {} prefetched bytes",
+            this.prefetched_bytes,
+            this.max_prefetch_bytes
+        );
         if this.prefetched_bytes < this.max_prefetch_bytes {
             while let Some(id) = this.requested.pop_front() {
                 if let Some(request) = this
@@ -337,7 +341,9 @@ impl Stream for CoalescedDriver {
                     .get_mut(&id)
                     .and_then(|state| state.request.take())
                 {
-                    return Poll::Ready(Some(this.coalesce_request(request)));
+                    let coalesced = this.coalesce_request(request);
+                    log::debug!("Prefetching: {:?}", coalesced);
+                    return Poll::Ready(Some(coalesced));
                 }
             }
         }

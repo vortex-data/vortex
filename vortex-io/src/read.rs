@@ -32,7 +32,7 @@ pub trait VortexReadAt: Clone + 'static {
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
     fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::default()
+        PerformanceHint::local()
     }
 
     /// Asynchronously get the number of bytes of data readable.
@@ -46,15 +46,6 @@ pub trait VortexReadAt: Clone + 'static {
 pub struct PerformanceHint {
     coalescing_window: u64,
     max_read: Option<u64>,
-}
-
-impl Default for PerformanceHint {
-    fn default() -> Self {
-        Self {
-            coalescing_window: 2 << 20, //1MB,
-            max_read: Some(8 << 20),    // 8MB,
-        }
-    }
 }
 
 impl PerformanceHint {

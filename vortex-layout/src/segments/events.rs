@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, atomic};
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll};
 
 use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
@@ -70,6 +70,8 @@ pub struct SegmentRequest {
     for_whom: Arc<str>,
     /// The one-shot channel to send the segment back to the caller
     callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    /// The segment events that we post our resolved event back to.
+    events: Arc<SegmentEvents>,
 }
 
 impl SegmentRequest {
@@ -79,6 +81,7 @@ impl SegmentRequest {
 
     /// Resolve the segment request with the given buffer result.
     pub fn resolve(self, buffer: VortexResult<ByteBuffer>) {
+        self.events.submit_event(SegmentEvent::Resolved(self.id));
         if self.callback.send(buffer).is_err() {
             // The callback may fail if the caller was dropped while the request was in-flight, as
             // may be the case with pre-fetched segments.
@@ -178,7 +181,6 @@ struct SegmentEventsFuture {
     id: SegmentId,
     source: Arc<SegmentEvents>,
     polled: AtomicBool,
-    resolved: AtomicBool,
 }
 
 impl SegmentEventsFuture {
@@ -195,7 +197,6 @@ impl SegmentEventsFuture {
             id,
             source: events.clone(),
             polled: AtomicBool::new(false),
-            resolved: AtomicBool::new(false),
         };
 
         // Set up a SegmentRequest tied to the send end of the channel.
@@ -203,6 +204,7 @@ impl SegmentEventsFuture {
             id,
             for_whom,
             callback: send,
+            events: events.clone(),
         }));
 
         this
@@ -216,11 +218,7 @@ impl Future for SegmentEventsFuture {
         if !self.polled.fetch_or(true, atomic::Ordering::Relaxed) {
             self.source.submit_event(SegmentEvent::Polled(self.id));
         }
-        let result = ready!(self.future.poll_unpin(cx));
-        if !self.resolved.fetch_or(true, atomic::Ordering::Relaxed) {
-            self.source.submit_event(SegmentEvent::Resolved(self.id));
-        }
-        Poll::Ready(result)
+        self.future.poll_unpin(cx)
     }
 }
 
