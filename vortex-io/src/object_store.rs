@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io;
 use std::ops::Range;
 use std::os::unix::prelude::FileExt;

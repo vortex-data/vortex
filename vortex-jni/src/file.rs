@@ -16,7 +16,6 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::ObjectStoreReadAt;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
 
