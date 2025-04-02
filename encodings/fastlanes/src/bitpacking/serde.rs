@@ -95,7 +95,7 @@ impl EncodingVTable for BitPackedEncoding {
     ) -> VortexResult<Option<ArrayRef>> {
         let parray = input.clone().into_primitive()?;
 
-        let like = like
+        let bit_width = like
             .map(|like| {
                 like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
                     vortex_err!(
@@ -105,29 +105,25 @@ impl EncodingVTable for BitPackedEncoding {
                     )
                 })
             })
-            .transpose()?;
+            .transpose()?
+            .map(|like_array| like_array.bit_width())
+            // Only reuse the bitwidth if its smaller than the array's original bitwidth.
+            .filter(|bw| (*bw as usize) < parray.ptype().bit_width());
 
         // In our current benchmark suite this seems to be the faster option,
         // but it has an unbounded worst-case where some array becomes all patches.
-        let bit_width = match like {
-            Some(like) => like.bit_width(),
+        let bit_width = match bit_width {
+            Some(bw) => bw,
             None => find_best_bit_width(&parray)?,
         };
 
-        Ok(Some(
-            match (bit_width as usize).cmp(&parray.ptype().bit_width()) {
-                Ordering::Less => bitpack_encode(&parray, bit_width)?.into_array(),
-                Ordering::Equal => parray.to_array(),
-                Ordering::Greater => {
-                    let new_bit_width = find_best_bit_width(&parray)?;
-                    if new_bit_width as usize >= parray.ptype().bit_width() {
-                        parray.to_array()
-                    } else {
-                        bitpack_encode(&parray, new_bit_width)?.into_array()
-                    }
-                }
-            },
-        ))
+        let array = if bit_width as usize == parray.ptype().bit_width() {
+            parray.into_array()
+        } else {
+            bitpack_encode(&parray, bit_width)?.into_array()
+        };
+
+        Ok(Some(array))
     }
 }
 
