@@ -98,7 +98,7 @@ pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
     f: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<PathBuf, E> {
     let data_path = path.to_data_path();
-    let temp_path = temp_download_dir();
+    let temp_path = temp_download_filepath();
     if !data_path.exists() {
         f(temp_path.as_path())?;
         std::fs::rename(temp_path, &data_path).unwrap();
@@ -115,7 +115,7 @@ where
     P: IdempotentPath + ?Sized,
 {
     let data_path = path.to_data_path();
-    let temp_path = temp_download_dir();
+    let temp_path = temp_download_filepath();
     if !data_path.exists() {
         f(temp_path.clone()).await?;
         std::fs::rename(temp_path, &data_path).unwrap();
@@ -131,7 +131,7 @@ pub fn data_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("data")
 }
 
-pub fn temp_download_dir() -> PathBuf {
+pub fn temp_download_filepath() -> PathBuf {
     data_dir().join(format!("download_{}.file", uuid::Uuid::new_v4()))
 }
 
