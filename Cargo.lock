@@ -506,7 +506,6 @@ dependencies = [
  "serde_json",
  "tabled",
  "tar",
- "tempfile",
  "tikv-jemallocator",
  "tokio",
  "tracing",
