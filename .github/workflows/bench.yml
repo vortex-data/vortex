@@ -36,6 +36,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
+      - spot=false
       - tag=${{ matrix.benchmark.id }}
     strategy:
       matrix:

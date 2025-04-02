@@ -4,6 +4,7 @@
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/common/exception.hpp"
 
+#include <cstdint>
 #include <duckdb/planner/filter/conjunction_filter.hpp>
 #include <duckdb/planner/filter/optional_filter.hpp>
 
@@ -217,10 +218,10 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::FLOAT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<float_t>());
+		scalar->mutable_value()->set_f32_value(value.GetValue<float_t>());
 		return scalar;
 	case LogicalTypeId::DOUBLE:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<double_t>());
+		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
 		return scalar;
 	case LogicalTypeId::VARCHAR:
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());
