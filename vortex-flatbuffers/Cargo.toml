@@ -16,7 +16,7 @@ version = { workspace = true }
 [features]
 array = ["dtype", "scalar"]
 dtype = []
-file = ["ipc"]
+file = ["ipc", "layout"]
 ipc = ["array"]
 layout = ["array"]
 scalar = ["dtype"]
