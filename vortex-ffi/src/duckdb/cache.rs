@@ -25,6 +25,6 @@ pub unsafe extern "C" fn ConversionCache_create(id: c_uint) -> *mut FFIConversio
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ConversionCache_free(buffer: *mut FFIConversionCache) {
-    let internal: Box<ConversionCache> = unsafe { Box::from_raw(buffer.cast()) };
+    let internal: Box<ConversionCache> = unsafe { Box::from_raw((*buffer).inner.cast()) };
     drop(internal)
 }

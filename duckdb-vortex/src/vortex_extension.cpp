@@ -277,7 +277,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 	if (local_state.current_row == 0) {
 		FFIArray_free(local_state.array);
-		// ConversionCache_free(local_state.cache);
+		ConversionCache_free(local_state.cache);
 		local_state.cache = nullptr;
 		local_state.array = nullptr;
 	}
