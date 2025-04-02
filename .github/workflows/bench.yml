@@ -34,9 +34,8 @@ jobs:
   bench:
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c6id.8xlarge
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=${{ matrix.benchmark.id }}
     strategy:
       matrix:
