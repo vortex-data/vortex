@@ -3500,12 +3500,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
-name = "oneshot"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ce411919553d3f9fa53a0880544cda985a112117a0444d5ff1e870a893d6ea"
-
-[[package]]
 name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6115,7 +6109,6 @@ version = "0.25.2"
 dependencies = [
  "async-trait",
  "bytes",
- "dashmap",
  "flatbuffers 25.2.10",
  "flume",
  "futures",
@@ -6125,7 +6118,6 @@ dependencies = [
  "log",
  "moka",
  "object_store",
- "oneshot",
  "pin-project-lite",
  "rstest",
  "rustc-hash",
@@ -6272,7 +6264,6 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "rstest",
- "tokio",
  "tracing",
  "tracing-futures",
  "vortex-array",
@@ -6282,7 +6273,6 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
- "vortex-metrics",
 ]
 
 [[package]]

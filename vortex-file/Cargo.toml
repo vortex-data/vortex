@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
@@ -27,7 +26,6 @@ linked_hash_set = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
-oneshot = { workspace = true, features = ["async"] }
 pin-project-lite = { workspace = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -72,6 +70,11 @@ object_store = [
     "dep:object_store",
     "vortex-error/object_store",
     "vortex-io/object_store",
+]
+tokio = [
+    "dep:tokio",
+    "vortex-error/tokio",
+    "vortex-io/tokio",
 ]
 tracing = [
     "dep:tracing",
