@@ -194,9 +194,14 @@ jobs:
           submodules: "recursive"
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+
       - name: DuckDB extension build
         run: GEN=ninja make debug
         working-directory: ${{ github.workspace }}/duckdb-vortex
+
+      - name: DuckDB extension unit tests
+        run: ./vortex_tests
+        working-directory: ${{ github.workspace }}/duckdb-vortex/build/debug/extension/vortex/test
 
   check-min-deps:
     name: "Check build with minimal dependencies"
