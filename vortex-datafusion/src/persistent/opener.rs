@@ -14,7 +14,6 @@ use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
     pub scheme: ObjectStoreScheme,
