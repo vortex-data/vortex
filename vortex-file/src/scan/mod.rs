@@ -183,7 +183,7 @@ impl ScanBuilder {
                     .transpose()?;
                 let project_eval = layout_reader.projection_evaluation(&row_range, &projection)?;
 
-                Ok::<_, VortexError>(instrument!("split", { split = _i }, async move {
+                Ok::<_, VortexError>(instrument!("split", [split = _i], async move {
                     let mut mask = row_mask.filter_mask().clone();
                     if mask.all_false() {
                         return Ok(None);
