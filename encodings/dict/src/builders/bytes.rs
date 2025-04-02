@@ -170,7 +170,7 @@ mod test {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
         );
         dict.values()
@@ -203,7 +203,7 @@ mod test {
         .collect();
         let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 1, 0, 0, 2, 1, 0]
         );
         dict.values()
@@ -236,8 +236,8 @@ mod test {
             })
             .unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
-            &[0u64, 0, 1, 1, 0, 1, 0, 1]
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
+            &[0, 0, 1, 1, 0, 1, 0, 1]
         );
     }
 }

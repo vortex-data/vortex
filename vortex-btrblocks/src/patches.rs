@@ -1,10 +1,9 @@
 use vortex_array::Array;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::compute::scalar_at;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
-
-use crate::downscale::downscale_integer_array;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {

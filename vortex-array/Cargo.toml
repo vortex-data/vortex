@@ -96,3 +96,7 @@ harness = false
 [[bench]]
 name = "chunk_array_builder"
 harness = false
+
+[[bench]]
+name = "is_constant"
+harness = false

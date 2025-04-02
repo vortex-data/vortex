@@ -6,6 +6,7 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
@@ -18,7 +19,6 @@ use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::{

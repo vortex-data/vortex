@@ -140,7 +140,7 @@ mod tests {
                 .ends()
                 .to_primitive()
                 .unwrap()
-                .as_slice::<u64>(),
+                .as_slice::<u8>(),
             [2, 4]
         );
         assert_eq!(
@@ -168,7 +168,7 @@ mod tests {
                 .ends()
                 .to_primitive()
                 .unwrap()
-                .as_slice::<u64>(),
+                .as_slice::<u8>(),
             [1, 2, 3]
         );
         assert_eq!(

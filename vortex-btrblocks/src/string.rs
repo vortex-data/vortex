@@ -6,7 +6,6 @@ use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
@@ -195,9 +194,8 @@ impl Scheme for DictScheme {
         }
 
         // Find best compressor for codes and values separately
-        let downscaled_codes = downscale_integer_array(dict.codes().to_array())?.to_primitive()?;
         let compressed_codes = IntCompressor::compress(
-            &downscaled_codes,
+            &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &[crate::integer::DictScheme.code()],
