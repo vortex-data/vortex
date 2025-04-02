@@ -297,6 +297,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
+      - spot=false
       - image=ubuntu24-full-x64
 
     steps:
