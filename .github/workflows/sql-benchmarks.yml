@@ -71,6 +71,9 @@ jobs:
           # Generate data, running each query once to make sure they don't panic.
           target/release_debug/${{ matrix.binary_name }} --formats parquet,vortex -i1
 
+      - name: Sleep
+        run: sleep 10000000
+
       - name: Upload data
         if: matrix.remote_storage != null
         shell: bash
