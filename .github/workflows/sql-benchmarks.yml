@@ -63,8 +63,6 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
-      - name: Sleep
-        run: sleep 100000000
 
       - name: Generate data
         shell: bash
