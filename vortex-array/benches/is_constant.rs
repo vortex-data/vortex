@@ -5,10 +5,8 @@ use num_traits::Bounded;
 use rand::distr::uniform::SampleUniform;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::Array;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::IsConstantOpts;
-use vortex_array::validity::Validity;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 
@@ -26,13 +24,13 @@ fn primitive_is_constant<T: SampleUniform + PartialOrd + NativePType + Bounded>(
     let mut rng = StdRng::seed_from_u64(0);
     let value = rng.random_range(T::zero()..T::max_value());
 
-    let arr = PrimitiveArray::new(Buffer::full(value, size), Validity::NonNullable);
+    let arr = Buffer::full(value, size).into_array();
 
-    bencher.with_inputs(|| &arr).bench_values(|arr| {
+    bencher.with_inputs(|| &arr).bench_refs(|arr| {
         arr.vtable()
             .is_constant_fn()
             .unwrap()
-            .is_constant(arr, &IsConstantOpts::default())
+            .is_constant(*arr, &IsConstantOpts::default())
             .unwrap()
     });
 }
