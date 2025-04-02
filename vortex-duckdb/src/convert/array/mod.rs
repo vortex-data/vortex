@@ -108,11 +108,13 @@ impl ToDuckDB for DictArray {
             return to_duckdb(&values, chunk, cache);
         };
 
-        // If the values fit into a single vector, we can efficiently delay the take operation.
         let mut vector: FlatVector = if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE {
+            // If the values fit into a single vector, put the values in the pre-allocated vector.
             to_duckdb(self.values(), chunk, cache)?;
             chunk.flat_vector()
         } else {
+            // If the values don't fit allocated a larger vector and that the data chunk vector
+            // reference this new one.
             let value_ptr = (self.values().as_ref() as *const dyn Array as *const ()) as usize;
             let entry = cache.values_cache.get(&value_ptr);
             let value_vector = match entry {

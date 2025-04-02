@@ -72,7 +72,7 @@ mod tests {
 
     use crate::array::FFIArray;
     use crate::duckdb::FFIArray_to_duckdb_chunk;
-
+    use crate::duckdb::cache::{ConversionCache_create, ConversionCache_free};
     #[test]
     fn test_long_array() {
         let vortex: PrimitiveArray = (0i32..4095).collect();
@@ -82,12 +82,19 @@ mod tests {
             inner: vortex.to_array(),
         }));
 
+        let cache = unsafe { ConversionCache_create() };
+
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
+        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache) };
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
-        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };
+        let offset =
+            unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache) };
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
+
+        unsafe {
+            ConversionCache_free(cache);
+        }
     }
 }
