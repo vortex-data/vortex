@@ -6,6 +6,14 @@ use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{IsConstantFn, IsConstantOpts};
 use crate::variants::PrimitiveArrayTrait;
 
+cfg_if::cfg_if! {
+    if #[cfg(target_feature = "avx2")] {
+        const IS_CONST_LANE_WIDTH: usize = 32;
+    } else {
+        const IS_CONST_LANE_WIDTH: usize = 16;
+    }
+}
+
 impl IsConstantFn<&PrimitiveArray> for PrimitiveEncoding {
     fn is_constant(
         &self,
@@ -13,9 +21,9 @@ impl IsConstantFn<&PrimitiveArray> for PrimitiveEncoding {
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
-            compute_is_constant::<_, {16 / size_of::<$P>()}>(array.as_slice::<$P>())
+            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array.as_slice::<$P>())
         } floating_point: |$P| {
-            compute_is_constant::<_, {16 / size_of::<$P>()}>(unsafe { std::mem::transmute::<&[$P], &[<$P as EqFloat>::IntType]>(array.as_slice::<$P>()) })
+            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(unsafe { std::mem::transmute::<&[$P], &[<$P as EqFloat>::IntType]>(array.as_slice::<$P>()) })
         });
 
         Ok(Some(is_constant))

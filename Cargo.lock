@@ -5832,6 +5832,7 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
