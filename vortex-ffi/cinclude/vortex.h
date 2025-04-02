@@ -279,7 +279,7 @@ unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct FFIConversionCache *ConversionCache_create(void);
+struct FFIConversionCache *ConversionCache_create(unsigned int id);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)

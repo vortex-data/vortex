@@ -31,7 +31,17 @@ use crate::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType};
 
 #[derive(Default)]
 pub struct ConversionCache {
-    pub values_cache: Box<HashMap<usize, FlatVector>>,
+    pub values_cache: HashMap<usize, FlatVector>,
+    pub seed: u64,
+}
+
+impl ConversionCache {
+    pub fn new(id: u64) -> Self {
+        Self {
+            seed: id,
+            ..Self::default()
+        }
+    }
 }
 
 pub trait ToDuckDB {
@@ -108,6 +118,8 @@ impl ToDuckDB for DictArray {
             return to_duckdb(&values, chunk, cache);
         };
 
+        let value_ptr = (self.values().as_ref() as *const dyn Array as *const ()) as usize;
+
         let mut vector: FlatVector = if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE {
             // If the values fit into a single vector, put the values in the pre-allocated vector.
             to_duckdb(self.values(), chunk, cache)?;
@@ -115,7 +127,6 @@ impl ToDuckDB for DictArray {
         } else {
             // If the values don't fit allocated a larger vector and that the data chunk vector
             // reference this new one.
-            let value_ptr = (self.values().as_ref() as *const dyn Array as *const ()) as usize;
             let entry = cache.values_cache.get(&value_ptr);
             let value_vector = match entry {
                 None => {
@@ -138,7 +149,8 @@ impl ToDuckDB for DictArray {
             vector
         };
         let sel = selection_vector_from_array(self.codes().to_primitive()?);
-        vector.slice(sel);
+        vector.slice(self.values().len() as u64, sel);
+        vector.set_dictionary_id(format!("{}-{}", cache.seed, value_ptr.to_string()));
         Ok(())
     }
 }

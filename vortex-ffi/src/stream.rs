@@ -5,7 +5,6 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::stream::ArrayStream;
 
-use crate::RUNTIME;
 use crate::array::{FFIArray, FFIArray_free};
 
 /// FFI-exposed stream interface.
@@ -44,7 +43,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> boo
         .as_mut()
         .vortex_expect("FFIArrayStream_next called after finish");
 
-    let element = RUNTIME.block_on(async { inner.stream.next().await });
+    let element = futures::executor::block_on(async { inner.stream.next().await });
 
     if let Some(element) = element {
         let inner = element.vortex_expect("element");

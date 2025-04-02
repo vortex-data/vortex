@@ -76,6 +76,8 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_uint32_t thread_id_counter;
 	std::atomic_bool finished;
 
+	std::uint64_t unique_id;
+
 	// Each thread owns a file slot and is the thing only one allowed to modify the slot itself.
 	// Other threads can work-steal array batches from the slot, by taking out the mutex in the FileSlot.
 	// We allocate MAX_THREAD_COUNT threads, the max number threads allowed by this extension.
@@ -101,7 +103,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 
 	explicit VortexScanGlobalState()
-	    : thread_id_counter(0), finished(false), file_slots(), next_file(0), filter(nullptr) {
+	    : thread_id_counter(0), finished(false), unique_id(0), file_slots(), next_file(0), filter(nullptr) {
 	}
 };
 
@@ -267,14 +269,14 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	}
 
 	if (local_state.cache == nullptr) {
-		local_state.cache = ConversionCache_create();
+		local_state.cache = ConversionCache_create(++global_state.unique_id);
 	}
 	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
 	                                                   reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache);
 
 	if (local_state.current_row == 0) {
 		FFIArray_free(local_state.array);
-		ConversionCache_free(local_state.cache);
+		// ConversionCache_free(local_state.cache);
 		local_state.cache = nullptr;
 		local_state.array = nullptr;
 	}

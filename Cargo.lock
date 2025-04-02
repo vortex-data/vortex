@@ -6108,7 +6108,6 @@ dependencies = [
  "paste",
  "prost",
  "simplelog",
- "tokio",
  "url",
  "vortex",
  "vortex-duckdb",

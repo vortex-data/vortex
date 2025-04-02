@@ -1,33 +1,25 @@
-use std::ffi::c_void;
+use std::ffi::{c_uint, c_void};
 
-use duckdb::core::FlatVector;
-use vortex::aliases::hash_map::HashMap;
 use vortex_duckdb::ConversionCache;
 
 pub struct FFIConversionCache {
-    inner: *mut c_void,
+    pub inner: *mut c_void,
 }
 
-impl From<ConversionCache> for FFIConversionCache {
-    fn from(buffer: ConversionCache) -> Self {
-        let ptr = Box::into_raw(buffer.values_cache) as *mut c_void;
+impl From<Box<ConversionCache>> for FFIConversionCache {
+    fn from(buffer: Box<ConversionCache>) -> Self {
+        let ptr = Box::into_raw(buffer) as *mut c_void;
         FFIConversionCache { inner: ptr }
     }
 }
 
-impl From<FFIConversionCache> for ConversionCache {
-    fn from(buffer: FFIConversionCache) -> Self {
-        let inner: Box<HashMap<usize, FlatVector>> = unsafe { Box::from_raw(buffer.inner.cast()) };
-        ConversionCache {
-            values_cache: inner,
-        }
-    }
+pub unsafe fn into_conversion_cache<'a>(cache: *mut FFIConversionCache) -> &'a mut ConversionCache {
+    unsafe { &mut *(*cache).inner.cast() }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ConversionCache_create() -> *mut FFIConversionCache {
-    let cache = ConversionCache::default();
-    let cache: FFIConversionCache = cache.into();
+pub unsafe extern "C" fn ConversionCache_create(id: c_uint) -> *mut FFIConversionCache {
+    let cache: FFIConversionCache = Box::new(ConversionCache::new(id as u64)).into();
     Box::into_raw(Box::new(cache))
 }
 

@@ -12,7 +12,7 @@ use vortex::{Array, ToCanonical};
 use vortex_duckdb::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
-use crate::duckdb::cache::FFIConversionCache;
+use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
@@ -45,7 +45,7 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
-    let cache: &mut ConversionCache = unsafe { &mut *cache.cast() };
+    let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
 
     to_duckdb_chunk(
         &slice.to_struct().vortex_expect("must be a struct"),
