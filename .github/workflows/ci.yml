@@ -242,16 +242,13 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
+        shell: bash
         run: |
-          set -ex
-
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          for package in $(cargo check --locked -p  2>&1 | grep '^    ')
-          do
-              echo ---- $package ----
-              cargo clippy --package $package --no-default-features
-          done
+          cargo hack clippy --no-default-features
 
   rust-test:
     name: "Rust (tests)"
