@@ -45,16 +45,14 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
-    let mut cache: Box<ConversionCache> = unsafe { Box::from_raw(cache.cast()) };
+    let cache: &mut ConversionCache = unsafe { &mut *cache.cast() };
 
     to_duckdb_chunk(
         &slice.to_struct().vortex_expect("must be a struct"),
         &mut data_chunk_handle,
-        &mut cache,
+        cache,
     )
     .vortex_expect("to_duckdb");
-
-    Box::leak(cache);
 
     if is_end {
         0
