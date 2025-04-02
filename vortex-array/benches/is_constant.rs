@@ -16,7 +16,8 @@ fn main() {
 
 const ARRAY_SIZES: &[usize] = &[10_000, 262144, 10_000_000];
 
-#[divan::bench(types = [u8, u16, u32, u64], args = ARRAY_SIZES)]
+// f16 is omitted since it doesn't implement SampleUniform
+#[divan::bench(types = [u8, u16, u32, u64, f32, f64], args = ARRAY_SIZES)]
 fn primitive_is_constant<T: SampleUniform + PartialOrd + NativePType + Bounded>(
     bencher: Bencher,
     size: usize,
