@@ -215,7 +215,7 @@ static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanG
 	    // This has a few factor effecting it:
 	    //  1. A smaller value means for work for the vortex file reader.
 	    //  2. A larger value reduces the parallelism available to the scanner
-	    .split_by_row_count = 2048 * 64 * 4,
+	    .split_by_row_count = 2048 * 32,
 	};
 
 	return File_scan(file, &options);

@@ -153,31 +153,22 @@ pub fn selection_vector_from_slice<P: NativePType + AsPrimitive<u32>>(
     slice.iter().map(|v| (*v).as_()).collect()
 }
 
-const ALL_TRUE_SEL_MASK: [u64; 32] = [u64::MAX; 32];
-const ALL_FALSE_SEL_MASK: [u64; 32] = [u64::MIN; 32];
-
 pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
     // Check that both the target vector is large enough and the mask too.
     // If we later allow vectors larger than 2k (against duckdb defaults), we can revisit this.
-    let mask_len = mask.len();
+    assert!(mask.len() <= flat_vector.capacity());
     match mask {
         Mask::AllTrue(len) => {
             if let Some(slice) = flat_vector.validity_slice() {
                 // This is only needed if the vector as previously allocated.
-                assert!(mask_len <= DUCKDB_STANDARD_VECTOR_SIZE);
-                assert!(flat_vector.capacity() <= DUCKDB_STANDARD_VECTOR_SIZE);
-                slice.copy_from_slice(&ALL_TRUE_SEL_MASK[0..len]);
+                slice[0..len].fill(u64::MAX)
             }
         }
         Mask::AllFalse(len) => {
-            assert!(mask_len <= DUCKDB_STANDARD_VECTOR_SIZE);
-            assert!(flat_vector.capacity() <= DUCKDB_STANDARD_VECTOR_SIZE);
             let slice = flat_vector.init_get_validity_slice();
-            slice.copy_from_slice(&ALL_FALSE_SEL_MASK[0..len])
+            slice[0..len].fill(u64::MIN)
         }
         Mask::Values(arr) => {
-            assert!(mask_len <= DUCKDB_STANDARD_VECTOR_SIZE);
-            assert!(flat_vector.capacity() <= DUCKDB_STANDARD_VECTOR_SIZE);
             // TODO(joe): do this MUCH better, with a shifted u64 copy
             for (idx, v) in arr.boolean_buffer().iter().enumerate() {
                 if !v {
@@ -254,7 +245,7 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
 
         let (names, arrays): (Vec<_>, Vec<_>) = columns.into_iter().unzip();
 
-        // all top level struct are non nullable is duckdb, only inner columns can be.
+        // All top level struct are non-nullable in duckdb, only inner columns can be nullable.
         StructArray::try_new(names.into(), arrays, len, Validity::NonNullable)
             .map(StructArray::into_array)
     }
