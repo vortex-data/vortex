@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::pin::Pin;
@@ -8,6 +7,7 @@ use std::task::{Context, Poll};
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
+use linked_hash_set::LinkedHashSet;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
@@ -34,10 +34,10 @@ pub struct CoalescedDriver {
 
     first_poll: bool,
     state: HashMap<SegmentId, PendingSegment>,
-    /// Maintain a queue of segments that have been requested.
-    requested: VecDeque<SegmentId>,
-    /// The segments that have been explicitly polled.
-    polled: VecDeque<SegmentId>,
+    /// Maintain a set of segments that have been requested, ordered by insertion.
+    requested: LinkedHashSet<SegmentId>,
+    /// The segments that have been explicitly polled, ordered by insertion.
+    polled: LinkedHashSet<SegmentId>,
     /// The number of bytes that have been prefetched but not yet consumed.
     prefetched_bytes: i64,
 }
@@ -91,9 +91,7 @@ impl CoalescedDriver {
     }
 
     fn segment_state(&self, id: SegmentId) -> &PendingSegment {
-        self.state
-            .get(&id)
-            .vortex_expect(&format!("segment {} does not exist", id))
+        self.state.get(&id).vortex_expect("segment does not exist")
     }
 
     fn segment_state_mut(&mut self, id: SegmentId) -> &mut PendingSegment {
@@ -129,7 +127,7 @@ impl CoalescedDriver {
     }
 
     fn on_requested(&mut self, request: SegmentRequest) {
-        self.requested.push_back(request.id());
+        self.requested.insert(request.id());
         self.state.insert(
             request.id(),
             PendingSegment {
@@ -150,7 +148,7 @@ impl CoalescedDriver {
 
         let state = self.segment_state_mut(id);
         state.polled = true;
-        self.polled.push_back(id);
+        self.polled.insert(id);
         self.polled_counter.inc();
     }
 
@@ -172,6 +170,8 @@ impl CoalescedDriver {
         }
 
         self.state.remove(&id);
+        self.polled.remove(&id);
+        self.requested.remove(&id);
     }
 
     fn on_resolved(&mut self, _id: SegmentId) {}

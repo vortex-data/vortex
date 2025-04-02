@@ -15,7 +15,7 @@ pub struct VortexFile {
     /// The footer of the Vortex file.
     pub(crate) footer: Footer,
     /// A source for reading segments from the file.
-    pub(crate) segment_source: Arc<dyn SegmentSource>,
+    pub(crate) file_io: Arc<dyn VortexFileIo>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -37,22 +37,32 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
-        &self.segment_source
-    }
-
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
     }
 
+    /// Create a new segment source for reading from the file.
+    ///
+    /// This may spawn a background I/O driver that will exist when the returned segment source
+    /// is dropped.
+    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
+        self.file_io.segment_source(self.metrics.clone())
+    }
+
     /// Create a new layout reader for the file.
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
+        let segment_source = self.segment_source();
         self.footer
             .layout()
-            .reader(self.segment_source(), self.footer().ctx())
+            .reader(&segment_source, self.footer().ctx())
     }
 
     pub fn scan(&self) -> ScanBuilder {
         ScanBuilder::new(self.clone())
     }
+}
+
+pub trait VortexFileIo: 'static + Send + Sync {
+    /// Create a segment source for reading segments from the file.
+    fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource>;
 }
