@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.26.0...vortex-datafusion-v0.27.0) - 2025-04-02
+
+### Other
+- Store only VortexMetrics until we emit them from DF ([#2885](https://github.com/spiraldb/vortex/pull/2885))
+
+## `vortex-btrblocks` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.26.0...vortex-btrblocks-v0.27.0) - 2025-04-02
+
+### Other
+- Downscale indices child arrays ([#2862](https://github.com/spiraldb/vortex/pull/2862))
+
+## `vortex-runend` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.26.0...vortex-runend-v0.27.0) - 2025-04-02
+
+### Other
+- Downscale indices child arrays ([#2862](https://github.com/spiraldb/vortex/pull/2862))
+
+## `vortex-dict` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.26.0...vortex-dict-v0.27.0) - 2025-04-02
+
+### Other
+- Downscale indices child arrays ([#2862](https://github.com/spiraldb/vortex/pull/2862))
+
+## `vortex-fastlanes` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.26.0...vortex-fastlanes-v0.27.0) - 2025-04-02
+
+### Other
+- Downscale indices child arrays ([#2862](https://github.com/spiraldb/vortex/pull/2862))
+
+## `vortex-array` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.26.0...vortex-array-v0.27.0) - 2025-04-02
+
+### Other
+- Faster primitive is_constant ([#2873](https://github.com/spiraldb/vortex/pull/2873))
+- Add benchmark for PrimitiveArray is_constant compute function ([#2892](https://github.com/spiraldb/vortex/pull/2892))
+- Downscale indices child arrays ([#2862](https://github.com/spiraldb/vortex/pull/2862))
+
+## `vortex-dtype` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.26.0...vortex-dtype-v0.27.0) - 2025-04-02
+
+### Other
+- Faster primitive is_constant ([#2873](https://github.com/spiraldb/vortex/pull/2873))
+
 ## `vortex-tui` - [0.26.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.25.2...vortex-tui-v0.26.0) - 2025-04-02
 
 ### Added

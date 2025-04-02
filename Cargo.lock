@@ -469,7 +469,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bench-vortex"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -4055,7 +4055,7 @@ dependencies = [
 
 [[package]]
 name = "pyvortex"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow",
  "futures",
@@ -5772,7 +5772,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "vortex-alp",
  "vortex-array",
@@ -5801,7 +5801,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-alp"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
@@ -5821,7 +5821,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-array"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arbitrary",
  "arrow-arith",
@@ -5867,7 +5867,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-btrblocks"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -5896,7 +5896,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-buffer"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
@@ -5910,7 +5910,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-bytebool"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -5924,7 +5924,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datafusion"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -5963,7 +5963,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-parts"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "getrandom 0.2.15",
  "rkyv 0.8.10",
@@ -5978,7 +5978,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dict"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -5997,7 +5997,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dtype"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arbitrary",
  "arrow-schema",
@@ -6019,7 +6019,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-duckdb"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-array",
  "duckdb",
@@ -6036,7 +6036,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-error"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
@@ -6057,7 +6057,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-expr"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
@@ -6078,7 +6078,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fastlanes"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
@@ -6102,7 +6102,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ffi"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "duckdb",
  "futures",
@@ -6119,7 +6119,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-file"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6160,7 +6160,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-flatbuffers"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "flatbuffers 25.2.10",
  "vortex-buffer",
@@ -6168,7 +6168,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fsst"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-array",
  "codspeed-divan-compat",
@@ -6185,7 +6185,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fuzz"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
@@ -6205,7 +6205,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-io"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -6227,7 +6227,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ipc"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "bytes",
  "flatbuffers 25.2.10",
@@ -6244,7 +6244,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-jni"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow",
  "futures",
@@ -6261,7 +6261,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-layout"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "async-once-cell",
@@ -6293,7 +6293,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-mask"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "itertools 0.14.0",
@@ -6302,7 +6302,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-metrics"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "getrandom 0.3.2",
  "vortex-error",
@@ -6311,7 +6311,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-proto"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -6319,7 +6319,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -6337,7 +6337,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-scalar"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
@@ -6359,7 +6359,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-sparse"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "itertools 0.14.0",
  "rkyv 0.8.10",
@@ -6375,7 +6375,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-tui"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6393,7 +6393,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-zigzag"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "vortex-array",
  "vortex-buffer",
@@ -7158,7 +7158,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "anyhow",
  "clap",
