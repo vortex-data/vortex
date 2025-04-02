@@ -4,7 +4,7 @@ use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::{fsst_compress, fsst_train_compressor};
+use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
 
 use crate::downscale::downscale_integer_array;
 use crate::integer::IntCompressor;
@@ -227,12 +227,27 @@ impl Scheme for FSSTScheme {
     fn compress(
         &self,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        is_sample: bool,
+        allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
+
+        let compressed_original_lengths = IntCompressor::compress(
+            &fsst.uncompressed_lengths().to_primitive()?,
+            is_sample,
+            allowed_cascading - 1,
+            &[],
+        )?;
+
+        let fsst = FSSTArray::try_new(
+            fsst.dtype().clone(),
+            fsst.symbols().clone(),
+            fsst.symbol_lengths().clone(),
+            fsst.codes().clone(),
+            compressed_original_lengths,
+        )?;
 
         Ok(fsst.into_array())
     }

@@ -54,7 +54,7 @@ impl FlatReader {
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a better solution.
+        // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(segment_id, self.layout.name());
 
         Ok(self
