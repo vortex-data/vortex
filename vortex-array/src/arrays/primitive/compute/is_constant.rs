@@ -13,9 +13,9 @@ impl IsConstantFn<&PrimitiveArray> for PrimitiveEncoding {
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
-            compute_is_constant::<_, {256 / size_of::<$P>()}>(array.as_slice::<$P>())
+            compute_is_constant::<_, {16 / size_of::<$P>()}>(array.as_slice::<$P>())
         } floating_point: |$P| {
-            compute_is_constant::<_, {256 / size_of::<$P>()}>(unsafe { std::mem::transmute::<&[$P], &[<$P as EqFloat>::IntType]>(array.as_slice::<$P>()) })
+            compute_is_constant::<_, {16 / size_of::<$P>()}>(unsafe { std::mem::transmute::<&[$P], &[<$P as EqFloat>::IntType]>(array.as_slice::<$P>()) })
         });
 
         Ok(Some(is_constant))
