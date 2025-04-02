@@ -80,7 +80,7 @@ mod tests {
             inner: vortex.to_array(),
         }));
 
-        let cache = unsafe { ConversionCache_create() };
+        let cache = unsafe { ConversionCache_create(0) };
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
         let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache) };
