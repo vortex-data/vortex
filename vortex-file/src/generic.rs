@@ -263,11 +263,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                         segment_cache.clone(),
                         inflight.clone(),
 
-                    ).fuse() => {
-                        log::debug!("evaluated finished! success = {}", evaluated.is_ok());
-
-                        evaluated
-                    },
+                    ).fuse() => evaluated,
                 }
             }
         });
@@ -438,7 +434,6 @@ async fn evaluate<R: VortexReadAt>(
     segment_cache: Arc<dyn SegmentCache>,
     inflight_segments: InflightSegments,
 ) -> VortexResult<()> {
-    log::debug!("im a little teapot");
     log::debug!(
         "Reading byte range for {} requests {:?} size={}",
         request.requests.len(),
@@ -449,11 +444,6 @@ async fn evaluate<R: VortexReadAt>(
         .read_byte_range(request.byte_range.clone(), request.alignment)
         .await?
         .aligned(Alignment::none());
-    log::debug!(
-        "byte range {}-{} read successfully!",
-        request.byte_range.start,
-        request.byte_range.end
-    );
 
     // Figure out the segments covered by the read.
     let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);

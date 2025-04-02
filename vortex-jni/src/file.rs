@@ -202,7 +202,8 @@ fn make_object_store(
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            // hella long timeout for azure, doh.
+            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
+            //  to avoid that.
             let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
             let mut builder = MicrosoftAzureBuilder::new()
                 .with_url(url.to_string())
