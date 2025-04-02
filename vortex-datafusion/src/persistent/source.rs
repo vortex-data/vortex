@@ -12,10 +12,11 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_metrics::VortexMetrics;
 
 use super::cache::FooterCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
-use super::metrics::{PARTITION_LABEL, VortexSourceMetrics};
+use super::metrics::PARTITION_LABEL;
 use super::opener::VortexFileOpener;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
@@ -29,11 +30,12 @@ pub struct VortexSource {
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
     pub(crate) arrow_schema: Option<SchemaRef>,
-    pub(crate) metrics: VortexSourceMetrics,
+    pub(crate) metrics: VortexMetrics,
+    _unused_df_metrics: ExecutionPlanMetricsSet,
 }
 
 impl VortexSource {
-    pub(crate) fn new(footer_cache: FooterCache, metrics: VortexSourceMetrics) -> Self {
+    pub(crate) fn new(footer_cache: FooterCache, metrics: VortexMetrics) -> Self {
         Self {
             footer_cache,
             metrics,
@@ -42,6 +44,7 @@ impl VortexSource {
             projected_statistics: None,
             arrow_schema: None,
             predicate: None,
+            _unused_df_metrics: Default::default(),
         }
     }
 
@@ -135,7 +138,7 @@ impl FileSource for VortexSource {
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
-        self.metrics.report_to_datafusion()
+        &self._unused_df_metrics
     }
 
     fn statistics(&self) -> DFResult<Statistics> {
