@@ -4,6 +4,7 @@ use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
@@ -24,14 +25,14 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
     if let Ok(varbin) = VarBinArray::try_from(strings.to_array()) {
         return varbin
             .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
+            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"))?;
     }
 
     // Compress VarBinViewArray
     if let Ok(varbin_view) = VarBinViewArray::try_from(strings.to_array()) {
         return varbin_view
             .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));
+            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"))?;
     }
 
     vortex_bail!(
@@ -85,7 +86,7 @@ pub fn fsst_compress_iter<'a, I>(
     len: usize,
     dtype: DType,
     compressor: &Compressor,
-) -> FSSTArray
+) -> VortexResult<FSSTArray>
 where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
@@ -116,8 +117,10 @@ where
     let symbols: Buffer<Symbol> = Buffer::copy_from(compressor.symbol_table());
     let symbol_lengths: Buffer<u8> = Buffer::<u8>::copy_from(compressor.symbol_lengths());
 
-    let uncompressed_lengths = uncompressed_lengths.into_array();
+    let uncompressed_lengths = downscale_integer_array(uncompressed_lengths.into_array())?;
 
-    FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("building FSSTArray from parts")
+    Ok(
+        FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+            .vortex_expect("building FSSTArray from parts"),
+    )
 }
