@@ -151,7 +151,7 @@ impl ToDuckDB for DictArray {
         };
         let sel = selection_vector_from_array(self.codes().to_primitive()?);
         vector.slice(self.values().len() as u64, sel);
-        vector.set_dictionary_id(format!("{}-{}", cache.instance_id, value_ptr.to_string()));
+        vector.set_dictionary_id(format!("{}-{}", cache.instance_id, value_ptr));
         Ok(())
     }
 }
