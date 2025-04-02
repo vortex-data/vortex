@@ -182,7 +182,7 @@ val cargoBuild by tasks.registering(Exec::class) {
         commandLine(
             "cargo",
             "build",
-            "--release",
+            //"--release",
         )
         outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
     }

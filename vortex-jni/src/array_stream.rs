@@ -1,3 +1,4 @@
+use std::backtrace::Backtrace;
 use std::pin::Pin;
 
 use futures::StreamExt;
@@ -5,6 +6,7 @@ use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jlong;
 use vortex::dtype::DType;
+use vortex::error::VortexError;
 use vortex::stream::ArrayStream;
 
 use crate::array::NativeArray;
@@ -72,10 +74,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayStreamMethods_take(
             let next_fut = inner.next();
             match block_on("stream.next", next_fut) {
                 Some(result) => {
-                    let array_ref = result?;
-                    stream.inner = Some(inner);
-                    // return the pointer to the next array element
-                    Ok(NativeArray::new(array_ref).into_raw())
+                    match result {
+                        Ok(array_ref) => {
+                            stream.inner = Some(inner);
+                            // return the pointer to the next array element
+                            Ok(NativeArray::new(array_ref).into_raw())
+                        }
+                        Err(err) => {
+                            let backtrace = Backtrace::force_capture();
+                            let wrapped = VortexError::Generic(err.into(), backtrace).to_string();
+                            panic!("{}", wrapped);
+                        }
+                    }
                 }
                 None => Ok(-1),
             }
