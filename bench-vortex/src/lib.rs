@@ -1,7 +1,6 @@
 #![feature(exit_status_error)]
 
 use std::clone::Clone;
-use std::env::temp_dir;
 use std::fmt::Display;
 use std::fs::create_dir_all;
 use std::future::Future;
@@ -24,6 +23,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use rand::{Rng, SeedableRng as _};
+use tempfile::TempDir;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -99,11 +99,10 @@ pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
     f: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<PathBuf, E> {
     let data_path = path.to_data_path();
+    let tempdir = TempDir::new_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("data")).unwrap();
     if !data_path.exists() {
-        let temp_location = path.to_temp_path();
-        let temp_path = temp_location.as_path();
-        f(temp_path)?;
-        std::fs::rename(temp_path, &data_path).unwrap();
+        f(tempdir.path())?;
+        std::fs::rename(tempdir.path(), &data_path).unwrap();
     }
     Ok(data_path)
 }
@@ -117,8 +116,9 @@ where
     P: IdempotentPath + ?Sized,
 {
     let data_path = path.to_data_path();
+    let tempdir = TempDir::new_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("data")).unwrap();
     if !data_path.exists() {
-        let temp_location = path.to_temp_path();
+        let temp_location = tempdir.path().to_path_buf();
         f(temp_location.clone()).await?;
         std::fs::rename(temp_location.as_path(), &data_path).unwrap();
     }
@@ -127,7 +127,6 @@ where
 
 pub trait IdempotentPath {
     fn to_data_path(&self) -> PathBuf;
-    fn to_temp_path(&self) -> PathBuf;
 }
 
 impl IdempotentPath for str {
@@ -140,14 +139,6 @@ impl IdempotentPath for str {
         }
         path
     }
-
-    fn to_temp_path(&self) -> PathBuf {
-        let temp_dir = temp_dir().join(uuid::Uuid::new_v4().to_string());
-        if !temp_dir.exists() {
-            create_dir_all(temp_dir.clone()).unwrap();
-        }
-        temp_dir.join(self)
-    }
 }
 
 impl IdempotentPath for PathBuf {
@@ -156,14 +147,6 @@ impl IdempotentPath for PathBuf {
             create_dir_all(self.parent().unwrap()).unwrap();
         }
         self.to_path_buf()
-    }
-
-    fn to_temp_path(&self) -> PathBuf {
-        let temp_dir = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-        if !temp_dir.exists() {
-            create_dir_all(temp_dir.clone()).unwrap();
-        }
-        temp_dir.join(self.file_name().unwrap())
     }
 }
 

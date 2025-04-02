@@ -51,6 +51,14 @@ jobs:
         with:
           submodules: "recursive"
 
+      - name: Describe FS
+        shell: bash
+        run: |
+          df -h
+          pwd
+          df -h .
+          cat /etc/fstab
+
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
