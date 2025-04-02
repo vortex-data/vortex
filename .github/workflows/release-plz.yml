@@ -96,7 +96,7 @@ jobs:
           echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
           rm -f target/wheels/*linux_x86_64.whl
 
-          uv run pip install --force-reinstall vortex-array --no-index --find-links target/wheels
+          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
 
           cd pyvortex/test
           uv run pytest
