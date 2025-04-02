@@ -20,7 +20,7 @@ use vortex::io::ObjectStoreReadAt;
 use vortex::proto::expr::Expr;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
-use crate::{RUNTIME, to_string, to_string_vec};
+use crate::{to_string, to_string_vec};
 
 pub struct FFIFile {
     pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
@@ -74,8 +74,8 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
         .vortex_expect("File_open: make_object_store");
     let read_at = ObjectStoreReadAt::new(object_store, uri.path().into(), None);
-
-    let result = RUNTIME.block_on(async move { VortexOpenOptions::file(read_at).open().await });
+    let result =
+        futures::executor::block_on(async move { VortexOpenOptions::file(read_at).open().await });
 
     let file = result.vortex_expect("open");
     let ffi_file = FFIFile { inner: file };

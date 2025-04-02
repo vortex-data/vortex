@@ -269,6 +269,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	}
 
 	if (local_state.cache == nullptr) {
+		// Create a unique value so each cache can be differentiated.
 		local_state.cache = ConversionCache_create(++global_state.unique_id);
 	}
 	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
@@ -276,7 +277,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 	if (local_state.current_row == 0) {
 		FFIArray_free(local_state.array);
-		// ConversionCache_free(local_state.cache);
+		ConversionCache_free(local_state.cache);
 		local_state.cache = nullptr;
 		local_state.array = nullptr;
 	}

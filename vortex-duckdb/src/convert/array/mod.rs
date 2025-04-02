@@ -32,13 +32,14 @@ use crate::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType};
 #[derive(Default)]
 pub struct ConversionCache {
     pub values_cache: HashMap<usize, FlatVector>,
-    pub seed: u64,
+    // A value which must be unique for a given duckdb pipeline.
+    pub instance_id: u64,
 }
 
 impl ConversionCache {
     pub fn new(id: u64) -> Self {
         Self {
-            seed: id,
+            instance_id: id,
             ..Self::default()
         }
     }
@@ -150,7 +151,7 @@ impl ToDuckDB for DictArray {
         };
         let sel = selection_vector_from_array(self.codes().to_primitive()?);
         vector.slice(self.values().len() as u64, sel);
-        vector.set_dictionary_id(format!("{}-{}", cache.seed, value_ptr.to_string()));
+        vector.set_dictionary_id(format!("{}-{}", cache.instance_id, value_ptr.to_string()));
         Ok(())
     }
 }
