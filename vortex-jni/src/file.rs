@@ -204,6 +204,7 @@ fn make_object_store(
             let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Azure config key: {}", key);

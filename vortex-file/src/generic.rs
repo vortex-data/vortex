@@ -263,7 +263,11 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
                         segment_cache.clone(),
                         inflight.clone(),
 
-                    ).fuse() => evaluated,
+                    ).fuse() => {
+                        log::debug!("evaluated finished! success = {}", evaluated.is_ok());
+
+                        evaluated
+                    },
                 }
             }
         });
