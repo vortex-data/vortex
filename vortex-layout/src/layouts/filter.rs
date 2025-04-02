@@ -209,9 +209,7 @@ struct FilterPruningEvaluation {
 
 #[async_trait]
 impl PruningEvaluation for FilterPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        let mut mask = mask;
-
+    async fn invoke(&self, mut mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
         for conjunct in self.conjunct_evals.iter() {
             if mask.all_false() {
@@ -236,9 +234,8 @@ struct FilterEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for FilterEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mut mask: Mask) -> VortexResult<Mask> {
         let mut remaining = BitVec::from_elem(self.conjunct_evals.len(), true);
-        let mut mask = mask;
 
         // Loop over the conjuncts in order of selectivity.
         while let Some(idx) = self.filter_expr.next_conjunct(&remaining) {

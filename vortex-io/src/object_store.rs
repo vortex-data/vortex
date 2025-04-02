@@ -24,23 +24,6 @@ pub struct ObjectStoreReadAt {
 }
 
 impl ObjectStoreReadAt {
-    pub async fn maybe_file(object_store: &dyn ObjectStore, location: &Path) -> Option<File> {
-        let response = object_store
-            .get_opts(
-                location,
-                GetOptions {
-                    range: Some(GetRange::Bounded(0..1)),
-                    ..Default::default()
-                },
-            )
-            .await
-            .ok()?;
-        if let GetResultPayload::File(file, _path) = response.payload {
-            return Some(file);
-        }
-        None
-    }
-
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
         location: Path,

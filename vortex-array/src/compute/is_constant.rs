@@ -124,10 +124,10 @@ fn is_constant_impl(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Op
     let is_constant = if let Some(vtable_fn) = array.vtable().is_constant_fn() {
         vtable_fn.is_constant(array, opts)?
     } else {
-        // log::debug!(
-        //     "No is_constant implementation found for {}",
-        //     array.encoding()
-        // );
+        log::debug!(
+            "No is_constant implementation found for {}",
+            array.encoding()
+        );
 
         if opts.canonicalize {
             let array = array.to_canonical()?;

@@ -246,18 +246,6 @@ impl CoalescedDriver {
                     continue;
                 }
 
-                // If the segment occurs before the current range, we should only include it if
-                // it has been explicitly polled. The reason we don't generally coalesce backwards
-                // is that we may be fetching filter segments that may immediately render the
-                // prior segments unnecessary, e.g. when we read stats tables. This is quite a
-                // generalization to appear here in the codebase, but in practice it works well
-                // assuming a file is generally written in a forward direction.
-                // if segment_range.start < coalesced.byte_range.start {
-                //     if !self.segment_state(segment_id).polled {
-                //         continue;
-                //     }
-                // }
-
                 coalesced.byte_range = new_range;
                 coalesced.requests.push(
                     self.segment_state_mut(segment_id)

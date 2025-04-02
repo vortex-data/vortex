@@ -4,7 +4,7 @@ use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
@@ -16,7 +16,6 @@ use super::cache::VortexFileCache;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
-    pub scheme: ObjectStoreScheme,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
@@ -29,7 +28,6 @@ pub(crate) struct VortexFileOpener {
 impl VortexFileOpener {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        scheme: ObjectStoreScheme,
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
         filter: Option<Arc<dyn VortexExpr>>,
@@ -39,7 +37,6 @@ impl VortexFileOpener {
         metrics: VortexMetrics,
     ) -> Self {
         Self {
-            scheme,
             object_store,
             projection,
             filter,
@@ -58,6 +55,7 @@ impl FileOpener for VortexFileOpener {
         let file_cache = self.file_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
+        let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
 
         Ok(async move {
@@ -65,6 +63,7 @@ impl FileOpener for VortexFileOpener {
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
                 .scan()
+                .with_metrics(metrics)
                 .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)
                 .with_some_filter(filter)

@@ -82,13 +82,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
         }
 
         let start = std::time::Instant::now();
-        let (store, scheme) = make_object_store(&url, &properties)?;
+        let (store, _scheme) = make_object_store(&url, &properties)?;
         let duration = std::time::Instant::now().duration_since(start);
         log::debug!("make_object_store latency = {duration:?}");
-        let reader = ObjectStoreReadAt::new(store.clone(), url.path().into(), Some(scheme));
         let open_file = block_on(
             "VortexOpenOptions.open()",
-            VortexOpenOptions::file().open(reader),
+            VortexOpenOptions::file().open_object_store(&store, url.path()),
         )?;
 
         Ok(NativeFile::new(open_file).into_raw())

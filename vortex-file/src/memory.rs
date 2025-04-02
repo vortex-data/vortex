@@ -20,7 +20,7 @@ impl FileType for InMemoryVortexFile {
 }
 
 impl VortexOpenOptions<InMemoryVortexFile> {
-    /// Open an in-memory file contained in the provided buffer.
+    /// Create open options for an in-memory Vortex file.
     pub fn in_memory() -> Self {
         Self::new(())
     }

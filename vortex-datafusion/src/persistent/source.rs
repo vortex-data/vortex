@@ -8,7 +8,7 @@ use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSour
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::ObjectStore;
 use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
@@ -60,13 +60,9 @@ impl FileSource for VortexSource {
     fn create_file_opener(
         &self,
         object_store: Arc<dyn ObjectStore>,
-        base_config: &FileScanConfig,
+        _base_config: &FileScanConfig,
         partition: usize,
     ) -> Arc<dyn FileOpener> {
-        let (scheme, _) = ObjectStoreScheme::parse(base_config.object_store_url.as_ref())
-            .ok()
-            .vortex_expect("Couldn't parse object store URL");
-
         let partition_metrics = self
             .metrics
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
@@ -76,7 +72,6 @@ impl FileSource for VortexSource {
             .vortex_expect("batch_size must be supplied to VortexSource");
 
         let opener = VortexFileOpener::new(
-            scheme,
             object_store,
             self.projection.clone().unwrap_or_else(Identity::new_expr),
             self.predicate.clone(),
@@ -113,7 +108,6 @@ impl FileSource for VortexSource {
             arrow_schema,
             constraints: _constraints,
             statistics,
-            orderings: _,
             projection_expr,
         } = config.project_for_vortex();
 

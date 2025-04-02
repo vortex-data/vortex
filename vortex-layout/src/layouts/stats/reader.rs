@@ -32,7 +32,7 @@ pub struct StatsReader {
 
     /// The number of zones
     pub(crate) nzones: usize,
-    /// The size of each zone (except possibly the last)
+    /// The number of rows in each zone (except possibly the last)
     pub(crate) zone_len: usize,
     /// The stats that are present in the table
     pub(crate) present_stats: Arc<[Stat]>,
