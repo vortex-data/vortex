@@ -33,11 +33,7 @@ use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-<<<<<<< HEAD
 use super::cache::VortexFileCache;
-=======
-use super::cache::FooterCache;
->>>>>>> develop
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::{PrecisionExt as _, can_be_pushed_down};
@@ -185,11 +181,7 @@ impl FileFormat for VortexFormat {
 
     fn file_source(&self) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
-<<<<<<< HEAD
             self.file_cache.clone(),
-=======
-            self.footer_cache.clone(),
->>>>>>> develop
             VortexMetrics::default(),
         ))
     }
