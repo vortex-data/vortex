@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
