@@ -14,8 +14,8 @@ use crate::footer::Footer;
 pub struct VortexFile {
     /// The footer of the Vortex file.
     pub(crate) footer: Footer,
-    /// A source for reading segments from the file.
-    pub(crate) file_io: Arc<dyn VortexFileIo>,
+    /// A for reading segments from the file.
+    pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -46,7 +46,8 @@ impl VortexFile {
     /// This may spawn a background I/O driver that will exist when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.file_io.segment_source(self.metrics.clone())
+        self.segment_source_factory
+            .segment_source(self.metrics.clone())
     }
 
     /// Create a new layout reader for the file.
@@ -62,7 +63,7 @@ impl VortexFile {
     }
 }
 
-pub trait VortexFileIo: 'static + Send + Sync {
+pub trait SegmentSourceFactory: 'static + Send + Sync {
     /// Create a segment source for reading segments from the file.
     fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource>;
 }

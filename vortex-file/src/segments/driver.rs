@@ -15,12 +15,12 @@ use vortex_io::{PerformanceHint, VortexReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};
 
-use crate::{Footer, SegmentSpec};
+use crate::SegmentSpec;
 
 /// An I/O driver that assembles coalesced requests based on a performance hint and a
 /// pre-configured pre-fetching window.
 pub struct CoalescedDriver {
-    footer: Footer,
+    segment_map: Arc<[SegmentSpec]>,
     events: BoxStream<'static, SegmentEvent>,
 
     requested_counter: Arc<Counter>,
@@ -54,12 +54,12 @@ struct PendingSegment {
 impl CoalescedDriver {
     pub fn new(
         performance_hint: PerformanceHint,
-        footer: Footer,
+        segment_map: Arc<[SegmentSpec]>,
         events: BoxStream<'static, SegmentEvent>,
         metrics: VortexMetrics,
     ) -> Self {
         Self {
-            footer,
+            segment_map,
             events,
 
             requested_counter: metrics.counter("vortex.file.segments.requested"),
@@ -82,12 +82,8 @@ impl CoalescedDriver {
         self
     }
 
-    fn segment_map(&self) -> &[SegmentSpec] {
-        self.footer.segment_map()
-    }
-
     fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
-        &self.footer.segment_map()[*id as usize]
+        &self.segment_map[*id as usize]
     }
 
     fn segment_state(&self, id: SegmentId) -> &PendingSegment {
@@ -185,7 +181,7 @@ impl CoalescedDriver {
         let mut coalesced = CoalescedSegmentRequest {
             byte_range: spec.byte_range(),
             requests: vec![request],
-            segment_map: self.footer.segment_map().clone(),
+            segment_map: self.segment_map.clone(),
         };
 
         // TODO(ngates): dynamically update the coalescing window based on request duration.
@@ -200,11 +196,11 @@ impl CoalescedDriver {
 
             // We find the range of segment IDs that intersect the coalescing window. We can do
             // this because segments are ordered by byte offset.
-            let lowest_segment = self.segment_map().partition_point(|s| {
+            let lowest_segment = self.segment_map.partition_point(|s| {
                 (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
             });
             let highest_segment = self
-                .segment_map()
+                .segment_map
                 .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window));
 
             for id in lowest_segment..highest_segment {

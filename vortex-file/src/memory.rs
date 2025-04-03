@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
-use crate::{FileType, Footer, SegmentSpec, VortexFile, VortexFileIo, VortexOpenOptions};
+use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -29,14 +29,14 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
         let footer = self.read_footer(&buffer).await?;
-        let file_io = Arc::new(InMemorySegmentReader {
+        let segment_source_factory = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),
         });
 
         Ok(VortexFile {
             footer,
-            file_io,
+            segment_source_factory,
             metrics: self.metrics,
         })
     }
@@ -48,7 +48,7 @@ struct InMemorySegmentReader {
     footer: Footer,
 }
 
-impl VortexFileIo for InMemorySegmentReader {
+impl SegmentSourceFactory for InMemorySegmentReader {
     fn segment_source(&self, _metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
         Arc::new(self.clone())
     }

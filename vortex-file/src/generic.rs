@@ -8,7 +8,7 @@ use vortex_layout::segments::{SegmentEvents, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
 use crate::segments::{CachedSegmentSource, CoalescedDriver, InMemorySegmentCache, SegmentCache};
-use crate::{FileType, Footer, VortexFile, VortexFileIo, VortexOpenOptions};
+use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -41,16 +41,16 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
 
-        let file_io = Arc::new(GenericVortexFileIo {
+        let segment_source_factory = Arc::new(GenericVortexFileIo {
             read: Mutex::new(read),
-            footer: footer.clone(),
+            segment_map: footer.segment_map().clone(),
             segment_cache: self.segment_cache,
             options: self.options,
         });
 
         Ok(VortexFile {
             footer,
-            file_io,
+            segment_source_factory,
             metrics: self.metrics,
         })
     }
@@ -58,12 +58,12 @@ impl VortexOpenOptions<GenericVortexFile> {
 
 struct GenericVortexFileIo<R> {
     read: Mutex<R>,
-    footer: Footer,
+    segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     options: GenericFileOptions,
 }
 
-impl<R: VortexReadAt + Send> VortexFileIo for GenericVortexFileIo<R> {
+impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
     fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
         // We use segment events for driving I/O.
         let (segment_source, events) = SegmentEvents::create();
@@ -78,7 +78,7 @@ impl<R: VortexReadAt + Send> VortexFileIo for GenericVortexFileIo<R> {
 
         let driver = CoalescedDriver::new(
             read.performance_hint(),
-            self.footer.clone(),
+            self.segment_map.clone(),
             events,
             metrics,
         );
