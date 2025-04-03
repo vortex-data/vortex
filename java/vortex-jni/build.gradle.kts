@@ -182,9 +182,9 @@ val cargoBuild by tasks.registering(Exec::class) {
         commandLine(
             "cargo",
             "build",
-            //"--release",
+            "--release",
         )
-        outputs.files(targetDir.resolve("debug/libvortex_jni.$platformLibSuffix"))
+        outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
     }
 
     // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
