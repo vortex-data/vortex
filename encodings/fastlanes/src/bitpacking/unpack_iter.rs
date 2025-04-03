@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::mem;
 use std::mem::MaybeUninit;
 
@@ -92,18 +93,23 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
 
     pub fn decode_full_chunks_into(&mut self, output: &mut UninitRange<T>) -> usize {
         let first_chunk_is_sliced = self.first_chunk_is_sliced();
+        // If there's only one chunk and that chunk is sliced it has been handled already by `header` method
+        if first_chunk_is_sliced && self.num_chunks == 1 {
+            return self.len;
+        }
+
         let last_chunk_is_sliced = self.last_chunk_is_sliced();
         let full_chunks_range =
             (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
 
-        let elems_per_chunk = self.elems_per_chunk();
-        let packed_slice: &[T::UnsignedT] = buffer_as_slice(&self.packed);
         let mut out_idx = if first_chunk_is_sliced {
             CHUNK_SIZE - self.offset
         } else {
             0
         };
 
+        let packed_slice: &[T::UnsignedT] = buffer_as_slice(&self.packed);
+        let elems_per_chunk = self.elems_per_chunk();
         for i in full_chunks_range {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
