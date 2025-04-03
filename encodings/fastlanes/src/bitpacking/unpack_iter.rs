@@ -56,7 +56,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     }
 
     pub fn header(&mut self) -> Option<&[T]> {
-        self.first_chunk_is_sliced().then(|| {
+        (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
             let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
