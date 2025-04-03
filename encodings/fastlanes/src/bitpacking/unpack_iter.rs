@@ -1,4 +1,5 @@
 use std::mem;
+use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
 use vortex_array::Array;
@@ -8,14 +9,17 @@ use vortex_dtype::NativePType;
 
 use crate::BitPackedArray;
 
+const CHUNK_SIZE: usize = 1024;
+
 pub struct BitUnpackedChunks<T: BitPacked> {
     bit_width: usize,
     offset: usize,
+    len: usize,
     num_chunks: usize,
-    // 0 indicates full chunk of 1024
+    // 0 indicates full chunk of CHUNK_SIZE
     last_chunk_length: usize,
     packed: ByteBuffer,
-    buffer: [T; 1024],
+    buffer: [MaybeUninit<T>; CHUNK_SIZE],
 }
 
 impl<T: BitPacked> BitUnpackedChunks<T> {
@@ -24,7 +28,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         let len = array.len();
         let bit_width = array.bit_width() as usize;
         let elems_per_chunk = 128 * bit_width / size_of::<T>();
-        let num_chunks = (offset + len).div_ceil(1024);
+        let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
 
         assert_eq!(
             array.packed().len() / size_of::<T>(),
@@ -34,12 +38,13 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             num_chunks * elems_per_chunk
         );
 
-        let last_chunk_length = (offset + len) % 1024;
+        let last_chunk_length = (offset + len) % CHUNK_SIZE;
         Self {
             bit_width,
             offset,
+            len,
             packed: array.packed().clone(),
-            buffer: [T::zero(); 1024],
+            buffer: [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE],
             num_chunks,
             last_chunk_length,
         }
@@ -53,14 +58,21 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn header(&mut self) -> Option<&[T]> {
         self.first_chunk_is_sliced().then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
-            let dst: &mut [T] = &mut self.buffer;
+            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
             let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
 
+            let header_end_slice = if self.num_chunks == 1 {
+                self.len
+            } else {
+                CHUNK_SIZE
+            };
             // SAFETY:
             // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly 1024.
-            unsafe { BitPacking::unchecked_unpack(self.bit_width, chunk, dst) };
-            &self.buffer[self.offset..]
+            // 2. buffer is exactly CHUNK_SIZE.
+            unsafe {
+                BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+                mem::transmute(&self.buffer[self.offset..][..header_end_slice])
+            }
         })
     }
 
@@ -87,7 +99,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         let elems_per_chunk = self.elems_per_chunk();
         let packed_slice: &[T::UnsignedT] = buffer_as_slice(&self.packed);
         let mut out_idx = if first_chunk_is_sliced {
-            1024 - self.offset
+            CHUNK_SIZE - self.offset
         } else {
             0
         };
@@ -97,25 +109,27 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
 
             unsafe {
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-                let dst: &mut [T::UnsignedT] = mem::transmute(&mut output[out_idx..][..1024]);
+                let dst: &mut [T::UnsignedT] = mem::transmute(&mut output[out_idx..][..CHUNK_SIZE]);
                 BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
             }
-            out_idx += 1024;
+            out_idx += CHUNK_SIZE;
         }
         out_idx
     }
 
     pub fn trailer(&mut self) -> Option<&[T]> {
-        self.last_chunk_is_sliced().then(|| {
+        (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
+            let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+            let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
             // SAFETY:
             // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly 1024.
-            let dst: &mut [T] = &mut self.buffer;
-            let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
-            unsafe { BitPacking::unchecked_unpack(self.bit_width, chunk, dst) };
-            &self.buffer[..self.last_chunk_length]
+            // 2. buffer is exactly CHUNK_SIZE.
+            unsafe {
+                BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+                mem::transmute(&self.buffer[..self.last_chunk_length])
+            }
         })
     }
 
@@ -130,7 +144,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
 
 pub struct BitUnpackIterator<'a, T: BitPacked + 'a> {
     packed: &'a [T::UnsignedT],
-    buffer: &'a mut [T; 1024],
+    buffer: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     bit_width: usize,
     elems_per_chunk: usize,
     num_chunks: usize,
@@ -140,7 +154,7 @@ pub struct BitUnpackIterator<'a, T: BitPacked + 'a> {
 impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
     pub fn new(
         packed: &'a [T::UnsignedT],
-        buffer: &'a mut [T; 1024],
+        buffer: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
         bit_width: usize,
         elems_per_chunk: usize,
         num_chunks: usize,
@@ -158,7 +172,7 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
 }
 
 impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
-    type Item = &'a [T; 1024];
+    type Item = &'a [T; CHUNK_SIZE];
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx >= self.num_chunks {
@@ -168,7 +182,7 @@ impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
         let chunk = &self.packed[self.idx * self.elems_per_chunk..][..self.elems_per_chunk];
 
         unsafe {
-            let dst: &mut [T] = self.buffer;
+            let dst: &mut [MaybeUninit<T>] = self.buffer;
             let dst: &mut [T::UnsignedT] = mem::transmute(dst);
 
             BitPacking::unchecked_unpack(self.bit_width, chunk, dst);

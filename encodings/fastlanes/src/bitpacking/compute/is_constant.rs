@@ -3,7 +3,7 @@ use vortex_array::arrays::{IS_CONST_LANE_WIDTH, compute_is_constant};
 use vortex_array::compute::{IsConstantFn, IsConstantOpts, is_constant, scalar_at};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 use crate::{BitPackedArray, BitPackedEncoding, unpack_single};
@@ -52,13 +52,15 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
         let primitive_indices = patches.indices().to_primitive()?;
         let (unpatched_idx, patched_idx) = match_each_unsigned_integer_ptype!(patches.indices_ptype(), |$I| {
             let indices = primitive_indices.as_slice::<$I>();
+            let offset_i = $I::try_from(patches.offset()).vortex_expect("can't convert offset to $I");
             let mut unpatched_idx = 0;
-            let mut patch_idx = indices[0];
+            let mut patch_idx = indices[0] - offset_i;
             for idx in &indices[1..] {
-                if *idx == unpatched_idx {
+                let ridx = *idx - offset_i;
+                if ridx == unpatched_idx {
                     unpatched_idx += 1;
                 } else {
-                    patch_idx = *idx;
+                    patch_idx = ridx;
                 }
             }
             (unpatched_idx as usize, patch_idx as usize)
