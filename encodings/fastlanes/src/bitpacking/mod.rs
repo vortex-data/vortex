@@ -19,6 +19,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
+use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
 mod compress;
 mod compute;
@@ -146,6 +147,7 @@ impl BitPackedArray {
         })
     }
 
+    /// Underlying bit packed values as byte array
     #[inline]
     pub fn packed(&self) -> &ByteBuffer {
         &self.packed
@@ -165,6 +167,17 @@ impl BitPackedArray {
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
     }
 
+    /// Accessor for bit unpacked chunks
+    pub fn unpacked_chunks<T: BitPacked>(&self) -> BitUnpackedChunks<T> {
+        assert_eq!(
+            T::PTYPE,
+            self.ptype(),
+            "Requested type doesn't match the array ptype"
+        );
+        BitUnpackedChunks::new(self)
+    }
+
+    /// Bit width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width

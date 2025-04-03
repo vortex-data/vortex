@@ -5,7 +5,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
+use crate::unpack_iter::BitPacked;
 use crate::{BitPackedArray, BitPackedEncoding, unpack_single};
 
 impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
@@ -24,7 +24,7 @@ impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
-    let mut bit_unpack_iterator = BitUnpackedChunks::<T>::new(array);
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
     if let Some(header) = bit_unpack_iterator.header() {
         if !compute_is_constant::<_, WIDTH>(header) {
             return Ok(false);
