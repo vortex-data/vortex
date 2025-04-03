@@ -94,7 +94,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayStreamMethods_getDType(
     let stream = unsafe { NativeArrayStream::from_ptr(pointer) };
 
     try_or_throw(&mut env, |_| {
-        if let Some(ref inner) = stream.inner {
+        if let Some(inner) = &stream.inner {
             let dtype = inner.dtype();
             Ok(dtype as *const DType as jlong)
         } else {

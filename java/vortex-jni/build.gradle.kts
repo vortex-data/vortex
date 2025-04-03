@@ -1,5 +1,4 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import java.io.ByteArrayOutputStream
 
 plugins {
     `java-library`
@@ -134,95 +133,71 @@ publishing {
 
 val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
 
-val platformLibSuffix =
-    if (System.getProperty("os.name").contains("Mac")) {
-        "dylib"
-    } else {
-        "so"
-    }
-
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
 
-val cargoCheck by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-    commandLine("cargo", "check")
-}
+// These are the native platforms that we want to build for and ship inside of our JAR
+val rustTargets = listOf(
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+)
 
-val cargoBuild by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
+rustTargets.forEach { target ->
+    tasks.register("cargoBuild_$target", Exec::class) {
+        workingDir = vortexJNI
 
-    val buildWithAsan = project.findProperty("buildWithAsan")?.toString()?.toBoolean() ?: false
-    println("buildWithAsan: $buildWithAsan")
-    if (buildWithAsan) {
-        // Force a rebuild
-        outputs.upToDateWhen { false }
-
-        // Get the target triple for the current platform. We need it
-        // so we can tell cargo to recompile the std crate for this target with ASAN enabled.
-        val output = ByteArrayOutputStream()
-        exec {
-            commandLine("rustc", "--print", "host-tuple")
-            standardOutput = output
-        }
-        val targetTriple = output.toString().trim()
-
-        // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
-        environment("RUSTFLAGS", "-Zsanitizer=address")
         commandLine(
-            "cargo",
+            "cross",
             "build",
-            "-Zbuild-std",
+            "--release",
             "--target",
-            targetTriple,
-            "--release",
+            target,
+            "--package",
+            "vortex-jni",
         )
-        // cargo puts the built artifact in a target-dependent directory when you specify the triple
-        outputs.files(targetDir.resolve("$targetTriple/release/libvortex_jni.$platformLibSuffix"))
-    } else {
-        commandLine(
-            "cargo",
-            "build",
-            "--release",
-        )
-        outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
+
+        val platformSuffix = if (target.contains("darwin")) {
+            "dylib"
+        } else {
+            "so"
+        }
+
+        outputs.files(targetDir.resolve("$target/release/libvortex_jni.$platformSuffix"))
+
+        // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
     }
-
-    // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
-    outputs.upToDateWhen { false }
-    outputs.cacheIf { false }
-}
-
-val cargoClean by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-    commandLine("cargo", "clean")
-}
-
-tasks.named("check").configure {
-    dependsOn.add(cargoCheck)
 }
 
 tasks.named("build").configure {
-    dependsOn.add(cargoBuild)
+    rustTargets.map {
+        val task = tasks.named("cargoBuild_$it")
+        dependsOn(task)
+    }
 }
 
-val osName = System.getProperty("os.name")
-val osArch =
-    when (System.getProperty("os.arch")) {
-        "amd64", "x86_64" -> "amd64"
-        else -> System.getProperty("os.arch")
-    }
-val resourceDir =
-    if (osName.startsWith("Mac")) {
-        "darwin-$osArch"
-    } else {
-        "linux-$osArch"
-    }
+val copySharedLibrary by tasks.register("copySharedLibrary") {
+    rustTargets.forEach { target ->
+        val platformTask = tasks.named("cargoBuild_$target")
+        dependsOn(platformTask)
 
-val copySharedLibrary by tasks.registering(Copy::class) {
-    dependsOn(cargoBuild)
-
-    from(cargoBuild.get().outputs.files)
-    into(projectDir.resolve("src/main/resources/native/$resourceDir"))
+        doLast {
+            copy {
+                println("copy task for $target executing")
+                val arch = when (target.split("-")[0]) {
+                    "amd64", "x86_64" -> "amd64"
+                    else -> target.split("-")[0]
+                }
+                val resourceDir = if (target.contains("darwin")) {
+                    "darwin-$arch"
+                } else {
+                    "linux-$arch"
+                }
+                from(platformTask.get().outputs.files)
+                into(projectDir.resolve("src/main/resources/native/$resourceDir"))
+            }
+        }
+    }
 }
 
 tasks.withType<ProcessResources>().configureEach {
