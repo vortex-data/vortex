@@ -99,8 +99,8 @@ jobs:
         with:
           rust-toolchain: ${{ steps.rust-toolchain.version }}
           working-directory: pyvortex
-          target: x86_64
-          manylinux: 2014
+          target: 'x86_64'
+          manylinux: '2014'
           args: --release --interpreter python3.10 --auditwheel check
 
       - name: Ensure wheel can run tests successfully
