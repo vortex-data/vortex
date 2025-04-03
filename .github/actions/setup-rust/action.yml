@@ -19,17 +19,17 @@ runs:
       run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
 
     - name: Rust Toolchain
+      if: steps.rustup-cache.outputs.cache-hit != 'true'
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@master
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
         toolchain: "${{ steps.rust-version.outputs.version }}"
         targets: "${{inputs.targets || ''}}"
         components: clippy, rustfmt, miri, llvm-tools-preview
 
     - name: Rust Dependency Cache
-      uses: Swatinem/rust-cache@v2
       if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
         shared-key: "rust-cache-${{ runner.os }}-${{ runner.environment }}" # To allow reuse across jobs
@@ -37,7 +37,9 @@ runs:
     - name: Rust Compile Cache
       if: inputs.cache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+
     - name: Rust Compile Cache Config
+      if: inputs.cache == 'true'
       shell: bash
       run: |
         echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
