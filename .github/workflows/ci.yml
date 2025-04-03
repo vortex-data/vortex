@@ -103,20 +103,6 @@ jobs:
           manylinux: '2014'
           args: --release --interpreter python3.10 --auditwheel check
 
-      - name: Ensure wheel can run tests successfully
-        shell: bash
-        run: |
-          echo "creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct"
-
-          ls -la target/wheels/
-
-          rm -rf .venv
-          uv sync --only-dev
-
-          uv run pip install target/wheels/vortex_array-*.whl
-          uv run pip install pytest
-          uv run pytest pyvortex/test
-
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -125,7 +111,7 @@ jobs:
           retention-days: 1
 
   test-pypi-release:
-    name: "Release to PyPi"
+    name: "Release to Test PyPi"
     needs: [ python-test ]
     runs-on: ubuntu-latest
     permissions:

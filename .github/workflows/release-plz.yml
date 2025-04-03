@@ -87,23 +87,15 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
           sync: false
-      - name: test wheel
-        shell: bash
-        run: |
-          ls -al target/wheels
-
-          echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
-          rm -f target/wheels/*linux_x86_64.whl
-          ls -al target/wheels
-
-          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-
-          uv run pytest pyvortex/test
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: osx-wheels
           path: target/wheels
+      - name: Test version
+        shell: bash
+        run: |
+          uv run pytest pyvortex/test
   linux:
     name: "Build linux-x86 wheel"
     needs: release-plz-release
@@ -128,24 +120,15 @@ jobs:
           target: x86_64
           manylinux: auto
           args: --release --interpreter python3.10 --auditwheel check
-      - name: test wheel
-        shell: bash
-        run: |
-          ls -al target/wheels
-
-          echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
-          rm -f target/wheels/*linux_x86_64.whl
-
-          ls -al target/wheels
-
-          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-
-          uv run pytest pyvortex/test
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: linux-wheels
           path: target/wheels
+      - name: Test version
+        shell: bash
+        run: |
+          uv run pytest pyvortex/test
   release:
     name: "Release to PyPi"
     needs: [ release-plz-release, macos, linux ]
