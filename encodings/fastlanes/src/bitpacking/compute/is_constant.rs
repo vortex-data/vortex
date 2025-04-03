@@ -1,12 +1,16 @@
+use std::ops::Range;
+
+use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{IS_CONST_LANE_WIDTH, compute_is_constant};
-use vortex_array::compute::{IsConstantFn, IsConstantOpts, is_constant, scalar_at};
+use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
+use vortex_array::compute::{IsConstantFn, IsConstantOpts};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
+use vortex_error::VortexResult;
 
 use crate::unpack_iter::BitPacked;
-use crate::{BitPackedArray, BitPackedEncoding, unpack_single};
+use crate::{BitPackedArray, BitPackedEncoding};
 
 impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
     fn is_constant(
@@ -24,52 +28,122 @@ impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
+    let mut bit_unpack_iterator = array.bitpacked_chunks::<T>();
+    let patches = array
+        .patches()
+        .map(|p| {
+            let values = p.values().to_primitive()?;
+            let indices = p.indices().to_primitive()?;
+            let offset = p.offset();
+            VortexResult::Ok((indices, values, offset))
+        })
+        .transpose()?;
+
+    let mut header_constant_value = None;
+    let mut current_idx = 0;
     if let Some(header) = bit_unpack_iterator.header() {
+        if let Some((indices, patches, offset)) = &patches {
+            apply_patches(
+                header,
+                current_idx..header.len(),
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
+
         if !compute_is_constant::<_, WIDTH>(header) {
             return Ok(false);
         }
+        header_constant_value = Some(header[0]);
+        current_idx = header.len();
     }
 
+    let mut first_chunk_value = None;
     for chunk in bit_unpack_iterator.full_chunks() {
+        if let Some((indices, patches, offset)) = &patches {
+            let chunk_len = chunk.len();
+            apply_patches(
+                chunk,
+                current_idx..current_idx + chunk_len,
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
+
         if !compute_is_constant::<_, WIDTH>(chunk) {
             return Ok(false);
         }
+
+        if let Some(chunk_value) = first_chunk_value {
+            if chunk_value != chunk[0] {
+                return Ok(false);
+            }
+        } else {
+            if let Some(header_value) = header_constant_value {
+                if header_value != chunk[0] {
+                    return Ok(false);
+                }
+            }
+            first_chunk_value = Some(chunk[0]);
+        }
+
+        current_idx += chunk.len();
     }
 
     if let Some(trailer) = bit_unpack_iterator.trailer() {
+        if let Some((indices, patches, offset)) = &patches {
+            let chunk_len = trailer.len();
+            apply_patches(
+                trailer,
+                current_idx..current_idx + chunk_len,
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
+
         if !compute_is_constant::<_, WIDTH>(trailer) {
             return Ok(false);
         }
-    }
 
-    if let Some(patches) = array.patches() {
-        let constant_patches = is_constant(patches.values())?;
-        if !constant_patches {
-            return Ok(false);
-        }
-
-        let primitive_indices = patches.indices().to_primitive()?;
-        let (unpatched_idx, patched_idx) = match_each_unsigned_integer_ptype!(patches.indices_ptype(), |$I| {
-            let indices = primitive_indices.as_slice::<$I>();
-            let offset_i = $I::try_from(patches.offset()).vortex_expect("can't convert offset to $I");
-            let mut unpatched_idx = 0;
-            let mut patch_idx = indices[0] - offset_i;
-            for idx in indices {
-                let ridx = *idx - offset_i;
-                if ridx == unpatched_idx {
-                    unpatched_idx += 1;
-                } else {
-                    patch_idx = ridx;
-                    break;
-                }
+        if let Some(previous_const_value) = header_constant_value.or(first_chunk_value) {
+            if previous_const_value != trailer[0] {
+                return Ok(false);
             }
-            (unpatched_idx as usize, patch_idx as usize)
-        });
-        return Ok(
-            scalar_at(patches.values(), patched_idx)? == unpack_single(array, unpatched_idx)?
-        );
+        }
     }
 
     Ok(true)
+}
+
+fn apply_patches<T: BitPacked>(
+    values: &mut [T],
+    values_range: Range<usize>,
+    patch_indices: &PrimitiveArray,
+    patch_values: &[T],
+    indices_offset: usize,
+) {
+    match_each_unsigned_integer_ptype!(patch_indices.ptype(), |$I| {
+        apply_patches_idx_typed(values, values_range, patch_indices.as_slice::<$I>(), patch_values, indices_offset)
+    });
+}
+
+fn apply_patches_idx_typed<T: BitPacked, I: NativePType + AsPrimitive<usize>>(
+    values: &mut [T],
+    values_range: Range<usize>,
+    patch_indices: &[I],
+    patch_values: &[T],
+    indices_offset: usize,
+) {
+    for (i, &v) in patch_indices
+        .iter()
+        .map(|i| i.as_() - indices_offset)
+        .zip_eq(patch_values)
+        .skip_while(|(i, _)| i < &values_range.start)
+        .take_while(|(i, _)| i < &values_range.end)
+    {
+        values[i] = v
+    }
 }

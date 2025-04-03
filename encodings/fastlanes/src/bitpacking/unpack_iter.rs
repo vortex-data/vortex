@@ -55,7 +55,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         128 * self.bit_width / size_of::<T>()
     }
 
-    pub fn header(&mut self) -> Option<&[T]> {
+    pub fn header(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
@@ -71,7 +71,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
-                mem::transmute(&self.buffer[self.offset..][..header_end_slice])
+                mem::transmute(&mut self.buffer[self.offset..][..header_end_slice])
             }
         })
     }
@@ -122,7 +122,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         out_idx
     }
 
-    pub fn trailer(&mut self) -> Option<&[T]> {
+    pub fn trailer(&mut self) -> Option<&mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
@@ -133,7 +133,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
                 BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
-                mem::transmute(&self.buffer[..self.last_chunk_length])
+                mem::transmute(&mut self.buffer[..self.last_chunk_length])
             }
         })
     }
@@ -177,7 +177,7 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
 }
 
 impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
-    type Item = &'a [T; CHUNK_SIZE];
+    type Item = &'a mut [T; CHUNK_SIZE];
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx >= self.num_chunks {
@@ -194,7 +194,7 @@ impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
         }
         self.idx += 1;
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
-        unsafe { mem::transmute(Some(&self.buffer)) }
+        unsafe { mem::transmute(Some(&mut self.buffer)) }
     }
 }
 

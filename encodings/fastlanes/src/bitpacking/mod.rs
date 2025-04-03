@@ -168,7 +168,7 @@ impl BitPackedArray {
     }
 
     /// Accessor for bit unpacked chunks
-    pub fn unpacked_chunks<T: BitPacked>(&self) -> BitUnpackedChunks<T> {
+    pub fn bitpacked_chunks<T: BitPacked>(&self) -> BitUnpackedChunks<T> {
         assert_eq!(
             T::PTYPE,
             self.ptype(),

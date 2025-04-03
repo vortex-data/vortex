@@ -264,7 +264,7 @@ pub(crate) fn unpack_into<T: BitPacked>(
     builder.append_mask(array.validity_mask()?);
 
     let mut uninit = builder.uninit_range(array.len());
-    let mut bit_packed_iter = array.unpacked_chunks();
+    let mut bit_packed_iter = array.bitpacked_chunks();
 
     if let Some(header) = bit_packed_iter.header() {
         uninit.copy_from_init(0, header.len(), header);
@@ -294,7 +294,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
     let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-        insert_values_and_validity_at_indices::<T, _>(
+        insert_values_and_validity_at_indices(
             dst,
             indices.as_slice::<$P>(),
             values,
@@ -317,9 +317,8 @@ fn insert_values_and_validity_at_indices<
 ) {
     match values_validity {
         Mask::AllTrue(_) => {
-            for (compressed_index, decompressed_index) in indices.iter().enumerate() {
-                dst[decompressed_index.as_() - indices_offset] =
-                    MaybeUninit::new(values[compressed_index]);
+            for (index, &value) in indices.iter().zip_eq(values) {
+                dst[index.as_() - indices_offset] = MaybeUninit::new(value);
             }
         }
         Mask::AllFalse(_) => {
@@ -328,9 +327,9 @@ fn insert_values_and_validity_at_indices<
             }
         }
         Mask::Values(vb) => {
-            for (compressed_index, decompressed_index) in indices.iter().enumerate() {
-                let out_index = decompressed_index.as_() - indices_offset;
-                dst[out_index] = MaybeUninit::new(values[compressed_index]);
+            for (index, &value) in indices.iter().zip_eq(values) {
+                let out_index = index.as_() - indices_offset;
+                dst[out_index] = MaybeUninit::new(value);
                 dst.set_bit(out_index, vb.value(out_index));
             }
         }
