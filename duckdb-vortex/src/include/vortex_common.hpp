@@ -1,9 +1,6 @@
 
 #include "vortex.h"
 
-using duckdb::make_uniq;
-using duckdb::unique_ptr;
-
 struct VortexConversionCache {
 	explicit VortexConversionCache(const unsigned long cache_id) : cache(ConversionCache_create(cache_id)) {
 	}
@@ -23,8 +20,8 @@ struct VortexFile {
 		File_free(file);
 	}
 
-	static unique_ptr<VortexFile> Open(const FileOpenOptions *options) {
-		return make_uniq<VortexFile>(File_open(options));
+	static duckdb::unique_ptr<VortexFile> Open(const FileOpenOptions *options) {
+		return duckdb::make_uniq<VortexFile>(File_open(options));
 	}
 
 	File *file;
@@ -53,8 +50,8 @@ struct VortexArrayStream {
 		FFIArrayStream_free(array_stream);
 	}
 
-	unique_ptr<VortexArray> CurrentArray() const {
-		return make_uniq<VortexArray>(FFIArrayStream_current(array_stream));
+	duckdb::unique_ptr<VortexArray> CurrentArray() const {
+		return duckdb::make_uniq<VortexArray>(FFIArrayStream_current(array_stream));
 	}
 
 	bool NextArray() const {
