@@ -152,7 +152,9 @@ pub unsafe extern "C" fn File_scan(
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
-    let stream = stream.build().vortex_expect("into_array_stream");
+    let stream = stream
+        .into_array_stream()
+        .vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {
         stream: Box::pin(stream),
