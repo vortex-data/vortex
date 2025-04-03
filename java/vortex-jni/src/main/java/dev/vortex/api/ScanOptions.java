@@ -34,6 +34,12 @@ public interface ScanOptions {
      */
     Optional<Expression> predicate();
 
+    /**
+     * Optional row indices to select specific rows.
+     * These must be sorted in ascending order.
+     */
+    Optional<long[]> rowIndices();
+
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }
