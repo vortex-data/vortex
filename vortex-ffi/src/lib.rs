@@ -10,7 +10,20 @@ mod file;
 mod log;
 mod stream;
 
+use std::cell::LazyCell;
 use std::ffi::{CStr, c_char, c_int};
+
+use tokio::runtime::{Builder, Runtime};
+use vortex::error::VortexExpect;
+
+thread_local! {
+    static RUNTIME: LazyCell<Runtime> = LazyCell::new(|| {
+        Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .vortex_expect("building runtime")
+    });
+}
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);

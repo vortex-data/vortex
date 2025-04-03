@@ -25,7 +25,8 @@ paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["object_store", "proto"] }
+tokio = { workspace = true }
+vortex = { workspace = true, features = ["object_store", "proto", "tokio"] }
 vortex-duckdb = { workspace = true, optional = true }
 
 [features]
