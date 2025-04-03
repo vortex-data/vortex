@@ -87,6 +87,11 @@ jobs:
           uv run make html
         working-directory: docs/
 
+      - name: Rust Version
+        id: rust-version
+        shell: bash
+        run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
