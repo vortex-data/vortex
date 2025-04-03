@@ -55,12 +55,13 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
             let offset_i = $I::try_from(patches.offset()).vortex_expect("can't convert offset to $I");
             let mut unpatched_idx = 0;
             let mut patch_idx = indices[0] - offset_i;
-            for idx in &indices[1..] {
+            for idx in indices {
                 let ridx = *idx - offset_i;
                 if ridx == unpatched_idx {
                     unpatched_idx += 1;
                 } else {
                     patch_idx = ridx;
+                    break;
                 }
             }
             (unpatched_idx as usize, patch_idx as usize)
