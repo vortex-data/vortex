@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JObject, JString};
@@ -8,7 +9,7 @@ use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
@@ -199,9 +200,15 @@ fn make_object_store(
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
+            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
+            //  to avoid that.
+            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
+            let mut builder = MicrosoftAzureBuilder::new()
+                .with_url(url.to_string())
+                .with_client_options(client_opts);
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Azure config key: {}", key);
