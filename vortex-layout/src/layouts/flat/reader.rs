@@ -1,29 +1,30 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use async_once_cell::OnceCell;
+use futures::FutureExt;
+use futures::future::{BoxFuture, Shared};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReaderExt, LayoutVTable, instrument};
+use crate::segments::SegmentSource;
+use crate::{Layout, LayoutVTable};
+
+pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 pub struct FlatReader {
-    layout: Layout,
-    ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
-    // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
-    //  cache.
-    array: Arc<OnceCell<ArrayRef>>,
+    pub(crate) layout: Layout,
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
+    pub(crate) ctx: ArrayContext,
+    pub(crate) array: OnceLock<SharedArray>,
 }
 
 impl FlatReader {
     pub(crate) fn try_new(
         layout: Layout,
+        segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -31,51 +32,55 @@ impl FlatReader {
 
         Ok(Self {
             layout,
+            segment_source,
             ctx,
-            segment_reader,
-            array: Arc::new(Default::default()),
+            array: Default::default(),
         })
     }
 
-    pub(crate) fn ctx(&self) -> &ArrayContext {
-        &self.ctx
-    }
+    /// Returns a cached future that resolves this array.
+    ///
+    /// This method is idempotent, and returns a cached future on subsequent calls, all of which
+    /// will use the original segment reader.
+    // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
+    //  instead want to store all segment futures and race them, so if a layout requests a
+    //  projection future before a pruning future, the pruning isn't blocked.
+    pub(crate) fn array_future(&self) -> VortexResult<SharedArray> {
+        let segment_id = self
+            .layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+        let row_count = usize::try_from(self.layout.row_count())?;
 
-    pub(crate) async fn array(&self) -> VortexResult<&ArrayRef> {
-        self.array
-            .get_or_try_init(instrument!(
-                "flat_read",
-                { name = self.layout().name() },
+        // We create the segment_fut here to ensure we give the segment reader visibility into
+        // how to prioritize this segment, even if the `array` future has already been initialized.
+        // This is gross... see the function's TODO for a maybe better solution?
+        let segment_fut = self.segment_source.request(segment_id, self.layout.name());
+
+        Ok(self
+            .array
+            .get_or_init(|| {
+                let ctx = self.ctx.clone();
+                let dtype = self.layout.dtype().clone();
                 async move {
-                    let segment_id = self
-                        .layout()
-                        .segment_id(0)
-                        .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
-
-                    log::debug!(
-                        "Requesting segment {} for flat layout {} expr",
-                        segment_id,
-                        self.layout().name(),
-                    );
-
-                    // Fetch all the array segment.
-                    let buffer = self.segment_reader.get(segment_id).await?;
-                    let row_count = usize::try_from(self.layout().row_count())
-                        .vortex_expect("FlatLayout row count does not fit within usize");
-
-                    ArrayParts::try_from(buffer)?.decode(
-                        self.ctx(),
-                        self.dtype().clone(),
-                        row_count,
-                    )
+                    let segment = segment_fut.await?;
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, dtype.clone(), row_count)
+                        .map_err(Arc::new)
                 }
-            ))
-            .await
+                .boxed()
+                .shared()
+            })
+            .clone())
     }
 }
 
 impl LayoutReader for FlatReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        Ok(vec![])
     }
 }

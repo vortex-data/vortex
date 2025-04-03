@@ -26,6 +26,7 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
@@ -95,4 +96,8 @@ harness = false
 
 [[bench]]
 name = "chunk_array_builder"
+harness = false
+
+[[bench]]
+name = "is_constant"
 harness = false

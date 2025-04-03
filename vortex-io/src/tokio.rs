@@ -38,6 +38,10 @@ impl<W: AsyncWrite + Unpin> VortexWrite for TokioAdapter<W> {
 pub struct TokioFile(Arc<File>);
 
 impl TokioFile {
+    pub fn new(file: File) -> Self {
+        Self(Arc::new(file))
+    }
+
     /// Open a file on the current file system.
     ///
     /// The `TokioFile` takes ownership of the file descriptor, and can be cloned

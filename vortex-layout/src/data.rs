@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 use crate::LayoutId;
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
-use crate::segments::{AsyncSegmentReader, SegmentCollector, SegmentId};
+use crate::segments::{SegmentId, SegmentSource};
 use crate::vtable::LayoutVTableRef;
 
 /// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
@@ -102,10 +102,10 @@ impl Layout {
     }
 
     /// Returns the human-readable name of the layout.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &Arc<str> {
         match &self.0 {
-            Inner::Owned(owned) => owned.name.as_ref(),
-            Inner::Viewed(viewed) => viewed.name.as_ref(),
+            Inner::Owned(owned) => &owned.name,
+            Inner::Viewed(viewed) => &viewed.name,
         }
     }
 
@@ -258,10 +258,10 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
-        ctx: ArrayContext,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        self.vtable().reader(self.clone(), ctx, segment_reader)
+        self.vtable().reader(self.clone(), segment_source, ctx)
     }
 
     /// Register splits for this layout.
@@ -273,23 +273,6 @@ impl Layout {
     ) -> VortexResult<()> {
         self.vtable()
             .register_splits(self, field_mask, row_offset, splits)
-    }
-
-    /// Registers matching segments to the given filter and projection field mask.
-    pub fn required_segments(
-        &self,
-        row_offset: u64,
-        filter_field_mask: &[FieldMask],
-        projection_field_mask: &[FieldMask],
-        segments: &mut SegmentCollector,
-    ) -> VortexResult<()> {
-        self.vtable().required_segments(
-            self,
-            row_offset,
-            filter_field_mask,
-            projection_field_mask,
-            segments,
-        )
     }
 
     /// Serialize the layout into a [`FlatBufferBuilder`].

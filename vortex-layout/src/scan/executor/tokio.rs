@@ -1,12 +1,10 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
 use tokio::runtime::Handle;
-use tokio::sync::oneshot;
-use tokio::task::JoinSet;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::VortexExpect;
 
 use super::Executor;
 
@@ -18,17 +16,11 @@ pub struct TokioExecutor {
 
 struct Inner {
     handle: Handle,
-    // We use a joinset here so when the executor is dropped, it'll abort all running tasks
-    join_set: Mutex<JoinSet<()>>,
 }
 
 impl TokioExecutor {
     pub fn new(handle: Handle) -> Self {
-        let inner = Inner {
-            handle,
-            join_set: Mutex::new(JoinSet::new()),
-        };
-
+        let inner = Inner { handle };
         Self {
             inner: Arc::new(inner),
         }
@@ -37,24 +29,12 @@ impl TokioExecutor {
 
 #[async_trait::async_trait]
 impl Executor for TokioExecutor {
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,
     {
-        let (tx, rx) = oneshot::channel();
-        let f = async move {
-            let r = f.await;
-            _ = tx.send(r);
-        };
-
-        self.inner
-            .join_set
-            .lock()
-            .vortex_expect("poisoned lock")
-            .spawn_on(f, &self.inner.handle);
-
-        rx.map_err(|e| vortex_err!("Task sender dropped: {e}"))
-            .boxed()
+        let handle = self.inner.handle.clone();
+        async move { handle.spawn(f).await.vortex_expect("Failed to join task") }.boxed()
     }
 }

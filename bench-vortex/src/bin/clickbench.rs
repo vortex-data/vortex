@@ -66,6 +66,8 @@ fn main() -> anyhow::Result<()> {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
@@ -77,7 +79,8 @@ fn main() -> anyhow::Result<()> {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_level(true)
-            .with_line_number(true);
+            .with_line_number(true)
+            .with_ansi(std::io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)

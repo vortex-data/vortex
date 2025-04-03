@@ -116,10 +116,11 @@ mod tests {
     use vortex_array::{Array, ArrayContext};
     use vortex_buffer::buffer;
     use vortex_expr::ident;
+    use vortex_mask::Mask;
 
-    use crate::RowMask;
+    use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
@@ -135,11 +136,14 @@ mod tests {
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
                     .push_one(&mut segments, array.into_array())
                     .unwrap();
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .reader(Arc::new(segments), ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
+                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

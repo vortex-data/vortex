@@ -1,6 +1,7 @@
 use bytes::BytesDictBuilder;
 use primitive::PrimitiveDictBuilder;
 use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_dtype::match_each_native_ptype;
@@ -29,7 +30,8 @@ pub fn dict_encode_max_sized(array: &dyn Array, max_dict_bytes: usize) -> Vortex
     } else {
         vortex_bail!("Can only encode primitive or varbin/view arrays")
     };
-    let codes = dict_builder.encode(array)?;
+    let codes = downscale_integer_array(dict_builder.encode(array)?)?;
+
     DictArray::try_new(codes, dict_builder.values()?)
 }
 

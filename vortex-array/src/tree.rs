@@ -42,7 +42,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             name,
             array,
             format_size(nbytes, DECIMAL),
-            100f64 * nbytes as f64 / total_size as f64
+            100_f64 * nbytes as f64 / total_size as f64
         )?;
 
         self.indent(|i| {
@@ -53,9 +53,10 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             for buffer in array.buffers() {
                 writeln!(
                     i,
-                    "buffer (align={}): {}",
+                    "buffer (align={}): {} ({:.2}%)",
                     buffer.alignment(),
-                    format_size(buffer.len(), DECIMAL)
+                    format_size(buffer.len(), DECIMAL),
+                    100_f64 * buffer.len() as f64 / nbytes as f64
                 )?;
             }
 
@@ -67,7 +68,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             // Clear the total size so each chunk is treated as a new root.
             self.total_size = None
         } else {
-            self.total_size = Some(total_size);
+            self.total_size = Some(nbytes);
         }
 
         self.indent(|i| {

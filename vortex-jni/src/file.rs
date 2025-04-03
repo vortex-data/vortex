@@ -1,5 +1,6 @@
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JObject, JString};
@@ -8,15 +9,14 @@ use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
-use vortex::io::ObjectStoreReadAt;
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
 
@@ -25,11 +25,11 @@ use crate::block_on;
 use crate::errors::try_or_throw;
 
 pub struct NativeFile {
-    inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
+    inner: VortexFile,
 }
 
 impl NativeFile {
-    pub fn new(file: VortexFile<GenericVortexFile<ObjectStoreReadAt>>) -> Box<Self> {
+    pub fn new(file: VortexFile) -> Box<Self> {
         Box::new(NativeFile { inner: file })
     }
 
@@ -73,19 +73,21 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             let opts = env.get_map(&options)?;
             let mut iterator = opts.iter(env)?;
             while let Some((key, val)) = iterator.next(env)? {
-                let key_str: JString = key.into();
-                let val_str: JString = val.into();
-                let key_str = env.get_string(&key_str)?;
-                let val_str = env.get_string(&val_str)?;
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
                 properties.insert(key_str.into(), val_str.into());
             }
         }
 
-        let (store, scheme) = make_object_store(&url, &properties)?;
-        let reader = ObjectStoreReadAt::new(store.clone(), url.path().into(), Some(scheme));
+        let start = std::time::Instant::now();
+        let (store, _scheme) = make_object_store(&url, &properties)?;
+        let duration = std::time::Instant::now().duration_since(start);
+        log::debug!("make_object_store latency = {duration:?}");
         let open_file = block_on(
             "VortexOpenOptions.open()",
-            VortexOpenOptions::file(reader).open(),
+            VortexOpenOptions::file().open_object_store(&store, url.path()),
         )?;
 
         Ok(NativeFile::new(open_file).into_raw())
@@ -121,7 +123,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
-    let mut scan_builder = file.inner.scan();
+    let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
 
     try_or_throw(&mut env, |env| {
         // Apply the projection if provided
@@ -132,7 +134,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
                 let mut projection: Vec<Arc<str>> = Vec::new();
                 let mut iterator = proj.iter(env)?;
                 while let Some(field) = iterator.next(env)? {
-                    let field_name: String = env.get_string(&JString::from(field))?.into();
+                    let field = env.auto_local(field);
+
+                    let field_name: String = env.get_string(field.as_ref().into())?.into();
                     projection.push(field_name.into());
                 }
                 let project_expr = select(projection, Identity::new_expr());
@@ -151,7 +155,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 
         // Canonicalize first, to avoid needing to pay decoding cost for every access.
         let scan = scan_builder.with_canonicalize(true).build()?;
-        Ok(NativeArrayStream::new(scan.into_array_stream()?.boxed()).into_raw())
+        Ok(NativeArrayStream::new(scan.boxed()).into_raw())
     })
 }
 
@@ -159,14 +163,26 @@ fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
 ) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
+    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
+    let cache_key = url_cache_key(url);
+
+    {
+        if let Some(cached) = OBJECT_STORES.lock().vortex_expect("poison").get(&cache_key) {
+            return Ok((cached.clone(), scheme));
+        }
+        // guard dropped at close of scope
+    }
+
     // Configure extra properties on that scheme instead.
-    match scheme {
+    let store: Arc<dyn ObjectStore> = match scheme {
         ObjectStoreScheme::Local => {
             log::trace!("using LocalFileSystem object store");
-            Ok((Arc::new(LocalFileSystem::default()), scheme))
+            Arc::new(LocalFileSystem::default())
         }
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
@@ -179,23 +195,27 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
+            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
+            //  to avoid that.
+            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
+            let mut builder = MicrosoftAzureBuilder::new()
+                .with_url(url.to_string())
+                .with_client_options(client_opts);
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Azure config key: {}", key);
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::GoogleCloudStorage => {
             log::trace!("using GoogleCloudStorage object store");
@@ -209,11 +229,28 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         store => {
             vortex_bail!("Unsupported store scheme: {store:?}");
         }
+    };
+
+    {
+        OBJECT_STORES
+            .lock()
+            .vortex_expect("poison")
+            .insert(cache_key, store.clone());
+        // Guard dropped at close of scope.
     }
+
+    Ok((store, scheme))
+}
+
+fn url_cache_key(url: &Url) -> String {
+    format!(
+        "{}://{}",
+        url.scheme(),
+        &url[url::Position::BeforeHost..url::Position::AfterPort],
+    )
 }

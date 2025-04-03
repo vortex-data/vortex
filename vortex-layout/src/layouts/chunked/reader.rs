@@ -2,19 +2,20 @@ use std::iter;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
+use itertools::Itertools;
 use vortex_array::ArrayContext;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::segments::SegmentSource;
 use crate::{Layout, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
@@ -25,8 +26,8 @@ pub struct ChunkedReader {
 impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
+        segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -53,8 +54,8 @@ impl ChunkedReader {
 
         Ok(Self {
             layout,
+            segment_source,
             ctx,
-            segment_reader,
             chunk_readers,
             chunk_offsets,
         })
@@ -66,7 +67,7 @@ impl ChunkedReader {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
-            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
+            child_layout.reader(&self.segment_source, &self.ctx)
         })
     }
 
@@ -74,7 +75,7 @@ impl ChunkedReader {
         self.chunk_offsets[idx]
     }
 
-    pub(crate) fn chunk_range(&self, row_range: Range<u64>) -> Range<usize> {
+    pub(crate) fn chunk_range(&self, row_range: &Range<u64>) -> Range<usize> {
         let start_chunk = self
             .chunk_offsets
             .binary_search(&row_range.start)
@@ -85,10 +86,47 @@ impl ChunkedReader {
             .unwrap_or_else(|x| x);
         start_chunk..end_chunk
     }
+
+    pub(crate) fn ranges<'a>(
+        &'a self,
+        row_range: &'a Range<u64>,
+    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
+        self.chunk_range(row_range).map(move |chunk_idx| {
+            // Figure out the chunk row range relative to the mask's row range.
+            let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+
+            // Find the intersection of the mask and the chunk row ranges.
+            let intersecting_row_range =
+                row_range.start.max(chunk_row_range.start)..row_range.end.min(chunk_row_range.end);
+            let intersecting_len =
+                usize::try_from(intersecting_row_range.end - intersecting_row_range.start)
+                    .vortex_expect("Invalid row range");
+
+            // Figure out the offset into the mask.
+            let mask_relative_start =
+                usize::try_from(intersecting_row_range.start - row_range.start)
+                    .vortex_expect("Invalid row range");
+            let mask_relative_end = mask_relative_start + intersecting_len;
+            let mask_range = mask_relative_start..mask_relative_end;
+
+            // Figure out the row range within the chunk.
+            let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
+            let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
+            let chunk_range = chunk_relative_start..chunk_relative_end;
+
+            (chunk_idx, chunk_range, mask_range)
+        })
+    }
 }
 
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        (0..self.layout.nchildren())
+            .map(|idx| self.child(idx).cloned())
+            .try_collect()
     }
 }

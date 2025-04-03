@@ -12,7 +12,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{AsyncSegmentReader, RequiredSegmentKind, SegmentCollector};
+use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
@@ -27,10 +27,10 @@ impl LayoutVTable for StructLayout {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(StructReader::try_new(layout, ctx, segment_reader)?.into_arc())
+        Ok(StructReader::try_new(layout, segment_source.clone(), ctx.clone())?.into_arc())
     }
 
     fn register_splits(
@@ -42,33 +42,6 @@ impl LayoutVTable for StructLayout {
     ) -> VortexResult<()> {
         for_all_matching_children(layout, field_mask, |mask, child| {
             child.register_splits(&[mask], row_offset, splits)
-        })?;
-        Ok(())
-    }
-
-    fn required_segments(
-        &self,
-        layout: &Layout,
-        row_offset: u64,
-        filter_field_mask: &[FieldMask],
-        projection_field_mask: &[FieldMask],
-        segments: &mut SegmentCollector,
-    ) -> VortexResult<()> {
-        for_all_matching_children(layout, filter_field_mask, |field_mask, child| {
-            child.required_segments(
-                row_offset,
-                &[field_mask],
-                &[],
-                &mut segments.with_priority_hint(RequiredSegmentKind::Filter),
-            )
-        })?;
-        for_all_matching_children(layout, projection_field_mask, |field_mask, child| {
-            child.required_segments(
-                row_offset,
-                &[],
-                &[field_mask],
-                &mut segments.with_priority_hint(RequiredSegmentKind::Projection),
-            )
         })?;
         Ok(())
     }

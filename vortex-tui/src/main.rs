@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used)]
 mod browse;
 mod convert;
+mod segments;
 mod tree;
 
 use std::path::PathBuf;
@@ -25,7 +26,9 @@ struct Cli {
 #[derive(Debug, clap::Subcommand)]
 enum Commands {
     /// Print the encoding tree of a Vortex file.
-    Tree { file: PathBuf },
+    Tree {
+        file: PathBuf,
+    },
     /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
     Convert {
         /// Path to the Parquet file on disk to convert to Vortex
@@ -36,7 +39,12 @@ enum Commands {
         quiet: bool,
     },
     /// Interactively browse the Vortex file.
-    Browse { file: PathBuf },
+    Browse {
+        file: PathBuf,
+    },
+    Segments {
+        file: PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -47,6 +55,7 @@ fn main() -> anyhow::Result<()> {
             TOKIO_RUNTIME.block_on(exec_convert(file, Flags { quiet }))?
         }
         Commands::Browse { file } => exec_tui(file)?,
+        Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,
     };
 
     Ok(())

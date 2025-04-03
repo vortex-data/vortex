@@ -35,11 +35,12 @@ pub fn taxi_data_parquet() -> PathBuf {
 
 pub async fn fetch_taxi_data() -> ArrayRef {
     let vortex_data = taxi_data_vortex().await;
-    VortexOpenOptions::file(TokioFile::open(vortex_data).unwrap())
-        .open()
+    VortexOpenOptions::file()
+        .open(TokioFile::open(vortex_data).unwrap())
         .await
         .unwrap()
         .scan()
+        .unwrap()
         .read_all()
         .await
         .unwrap()

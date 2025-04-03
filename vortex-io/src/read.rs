@@ -32,7 +32,7 @@ pub trait VortexReadAt: Clone + 'static {
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
     fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::default()
+        PerformanceHint::local()
     }
 
     /// Asynchronously get the number of bytes of data readable.
@@ -42,18 +42,10 @@ pub trait VortexReadAt: Clone + 'static {
     fn size(&self) -> impl Future<Output = io::Result<u64>>;
 }
 
+#[derive(Debug, Clone)]
 pub struct PerformanceHint {
     coalescing_window: u64,
     max_read: Option<u64>,
-}
-
-impl Default for PerformanceHint {
-    fn default() -> Self {
-        Self {
-            coalescing_window: 2 << 20, //1MB,
-            max_read: None,
-        }
-    }
 }
 
 impl PerformanceHint {
@@ -66,13 +58,14 @@ impl PerformanceHint {
 
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
-        Self::new(0, None)
+        // Coalesce ~8K page size, also ensures we span padding for adjacent segments.
+        Self::new(8192, Some(8192))
     }
 
     pub fn object_storage() -> Self {
         Self::new(
-            2 << 20,        //1MB,
-            Some(16 << 20), //16MB,
+            1 << 20,       // 1MB,
+            Some(8 << 20), // 8MB,
         )
     }
 

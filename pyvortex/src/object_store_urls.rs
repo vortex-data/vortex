@@ -9,30 +9,29 @@ use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use url::Url;
 use vortex::error::{VortexResult, vortex_bail};
-use vortex::io::ObjectStoreReadAt;
 
-fn better_parse_url(
+pub(crate) fn object_store_from_url(
     url_str: &str,
-) -> VortexResult<(ObjectStoreScheme, Box<dyn ObjectStore>, Path)> {
+) -> VortexResult<(ObjectStoreScheme, Arc<dyn ObjectStore>, Path)> {
     let url = Url::parse(url_str)?;
 
     let (scheme, path) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
-    let store: Box<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => Box::new(LocalFileSystem::default()),
+    let store: Arc<dyn ObjectStore> = match scheme {
+        ObjectStoreScheme::Local => Arc::new(LocalFileSystem::default()),
         ObjectStoreScheme::AmazonS3 => {
-            Box::new(AmazonS3Builder::from_env().with_url(url_str).build()?)
+            Arc::new(AmazonS3Builder::from_env().with_url(url_str).build()?)
         }
-        ObjectStoreScheme::GoogleCloudStorage => Box::new(
+        ObjectStoreScheme::GoogleCloudStorage => Arc::new(
             GoogleCloudStorageBuilder::from_env()
                 .with_url(url_str)
                 .build()?,
         ),
-        ObjectStoreScheme::MicrosoftAzure => Box::new(
+        ObjectStoreScheme::MicrosoftAzure => Arc::new(
             MicrosoftAzureBuilder::from_env()
                 .with_url(url_str)
                 .build()?,
         ),
-        ObjectStoreScheme::Http => Box::new(
+        ObjectStoreScheme::Http => Arc::new(
             HttpBuilder::new()
                 .with_url(&url[..url::Position::BeforePath])
                 .build()?,
@@ -41,13 +40,4 @@ fn better_parse_url(
     };
 
     Ok((scheme, store, path))
-}
-
-pub async fn vortex_read_at_from_url(url: &str) -> VortexResult<ObjectStoreReadAt> {
-    let (scheme, object_store, location) = better_parse_url(url)?;
-    Ok(ObjectStoreReadAt::new(
-        Arc::from(object_store),
-        location,
-        Some(scheme),
-    ))
 }

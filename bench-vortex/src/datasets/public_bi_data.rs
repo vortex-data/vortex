@@ -554,10 +554,10 @@ impl BenchmarkDataset for PBIDataset {
 
         let arrays = stream::iter(self.list_files(FileType::Vortex))
             .map(|f| async move {
-                VortexOpenOptions::file(TokioFile::open(f)?)
-                    .open()
+                VortexOpenOptions::file()
+                    .open(TokioFile::open(f)?)
                     .await?
-                    .scan()
+                    .scan()?
                     .read_all()
                     .await
             })
@@ -649,7 +649,7 @@ fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResult<(
     Command::new("duckdb")
         .arg("-c")
         .arg(format!(
-            "COPY (SELECT * FROM read_csv('{}', delim = '|', header = false, nullstr = 'null')) TO '{}' (COMPRESSION ZSTD);",
+            "COPY (SELECT * FROM read_csv('{}', delim = '|', header = false, nullstr = 'null')) TO '{}' (FORMAT parquet, COMPRESSION zstd);",
             csv_path.to_str().unwrap(),
             output_path.to_str().unwrap()
         ))

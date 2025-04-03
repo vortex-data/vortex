@@ -1,14 +1,13 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
-use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
 use vortex::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::{PyArray, PyArrayRef};
-use crate::dataset::ObjectStoreUrlDataset;
+use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::{PyVortex, TOKIO_RUNTIME, install_module};
@@ -66,12 +65,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None))]
 pub fn read_url<'py>(
-    url: Bound<'py, PyString>,
+    url: &str,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
 ) -> PyResult<PyArrayRef> {
-    let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
+    let dataset = TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?;
     dataset.to_array(projection, row_filter, indices)
 }
 

@@ -3,18 +3,18 @@ mod tokio;
 
 mod threads;
 
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 
 use futures::future::BoxFuture;
 pub use threads::*;
 #[cfg(feature = "tokio")]
 pub use tokio::*;
-use vortex_error::VortexResult;
 
 pub trait Executor {
     /// Spawns a future to run on a different runtime.
     /// The runtime will make progress on the future without being directly polled, returning its output.
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static;
@@ -28,9 +28,24 @@ pub enum TaskExecutor {
     Tokio(TokioExecutor),
 }
 
+impl Debug for TaskExecutor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskExecutor")
+            .field(
+                "variant",
+                &match self {
+                    TaskExecutor::Threads(_) => "Threads",
+                    #[cfg(feature = "tokio")]
+                    TaskExecutor::Tokio(_) => "Tokio",
+                },
+            )
+            .finish()
+    }
+}
+
 #[async_trait::async_trait]
 impl Executor for TaskExecutor {
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,

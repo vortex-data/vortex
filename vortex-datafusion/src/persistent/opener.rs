@@ -4,24 +4,22 @@ use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::executor::{TaskExecutor, TokioExecutor};
-use vortex_file::{SplitBy, VortexOpenOptions};
-use vortex_io::{InstrumentedReadAt, ObjectStoreReadAt};
+use vortex_layout::scan::SplitBy;
+use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
-use super::cache::FooterCache;
+use super::cache::VortexFileCache;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
-    pub scheme: ObjectStoreScheme,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
-    pub(crate) footer_cache: FooterCache,
+    pub(crate) file_cache: VortexFileCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
@@ -30,21 +28,19 @@ pub(crate) struct VortexFileOpener {
 impl VortexFileOpener {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        scheme: ObjectStoreScheme,
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
         filter: Option<Arc<dyn VortexExpr>>,
-        footer_cache: FooterCache,
+        file_cache: VortexFileCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
     ) -> Self {
         Self {
-            scheme,
             object_store,
             projection,
             filter,
-            footer_cache,
+            file_cache,
             projected_arrow_schema,
             batch_size,
             metrics,
@@ -54,49 +50,29 @@ impl VortexFileOpener {
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let file_metrics = self
-            .metrics
-            .child_with_tags([("filename", file_meta.location().to_string())]);
-        let read_at = InstrumentedReadAt::new(
-            ObjectStoreReadAt::new(
-                self.object_store.clone(),
-                file_meta.location().clone(),
-                Some(self.scheme.clone()),
-            ),
-            &file_metrics,
-        );
-
         let filter = self.filter.clone();
         let projection = self.projection.clone();
-        let footer_cache = self.footer_cache.clone();
+        let file_cache = self.file_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
+        let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
-        let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
-            let vxf = VortexOpenOptions::file(read_at)
-                .with_metrics(file_metrics)
-                .with_footer(
-                    footer_cache
-                        .try_get(&file_meta.object_meta, object_store)
-                        .await?,
-                )
-                .open()
-                .await?;
-
-            Ok(vxf
-                .scan()
+            Ok(file_cache
+                .try_get(&file_meta.object_meta, object_store)
+                .await?
+                .scan()?
+                .with_metrics(metrics)
+                .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_prefetch_conjuncts(true)
                 .with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .with_task_executor(executor)
-                .into_array_stream()?
+                .build()?
                 .map(move |array| {
                     let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)

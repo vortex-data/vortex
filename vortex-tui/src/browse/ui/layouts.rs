@@ -6,14 +6,15 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
-use vortex::ArrayRef;
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::expr::Identity;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
+use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex::{ArrayRef, ArrayVariants};
 use vortex_layout::layouts::stats::StatsLayout;
-use vortex_layout::{ExprEvaluator, LayoutReaderExt, LayoutVTable, RowMask};
+use vortex_layout::{ExprEvaluator, LayoutVTable};
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -100,14 +101,18 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .reader(app.reader.clone(), app.footer.ctx().clone())
+        .reader(&app.vxf.segment_source(), app.vxf.footer().ctx())
         .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME
-        .block_on(reader.evaluate_expr(
-            RowMask::new_valid_between(0, reader.row_count()),
-            Identity::new_expr(),
-        ))
+        .block_on(
+            reader
+                .projection_evaluation(&(0..reader.row_count()), &Identity::new_expr())
+                .vortex_expect("Failed to construct projection")
+                .invoke(Mask::new_true(
+                    reader.row_count().try_into().vortex_expect("row count"),
+                )),
+        )
         .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)

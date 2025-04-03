@@ -28,11 +28,14 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<Rec
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex<T: VortexReadAt>(reader: T, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
-    VortexOpenOptions::file(reader)
-        .open()
+async fn take_vortex<T: VortexReadAt + Send>(
+    reader: T,
+    indices: Buffer<u64>,
+) -> VortexResult<ArrayRef> {
+    VortexOpenOptions::file()
+        .open(reader)
         .await?
-        .scan()
+        .scan()?
         .with_row_indices(indices)
         .read_all()
         .await?

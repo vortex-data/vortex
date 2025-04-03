@@ -3,10 +3,10 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use futures::FutureExt as _;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use futures::{FutureExt as _, TryFutureExt as _};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 
 use super::Executor;
 
@@ -89,7 +89,7 @@ impl Inner {
 }
 
 impl Executor for ThreadsExecutor {
-    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, F::Output>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,
@@ -105,7 +105,12 @@ impl Executor for ThreadsExecutor {
             .map_err(|e| vortex_err!("Failed to submit work to executor: {e}"))
             .vortex_unwrap();
 
-        rx.map_err(|e| vortex_err!("Future canceled: {e}")).boxed()
+        async move {
+            rx.await
+                .map_err(|e| vortex_err!("Threads executor died: {e}"))
+                .vortex_expect("Threads executor died")
+        }
+        .boxed()
     }
 }
 

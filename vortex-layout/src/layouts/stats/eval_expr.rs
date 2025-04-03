@@ -1,68 +1,131 @@
-use std::ops::{BitAnd, Sub};
+use std::ops::{BitAnd, Range, Sub};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use vortex_array::ArrayRef;
-use vortex_error::VortexResult;
+use itertools::Itertools;
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::layouts::stats::reader::StatsReader;
-use crate::{ExprEvaluator, RowMask};
+use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
+use crate::{
+    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+};
 
-#[async_trait]
 impl ExprEvaluator for StatsReader {
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayRef> {
-        self.child().evaluate_expr(row_mask, expr).await
-    }
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        log::debug!(
+            "Stats pruning evaluation: {} - {}",
+            self.layout().name(),
+            expr
+        );
+        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
-    async fn refine_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
-        // Compute the pruning mask
-        let Some(pruning_mask) = self.pruning_mask(&expr).await? else {
-            // If there is no pruning mask, then we can't prune anything!
-            log::debug!(
-                "Cannot prune {} in chunked reader, returning mask {}",
-                expr,
-                row_mask.filter_mask().density()
-            );
-            return Ok(row_mask);
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
+            log::debug!("Stats pruning evaluation: not prune-able {}", expr);
+            return Ok(data_eval);
         };
 
+        let zone_range = self.zone_range(row_range);
+        let zone_lengths = zone_range
+            .clone()
+            .map(|zone_idx| {
+                // Figure out the range in the mask that corresponds to the zone
+                let start =
+                    usize::try_from(self.zone_offset(zone_idx).saturating_sub(row_range.start))?;
+                let end = usize::try_from(
+                    self.zone_offset(zone_idx + 1)
+                        .sub(row_range.start)
+                        .min(row_range.end - row_range.start),
+                )?;
+                Ok::<_, VortexError>(end - start)
+            })
+            .try_collect()?;
+
+        Ok(Box::new(StatsPruningEvaluation {
+            layout: self.layout().clone(),
+            expr: expr.clone(),
+            pruning_mask_future,
+            zone_range,
+            zone_lengths,
+            data_eval,
+        }))
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        self.data_child.filter_evaluation(row_range, expr)
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        // TODO(ngates): there are some projection expressions that we may also be able to
+        //  short-circuit with statistics.
+        self.data_child.projection_evaluation(row_range, expr)
+    }
+}
+
+struct StatsPruningEvaluation {
+    layout: Layout,
+    expr: ExprRef,
+    pruning_mask_future: SharedPruningResult,
+    // The range of zones that cover the evaluation's row range.
+    zone_range: Range<usize>,
+    // The lengths of each zone in the zone_range.
+    zone_lengths: Vec<usize>,
+    // The evaluation of the data child.
+    data_eval: Box<dyn PruningEvaluation>,
+}
+
+#[async_trait]
+impl PruningEvaluation for StatsPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
-            "Pruning mask for {} {}..{}: {:?}",
-            expr,
-            row_mask.begin(),
-            row_mask.end(),
-            pruning_mask
+            "Invoking stats pruning evaluation {}: {}",
+            self.layout.name(),
+            self.expr,
         );
+        let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
+            // If the expression is not prune-able, we just return the input mask.
+            return Ok(mask);
+        };
 
-        let mut builder = BooleanBufferBuilder::new(row_mask.len());
-
-        for block_idx in self.block_range(&row_mask) {
-            // Figure out the range in the mask that corresponds to the block
-            let start = usize::try_from(
-                self.block_offset(block_idx)
-                    .saturating_sub(row_mask.begin()),
-            )?;
-            let end = usize::try_from(
-                self.block_offset(block_idx + 1)
-                    .sub(row_mask.begin())
-                    .min(row_mask.len() as u64),
-            )?;
-            builder.append_n(end - start, !pruning_mask.value(block_idx));
+        let mut builder = BooleanBufferBuilder::new(mask.len());
+        for (zone_idx, zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
+            builder.append_n(*zone_length, !pruning_mask.value(zone_idx));
         }
 
-        let mask = Mask::from(builder.finish());
-        assert_eq!(mask.len(), row_mask.len(), "Mask length mismatch");
+        let stats_mask = Mask::from(builder.finish());
+        assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
-        // Apply the mask to the row mask
-        let mask = row_mask.filter_mask().bitand(&mask);
+        // Intersect the masks.
+        let mut stats_mask = mask.bitand(&stats_mask);
 
-        Ok(RowMask::new(mask, row_mask.begin()))
+        // Forward to data child for further pruning.
+        if !stats_mask.all_false() {
+            let data_mask = self.data_eval.invoke(stats_mask.clone()).await?;
+            stats_mask = stats_mask.bitand(&data_mask);
+        }
+
+        log::debug!(
+            "Stats evaluation approx {} - {} (mask = {}) => {}",
+            self.layout.name(),
+            self.expr,
+            mask.density(),
+            stats_mask.density(),
+        );
+
+        Ok(stats_mask)
     }
 }
 
@@ -78,18 +141,18 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::{Identity, gt, lit};
+    use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
-    use crate::segments::AsyncSegmentReader;
-    use crate::segments::test::TestSegments;
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, Layout, RowMask};
+    use crate::{ExprEvaluator, Layout};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn AsyncSegmentReader>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::try_new(
@@ -124,18 +187,17 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {
         block_on(async {
             let result = layout
-                .reader(segments, ctx)
+                .reader(&segments, &ctx)
                 .unwrap()
-                .evaluate_expr(
-                    RowMask::new_valid_between(0, layout.row_count()),
-                    Identity::new_expr(),
-                )
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive()
@@ -150,22 +212,23 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
-            Arc<dyn AsyncSegmentReader>,
+            Arc<dyn SegmentSource>,
             Layout,
         ),
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.reader(segments, ctx).unwrap();
+            let reader = layout.reader(&segments, &ctx).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .refine_mask(RowMask::new_valid_between(0, row_count), expr.clone())
+                .pruning_evaluation(&(0..row_count), &expr)
+                .unwrap()
+                .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await
                 .unwrap()
-                .filter_mask()
                 .to_boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>();

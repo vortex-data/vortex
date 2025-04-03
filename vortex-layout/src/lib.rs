@@ -1,6 +1,5 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
-
 mod data;
 pub use data::*;
 mod context;
@@ -9,21 +8,15 @@ pub mod layouts;
 
 pub use reader::*;
 pub use strategy::*;
+use vortex_array::arcref::ArcRef;
 pub use vtable::*;
 pub use writer::*;
-mod row_mask;
-pub use row_mask::*;
-use vortex_array::arcref::ArcRef;
-
-pub mod macros;
 mod reader;
 pub mod scan;
 pub mod segments;
-pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;
-pub mod writers;
 
 pub type LayoutId = ArcRef<str>;
 

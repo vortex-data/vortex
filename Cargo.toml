@@ -49,7 +49,7 @@ license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
 rust-version = "1.86"
-version = "0.25.2"
+version = "0.27.0"
 
 [workspace.dependencies]
 anyhow = "1.0.95"
@@ -89,14 +89,12 @@ duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
 ] }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
-exponential-decay-histogram = "=0.1.13"
 fastlanes = "0.1.8"
 flatbuffers = "25"
 flexbuffers = "25"
 flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
-futures-executor = "0.3.31"
 futures-util = "0.3.31"
 getrandom = "0.3"
 goldenfile = "1"
@@ -109,13 +107,13 @@ indicatif = "0.17.8"
 itertools = "0.14.0"
 jiff = "0.2.0"
 libfuzzer-sys = "0.4"
+linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 num-traits = "0.2.19"
 num_enum = "0.7.2"
 object_store = "0.11.0"
-oneshot = "0.1.10"
 opentelemetry = "0.29.0"
 opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"
@@ -158,6 +156,7 @@ serde = "1.0.203"
 serde_json = "1.0.116"
 serde_test = "1.0.176"
 simplelog = "0.12"
+sketches-ddsketch = "0.3.0"
 static_assertions = "1.1"
 tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"
@@ -176,35 +175,37 @@ wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 
 # BEGIN crates published by this project
-vortex = { version = "0.25.2", path = "./vortex" }
-vortex-alp = { version = "0.25.2", path = "./encodings/alp" }
-vortex-array = { version = "0.25.2", path = "./vortex-array" }
-vortex-btrblocks = { version = "0.25.2", path = "./vortex-btrblocks" }
-vortex-buffer = { version = "0.25.2", path = "./vortex-buffer" }
-vortex-bytebool = { version = "0.25.2", path = "./encodings/bytebool" }
-vortex-datafusion = { version = "0.25.2", path = "./vortex-datafusion" }
-vortex-datetime-parts = { version = "0.25.2", path = "./encodings/datetime-parts" }
-vortex-dict = { version = "0.25.2", path = "./encodings/dict" }
-vortex-duckdb = { version = "0.25.2", path = "./vortex-duckdb" }
-vortex-dtype = { version = "0.25.2", path = "./vortex-dtype", default-features = false }
-vortex-error = { version = "0.25.2", path = "./vortex-error" }
-vortex-expr = { version = "0.25.2", path = "./vortex-expr" }
-vortex-fastlanes = { version = "0.25.2", path = "./encodings/fastlanes" }
-vortex-ffi = { version = "0.25.2", path = "./vortex-ffi" }
-vortex-file = { version = "0.25.2", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.25.2", path = "./vortex-flatbuffers" }
-vortex-fsst = { version = "0.25.2", path = "./encodings/fsst" }
-vortex-io = { version = "0.25.2", path = "./vortex-io" }
-vortex-ipc = { version = "0.25.2", path = "./vortex-ipc" }
-vortex-layout = { version = "0.25.2", path = "./vortex-layout" }
-vortex-mask = { version = "0.25.2", path = "./vortex-mask" }
-vortex-metrics = { version = "0.25.2", path = "./vortex-metrics" }
-vortex-proto = { version = "0.25.2", path = "./vortex-proto" }
-vortex-runend = { version = "0.25.2", path = "./encodings/runend" }
-vortex-scalar = { version = "0.25.2", path = "./vortex-scalar", default-features = false }
-vortex-sparse = { version = "0.25.2", path = "./encodings/sparse" }
-vortex-zigzag = { version = "0.25.2", path = "./encodings/zigzag" }
+vortex = { version = "0.27.0", path = "./vortex" }
+vortex-alp = { version = "0.27.0", path = "./encodings/alp" }
+vortex-array = { version = "0.27.0", path = "./vortex-array" }
+vortex-btrblocks = { version = "0.27.0", path = "./vortex-btrblocks" }
+vortex-buffer = { version = "0.27.0", path = "./vortex-buffer" }
+vortex-bytebool = { version = "0.27.0", path = "./encodings/bytebool" }
+vortex-datafusion = { version = "0.27.0", path = "./vortex-datafusion" }
+vortex-datetime-parts = { version = "0.27.0", path = "./encodings/datetime-parts" }
+vortex-dict = { version = "0.27.0", path = "./encodings/dict" }
+vortex-dtype = { version = "0.27.0", path = "./vortex-dtype", default-features = false }
+vortex-error = { version = "0.27.0", path = "./vortex-error" }
+vortex-expr = { version = "0.27.0", path = "./vortex-expr" }
+vortex-fastlanes = { version = "0.27.0", path = "./encodings/fastlanes" }
+vortex-file = { version = "0.27.0", path = "./vortex-file", default-features = false }
+vortex-flatbuffers = { version = "0.27.0", path = "./vortex-flatbuffers" }
+vortex-fsst = { version = "0.27.0", path = "./encodings/fsst" }
+vortex-io = { version = "0.27.0", path = "./vortex-io" }
+vortex-ipc = { version = "0.27.0", path = "./vortex-ipc" }
+vortex-layout = { version = "0.27.0", path = "./vortex-layout" }
+vortex-mask = { version = "0.27.0", path = "./vortex-mask" }
+vortex-metrics = { version = "0.27.0", path = "./vortex-metrics" }
+vortex-proto = { version = "0.27.0", path = "./vortex-proto" }
+vortex-runend = { version = "0.27.0", path = "./encodings/runend" }
+vortex-scalar = { version = "0.27.0", path = "./vortex-scalar", default-features = false }
+vortex-sparse = { version = "0.27.0", path = "./encodings/sparse" }
+vortex-zigzag = { version = "0.27.0", path = "./encodings/zigzag" }
 # END crates published by this project
+
+# No version contraints for unpublished crates.
+vortex-duckdb = { path = "./vortex-duckdb" }
+vortex-ffi = { path = "./vortex-ffi" }
 
 worker = "0.5.0"
 xshell = "0.2.6"

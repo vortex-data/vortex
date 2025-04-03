@@ -10,7 +10,6 @@ on:
       - develop
 
 jobs:
-
   # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
@@ -28,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: run-release-plz
-        uses: MarcoIeni/release-plz-action@5280151bea3d368f363dd68bba42d0ae15a4b43c
+        uses: release-plz/action@v0.5.102
         with:
           command: release
         env:
@@ -51,7 +50,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run release-plz
-        uses: MarcoIeni/release-plz-action@5280151bea3d368f363dd68bba42d0ae15a4b43c
+        uses: release-plz/action@v0.5.102
         with:
           command: release-pr
         env:
@@ -97,7 +96,7 @@ jobs:
           echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
           rm -f target/wheels/*linux_x86_64.whl
 
-          uv run pip install --force-reinstall vortex-array --no-index --find-links target/wheels
+          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
 
           cd pyvortex/test
           uv run pytest

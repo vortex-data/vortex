@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_dtype::{DType, FieldName, StructDType};
@@ -9,25 +10,24 @@ use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
+use crate::segments::SegmentSource;
+use crate::{Layout, LayoutReader, LayoutVTable};
 
-#[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
+    segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
-    segment_reader: Arc<dyn AsyncSegmentReader>,
 
-    field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    field_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    partitioned_expr_cache: RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>,
 }
 
 impl StructReader {
     pub(super) fn try_new(
         layout: Layout,
+        segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -54,11 +54,11 @@ impl StructReader {
         // different scans for different fields.
         Ok(Self {
             layout,
+            segment_source,
             ctx,
-            segment_reader,
             field_readers,
             field_lookup,
-            partitioned_expr_cache: Arc::new(Default::default()),
+            partitioned_expr_cache: Default::default(),
         })
     }
 
@@ -83,30 +83,39 @@ impl StructReader {
             let child_layout =
                 self.layout
                     .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
-            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
+            child_layout.reader(&self.segment_source, &self.ctx)
         })
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
-        Ok(
-            match self
-                .partitioned_expr_cache
-                .write()?
-                .entry(ExactExpr(expr.clone()))
-            {
-                Entry::Occupied(entry) => entry.get().clone(),
-                Entry::Vacant(entry) => entry
-                    .insert(Arc::new(partition(expr, self.dtype())?))
-                    .clone(),
-            },
-        )
+    pub(crate) fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr> {
+        match self
+            .partitioned_expr_cache
+            .write()
+            .vortex_expect("poisoned lock")
+            .entry(ExactExpr(expr.clone()))
+        {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => entry
+                .insert(Arc::new(partition(expr, self.dtype()).vortex_expect(
+                    "We should not fail to partition expression over struct fields",
+                )))
+                .clone(),
+        }
     }
 }
 
 impl LayoutReader for StructReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        self.struct_dtype()
+            .names()
+            .iter()
+            .map(|name| self.child(name).cloned())
+            .try_collect()
     }
 }
 

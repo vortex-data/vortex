@@ -34,9 +34,9 @@ jobs:
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c6id.8xlarge
       - image=ubuntu24-full-x64
-      - disk=large
+      - spot=false
       - tag=${{ matrix.id }}
 
     steps:
@@ -97,10 +97,10 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-            target/release_debug/${{ matrix.binary_name }} \
-              -d gh-json \
-              --export-spans \
-            | tee results.json
+          target/release_debug/${{ matrix.binary_name }} \
+            -d gh-json \
+            --export-spans \
+          | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null

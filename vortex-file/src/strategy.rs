@@ -14,10 +14,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
-use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -56,7 +56,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype.clone(),
             writer,
             RepartitionWriterOptions {
-                block_size_minimum: 8 * (1 << 20),  // 1 MB
+                block_size_minimum: 1 << 20,        // 1 MB
                 block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
             },
         )

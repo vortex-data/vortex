@@ -15,15 +15,15 @@ use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, SplitBy, VortexFile, VortexOpenOptions};
-use vortex::io::ObjectStoreReadAt;
+use vortex::file::scan::SplitBy;
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{to_string, to_string_vec};
 
 pub struct FFIFile {
-    pub(crate) inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
+    pub(crate) inner: VortexFile,
 }
 
 /// Options supplied for opening a file.
@@ -73,9 +73,10 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
         .vortex_expect("File_open: make_object_store");
-    let read_at = ObjectStoreReadAt::new(object_store, uri.path().into(), None);
     let result =
-        futures::executor::block_on(async move { VortexOpenOptions::file(read_at).open().await });
+        futures::executor::block_on(async move {  VortexOpenOptions::file()
+            .open_object_store(&object_store, uri.path())
+            .await });
 
     let file = result.vortex_expect("open");
     let ffi_file = FFIFile { inner: file };
@@ -121,7 +122,7 @@ pub unsafe extern "C" fn File_scan(
     opts: *const FileScanOptions,
 ) -> *mut FFIArrayStream {
     let file = unsafe { &*file };
-    let mut stream = file.inner.scan();
+    let mut stream = file.inner.scan().vortex_expect("create scan");
 
     if !opts.is_null() {
         let opts = &*opts;
@@ -149,9 +150,7 @@ pub unsafe extern "C" fn File_scan(
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
-    let stream = stream
-        .into_array_stream()
-        .vortex_expect("into_array_stream");
+    let stream = stream.build().vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {
         stream: Box::pin(stream),

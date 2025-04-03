@@ -20,6 +20,7 @@ pub struct FSSTArray {
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
     codes: ArrayRef,
+    /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
 }
