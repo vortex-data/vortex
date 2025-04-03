@@ -111,7 +111,7 @@ jobs:
           rm -rf .venv
           uv sync --only-dev
 
-          uv run pip install vortex-array --force-reinstall --no-index --find-links target/wheels
+          uv run pip install target/wheels/vortex_array-*.whl
           uv run pip install pytest
           uv run pytest pyvortex/test
 
