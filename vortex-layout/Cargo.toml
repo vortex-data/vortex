@@ -19,13 +19,13 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
 tracing-futures = { workspace = true, features = [

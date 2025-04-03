@@ -4,10 +4,10 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use bit_vec::BitVec;
-use exponential_decay_histogram::ExponentialDecayHistogram;
 use itertools::Itertools;
+use sketches_ddsketch::DDSketch;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
@@ -18,8 +18,6 @@ use crate::{
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
-/// The multiplier to used to convert selectivity to i64 for the histogram.
-const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 
 /// A [`LayoutReader`] that splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
@@ -116,7 +114,7 @@ pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
     conjuncts: Vec<ExprRef>,
     /// A histogram of the selectivity of each conjunct.
-    conjunct_selectivity: Vec<RwLock<ExponentialDecayHistogram>>,
+    conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
@@ -129,11 +127,9 @@ impl FilterExpr {
         let num_conjuncts = conjuncts.len();
         Self {
             conjuncts,
-            conjunct_selectivity: iter::repeat_with(|| {
-                RwLock::new(ExponentialDecayHistogram::new())
-            })
-            .take(num_conjuncts)
-            .collect(),
+            conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
+                .take(num_conjuncts)
+                .collect(),
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
@@ -160,9 +156,7 @@ impl FilterExpr {
                 .write()
                 .vortex_expect("poisoned lock");
 
-            // Since our histogram only supports i64, we map our f64 into a 0-1m range.
-            let selectivity = (selectivity * SELECTIVITY_MULTIPLIER).round() as i64;
-            histogram.update(selectivity);
+            histogram.add(selectivity);
         }
 
         let all_selectivity = self
@@ -172,8 +166,11 @@ impl FilterExpr {
                 histogram
                     .read()
                     .vortex_expect("poisoned lock")
-                    .snapshot()
-                    .value(self.selectivity_quantile)
+                    .quantile(self.selectivity_quantile)
+                    .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
+                    .vortex_expect("quantile out of range")
+                    // If the sketch is empty, its selectivity is 0.
+                    .unwrap_or_default()
             })
             .collect::<Vec<_>>();
 
@@ -186,17 +183,17 @@ impl FilterExpr {
 
         // Re-sort our conjuncts based on the new statistics.
         let mut ordering = self.ordering.write().vortex_expect("lock poisoned");
-        ordering.sort_unstable_by_key(|&idx| all_selectivity[idx]);
+        ordering.sort_unstable_by(|&l_idx, &r_idx| {
+            all_selectivity[l_idx]
+                .partial_cmp(&all_selectivity[r_idx])
+                .vortex_expect("Can't compare selectivity values")
+        });
 
         log::debug!(
             "Reordered conjuncts based on new selectivity {:?}",
             ordering
                 .iter()
-                .map(|&idx| format!(
-                    "({}) => {}",
-                    self.conjuncts[idx],
-                    all_selectivity[idx] as f64 / SELECTIVITY_MULTIPLIER
-                ))
+                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
                 .join(", ")
         );
     }
