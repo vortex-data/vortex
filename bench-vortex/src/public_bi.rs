@@ -393,6 +393,9 @@ impl BenchmarkDataset for PBIBenchmark {
         &self.name
     }
 
+    // TODO(osatici): compress benchmarks use this, but this relies on all
+    //                tables in a benchmark to have the same schema.
+    //                That is not the case for some PBI datasets.
     async fn to_vortex_array(&self) -> ArrayRef {
         let dataset = self.dataset().expect("failed to parse tables");
         dataset.write_as_vortex().await;
