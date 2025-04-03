@@ -6,6 +6,7 @@ use vortex_array::Array;
 use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
 
 use crate::BitPackedArray;
 
@@ -194,7 +195,11 @@ impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
         }
         self.idx += 1;
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
-        unsafe { mem::transmute(Some(&mut self.buffer)) }
+        Some(unsafe {
+            mem::transmute::<&mut MaybeUninit<T>, &mut [T; 1024]>(
+                self.buffer.as_mut_ptr().as_mut().vortex_expect("nonnull"),
+            )
+        })
     }
 }
 
