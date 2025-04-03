@@ -402,7 +402,7 @@ pub async fn public_bi_csv_to_parquet_file(
               NULL 'null'
              );
 
-             COPY {table_name} TO '{parquet_path}' (COMPRESSION ZSTD);
+             COPY {table_name} TO '{parquet_path}' (FORMAT parquet, COMPRESSION zstd);
              ",
         ))
         .status()
