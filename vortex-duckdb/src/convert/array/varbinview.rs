@@ -9,7 +9,8 @@ use vortex_error::VortexResult;
 
 use crate::ToDuckDB;
 use crate::buffer::{
-    AssignBufferToVec, ExternalBuffer, FFIDuckDBBufferInternal, new_cpp_vector_buffer,
+    AssignBufferToVec, CppVectorBuffer, ExternalBuffer, FFIDuckDBBufferInternal,
+    new_cpp_vector_buffer,
 };
 use crate::convert::array::{ConversionCache, write_validity_from_mask};
 // This is the C++ string view struct
@@ -109,8 +110,10 @@ impl ToDuckDB for VarBinViewArray {
                 let buffer: *mut ExternalBuffer = Box::into_raw(Box::new(
                     FFIDuckDBBufferInternal { inner: Box::new(b) }.into(),
                 ));
-                let extern_buf = unsafe { new_cpp_vector_buffer(buffer) };
+                let extern_buf: *mut CppVectorBuffer = unsafe { new_cpp_vector_buffer(buffer) };
                 // Adds an extra ref to the buffer which will outlive the `views`
+                // Note this fn takes ownership of the cpp vector buffer.
+                // TODO(joe): create a free_cpp_vector_buffer method, maybe?
                 unsafe { AssignBufferToVec(vec.unowned_ptr(), extern_buf) };
             });
 
