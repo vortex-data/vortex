@@ -163,7 +163,9 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
+            builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
+        ));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 

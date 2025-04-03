@@ -153,7 +153,7 @@ pub unsafe extern "C" fn File_scan(
     }
 
     let stream = stream
-        .into_array_stream()
+        .spawn_tokio(RUNTIME.handle().clone())
         .vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {

@@ -142,8 +142,9 @@ impl PyVortexDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let iter =
-            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
+        let iter = ArrayStreamToIterator::new(
+            scan.spawn_tokio(TOKIO_RUNTIME.handle().clone())?.boxed() as SendableArrayStream,
+        );
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 
