@@ -106,7 +106,9 @@ jobs:
       - name: Ensure wheel can run tests successfully
         shell: bash
         run: |
-          echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
+          echo "creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct"
+
+          ls -la target/wheels/
 
           rm -rf .venv
           uv sync --only-dev
