@@ -1,5 +1,6 @@
 use fsst::{Compressor, Symbol};
 use serde::{Deserialize, Serialize};
+use vortex_array::arrays::VarBinArray;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
@@ -42,7 +43,15 @@ impl EncodingVTable for FSSTEncoding {
         }
         let codes = parts
             .child(0)
-            .decode(ctx, DType::Binary(dtype.nullability()), len)?;
+            .decode(ctx, DType::Binary(dtype.nullability()), len)?
+            .as_opt::<VarBinArray>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Expected VarBinArray for codes, got {:?}",
+                    ctx.lookup_encoding(parts.child(0).encoding_id())
+                )
+            })?
+            .clone();
         let uncompressed_lengths = parts.child(1).decode(
             ctx,
             DType::Primitive(

@@ -110,9 +110,7 @@ where
         }
     }
 
-    let codes = builder
-        .finish(DType::Binary(dtype.nullability()))
-        .into_array();
+    let codes = builder.finish(DType::Binary(dtype.nullability()));
     let symbols: Buffer<Symbol> = Buffer::copy_from(compressor.symbol_table());
     let symbol_lengths: Buffer<u8> = Buffer::<u8>::copy_from(compressor.symbol_lengths());
 
