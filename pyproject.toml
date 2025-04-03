@@ -51,6 +51,3 @@ unfixable = ["F841"]
 log_cli = true
 log_cli_level = "INFO"
 xfail_strict = true
-
-[tool.maturin]
-compatibility = "manylinux2014"
