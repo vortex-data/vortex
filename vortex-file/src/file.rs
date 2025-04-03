@@ -4,10 +4,10 @@ use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
-use crate::ScanBuilder;
 use crate::footer::Footer;
 
 #[derive(Clone)]
@@ -58,8 +58,9 @@ impl VortexFile {
             .reader(&segment_source, self.footer().ctx())
     }
 
-    pub fn scan(&self) -> ScanBuilder {
-        ScanBuilder::new(self.clone())
+    /// Initiate a scan of the file, returning a builder for configuring the scan.
+    pub fn scan(&self) -> VortexResult<ScanBuilder> {
+        Ok(ScanBuilder::new(self.layout_reader()?))
     }
 }
 

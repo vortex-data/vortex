@@ -14,23 +14,20 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_layout::layouts::filter::FilterLayoutReader;
-use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_mask::Mask;
 use vortex_metrics::{VortexMetrics, instrument};
 
-use crate::VortexFile;
+use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::executor::Executor;
+use crate::{ExprEvaluator, LayoutReader};
 
 pub mod executor;
 pub mod row_mask;
-// pub mod segments;
 pub mod split_by;
-pub mod unified;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder {
-    vxf: VortexFile,
+    layout_reader: Arc<dyn LayoutReader>,
     task_executor: Option<TaskExecutor>,
     projection: ExprRef,
     filter: Option<ExprRef>,
@@ -43,10 +40,9 @@ pub struct ScanBuilder {
 }
 
 impl ScanBuilder {
-    pub fn new(vxf: VortexFile) -> Self {
-        let metrics = vxf.metrics().clone();
+    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
-            vxf,
+            layout_reader,
             task_executor: None,
             projection: Identity::new_expr(),
             filter: None,
@@ -56,7 +52,7 @@ impl ScanBuilder {
             // How many row splits to make progress on concurrently (not necessarily in parallel,
             // that is decided by the TaskExecutor).
             concurrency: 16,
-            metrics,
+            metrics: Default::default(),
         }
     }
 
@@ -116,8 +112,8 @@ impl ScanBuilder {
     #[allow(clippy::unused_enumerate_index)]
     pub fn build(self) -> VortexResult<impl ArrayStream + 'static> {
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
-        // conjunction splitting.
-        let layout_reader = Arc::new(FilterLayoutReader::new(self.vxf.layout_reader()?));
+        // conjunction splitting if a filter is provided.
+        let layout_reader = Arc::new(FilterLayoutReader::new(self.layout_reader));
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
@@ -236,13 +232,9 @@ impl ScanBuilder {
         ))
     }
 
-    /// Perform the scan operation and return a stream of arrays.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        self.build()
-    }
-
+    /// Read all the data from the scan into a single (likely chunked) Vortex array.
     pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
+        self.build()?.read_all().await
     }
 }
 

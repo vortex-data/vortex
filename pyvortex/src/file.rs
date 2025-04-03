@@ -148,7 +148,7 @@ impl PyVortexFile {
         let mut builder = slf
             .get()
             .vxf
-            .scan()
+            .scan()?
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
@@ -179,7 +179,7 @@ impl PyVortexFile {
         let mut builder = slf
             .get()
             .vxf
-            .scan()
+            .scan()?
             .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
                 TOKIO_RUNTIME.handle().clone(),
             )))

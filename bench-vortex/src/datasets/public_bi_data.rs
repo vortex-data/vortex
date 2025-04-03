@@ -557,7 +557,7 @@ impl BenchmarkDataset for PBIDataset {
                 VortexOpenOptions::file()
                     .open(TokioFile::open(f)?)
                     .await?
-                    .scan()
+                    .scan()?
                     .read_all()
                     .await
             })

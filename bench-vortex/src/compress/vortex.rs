@@ -23,7 +23,8 @@ pub async fn vortex_decompress_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
         .open(buf)
         .await?
         .scan()
-        .into_array_stream()?
+        .unwrap()
+        .build()?
         .try_collect::<Vec<_>>()
         .await?
         .into_iter()

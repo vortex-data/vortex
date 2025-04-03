@@ -4,7 +4,8 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
-use vortex_layout::Layout;
+
+use crate::Layout;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///

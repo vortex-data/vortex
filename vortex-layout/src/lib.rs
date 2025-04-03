@@ -11,10 +11,9 @@ pub use strategy::*;
 use vortex_array::arcref::ArcRef;
 pub use vtable::*;
 pub use writer::*;
-
 mod reader;
+pub mod scan;
 pub mod segments;
-pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;

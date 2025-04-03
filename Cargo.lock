@@ -6110,7 +6110,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "flatbuffers 25.2.10",
- "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
@@ -6259,11 +6258,13 @@ dependencies = [
  "dashmap",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
+ "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
  "log",
  "rstest",
+ "tokio",
  "tracing",
  "tracing-futures",
  "vortex-array",
@@ -6273,6 +6274,7 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-mask",
+ "vortex-metrics",
 ]
 
 [[package]]

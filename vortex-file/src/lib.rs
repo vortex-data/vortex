@@ -95,7 +95,6 @@ mod footer;
 mod generic;
 mod memory;
 mod open;
-mod scan;
 pub mod segments;
 mod strategy;
 #[cfg(test)]
@@ -110,7 +109,6 @@ pub use forever_constant::*;
 pub use generic::*;
 pub use memory::*;
 pub use open::*;
-pub use scan::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::{ArrayRegistry, Encoding};

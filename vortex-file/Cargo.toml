@@ -17,7 +17,6 @@ version = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
-flume = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
@@ -71,7 +70,7 @@ object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]
-tokio = ["dep:tokio", "vortex-error/tokio", "vortex-io/tokio"]
+tokio = ["dep:tokio", "vortex-error/tokio", "vortex-io/tokio", "vortex-layout/tokio"]
 tracing = [
     "dep:tracing",
     "dep:tracing-futures",

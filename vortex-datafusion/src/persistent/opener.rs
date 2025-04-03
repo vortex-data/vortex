@@ -8,8 +8,8 @@ use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::SplitBy;
-use vortex_file::executor::{TaskExecutor, TokioExecutor};
+use vortex_layout::scan::SplitBy;
+use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -62,7 +62,7 @@ impl FileOpener for VortexFileOpener {
             Ok(file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
-                .scan()
+                .scan()?
                 .with_metrics(metrics)
                 .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)

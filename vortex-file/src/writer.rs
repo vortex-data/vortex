@@ -5,7 +5,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_layout::stats::FileStatsLayoutWriter;
+use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
 use crate::footer::{Footer, Postscript, SegmentSpec};

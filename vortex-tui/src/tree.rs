@@ -10,7 +10,7 @@ pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
     let full = VortexOpenOptions::file()
         .open(opened)
         .await?
-        .scan()
+        .scan()?
         .read_all()
         .await?;
 

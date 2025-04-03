@@ -35,7 +35,7 @@ async fn take_vortex<T: VortexReadAt + Send>(
     VortexOpenOptions::file()
         .open(reader)
         .await?
-        .scan()
+        .scan()?
         .with_row_indices(indices)
         .read_all()
         .await?
