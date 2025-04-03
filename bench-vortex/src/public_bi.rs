@@ -1,11 +1,20 @@
+use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use clap::ValueEnum;
+use datafusion::datasource::file_format::FileFormat;
+use datafusion::datasource::file_format::csv::CsvFormat;
+use datafusion::datasource::file_format::parquet::ParquetFormat;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use datafusion::prelude::SessionContext;
+use datafusion_common::{Result, TableReference};
 use futures::future::join_all;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
 use humansize::{DECIMAL, format_size};
@@ -21,6 +30,7 @@ use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array as _, ArrayRef};
+use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
@@ -101,7 +111,6 @@ pub fn fetch_schemas_and_queries() -> VortexResult<PathBuf> {
 #[derive(Debug)]
 pub struct PBIDatasets {
     benchmarks: HashMap<PBIDataset, PBIBenchmark>,
-    base_dir: PathBuf,
 }
 
 impl PBIDatasets {
@@ -112,7 +121,7 @@ impl PBIDatasets {
                 let path = path?;
                 let name = path.file_name().into_string().expect("unicode");
                 Ok((
-                    PBIDataset::from_str(&name.trim(), true)
+                    PBIDataset::from_str(name.trim(), true)
                         .map_err(|_e| vortex_err!("unsupported dataset: {} {_e}", &name))?,
                     PBIBenchmark {
                         name,
@@ -121,10 +130,7 @@ impl PBIDatasets {
                 ))
             })
             .collect::<VortexResult<HashMap<_, _>>>()?;
-        Ok(Self {
-            benchmarks,
-            base_dir,
-        })
+        Ok(Self { benchmarks })
     }
 
     pub fn get(&self, dataset: PBIDataset) -> &PBIBenchmark {
@@ -137,8 +143,7 @@ impl PBIDatasets {
 
 #[derive(Debug)]
 pub struct PBIBenchmark {
-    // TODO: maybe does not need a name
-    name: String,
+    pub name: String,
     base_path: PathBuf,
 }
 
@@ -178,10 +183,10 @@ impl PBIBenchmark {
                 let url = Url::parse(url_str)?;
                 let table_name = url
                     .path_segments()
-                    .and_then(|path| path.last())
+                    .and_then(|mut path| path.next_back())
                     .and_then(|filename| filename.strip_suffix(".csv.bz2"))
                     .ok_or_else(|| vortex_err!("invalid url {url}"))?;
-                let create_table_sql = self.table_sql(&table_name)?;
+                let create_table_sql = self.table_sql(table_name)?;
                 Ok(Table {
                     create_table_sql,
                     name: table_name.to_string(),
@@ -204,7 +209,6 @@ impl PBIBenchmark {
     pub fn dataset(&self) -> VortexResult<PBIData> {
         let tables = self.tables()?;
         Ok(PBIData {
-            name: self.name.clone(),
             base_path: "PBI".to_data_path().join(&self.name),
             tables,
         })
@@ -246,7 +250,6 @@ impl Display for FileType {
 }
 
 pub struct PBIData {
-    name: String,
     base_path: PathBuf,
     pub tables: Vec<Table>,
 }
@@ -298,7 +301,7 @@ impl PBIData {
                 let parquet_file = idempotent_async(&parquet, async |output_path| {
                     tracing::info!("Reading schema for {}", csv.to_str().unwrap());
                     tracing::info!("Compressing {} to parquet", csv.to_str().unwrap());
-                    public_bi_csv_to_parquet_file(&table, csv, &output_path).await
+                    public_bi_csv_to_parquet_file(table, csv, &output_path).await
                 })
                 .await
                 .vortex_expect("failed to create parquet file");
@@ -343,6 +346,45 @@ impl PBIData {
         });
         join_all(to_vortex_futures).await;
     }
+
+    pub async fn register_tables(
+        &self,
+        session: &SessionContext,
+        file_type: FileType,
+    ) -> Result<()> {
+        for table in &self.tables {
+            // get schema
+            let create_table = &replace_decimals(&table.create_table_sql);
+            session.sql(create_table).await?;
+            let table_ref = TableReference::bare(&*table.name);
+            let df_table = session.table(table_ref.clone()).await?;
+
+            // drop the temp table after getting the arrow schema.
+            let var_name = format!("DROP TABLE '{}';", &table.name);
+            session.sql(&var_name).await?;
+
+            let df_format: Arc<dyn FileFormat> = match file_type {
+                FileType::Csv => Arc::new(
+                    CsvFormat::default()
+                        .with_has_header(false)
+                        .with_delimiter(b'|'),
+                ),
+                FileType::Parquet => Arc::new(ParquetFormat::default()),
+                FileType::Vortex => Arc::new(VortexFormat::default()),
+                _ => panic!("unsupported file type: {file_type}"),
+            };
+
+            let path = self.get_file_path(&table.name, file_type);
+            let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
+            let config = ListingTableConfig::new(table_url)
+                .with_listing_options(ListingOptions::new(df_format as _))
+                .with_schema(df_table.schema().clone().into());
+
+            let listing_table = Arc::new(ListingTable::try_new(config)?);
+            session.register_table(table_ref, listing_table as _)?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -375,6 +417,12 @@ impl BenchmarkDataset for PBIBenchmark {
     }
 }
 
+pub fn replace_decimals(create_table_sql: &str) -> Cow<'_, str> {
+    // replace unsupported decimal types with doubles
+    let decimal_regex = Regex::new(r"(?i)DECIMAL\(\s*\d+\s*(?:,\s*\d+\s*)?\)|\bDECIMAL\b").unwrap();
+    decimal_regex.replace_all(create_table_sql, "DOUBLE")
+}
+
 // not using conversions::csv_to_parquet_file because duckdb does a better job at parsing csv's with the right schema
 pub async fn public_bi_csv_to_parquet_file(
     table: &Table,
@@ -386,9 +434,7 @@ pub async fn public_bi_csv_to_parquet_file(
     let csv_path = csv_path.to_str().expect("unicode");
     let parquet_path = parquet_path.to_str().expect("unicode");
 
-    // replace unsupported decimal types with doubles
-    let decimal_regex = Regex::new(r"(?i)DECIMAL\(\s*\d+\s*(?:,\s*\d+\s*)?\)|\bDECIMAL\b").unwrap();
-    let create_table_with_doubles = decimal_regex.replace_all(&table.create_table_sql, "DOUBLE");
+    let create_table_with_doubles = replace_decimals(&table.create_table_sql);
 
     TokioCommand::new("duckdb")
         .arg("-c")
