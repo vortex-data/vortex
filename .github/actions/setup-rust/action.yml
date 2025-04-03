@@ -5,6 +5,10 @@ inputs:
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
+  cache:
+    description: "Enable SCCache"
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -25,11 +29,13 @@ runs:
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
+      if: inputs.cache == 'true'
       with:
         save-if: ${{ github.ref_name == 'develop' }}
         shared-key: "rust-cache-${{ runner.os }}-${{ runner.environment }}" # To allow reuse across jobs
 
     - name: Rust Compile Cache
+      if: inputs.cache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
     - name: Rust Compile Cache Config
       shell: bash

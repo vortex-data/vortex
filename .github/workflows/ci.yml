@@ -64,6 +64,8 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+        with:
+          cache: false
       - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
 
       # Ensure the stub files are up-to-date with the public API of the native module.
@@ -143,7 +145,6 @@ jobs:
         with:
           attestations: true
           verbose: true
-          
 
   rust-docs:
     name: "Rust (docs)"
