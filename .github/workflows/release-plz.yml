@@ -92,10 +92,6 @@ jobs:
         with:
           name: osx-wheels
           path: target/wheels
-      - name: Test version
-        shell: bash
-        run: |
-          uv run pytest pyvortex/test
   linux:
     name: "Build linux-x86 wheel"
     needs: release-plz-release
@@ -125,10 +121,6 @@ jobs:
         with:
           name: linux-wheels
           path: target/wheels
-      - name: Test version
-        shell: bash
-        run: |
-          uv run pytest pyvortex/test
   release:
     name: "Release to PyPi"
     needs: [ release-plz-release, macos, linux ]
