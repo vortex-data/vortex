@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
@@ -69,7 +69,7 @@ impl SegmentSource for InMemorySegmentReader {
                 .ok_or_else(|| vortex_err!("segment not found"))?;
 
             let start =
-                usize::try_from(segment.offset).map_err(|_| vortex_err!("offset too large"))?;
+                usize::try_from(segment.offset).vortex_expect("segment offset larger than usize");
             let end = start + segment.length as usize;
 
             Ok(buffer.slice(start..end))

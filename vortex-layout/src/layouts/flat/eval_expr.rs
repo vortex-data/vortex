@@ -13,6 +13,13 @@ use crate::{
     PruningEvaluation,
 };
 
+/// The threshold of mask density below which we will evaluate the expression only over the
+/// selected rows, and above which we evaluate the expression over all rows and then select
+/// after.
+// TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
+//  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
 impl ExprEvaluator for FlatReader {
     fn pruning_evaluation(
         &self,
@@ -85,7 +92,7 @@ impl MaskEvaluation for FlatEvaluation {
         //  the true_count between the mask's first and last true positions.
         // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
         //   or not.
-        let array_mask = if mask.density() < 0.2 {
+        let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
             let array_mask = Mask::try_from(self.expr.evaluate(&array)?.as_ref())?;

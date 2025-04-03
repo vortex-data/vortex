@@ -15,7 +15,8 @@ use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{SplitBy, VortexFile, VortexOpenOptions};
+use vortex::file::scan::SplitBy;
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};

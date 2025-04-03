@@ -107,8 +107,8 @@ impl Executor for ThreadsExecutor {
 
         async move {
             rx.await
-                .map_err(|e| vortex_err!("Future canceled: {e}"))
-                .vortex_expect("Future cancelled")
+                .map_err(|e| vortex_err!("Threads executor died: {e}"))
+                .vortex_expect("Threads executor died")
         }
         .boxed()
     }

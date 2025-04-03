@@ -103,7 +103,7 @@ impl SegmentEvents {
             match self.pending.entry(id) {
                 Entry::Occupied(e) => {
                     if let Some(fut) = e.get().future() {
-                        break fut;
+                        return fut;
                     } else {
                         log::debug!("Re-requesting dropped segment from segment reader {}", id);
                         e.remove();
@@ -118,7 +118,7 @@ impl SegmentEvents {
                             .downgrade()
                             .vortex_expect("cannot fail, only just created"),
                     });
-                    break fut;
+                    return fut;
                 }
             }
         }
@@ -155,7 +155,7 @@ pub struct PendingSegment {
     id: SegmentId,
     /// A weak shared future that we hand out to all requesters. Once all requesters have been
     /// dropped, typically because their row split has completed (or been pruned), then the weak
-    /// feature is no longer upgradable, and the segment can be dropped.
+    /// future is no longer upgradable, and the segment can be dropped.
     fut: WeakShared<SegmentEventsFuture>,
 }
 

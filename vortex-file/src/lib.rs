@@ -90,6 +90,7 @@
 //! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
+mod driver;
 mod file;
 mod footer;
 mod generic;
@@ -117,6 +118,7 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
+pub use vortex_layout::scan;
 use vortex_runend::RunEndEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;

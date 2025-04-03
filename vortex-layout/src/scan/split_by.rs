@@ -63,11 +63,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};
-    use vortex_layout::LayoutWriterExt;
-    use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
-    use vortex_layout::segments::TestSegments;
 
     use super::*;
+    use crate::LayoutWriterExt;
+    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::segments::TestSegments;
 
     #[test]
     fn test_layout_splits_flat() {

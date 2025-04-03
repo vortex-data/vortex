@@ -70,7 +70,12 @@ object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]
-tokio = ["dep:tokio", "vortex-error/tokio", "vortex-io/tokio", "vortex-layout/tokio"]
+tokio = [
+    "dep:tokio",
+    "vortex-error/tokio",
+    "vortex-io/tokio",
+    "vortex-layout/tokio",
+]
 tracing = [
     "dep:tracing",
     "dep:tracing-futures",

@@ -3,11 +3,12 @@ use std::sync::{Arc, Mutex};
 use futures::{StreamExt, pin_mut};
 use moka::future::CacheBuilder;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
+use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
-use crate::segments::{CachedSegmentSource, CoalescedDriver, InMemorySegmentCache, SegmentCache};
+use crate::driver::CoalescedDriver;
+use crate::segments::{CachedSegmentSource, InMemorySegmentCache, SegmentCache};
 use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
@@ -74,7 +75,10 @@ impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
             segment_source,
         ));
 
-        let read = self.read.lock().vortex_expect("poisoned lock").clone();
+        let read = InstrumentedReadAt::new(
+            self.read.lock().vortex_expect("poisoned lock").clone(),
+            &metrics,
+        );
 
         let driver = CoalescedDriver::new(
             read.performance_hint(),
@@ -91,7 +95,6 @@ impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
                 async move {
                     // Drive the segment event stream.
                     let stream = driver
-                        .into_stream()
                         .map(|coalesced_req| coalesced_req.launch(read.clone()))
                         .buffer_unordered(io_concurrency);
                     pin_mut!(stream);

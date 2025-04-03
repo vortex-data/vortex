@@ -43,7 +43,7 @@ impl VortexFile {
 
     /// Create a new segment source for reading from the file.
     ///
-    /// This may spawn a background I/O driver that will exist when the returned segment source
+    /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         self.segment_source_factory
@@ -60,7 +60,7 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder> {
-        Ok(ScanBuilder::new(self.layout_reader()?))
+        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 }
 

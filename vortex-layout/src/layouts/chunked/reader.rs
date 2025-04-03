@@ -91,7 +91,6 @@ impl ChunkedReader {
         &'a self,
         row_range: &'a Range<u64>,
     ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
-        // Now we have to create a future for each chunk.
         self.chunk_range(row_range).map(move |chunk_idx| {
             // Figure out the chunk row range relative to the mask's row range.
             let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);

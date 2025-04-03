@@ -78,10 +78,6 @@ impl CoalescedDriver {
         }
     }
 
-    pub fn into_stream(self) -> impl Stream<Item = CoalescedSegmentRequest> {
-        self
-    }
-
     fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
@@ -151,20 +147,6 @@ impl CoalescedDriver {
     fn on_dropped(&mut self, id: SegmentId) {
         // If the segment has been pre-fetched, we can remove its bytes from the buffer.
         self.unmark_as_prefetched(id);
-
-        let state = self.segment_state(id);
-        if !state.polled && !state.is_prefetched {
-            log::debug!("Dropped before launch {}", id);
-        } else if !state.polled && state.is_prefetched {
-            log::debug!("Dropped after prefetch {}", id);
-        } else if state.request.is_some() {
-            log::debug!("Dropped after poll, before launch {}", id);
-        } else if state.request.is_none() {
-            log::debug!("Dropped after launch {}", id);
-        } else {
-            log::debug!("Dropped??? {}", id);
-        }
-
         self.state.remove(&id);
         self.polled.remove(&id);
         self.requested.remove(&id);

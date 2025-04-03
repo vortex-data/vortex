@@ -12,8 +12,9 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
 use vortex::expr::{ExprRef, ident, select};
-use vortex::file::executor::{TaskExecutor, TokioExecutor};
-use vortex::file::{SplitBy, VortexFile, VortexOpenOptions};
+use vortex::file::scan::SplitBy;
+use vortex::file::scan::executor::{TaskExecutor, TokioExecutor};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 
