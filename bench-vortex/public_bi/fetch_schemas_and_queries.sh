@@ -8,6 +8,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd "${SCRIPT_DIR}"
 
 if [ -d ".git" ]; then
+    git reset --hard  # restore deleted files if any
     git pull origin master
 else
     git init
