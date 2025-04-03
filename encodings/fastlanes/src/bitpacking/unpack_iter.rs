@@ -64,7 +64,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             let header_end_slice = if self.num_chunks == 1 {
                 self.len
             } else {
-                CHUNK_SIZE
+                CHUNK_SIZE - self.offset
             };
             // SAFETY:
             // 1. chunk is elems_per_chunk.

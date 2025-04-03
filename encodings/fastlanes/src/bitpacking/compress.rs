@@ -19,7 +19,7 @@ use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
-use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
+use crate::unpack_iter::BitPacked;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
     let best_bit_width = find_best_bit_width(array)?;
