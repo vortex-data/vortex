@@ -1,4 +1,3 @@
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -155,7 +154,7 @@ impl ScanBuilder {
         let row_masks = splits
             .into_iter()
             .filter_map(|row_range| {
-                if let Some(scan_range) = self.row_range {
+                if let Some(scan_range) = &self.row_range {
                     // If the row range is fully within the scan range, return it.
                     if row_range.start < scan_range.start || row_range.end > scan_range.end {
                         return None;
