@@ -77,10 +77,9 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          sync: false
+          enable-cache: true
 
       - name: Compare results
         shell: bash
@@ -97,7 +96,7 @@ jobs:
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
 

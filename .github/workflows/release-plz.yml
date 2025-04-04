@@ -84,9 +84,9 @@ jobs:
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
           args: --release --interpreter python3.10 --auditwheel check
       - name: Install UV
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        uses: astral-sh/setup-uv@v5
         with:
-          sync: false
+          enable-cache: true
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -102,9 +102,9 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install UV
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        uses: astral-sh/setup-uv@v5
         with:
-          sync: false
+          enable-cache: true
       - name: rust-toolchain
         shell: bash
         run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT

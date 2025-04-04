@@ -48,9 +48,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          sync: false
+          enable-cache: true
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
@@ -68,9 +68,9 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          sync: false
+          enable-cache: true
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - PyVortex
