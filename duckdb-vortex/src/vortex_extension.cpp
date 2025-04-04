@@ -335,8 +335,17 @@ void ComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_d
 	auto &bind = bind_data->Cast<VortexBindData>();
 
 	if (filters.empty()) {
-		bind.filter = std::optional("");
+		if (!bind.filter.has_value()) {
+			bind.filter = std::optional("");
+		}
+		return;
 	}
+
+	std::cout << "ComplexFilter: " << filters.size() << std::endl;
+	for (auto &filter : filters) {
+		std::cout << "ComplexFilter Value: " << filter->ToString() << std::endl;
+	}
+	std::cout << "DoneComplexFilter: " << std::endl;
 
 	google::protobuf::Arena arena;
 
@@ -348,6 +357,7 @@ void ComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_d
 		if (expr != nullptr) {
 			conjuncts.push_back(expr);
 		}
+
 		if (expr != nullptr) {
 			iter = filters.erase(iter);
 		} else {
@@ -355,7 +365,17 @@ void ComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_d
 		};
 	}
 	auto expr = flatten_exprs(arena, conjuncts);
-	bind.filter = expr->SerializeAsString();
+	// if (bind.filter.has_value()) {
+	// 	std::cout << "complex expr: " << filters.size() << std::endl;
+	// 	for (auto &filter : filters) {
+	// 		std::cout << "complex expr twic: " << filter->ToString() << std::endl;
+	// 	}
+	// 	throw Exception(ExceptionType::INVALID, "complex expr twice");
+	// }
+
+	if (!bind.filter.has_value()) {
+		bind.filter = std::optional(expr->SerializeAsString());
+	}
 
 	for (auto &filter : filters) {
 		std::cout << "Remain Complex filter: " << filter->ToString() << std::endl;

@@ -12,6 +12,8 @@
 #include <duckdb/planner/expression/bound_columnref_expression.hpp>
 #include <duckdb/planner/expression/bound_comparison_expression.hpp>
 #include <duckdb/planner/expression/bound_constant_expression.hpp>
+#include <duckdb/planner/expression/bound_function_expression.hpp>
+#include <duckdb/planner/expression/bound_operator_expression.hpp>
 #include <duckdb/planner/filter/conjunction_filter.hpp>
 #include <duckdb/planner/filter/optional_filter.hpp>
 
@@ -28,15 +30,21 @@ using duckdb::Value;
 using google::protobuf::Arena;
 using std::string;
 
+// vortex expr proto ids.
+const string BETWEEN_ID = "between";
 const string BINARY_ID = "binary";
 const string GET_ITEM_ID = "get_item";
 const string IDENTITY_ID = "identity";
+const string LIKE_ID = "like";
 const string LITERAL_ID = "literal";
+const string NOT_ID = "not";
 
 // Temporal ids
 const string VORTEX_DATE_ID = "vortex.date";
 const string VORTEX_TIME_ID = "vortex.time";
 const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
+
+const string DUCKDB_FUNCTION_NAME_CONTAINS = "contains";
 
 enum TimeUnit : uint8_t {
 	/// Nanoseconds
@@ -301,7 +309,7 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 
 vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
-	if (child_filters.size() == 0) {
+	if (child_filters.empty()) {
 		auto expr = arena.Create<vortex::expr::Expr>(&arena);
 		set_literal(arena, Value(true), true, expr);
 		return expr;
@@ -326,6 +334,19 @@ vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Exp
 	}
 	tail->add_children()->Swap(child_filters.back());
 	return hd;
+}
+
+std::optional<string> expr_to_like_pattern(const duckdb::Expression &dexpr) {
+	switch (dexpr.expression_class) {
+	case duckdb::ExpressionClass::BOUND_CONSTANT: {
+		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
+		auto contains_pattern = dconstant.value.GetValue<string>();
+		auto like_pattern = "%" + contains_pattern + "%";
+		return std::optional(like_pattern);
+	};
+	default:
+		return std::nullopt;
+	}
 }
 
 vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &dexpr) {
@@ -355,12 +376,59 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 	}
 	case duckdb::ExpressionClass::BOUND_BETWEEN: {
 		auto &dbetween = dexpr.Cast<duckdb::BoundBetweenExpression>();
+		auto col = expression_into_vortex_expr(arena, *dbetween.input);
 		auto lower = expression_into_vortex_expr(arena, *dbetween.lower);
 		auto upper = expression_into_vortex_expr(arena, *dbetween.upper);
-		// expr->kind().b
+		// Between order on vx is arr, lower, upper.
+		expr->add_children()->Swap(col);
+		expr->add_children()->Swap(lower);
+		expr->add_children()->Swap(upper);
+		auto kind = expr->mutable_kind()->mutable_between();
+		kind->set_lower_strict(!dbetween.lower_inclusive);
+		kind->set_lower_strict(!dbetween.upper_inclusive);
+		expr->set_id(BETWEEN_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_OPERATOR: {
+		auto &dop = dexpr.Cast<duckdb::BoundOperatorExpression>();
+		if (dop.type != ExpressionType::OPERATOR_NOT) {
+			return nullptr;
+		}
+		auto child = expr->add_children();
+		auto fn = expression_into_vortex_expr(arena, *dop.children[0]);
+		if (fn == nullptr) {
+			return nullptr;
+		}
+		child->Swap(fn);
+		expr->mutable_kind()->mutable_not_();
+		expr->set_id(NOT_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_FUNCTION: {
+		auto &dfunc_expr = dexpr.Cast<duckdb::BoundFunctionExpression>();
+		auto &dfunc = dfunc_expr.function;
+		if (dfunc.name == DUCKDB_FUNCTION_NAME_CONTAINS) {
+			assert(dfunc_expr.children.size() == 2);
+			// value
+			expr->add_children()->Swap(expression_into_vortex_expr(arena, *dfunc_expr.children[0]));
+			// pattern
+			auto pattern = expr->add_children();
+
+			auto pattern_value = expr_to_like_pattern(*dfunc_expr.children[1]);
+			if (!pattern_value.has_value()) {
+				return nullptr;
+			}
+			set_literal(arena, Value(pattern_value.value()), true, pattern);
+			auto like = expr->mutable_kind()->mutable_like();
+			like->set_case_insensitive(false);
+			like->set_negated(false);
+			expr->set_id(LIKE_ID);
+			return expr;
+		}
+		return nullptr;
 	}
 	default:
-		std::cout << "class: " << std::to_string(static_cast<uint8_t>(dexpr.expression_class)) << std::endl;
+		std::cout << "todo class: " << std::to_string(static_cast<uint8_t>(dexpr.expression_class)) << std::endl;
 		return nullptr;
 	}
 }
