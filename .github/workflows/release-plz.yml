@@ -117,6 +117,7 @@ jobs:
           working-directory: pyvortex
           target: x86_64
           manylinux: auto
+          command: build
           args: --release --interpreter python3.10 --auditwheel check
       - name: Upload wheels
         uses: actions/upload-artifact@v4
