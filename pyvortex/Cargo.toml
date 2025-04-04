@@ -23,10 +23,6 @@ doctest = false                 # TODO(ngates): why?
 name = "pyvortex"
 
 [dependencies]
-tikv-jemallocator = { version = "0.6.0", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
-axum = { version = "0.8.3" }
-jemalloc_pprof = { version = "0.7.0", features = ["flamegraph"] }
-
 arrow = { workspace = true, features = ["pyarrow"] }
 futures = { workspace = true }
 itertools = { workspace = true }
