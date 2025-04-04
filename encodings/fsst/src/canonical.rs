@@ -1,9 +1,9 @@
 use fsst::Decompressor;
-use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
+use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayCanonicalImpl, ArrayExt, Canonical, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayCanonicalImpl, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -47,7 +47,7 @@ fn fsst_into_varbin_view(
     // To speed up canonicalization, we can decompress the entire string-heap in a single
     // call. We then turn our uncompressed_lengths into an offsets buffer
     // necessary for a VarBinViewArray and construct the canonical array.
-    let bytes = fsst_array.codes().as_::<VarBinArray>().sliced_bytes();
+    let bytes = fsst_array.codes().sliced_bytes();
 
     let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive()?;
 

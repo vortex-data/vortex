@@ -149,6 +149,7 @@ rkyv = { version = "0.8.10", features = [
     "bytecheck",
     "unaligned",
 ] }
+roaring = "0.10.10"
 rstest = "0.25"
 rstest_reuse = "0.7.0"
 rustc-hash = "2"

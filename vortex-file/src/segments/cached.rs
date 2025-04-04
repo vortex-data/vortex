@@ -41,8 +41,14 @@ impl SegmentSource for CachedSegmentSource {
             }
             let result = delegate.await?;
             if store {
-                log::debug!("Storing segment {} for {} in cache", id, &for_whom);
-                let _ = cache.put(id, result.clone()).await;
+                if let Err(e) = cache.put(id, result.clone()).await {
+                    log::warn!(
+                        "Failed to store segment {} for {} in cache: {}",
+                        id,
+                        &for_whom,
+                        e
+                    );
+                }
             }
             Ok(result)
         }

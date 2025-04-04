@@ -41,7 +41,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
-            .build()
+            .into_array_stream()
             .vortex_unwrap()
             .try_collect::<Vec<_>>()
             .await

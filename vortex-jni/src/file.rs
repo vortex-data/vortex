@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::jlong;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -13,16 +13,17 @@ use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
 
 use crate::array_stream::NativeArrayStream;
-use crate::block_on;
 use crate::errors::try_or_throw;
+use crate::{TOKIO_RUNTIME, block_on};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -120,6 +121,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     pointer: jlong,
     project_cols: JObject,
     predicate: JByteArray,
+    row_indices: JLongArray,
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
@@ -153,8 +155,21 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             scan_builder = scan_builder.with_filter(expr);
         }
 
+        // Apply row indices if provided
+        if !row_indices.is_null() {
+            let indices = unsafe { env.get_array_elements(&row_indices, ReleaseMode::NoCopyBack) }?;
+            let indices_buffer: Buffer<u64> = indices
+                .iter()
+                .map(|long: &i64| u64::try_from(*long))
+                .collect::<Result<Buffer<u64>, _>>()
+                .map_err(|_| vortex_err!("row indices can not be negative"))?;
+            scan_builder = scan_builder.with_row_indices(indices_buffer);
+        }
+
         // Canonicalize first, to avoid needing to pay decoding cost for every access.
-        let scan = scan_builder.with_canonicalize(true).build()?;
+        let scan = scan_builder
+            .with_canonicalize(true)
+            .spawn_tokio(TOKIO_RUNTIME.handle().clone())?;
         Ok(NativeArrayStream::new(scan.boxed()).into_raw())
     })
 }
