@@ -58,19 +58,46 @@ impl Display for Like {
 }
 
 #[cfg(feature = "proto")]
-mod proto {
+pub(crate) mod proto {
     use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
 
-    use crate::{ExprSerializable, Like};
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Like};
 
-    impl ExprSerializable for Like {
+    pub(crate) struct LikeSerde;
+
+    impl Id for LikeSerde {
         fn id(&self) -> &'static str {
             "like"
         }
+    }
+
+    impl ExprSerializable for Like {
+        fn id(&self) -> &'static str {
+            LikeSerde.id()
+        }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            vortex_bail!(NotImplemented: "", self.id())
+            Ok(Kind::Like(kind::Like {
+                negated: self.negated,
+                case_insensitive: self.case_insensitive,
+            }))
+        }
+    }
+
+    impl ExprDeserialize for LikeSerde {
+        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Like(like) = kind else {
+                vortex_bail!("wrong kind {:?}, want like", kind)
+            };
+
+            Ok(Like::new_expr(
+                children[0].clone(),
+                children[1].clone(),
+                like.negated,
+                like.case_insensitive,
+            ))
         }
     }
 }

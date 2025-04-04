@@ -24,6 +24,8 @@ message Kind {
     Merge merge = 5;
     Not not = 6;
     Pack pack = 7;
+    Between between = 8;
+    Like like = 9;
   }
 
   message Literal {
@@ -60,5 +62,16 @@ message Kind {
     And = 6;
     Or = 7;
   }
+
+  message Between {
+    bool lower_strict = 1;
+    bool upper_strict = 2;
+  }
+
+  message Like {
+    bool negated = 1;
+    bool case_insensitive = 2;
+  }
 }
+
 
