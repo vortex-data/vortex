@@ -36,7 +36,6 @@ vortex = { workspace = true, features = [
 ] }
 vortex-layout = { workspace = true, features = ["roaring"] }
 
-
 [dev-dependencies]
 jni = { version = "0.21.1", features = ["invocation"] }
 
