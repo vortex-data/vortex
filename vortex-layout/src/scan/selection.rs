@@ -31,7 +31,7 @@ impl Selection {
         match self {
             Selection::All => RowMask::new(range.start, Mask::new_true(range_len)),
             Selection::IncludeByIndex(include) => {
-                let mask = indices_range(&range, &include)
+                let mask = indices_range(range, include)
                     .map(|idx_range| {
                         Mask::from_indices(
                             range_len,
