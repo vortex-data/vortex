@@ -7,7 +7,6 @@ mod dtype;
 #[cfg(feature = "duckdb")]
 mod duckdb;
 mod file;
-mod iter;
 mod log;
 mod stream;
 
