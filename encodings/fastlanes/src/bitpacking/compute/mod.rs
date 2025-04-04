@@ -75,7 +75,7 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
         indices_len += 1;
     }
 
-    if !indices_within_chunk.is_empty() {
+    if indices_len > 0 {
         chunk_fn(current_chunk_idx, unsafe {
             mem::transmute::<&[MaybeUninit<usize>], &[usize]>(&indices_within_chunk[..indices_len])
         });
