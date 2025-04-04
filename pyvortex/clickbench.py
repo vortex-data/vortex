@@ -11,6 +11,9 @@ import polars as pl
 
 import vortex as vx
 import vortex.io
+from vortex import _lib
+
+_lib.launch()
 
 # 0: No., 1: SQL, 2: Polars
 queries = [
