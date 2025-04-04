@@ -83,7 +83,7 @@ impl VortexExpr for Not {
     }
 
     fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
+        assert_eq!(children.len(), 1);
         Self::new_expr(children.remove(0))
     }
 
