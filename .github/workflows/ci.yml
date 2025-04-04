@@ -49,6 +49,8 @@ jobs:
         with:
           submodules: "recursive"
       - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with:
+          sync: false
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
@@ -65,32 +67,45 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with: 
+          sync: false
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - PyVortex
         run: |
-          uv run stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
+          uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
         working-directory: pyvortex/
 
       - name: Pytest - PyVortex
         run: |
-          uv run pytest --benchmark-disable test/
+          uv run --isolated --all-packages pytest --benchmark-disable test/
         working-directory: pyvortex/
 
       - name: Doctest - PyVortex
         run: |
-          uv run make clean && uv run make doctest
+          uv run --isolated --all-packages make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
-          uv run make html
+          uv run --isolated --all-packages make html
         working-directory: docs/
 
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        shell: bash
         run: |
           # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
-          uv run maturin build --interpreter python3.10 --compatibility linux
+          uv run maturin build --interpreter python3.10 --auditwheel check
+          uv run maturin build --interpreter python3.10 --auditwheel check --sdist
+
+          file_count=$(ls -1 ../target/wheels/ | wc -l)
+
+          if [[ $file_count -ne 2 ]]; then
+            echo "Unexpected file count ${file_count}"
+            exit 1
+          else
+            echo "Generated two files"
+          fi
         working-directory: pyvortex/
 
   rust-docs:
