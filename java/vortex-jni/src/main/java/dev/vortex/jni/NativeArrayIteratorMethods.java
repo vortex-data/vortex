@@ -15,12 +15,13 @@
  */
 package dev.vortex.jni;
 
-public final class NativeArrayStreamMethods {
+public final class NativeArrayIteratorMethods {
     static {
         NativeLoader.loadJni();
     }
 
-    private NativeArrayStreamMethods() {}
+    private NativeArrayIteratorMethods() {
+    }
 
     /**
      * Free all resources associated with the stream behind the pointer.
