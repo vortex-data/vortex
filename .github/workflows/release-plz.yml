@@ -75,6 +75,7 @@ jobs:
           rust-toolchain: ${{ steps.rust-toolchain.version }}
           working-directory: pyvortex
           target: x86_64
+          command: build
           args: --release --interpreter python3.10 --auditwheel check --sdist
       - name: Build wheels - aarch64
         uses: PyO3/maturin-action@v1
@@ -82,6 +83,7 @@ jobs:
           rust-toolchain: ${{ steps.rust-toolchain.version }}
           working-directory: pyvortex
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
+          command: build
           args: --release --interpreter python3.10 --auditwheel check
       - name: Install UV
         uses: astral-sh/setup-uv@v5

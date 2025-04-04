@@ -99,8 +99,8 @@ jobs:
           # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
           uv venv
           uv pip install maturin
-          uv tool run maturin build --interpreter python3.10 --auditwheel check
-          uv tool run maturin build --interpreter python3.10 --auditwheel check --sdist
+          uv tool run maturin build --interpreter python3.10 --auditwheel check --compatibility manylinux2014
+          uv tool run maturin build --interpreter python3.10 --auditwheel check --sdist --compatibility manylinux2014
 
           file_count=$(ls -1 ../target/wheels/ | wc -l)
 
