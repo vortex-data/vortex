@@ -12,6 +12,8 @@
 #include "vortex_common.hpp"
 #include "expr/expr.hpp"
 
+#include <sys/socket.h>
+
 #ifndef DUCKDB_EXTENSION_MAIN
 #error DUCKDB_EXTENSION_MAIN not defined
 #endif
@@ -33,6 +35,8 @@ struct VortexBindData : public TableFunctionData {
 	unique_ptr<VortexFile> initial_file;
 
 	shared_ptr<MultiFileList> file_list;
+
+	std::optional<std::string> filter;
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<VortexBindData>();
@@ -115,6 +119,7 @@ string create_filter_expression(const VortexBindData &bind_data, VortexScanGloba
 	vector<vortex::expr::Expr *> exprs;
 
 	for (const auto &[col_id, value] : global_state.filter->filters) {
+		std::cout << "SFilter: " << col_id << ", " << value->ToString(to_string(col_id)) << std::endl;
 		auto col_name = bind_data.column_names[global_state.column_ids[col_id]];
 		auto conj = table_expression_into_expr(arena, *value, col_name);
 		exprs.push_back(conj);
@@ -218,6 +223,7 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    // This has a few factor effecting it:
 	    //  1. A smaller value means for work for the vortex file reader.
 	    //  2. A larger value reduces the parallelism available to the scanner
+	    // .split_by_row_count = 0,
 	    .split_by_row_count = 2048 * 32,
 	};
 
@@ -310,6 +316,52 @@ unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const Funct
 	return make_uniq<NodeStatistics>(data.num_columns, data.num_columns);
 }
 
+// typedef void (*table_function_type_pushdown_t)(ClientContext &context, optional_ptr<FunctionData> bind_data,
+// const unordered_map<idx_t, LogicalType> &new_column_types);
+
+void TypePushDown(ClientContext &context, optional_ptr<FunctionData> bind_data,
+                  const unordered_map<idx_t, LogicalType> &new_column_types) {
+	for (auto entry : new_column_types) {
+		std::cout << "Type push: " << entry.first << ", " << entry.second.ToString() << std::endl;
+	}
+}
+
+// typedef void (*table_function_pushdown_complex_filter_t)(ClientContext &context, LogicalGet &get,
+// FunctionData *bind_data,
+// vector<unique_ptr<Expression>> &filters);
+
+void ComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_data,
+                   vector<unique_ptr<Expression>> &filters) {
+	auto &bind = bind_data->Cast<VortexBindData>();
+
+	if (filters.empty()) {
+		bind.filter = std::optional("");
+	}
+
+	google::protobuf::Arena arena;
+
+	auto conjuncts = vector<vortex::expr::Expr *>();
+	conjuncts.reserve(filters.size());
+
+	for (auto iter = filters.begin(); iter != filters.end();) {
+		auto expr = expression_into_vortex_expr(arena, *iter->get());
+		if (expr != nullptr) {
+			conjuncts.push_back(expr);
+		}
+		if (expr != nullptr) {
+			iter = filters.erase(iter);
+		} else {
+			++iter;
+		};
+	}
+	auto expr = flatten_exprs(arena, conjuncts);
+	bind.filter = expr->SerializeAsString();
+
+	for (auto &filter : filters) {
+		std::cout << "Remain Complex filter: " << filter->ToString() << std::endl;
+	}
+}
+
 /// Called when the extension is loaded by DuckDB.
 /// It is responsible for registering functions and initializing state.
 ///
@@ -335,7 +387,13 @@ void VortexExtension::Load(DuckDB &db) {
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
 		state->expanded_files = bind.file_list->GetAllFiles();
 
-		state->filter_str = create_filter_expression(bind, *state);
+		if (bind.filter.has_value()) {
+			create_filter_expression(bind, *state);
+			state->filter_str = bind.filter.value();
+		} else {
+			state->filter_str = create_filter_expression(bind, *state);
+		}
+
 		auto column_names = std::vector<char const *>();
 		for (auto col_id : state->projection_ids) {
 			assert(col_id < bind.column_names.size());
@@ -360,6 +418,9 @@ void VortexExtension::Load(DuckDB &db) {
 		auto state = make_uniq<VortexScanLocalState>(thread_id);
 		return state;
 	};
+
+	vortex_func.type_pushdown = TypePushDown;
+	vortex_func.pushdown_complex_filter = ComplexFilter;
 
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;

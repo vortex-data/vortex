@@ -5,6 +5,13 @@
 #include "duckdb/common/exception.hpp"
 
 #include <cstdint>
+#include <duckdb/parser/expression/columnref_expression.hpp>
+#include <duckdb/parser/expression/comparison_expression.hpp>
+#include <duckdb/parser/expression/constant_expression.hpp>
+#include <duckdb/planner/expression/bound_between_expression.hpp>
+#include <duckdb/planner/expression/bound_columnref_expression.hpp>
+#include <duckdb/planner/expression/bound_comparison_expression.hpp>
+#include <duckdb/planner/expression/bound_constant_expression.hpp>
 #include <duckdb/planner/filter/conjunction_filter.hpp>
 #include <duckdb/planner/filter/optional_filter.hpp>
 
@@ -178,7 +185,7 @@ vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type
 	return scalar;
 }
 
-vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool nullable) {
+vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
 	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
 	auto dtype = into_vortex_dtype(arena, value.type().id(), nullable);
 	scalar->set_allocated_dtype(dtype);
@@ -260,6 +267,13 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 	id->set_id(IDENTITY_ID);
 }
 
+void set_literal(Arena &arena, const Value &value, bool nullable, vortex::expr::Expr *constant) {
+	auto literal = constant->mutable_kind()->mutable_literal();
+	auto dvalue = into_vortex_scalar(arena, value, nullable);
+	literal->set_allocated_value(dvalue);
+	constant->set_id(LITERAL_ID);
+}
+
 vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
                                           const string &column_name) {
 	D_ASSERT(!child_filters.empty());
@@ -287,7 +301,11 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 
 vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
-	D_ASSERT(!child_filters.empty());
+	if (child_filters.size() == 0) {
+		auto expr = arena.Create<vortex::expr::Expr>(&arena);
+		set_literal(arena, Value(true), true, expr);
+		return expr;
+	}
 
 	if (child_filters.size() == 1) {
 		return child_filters[0];
@@ -308,6 +326,43 @@ vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Exp
 	}
 	tail->add_children()->Swap(child_filters.back());
 	return hd;
+}
+
+vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &dexpr) {
+	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
+	switch (dexpr.expression_class) {
+	case duckdb::ExpressionClass::BOUND_COLUMN_REF: {
+		auto &dcol_ref = dexpr.Cast<duckdb::BoundColumnRefExpression>();
+		auto column = expr;
+		set_column(dcol_ref.GetName(), column);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_CONSTANT: {
+		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
+		set_literal(arena, Value(dconstant.value), true, expr);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_COMPARISON: {
+		auto &dcompare = dexpr.Cast<duckdb::BoundComparisonExpression>();
+		auto left = expr->add_children();
+		left->Swap(expression_into_vortex_expr(arena, *dcompare.left));
+		auto right = expr->add_children();
+		right->Swap(expression_into_vortex_expr(arena, *dcompare.right));
+		auto bin_op = into_binary_operation(dcompare.type);
+		expr->mutable_kind()->set_binary_op(bin_op);
+		expr->set_id(BINARY_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_BETWEEN: {
+		auto &dbetween = dexpr.Cast<duckdb::BoundBetweenExpression>();
+		auto lower = expression_into_vortex_expr(arena, *dbetween.lower);
+		auto upper = expression_into_vortex_expr(arena, *dbetween.upper);
+		// expr->kind().b
+	}
+	default:
+		std::cout << "class: " << std::to_string(static_cast<uint8_t>(dexpr.expression_class)) << std::endl;
+		return nullptr;
+	}
 }
 
 vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
