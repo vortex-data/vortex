@@ -19,7 +19,10 @@ pub enum Selection {
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
     #[cfg(feature = "roaring")]
-    Roaring(roaring::RoaringTreemap),
+    IncludeRoaring(roaring::RoaringTreemap),
+    /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
+    #[cfg(feature = "roaring")]
+    ExcludeRoaring(roaring::RoaringTreemap),
 }
 
 impl Selection {
@@ -58,7 +61,7 @@ impl Selection {
                 RowMask::new(range.start, mask.not())
             }
             #[cfg(feature = "roaring")]
-            Selection::Roaring(roaring) => {
+            Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
                 // First we perform a cheap is_disjoint check
@@ -80,6 +83,29 @@ impl Selection {
                             usize::try_from(idx).vortex_expect("Index does not fit into a usize")
                         })
                         .collect(),
+                );
+
+                RowMask::new(range.start, mask)
+            }
+            #[cfg(feature = "roaring")]
+            Selection::ExcludeRoaring(roaring) => {
+                use std::ops::BitAnd;
+
+                let mut range_treemap = roaring::RoaringTreemap::new();
+                range_treemap.insert_range(range.clone());
+
+                // If there are no deletions in the intersection, then we have an all true mask.
+                if roaring.intersection_len(&range_treemap) == range_len as u64 {
+                    return RowMask::new(range.start, Mask::new_true(range_len));
+                }
+
+                // Otherwise, intersect with the selected range and shift to relativize.
+                let roaring = roaring.bitand(range_treemap);
+                let mask = Mask::from_excluded_indices(
+                    range_len,
+                    roaring.iter().map(|idx| idx - range.start).map(|idx| {
+                        usize::try_from(idx).vortex_expect("Index does not fit into a usize")
+                    }),
                 );
 
                 RowMask::new(range.start, mask)
