@@ -26,8 +26,8 @@ use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
 
-// #[global_allocator]
-// static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
@@ -41,6 +41,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     Python::with_gil(|py| -> PyResult<()> {
         Logger::new(py, Caching::LoggersAndLevels)?
             .filter(LevelFilter::Info)
+            .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
             .install()
             .map(|_| ())
             .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {}", err)))

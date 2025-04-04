@@ -2,7 +2,6 @@
 # ruff: noqa: E501
 import argparse
 import json
-import logging
 import os.path
 import timeit
 from collections import defaultdict
@@ -12,8 +11,6 @@ import polars as pl
 
 import vortex as vx
 import vortex.io
-
-logging.basicConfig()
 
 # 0: No., 1: SQL, 2: Polars
 queries = [
@@ -582,7 +579,6 @@ def main(args):
             vx.io.write(it, vx_path)
 
         lf = vx.open(vx_path).to_polars()
-        # lf = pl.scan_pyarrow_dataset(vx.open(vx_path).to_dataset())
         run_queries("vortex", lf)
 
     if args.formats is None or "parquet" in args.formats:
