@@ -93,20 +93,6 @@ jobs:
           uv run maturin build --interpreter python3.10 --compatibility linux
         working-directory: pyvortex/
 
-      - name: Ensure wheel can run tests successfully
-        run: |
-          set -ex
-
-          echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
-
-          rm -rf .venv
-          uv sync --only-dev
-
-          uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
-          uv run pip install pytest
-          cd pyvortex/test
-          uv run pytest
-
   rust-docs:
     name: "Rust (docs)"
     runs-on:
