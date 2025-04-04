@@ -19,12 +19,16 @@ import org.immutables.value.Value;
 
 @Value.Immutable
 public interface SerializedBitmap {
+    @Value.Parameter
     byte[] data();
 
+    @Value.Parameter
     int offset();
 
+    @Value.Parameter
     int length();
 
+    @Value.Parameter
     boolean isInclude();
 
     @Value.Check
@@ -44,5 +48,9 @@ public interface SerializedBitmap {
         if (offset() + length() > data().length) {
             throw new IllegalArgumentException("offset + length cannot be greater than data length");
         }
+    }
+
+    static ImmutableSerializedBitmap.Builder builder() {
+        return ImmutableSerializedBitmap.builder();
     }
 }
