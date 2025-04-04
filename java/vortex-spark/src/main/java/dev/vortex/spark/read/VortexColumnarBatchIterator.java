@@ -19,9 +19,7 @@ import dev.vortex.api.Array;
 import dev.vortex.api.ArrayIterator;
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
-
 import java.util.Iterator;
-
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
