@@ -1,3 +1,8 @@
+<<<<<<< Updated upstream
+=======
+use std::iter;
+use std::ops::Range;
+>>>>>>> Stashed changes
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
@@ -31,6 +36,9 @@ pub struct ScanBuilder {
     task_executor: Option<TaskExecutor>,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    /// Optionally read a subset of the rows in the file.
+    row_range: Option<Range<u64>>,
+    /// The selection mask to apply to the selected row range.
     selection: Selection,
     split_by: SplitBy,
     canonicalize: bool,
@@ -46,6 +54,7 @@ impl ScanBuilder {
             task_executor: None,
             projection: Identity::new_expr(),
             filter: None,
+            row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
             canonicalize: false,
@@ -68,6 +77,15 @@ impl ScanBuilder {
 
     pub fn with_projection(mut self, projection: ExprRef) -> Self {
         self.projection = projection;
+        self
+    }
+
+    pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
+        self.with_some_row_range(Some(row_range))
+    }
+
+    pub fn with_some_row_range(mut self, row_range: Option<Range<u64>>) -> Self {
+        self.row_range = row_range;
         self
     }
 
@@ -138,6 +156,20 @@ impl ScanBuilder {
 
         let row_masks = splits
             .into_iter()
+            .filter_map(|row_range| {
+                if let Some(scan_range) = self.row_range {
+                    // If the row range is fully within the scan range, return it.
+                    if row_range.start < scan_range.start || row_range.end > scan_range.end {
+                        return None;
+                    }
+                    // Otherwise, take the intersection of the range.
+                    return Some(
+                        row_range.start.max(scan_range.start)..row_range.end.min(scan_range.end),
+                    );
+                } else {
+                    Some(row_range)
+                }
+            })
             .map(|row_range| self.selection.row_mask(&row_range))
             .filter(|mask| !mask.mask().all_false())
             .collect_vec();
