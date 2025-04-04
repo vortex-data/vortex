@@ -234,18 +234,17 @@ impl StatsSet {
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         let other_stats: Vec<_> = other.values.iter().map(|(stat, _)| *stat).collect();
         for s in other_stats {
-            let stat_dtype = s.dtype(dtype).vortex_expect("merging stats");
             match s {
-                Stat::Max => self.combine_bound::<Max>(other, &stat_dtype)?,
-                Stat::Min => self.combine_bound::<Min>(other, &stat_dtype)?,
+                Stat::Max => self.combine_bound::<Max>(other, dtype)?,
+                Stat::Min => self.combine_bound::<Min>(other, dtype)?,
                 Stat::UncompressedSizeInBytes => {
-                    self.combine_bound::<UncompressedSizeInBytes>(other, &stat_dtype)?
+                    self.combine_bound::<UncompressedSizeInBytes>(other, dtype)?
                 }
                 Stat::IsConstant => self.combine_bool_stat::<IsConstant>(other)?,
                 Stat::IsSorted => self.combine_bool_stat::<IsSorted>(other)?,
                 Stat::IsStrictSorted => self.combine_bool_stat::<IsStrictSorted>(other)?,
-                Stat::NullCount => self.combine_bound::<NullCount>(other, &stat_dtype)?,
-                Stat::Sum => self.combine_bound::<Sum>(other, &stat_dtype)?,
+                Stat::NullCount => self.combine_bound::<NullCount>(other, dtype)?,
+                Stat::Sum => self.combine_bound::<Sum>(other, dtype)?,
             }
         }
         Ok(())
