@@ -87,26 +87,23 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         }
     }
 
-    debug_assert_eq!(
+    assert_eq!(
         taken.len(),
         indices.len(),
         "Take length mismatch {}",
         array.encoding()
     );
-    #[cfg(debug_assertions)]
-    {
-        // If either the indices or the array are nullable, the result should be nullable.
-        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
-        assert_eq!(
-            taken.dtype(),
-            &array.dtype().with_nullability(expected_nullability),
-            "Take result ({}) should be nullable if either the indices ({}) or the array ({}) are nullable. ({})",
-            taken.dtype(),
-            indices.dtype().nullability().verbose_display(),
-            array.dtype().nullability().verbose_display(),
-            array.encoding(),
-        );
-    }
+    // If either the indices or the array are nullable, the result should be nullable.
+    let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
+    assert_eq!(
+        taken.dtype(),
+        &array.dtype().with_nullability(expected_nullability),
+        "Take result ({}) should be nullable if either the indices ({}) or the array ({}) are nullable. ({})",
+        taken.dtype(),
+        indices.dtype().nullability().verbose_display(),
+        array.dtype().nullability().verbose_display(),
+        array.encoding(),
+    );
 
     Ok(taken)
 }
@@ -125,20 +122,17 @@ pub fn take_into(
         vortex_bail!("Cannot take_into from an empty array");
     }
 
-    #[cfg(debug_assertions)]
-    {
-        // If either the indices or the array are nullable, the result should be nullable.
-        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
-        assert_eq!(
-            builder.dtype(),
-            &array.dtype().with_nullability(expected_nullability),
-            "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array ({}) are nullable. ({})",
-            builder.dtype(),
-            indices.dtype().nullability().verbose_display(),
-            array.dtype().nullability().verbose_display(),
-            array.encoding(),
-        );
-    }
+    // If either the indices or the array are nullable, the result should be nullable.
+    let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
+    assert_eq!(
+        builder.dtype(),
+        &array.dtype().with_nullability(expected_nullability),
+        "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array ({}) are nullable. ({})",
+        builder.dtype(),
+        indices.dtype().nullability().verbose_display(),
+        array.dtype().nullability().verbose_display(),
+        array.encoding(),
+    );
 
     if !indices.dtype().is_int() {
         vortex_bail!(
@@ -155,7 +149,7 @@ pub fn take_into(
 
     let after_len = builder.len();
 
-    debug_assert_eq!(
+    assert_eq!(
         after_len - before_len,
         indices.len(),
         "Take_into length mismatch {}",

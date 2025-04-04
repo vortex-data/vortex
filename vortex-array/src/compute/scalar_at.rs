@@ -39,7 +39,7 @@ pub fn scalar_at(array: &dyn Array, index: usize) -> VortexResult<Scalar> {
         .map(|f| f.scalar_at(array, index))
         .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding())))?;
 
-    debug_assert_eq!(
+    assert_eq!(
         scalar.dtype(),
         array.dtype(),
         "ScalarAt dtype mismatch {}",

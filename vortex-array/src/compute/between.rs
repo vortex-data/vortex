@@ -88,10 +88,10 @@ pub fn between(
     upper: &dyn Array,
     options: &BetweenOptions,
 ) -> VortexResult<ArrayRef> {
-    debug_assert!(arr.dtype().eq_ignore_nullability(lower.dtype()));
-    debug_assert!(arr.dtype().eq_ignore_nullability(upper.dtype()));
-    debug_assert_eq!(arr.len(), lower.len());
-    debug_assert_eq!(arr.len(), upper.len());
+    assert!(arr.dtype().eq_ignore_nullability(lower.dtype()));
+    assert!(arr.dtype().eq_ignore_nullability(upper.dtype()));
+    assert_eq!(arr.len(), lower.len());
+    assert_eq!(arr.len(), upper.len());
 
     // A quick check to see if either array might is a null constant array.
     if lower.is_invalid(0)? || upper.is_invalid(0)? {
@@ -110,8 +110,8 @@ pub fn between(
 
     let result = between_impl(arr, lower, upper, options)?;
 
-    debug_assert_eq!(result.len(), arr.len());
-    debug_assert_eq!(
+    assert_eq!(result.len(), arr.len());
+    assert_eq!(
         result.dtype(),
         &DType::Bool(
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability()
