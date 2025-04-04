@@ -24,9 +24,9 @@ object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["tokio", "object_store", "proto"] }
+vortex = { workspace = true, features = ["object_store", "proto", "tokio"] }
 vortex-duckdb = { workspace = true, optional = true }
 
 [features]

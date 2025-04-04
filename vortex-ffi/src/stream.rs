@@ -44,7 +44,9 @@ pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> boo
         .as_mut()
         .vortex_expect("FFIArrayStream_next called after finish");
 
-    let element = RUNTIME.block_on(async { inner.stream.next().await });
+    // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
+    // tokio dep
+    let element = RUNTIME.with(|runtime| runtime.block_on(async { inner.stream.next().await }));
 
     if let Some(element) = element {
         let inner = element.vortex_expect("element");

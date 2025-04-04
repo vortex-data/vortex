@@ -67,12 +67,23 @@ impl VortexReadAt for ObjectStoreReadAt {
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
                 unsafe { buffer.set_len(len) };
-                tokio::task::spawn_blocking(move || {
-                    file.read_exact_at(&mut buffer, range.start)?;
-                    Ok::<_, io::Error>(buffer)
-                })
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+                #[cfg(feature = "tokio")]
+                {
+                    tokio::task::spawn_blocking(move || {
+                        file.read_exact_at(&mut buffer, range.start)?;
+                        Ok::<_, io::Error>(buffer)
+                    })
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+                }
+                #[cfg(not(feature = "tokio"))]
+                {
+                    {
+                        file.read_exact_at(&mut buffer, range.start)?;
+                        Ok::<_, io::Error>(buffer)
+                    }
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                }
             }
             GetResultPayload::Stream(mut byte_stream) => {
                 while let Some(bytes) = byte_stream.next().await {

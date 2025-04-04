@@ -9,8 +9,7 @@
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
 
-#include "vortex.h"
-
+#include "vortex_common.hpp"
 #include "expr/expr.hpp"
 
 #ifndef DUCKDB_EXTENSION_MAIN
@@ -31,7 +30,7 @@ struct VortexBindData : public TableFunctionData {
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
 	uint64_t num_columns;
-	File *initial_file;
+	unique_ptr<VortexFile> initial_file;
 
 	shared_ptr<MultiFileList> file_list;
 
@@ -57,23 +56,26 @@ struct VortexBindData : public TableFunctionData {
 struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t current_row;
 	bool finished;
-	Array *array;
+	unique_ptr<VortexArray> array;
+	unique_ptr<VortexConversionCache> cache;
 	uint32_t thread_id;
 
 	explicit VortexScanLocalState(uint32_t thread_id)
-	    : current_row(0), finished(false), array(nullptr), thread_id(thread_id) {
+	    : current_row(0), finished(false), array(nullptr), cache(nullptr), thread_id(thread_id) {
 	}
 };
 
 struct FileSlot {
 	std::mutex slot_lock;
-	ArrayStream *array_stream;
+	unique_ptr<VortexArrayStream> array_stream;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
 	// Must be <= MAX_THREAD_COUNT.
 	std::atomic_uint32_t thread_id_counter;
 	std::atomic_bool finished;
+
+	std::uint64_t cache_id;
 
 	// Each thread owns a file slot and is the thing only one allowed to modify the slot itself.
 	// Other threads can work-steal array batches from the slot, by taking out the mutex in the FileSlot.
@@ -100,7 +102,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 
 	explicit VortexScanGlobalState()
-	    : thread_id_counter(0), finished(false), file_slots(), next_file(0), filter(nullptr) {
+	    : thread_id_counter(0), finished(false), cache_id(0), file_slots(), next_file(0), filter(nullptr) {
 	}
 };
 
@@ -152,22 +154,23 @@ std::string EnsureFileProtocol(const std::string &path) {
 	return prefix + path;
 }
 
-static File *OpenFile(const std::string &filename, vector<LogicalType> &column_types, vector<string> &column_names) {
+static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
+                                       vector<string> &column_names) {
 	FileOpenOptions options;
 	options.uri = filename.c_str();
 	options.property_keys = nullptr;
 	options.property_vals = nullptr;
 	options.property_len = 0;
 
-	File *file = File_open(&options);
+	auto file = VortexFile::Open(&options);
 	if (!file) {
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
 	// This Ptr is owned by the file
-	const DType *file_dtype = File_dtype(file);
+	const DType *file_dtype = File_dtype(file->file);
 	if (DType_get(file_dtype) != DTYPE_STRUCT) {
-		File_free(file);
+		File_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
@@ -193,7 +196,7 @@ static void VerifyNewFile(const VortexBindData &bind_data, vector<LogicalType> &
 	}
 }
 
-static File *OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
+static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
 	auto new_column_types = vector<LogicalType>();
@@ -204,7 +207,8 @@ static File *OpenFileAndVerify(const std::string &filename, const VortexBindData
 	return file;
 }
 
-static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanGlobalState &global_state, File *file) {
+static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_data,
+                                                     VortexScanGlobalState &global_state, VortexFile *file) {
 	auto options = FileScanOptions {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
@@ -214,10 +218,10 @@ static ArrayStream *OpenArrayStream(const VortexBindData &bind_data, VortexScanG
 	    // This has a few factor effecting it:
 	    //  1. A smaller value means for work for the vortex file reader.
 	    //  2. A larger value reduces the parallelism available to the scanner
-	    .split_by_row_count = 2048 * 8,
+	    .split_by_row_count = 2048 * 32,
 	};
 
-	return File_scan(file, &options);
+	return make_uniq<VortexArrayStream>(File_scan(file->file, &options));
 }
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
@@ -239,10 +243,9 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		// todo: 3. check if we can work steal from another thread
 		// 4. we are done
 
-		auto next = slot.array_stream != nullptr ? FFIArrayStream_next(slot.array_stream) : false;
+		auto next = slot.array_stream != nullptr ? slot.array_stream->NextArray() : false;
 		while (!next) {
 			if (slot.array_stream != nullptr) {
-				FFIArrayStream_free(slot.array_stream);
 				slot.array_stream = nullptr;
 			}
 
@@ -258,19 +261,24 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			auto file_name = global_state.expanded_files[file_idx];
 			auto file = OpenFileAndVerify(file_name, bind_data);
 
-			slot.array_stream = OpenArrayStream(bind_data, global_state, file);
-			next = FFIArrayStream_next(slot.array_stream);
+			slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
+			next = slot.array_stream->NextArray();
 		}
-		local_state.array = FFIArrayStream_current(slot.array_stream);
+		local_state.array = slot.array_stream->CurrentArray();
 		local_state.current_row = 0;
 	}
 
-	local_state.current_row = FFIArray_to_duckdb_chunk(local_state.array, local_state.current_row,
-	                                                   reinterpret_cast<duckdb_data_chunk>(&output));
+	if (local_state.cache == nullptr) {
+		// Create a unique value so each cache can be differentiated.
+		local_state.cache = make_uniq<VortexConversionCache>(global_state.cache_id++);
+	}
+
+	local_state.current_row = local_state.array->ToDuckDBVector(
+	    local_state.current_row, reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache.get());
 
 	if (local_state.current_row == 0) {
-		FFIArray_free(local_state.array);
 		local_state.array = nullptr;
+		local_state.cache = nullptr;
 	}
 }
 
@@ -297,7 +305,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 }
 
 unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const FunctionData *bind_data) {
-	auto data = bind_data->Cast<VortexBindData>();
+	auto &data = bind_data->Cast<VortexBindData>();
 
 	return make_uniq<NodeStatistics>(data.num_columns, data.num_columns);
 }
@@ -336,7 +344,7 @@ void VortexExtension::Load(DuckDB &db) {
 		state->projected_column_names = column_names;
 
 		// Can ignore mutex since no other threads are running now.
-		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file);
+		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file.get());
 		state->next_file = 1;
 
 		return std::move(state);

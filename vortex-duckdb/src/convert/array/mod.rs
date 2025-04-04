@@ -7,6 +7,7 @@ use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
 use num_traits::AsPrimitive;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{
     ChunkedArray, ChunkedEncoding, PrimitiveArray, StructArray, VarBinViewArray, VarBinViewEncoding,
 };
@@ -19,19 +20,44 @@ use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_fsst::{FSSTArray, FSSTEncoding};
 use vortex_mask::Mask;
 
-use crate::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::convert::array::data_chunk_adaptor::{
     DataChunkHandleSlice, NamedDataChunk, SizedFlatVector,
 };
 use crate::convert::scalar::ToDuckDBScalar;
+use crate::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType};
 
-pub trait ToDuckDB {
-    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()>;
+#[derive(Default)]
+pub struct ConversionCache {
+    pub values_cache: HashMap<usize, FlatVector>,
+    // A value which must be unique for a given duckdb pipeline.
+    pub instance_id: u64,
 }
 
-pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+impl ConversionCache {
+    pub fn new(id: u64) -> Self {
+        Self {
+            instance_id: id,
+            ..Self::default()
+        }
+    }
+}
+
+pub trait ToDuckDB {
+    fn to_duckdb(
+        &self,
+        chunk: &mut dyn WritableVector,
+        cache: &mut ConversionCache,
+    ) -> VortexResult<()>;
+}
+
+pub fn to_duckdb(
+    array: &ArrayRef,
+    chunk: &mut dyn WritableVector,
+    cache: &mut ConversionCache,
+) -> VortexResult<()> {
     if let Some(constant) = array.as_constant() {
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
@@ -41,53 +67,92 @@ pub fn to_duckdb(array: ArrayRef, chunk: &mut dyn WritableVector) -> VortexResul
             .as_any()
             .downcast_ref::<ChunkedArray>()
             .vortex_expect("chunk checked")
-            .to_duckdb(chunk)
+            .to_duckdb(chunk, cache)
     } else if array.is_encoding(VarBinViewEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<VarBinViewArray>()
             .vortex_expect("varbinview id checked")
-            .to_duckdb(chunk)
+            .to_duckdb(chunk, cache)
+    } else if array.is_encoding(FSSTEncoding.id()) {
+        let arr = array
+            .as_any()
+            .downcast_ref::<FSSTArray>()
+            .vortex_expect("FSSTArray id checked");
+        arr.to_varbinview()?.to_duckdb(chunk, cache)
     } else if array.is_encoding(DictEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<DictArray>()
             .vortex_expect("dict id checked")
-            .to_duckdb(chunk)
+            .to_duckdb(chunk, cache)
     } else {
-        to_arrow_preferred(&array)?.to_duckdb(chunk)
+        to_arrow_preferred(array)?.to_duckdb(chunk, cache)
     }
 }
 
 impl ToDuckDB for ChunkedArray {
-    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+    fn to_duckdb(
+        &self,
+        chunk: &mut dyn WritableVector,
+        cache: &mut ConversionCache,
+    ) -> VortexResult<()> {
         // TODO(joe): support multi-chunk arrays without canonical.
         if self.chunks().len() > 1 {
-            to_arrow_preferred(self)?.to_duckdb(chunk)
+            to_arrow_preferred(self)?.to_duckdb(chunk, cache)
         } else {
-            to_duckdb(self.chunks()[0].clone(), chunk)
+            to_duckdb(&self.chunks()[0], chunk, cache)
         }
     }
 }
 
 impl ToDuckDB for DictArray {
-    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
-        // If the values fit into a single vector, we can efficiently delay the take operation.
-        if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE && !self.codes().dtype().is_nullable()
-        {
-            to_duckdb(self.values().clone(), chunk)?;
-            let sel = selection_vector_from_array(self.codes().to_primitive()?);
-            let mut vector = chunk.flat_vector();
-            vector.slice(sel);
-            // Note you can only have nullable values (not codes/selection vectors),
-            // so we cannot assign a selection vector.
-            Ok(())
-        } else {
-            // TODO(joe): can we do value compression and avoid a take.
-            // If the ratio of values to code is low, aka few values to many codes.
+    fn to_duckdb(
+        &self,
+        chunk: &mut dyn WritableVector,
+        cache: &mut ConversionCache,
+    ) -> VortexResult<()> {
+        // Note you can only have nullable values (not codes/selection vectors),
+        // so we cannot assign a selection vector.
+        if !self.codes().all_valid()? {
             let values = take(self.values(), self.codes())?;
-            to_duckdb(values, chunk)
-        }
+            return to_duckdb(&values, chunk, cache);
+        };
+
+        let value_ptr = (self.values().as_ref() as *const dyn Array as *const ()) as usize;
+
+        let mut vector: FlatVector = if self.values().len() <= DUCKDB_STANDARD_VECTOR_SIZE {
+            // If the values fit into a single vector, put the values in the pre-allocated vector.
+            to_duckdb(self.values(), chunk, cache)?;
+            chunk.flat_vector()
+        } else {
+            // If the values don't fit allocated a larger vector and that the data chunk vector
+            // reference this new one.
+            let entry = cache.values_cache.get(&value_ptr);
+            let value_vector = match entry {
+                None => {
+                    let mut value_vector = FlatVector::allocate_new_vector_with_capacity(
+                        self.values().dtype().to_duckdb_type()?,
+                        self.values().len(),
+                    );
+                    to_duckdb(self.values(), &mut value_vector, cache)?;
+                    cache.values_cache.insert(value_ptr, value_vector);
+                    cache
+                        .values_cache
+                        .get(&value_ptr)
+                        .vortex_expect("just added")
+                }
+                Some(entry) => entry,
+            };
+
+            let mut vector = chunk.flat_vector();
+            vector.reference(value_vector);
+            vector
+        };
+        let sel = selection_vector_from_array(self.codes().to_primitive()?);
+        vector.slice(self.values().len() as u64, sel);
+        vector.set_dictionary_id(format!("{}-{}", cache.instance_id, value_ptr));
+        Ok(())
     }
 }
 
@@ -103,24 +168,20 @@ pub fn selection_vector_from_slice<P: NativePType + AsPrimitive<u32>>(
     slice.iter().map(|v| (*v).as_()).collect()
 }
 
-const ALL_TRUE_SEL_MASK: [u64; 32] = [u64::MAX; 32];
-const ALL_FALSE_SEL_MASK: [u64; 32] = [u64::MIN; 32];
-
 pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
     // Check that both the target vector is large enough and the mask too.
     // If we later allow vectors larger than 2k (against duckdb defaults), we can revisit this.
-    assert!(mask.len() <= DUCKDB_STANDARD_VECTOR_SIZE);
-    assert!(flat_vector.capacity() <= DUCKDB_STANDARD_VECTOR_SIZE);
+    assert!(mask.len() <= flat_vector.capacity());
     match mask {
         Mask::AllTrue(len) => {
             if let Some(slice) = flat_vector.validity_slice() {
                 // This is only needed if the vector as previously allocated.
-                slice.copy_from_slice(&ALL_TRUE_SEL_MASK[0..len]);
+                slice[0..len].fill(u64::MAX)
             }
         }
         Mask::AllFalse(len) => {
             let slice = flat_vector.init_get_validity_slice();
-            slice.copy_from_slice(&ALL_FALSE_SEL_MASK[0..len])
+            slice[0..len].fill(u64::MIN)
         }
         Mask::Values(arr) => {
             // TODO(joe): do this MUCH better, with a shifted u64 copy
@@ -136,6 +197,7 @@ pub fn write_validity_from_mask(mask: Mask, flat_vector: &mut FlatVector) {
 pub fn to_duckdb_chunk(
     struct_array: &StructArray,
     chunk: &mut DataChunkHandle,
+    cache: &mut ConversionCache,
 ) -> VortexResult<()> {
     if struct_array.fields().is_empty() {
         // This happens If the file result is a count(*), then there will be struct fields,
@@ -150,13 +212,17 @@ pub fn to_duckdb_chunk(
 
     chunk.set_len(struct_array.len());
     for (idx, field) in struct_array.fields().iter().enumerate() {
-        to_duckdb(field.clone(), &mut DataChunkHandleSlice::new(chunk, idx))?;
+        to_duckdb(field, &mut DataChunkHandleSlice::new(chunk, idx), cache)?;
     }
     Ok(())
 }
 
 impl ToDuckDB for ArrowArrayRef {
-    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+    fn to_duckdb(
+        &self,
+        chunk: &mut dyn WritableVector,
+        _: &mut ConversionCache,
+    ) -> VortexResult<()> {
         write_arrow_array_to_vector(self, chunk)
             .map_err(|e| vortex_err!("Failed to convert vortex duckdb array: {}", e.to_string()))
     }
@@ -194,7 +260,7 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
 
         let (names, arrays): (Vec<_>, Vec<_>) = columns.into_iter().unzip();
 
-        // all top level struct are non nullable is duckdb, only inner columns can be.
+        // All top level struct are non-nullable in duckdb, only inner columns can be nullable.
         StructArray::try_new(names.into(), arrays, len, Validity::NonNullable)
             .map(StructArray::into_array)
     }
@@ -224,7 +290,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::convert::array::data_chunk_adaptor::NamedDataChunk;
-    use crate::convert::array::to_duckdb_chunk;
+    use crate::convert::array::{ConversionCache, to_duckdb_chunk};
     use crate::{FromDuckDB, ToDuckDBType};
 
     fn data() -> ArrayRef {
@@ -257,7 +323,12 @@ mod tests {
             .unzip();
         let struct_arr = arr.to_struct().unwrap();
         let mut output_chunk = DataChunkHandle::new(ddb_type.as_slice());
-        to_duckdb_chunk(&struct_arr, &mut output_chunk).unwrap();
+        to_duckdb_chunk(
+            &struct_arr,
+            &mut output_chunk,
+            &mut ConversionCache::default(),
+        )
+        .unwrap();
 
         let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
             &output_chunk,
@@ -285,7 +356,7 @@ mod tests {
             LogicalTypeHandle::from(LogicalTypeId::Bigint),
             LogicalTypeHandle::from(LogicalTypeId::Integer),
         ]);
-        to_duckdb_chunk(&st, &mut output_chunk).unwrap();
+        to_duckdb_chunk(&st, &mut output_chunk, &mut ConversionCache::default()).unwrap();
 
         assert_eq!(
             format!("{:?}", output_chunk),
@@ -329,7 +400,7 @@ mod tests {
         .unwrap()
         .to_struct()
         .unwrap();
-        to_duckdb_chunk(&str, &mut chunk).unwrap();
+        to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
 
         chunk.verify();
         assert_eq!(
@@ -360,13 +431,13 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        to_duckdb_chunk(&str, &mut chunk).unwrap();
+        to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
 
         chunk.verify();
         assert_eq!(
             format!("{:?}", chunk),
             r#"Chunk - [1 Columns]
-- FLAT INTEGER: 5 = [ 0, 3, 4, 2, 1]
+- DICTIONARY INTEGER: 5 = [ 0, 3, 4, 2, 1]
 "#
         );
     }

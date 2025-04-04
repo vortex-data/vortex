@@ -1,3 +1,6 @@
+use std::mem;
+use std::mem::MaybeUninit;
+
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
@@ -98,7 +101,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     let mut values = BufferMut::with_capacity(indices_len);
 
     // Some re-usable memory to store per-chunk indices.
-    let mut unpacked = [T::zero(); 1024];
+    let mut unpacked = [const { MaybeUninit::<T>::uninit() }; 1024];
     let packed_bytes = array.packed_slice::<T>();
 
     // Group the indices by the FastLanes chunk they belong to.
@@ -120,11 +123,15 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
             }
         } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
             // Unpack into a temporary chunk and then copy the values.
-            unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) }
+            unsafe {
+                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                let dst: &mut [T] = mem::transmute(dst);
+                BitPacking::unchecked_unpack(bit_width, packed, dst);
+            }
             values.extend(
                 indices_within_chunk
                     .iter()
-                    .map(|&idx| unsafe { *unpacked.get_unchecked(idx) }),
+                    .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
             );
         } else {
             // Otherwise, unpack each element individually.

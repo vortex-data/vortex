@@ -1,3 +1,5 @@
+mod cache;
+
 use std::cmp::min;
 use std::ffi::c_uint;
 
@@ -7,9 +9,10 @@ use vortex::compute::slice;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::{Array, ToCanonical};
-use vortex_duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
+use vortex_duckdb::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType, to_duckdb_chunk};
 
 use crate::array::FFIArray;
+use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
@@ -30,6 +33,7 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     stream: *mut FFIArray,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
+    cache: *mut FFIConversionCache,
 ) -> c_uint {
     let offset = offset as usize;
     let array = unsafe { &(*stream).inner };
@@ -41,9 +45,12 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 
     let slice = slice(array, offset, end).vortex_expect("slice");
     let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+    let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
+
     to_duckdb_chunk(
         &slice.to_struct().vortex_expect("must be a struct"),
         &mut data_chunk_handle,
+        cache,
     )
     .vortex_expect("to_duckdb");
 
@@ -63,7 +70,7 @@ mod tests {
 
     use crate::array::FFIArray;
     use crate::duckdb::FFIArray_to_duckdb_chunk;
-
+    use crate::duckdb::cache::{ConversionCache_create, ConversionCache_free};
     #[test]
     fn test_long_array() {
         let vortex: PrimitiveArray = (0i32..4095).collect();
@@ -73,12 +80,19 @@ mod tests {
             inner: vortex.to_array(),
         }));
 
+        let cache = unsafe { ConversionCache_create(0) };
+
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr()) };
+        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache) };
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
-        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr()) };
+        let offset =
+            unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache) };
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
+
+        unsafe {
+            ConversionCache_free(cache);
+        }
     }
 }

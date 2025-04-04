@@ -1,19 +1,21 @@
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::jlong;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
@@ -119,6 +121,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     pointer: jlong,
     project_cols: JObject,
     predicate: JByteArray,
+    row_indices: JLongArray,
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
@@ -150,6 +153,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
                 Expr::decode(proto_vec.as_slice()).map_err(VortexError::ProstDecodeError)?;
             let expr = deserialize_expr(&expr_proto)?;
             scan_builder = scan_builder.with_filter(expr);
+        }
+
+        // Apply row indices if provided
+        if !row_indices.is_null() {
+            let indices = unsafe { env.get_array_elements(&row_indices, ReleaseMode::NoCopyBack) }?;
+            let indices_buffer: Buffer<u64> = indices
+                .iter()
+                .map(|long: &i64| u64::try_from(*long))
+                .collect::<Result<Buffer<u64>, _>>()
+                .map_err(|_| vortex_err!("row indices can not be negative"))?;
+            scan_builder = scan_builder.with_row_indices(indices_buffer);
         }
 
         // Canonicalize first, to avoid needing to pay decoding cost for every access.
@@ -201,9 +215,15 @@ fn make_object_store(
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
+            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
+            //  to avoid that.
+            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
+            let mut builder = MicrosoftAzureBuilder::new()
+                .with_url(url.to_string())
+                .with_client_options(client_opts);
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Azure config key: {}", key);

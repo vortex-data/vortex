@@ -97,6 +97,10 @@ typedef struct Array Array;
  */
 typedef struct ArrayStream ArrayStream;
 
+#if defined(ENABLE_DUCKDB_FFI)
+typedef struct FFIConversionCache FFIConversionCache;
+#endif
+
 typedef struct File File;
 
 /**
@@ -270,7 +274,16 @@ duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype);
  */
 unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
                                       unsigned int offset,
-                                      duckdb_data_chunk data_chunk_ptr);
+                                      duckdb_data_chunk data_chunk_ptr,
+                                      struct FFIConversionCache *cache);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+struct FFIConversionCache *ConversionCache_create(unsigned int id);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+void ConversionCache_free(struct FFIConversionCache *buffer);
 #endif
 
 /**

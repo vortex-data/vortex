@@ -74,10 +74,14 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
         .vortex_expect("File_open: make_object_store");
 
-    let result = RUNTIME.block_on(async move {
-        VortexOpenOptions::file()
-            .open_object_store(&object_store, uri.path())
-            .await
+    // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
+    // tokio dep
+    let result = RUNTIME.with(|runtime| {
+        runtime.block_on(async move {
+            VortexOpenOptions::file()
+                .open_object_store(&object_store, uri.path())
+                .await
+        })
     });
 
     let file = result.vortex_expect("open");

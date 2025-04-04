@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
@@ -235,15 +235,29 @@ impl Scheme for FSSTScheme {
         let compressed_original_lengths = IntCompressor::compress(
             &fsst.uncompressed_lengths().to_primitive()?,
             is_sample,
-            allowed_cascading - 1,
+            allowed_cascading,
             &[],
+        )?;
+
+        // We compress the var bin offsets of the FSST codes array.
+        let compressed_codes_offsets = IntCompressor::compress(
+            &fsst.codes().offsets().to_primitive()?,
+            is_sample,
+            allowed_cascading,
+            &[],
+        )?;
+        let compressed_codes = VarBinArray::try_new(
+            compressed_codes_offsets,
+            fsst.codes().bytes().clone(),
+            fsst.codes().dtype().clone(),
+            fsst.codes().validity().clone(),
         )?;
 
         let fsst = FSSTArray::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
-            fsst.codes().clone(),
+            compressed_codes,
             compressed_original_lengths,
         )?;
 

@@ -1,15 +1,15 @@
 use fsst::{Decompressor, Symbol};
-use vortex_array::arrays::VarBinEncoding;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::vtable::{EncodingVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
     Encoding, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::serde::FSSTMetadata;
@@ -19,7 +19,7 @@ pub struct FSSTArray {
     dtype: DType,
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
-    codes: ArrayRef,
+    codes: VarBinArray,
     /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
@@ -44,7 +44,7 @@ impl FSSTArray {
         dtype: DType,
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
-        codes: ArrayRef,
+        codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<Self> {
         // Check: symbols must not have length > MAX_CODE
@@ -61,13 +61,6 @@ impl FSSTArray {
 
         if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
-        }
-
-        if codes.encoding() != VarBinEncoding.id() {
-            vortex_bail!(
-                InvalidArgument: "codes must have varbin encoding, was {}",
-                codes.encoding()
-            );
         }
 
         // Check: strings must be a Binary array.
@@ -96,7 +89,7 @@ impl FSSTArray {
     }
 
     /// Access the codes array
-    pub fn codes(&self) -> &ArrayRef {
+    pub fn codes(&self) -> &VarBinArray {
         &self.codes
     }
 
@@ -142,7 +135,11 @@ impl ArrayImpl for FSSTArray {
     }
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let codes = children[0].clone();
+        let codes = children[0]
+            .as_any()
+            .downcast_ref::<VarBinArray>()
+            .ok_or_else(|| vortex_err!("FSSTArray codes must be a VarBinArray"))?
+            .clone();
         let uncompressed_lengths = children[1].clone();
 
         Self::try_new(
