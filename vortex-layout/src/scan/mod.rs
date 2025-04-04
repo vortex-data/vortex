@@ -3,18 +3,17 @@ use std::sync::Arc;
 use executor::{TaskExecutor, ThreadsExecutor};
 use futures::{StreamExt, stream};
 use itertools::Itertools;
-pub use row_mask::*;
+pub use selection::*;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_mask::Mask;
 use vortex_metrics::{VortexMetrics, instrument};
 
 use crate::layouts::filter::FilterLayoutReader;
@@ -23,7 +22,8 @@ use crate::{ExprEvaluator, LayoutReader};
 
 pub mod executor;
 pub mod row_mask;
-pub mod split_by;
+mod selection;
+mod split_by;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder {
@@ -31,7 +31,7 @@ pub struct ScanBuilder {
     task_executor: Option<TaskExecutor>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    row_indices: Option<Buffer<u64>>,
+    selection: Selection,
     split_by: SplitBy,
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
@@ -46,7 +46,7 @@ impl ScanBuilder {
             task_executor: None,
             projection: Identity::new_expr(),
             filter: None,
-            row_indices: None,
+            selection: Default::default(),
             split_by: SplitBy::Layout,
             canonicalize: false,
             // How many row splits to make progress on concurrently (not necessarily in parallel,
@@ -71,13 +71,13 @@ impl ScanBuilder {
         self
     }
 
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
-        self.row_indices = Some(row_indices);
+    pub fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = selection;
         self
     }
 
-    pub fn with_some_row_indices(mut self, row_indices: Option<Buffer<u64>>) -> Self {
-        self.row_indices = row_indices;
+    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+        self.selection = Selection::IncludeByIndex(row_indices);
         self
     }
 
@@ -135,32 +135,11 @@ impl ScanBuilder {
             .chain(projection_mask.iter().cloned())
             .collect();
         let splits = self.split_by.splits(layout_reader.layout(), &field_mask)?;
-        let row_indices = self.row_indices.clone();
+
         let row_masks = splits
             .into_iter()
-            .filter_map(move |row_range| {
-                let Some(row_indices) = &row_indices else {
-                    // If there is no row indices filter, then take the whole range
-                    return Some(RowMask::new_valid_between(row_range.start, row_range.end));
-                };
-
-                // Otherwise, find the indices that are within the row range.
-                let intersection = range_intersection(&row_range, row_indices)?;
-
-                // Construct a row mask for the range.
-                let filter_mask = Mask::from_indices(
-                    usize::try_from(row_range.end - row_range.start)
-                        .vortex_expect("Split ranges are within usize"),
-                    row_indices[intersection]
-                        .iter()
-                        .map(|&idx| {
-                            usize::try_from(idx - row_range.start)
-                                .vortex_expect("index within range")
-                        })
-                        .collect(),
-                );
-                Some(RowMask::new(filter_mask, row_range.start))
-            })
+            .map(|row_range| self.selection.row_mask(&row_range))
+            .filter(|mask| !mask.mask().all_false())
             .collect_vec();
 
         let result_dtype = projection.return_dtype(layout_reader.dtype())?;
@@ -170,7 +149,7 @@ impl ScanBuilder {
             .into_iter()
             .enumerate()
             .map(|(_i, row_mask)| {
-                let row_range = row_mask.begin()..row_mask.end();
+                let row_range = row_mask.row_range();
 
                 let approx_filter_eval = filter
                     .as_ref()
@@ -183,7 +162,7 @@ impl ScanBuilder {
                 let project_eval = layout_reader.projection_evaluation(&row_range, &projection)?;
 
                 Ok::<_, VortexError>(instrument!("split", [split = _i], async move {
-                    let mut mask = row_mask.filter_mask().clone();
+                    let mut mask = row_mask.mask().clone();
                     if mask.all_false() {
                         return Ok(None);
                     }

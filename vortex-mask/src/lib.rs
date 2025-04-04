@@ -216,6 +216,7 @@ impl Mask {
     }
 
     /// Create a new [`Mask`] from a [`Vec<usize>`].
+    // TODO(ngates): this should take an IntoIterator<usize>.
     pub fn from_indices(len: usize, indices: Vec<usize>) -> Self {
         let true_count = indices.len();
         assert!(indices.is_sorted(), "Mask indices must be sorted");
