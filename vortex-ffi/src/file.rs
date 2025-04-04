@@ -156,8 +156,8 @@ pub unsafe extern "C" fn File_scan(
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
-    let stream = stream
-        .spawn_tokio(RUNTIME.handle().clone())
+    let stream = RUNTIME
+        .with(|rt| stream.spawn_tokio(rt.handle().clone()))
         .vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {
