@@ -27,11 +27,7 @@ pub trait StatsProviderExt: StatsProvider {
     }
 
     fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: &DType) -> Option<S::Bound> {
-        let stat_dtype = S::STAT
-            .dtype(dtype)
-            .vortex_expect("getting bound scalar for stat dtype");
-        self.get_scalar(S::STAT, &stat_dtype)
-            .map(|v| v.bound::<S>())
+        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
     }
 
     fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
