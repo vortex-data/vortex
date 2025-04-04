@@ -93,6 +93,32 @@ jobs:
           uv run --isolated --all-packages make html
         working-directory: docs/
 
+
+      - name: rust-toolchain
+        shell: bash
+        run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          rust-toolchain: ${{ steps.rust-toolchain.version }}
+          working-directory: pyvortex
+          target: x86_64
+          manylinux: auto
+          command: build
+          args: --release --interpreter python3.10 --auditwheel check --zig
+
+      - name: Build wheels (sdist)
+        uses: PyO3/maturin-action@v1
+        with:
+          rust-toolchain: ${{ steps.rust-toolchain.version }}
+          working-directory: pyvortex
+          target: x86_64
+          manylinux: auto
+          command: build
+          args: --release --interpreter python3.10 --auditwheel check --zig --sdist
+
+      - uses: mlugg/setup-zig@v1
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
