@@ -46,7 +46,7 @@ def _to_polars(self: VortexFile):
             data=pa.RecordBatch.from_arrays(
                 [pa.array([], type=field.type) for field in reader.schema],
                 schema=reader.schema,
-            )
+            ),
         )
 
     return register_io_source(_io_source, schema=schema)
