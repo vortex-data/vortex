@@ -2,6 +2,7 @@
 # ruff: noqa: E501
 import argparse
 import json
+import logging
 import os.path
 import timeit
 from collections import defaultdict
@@ -11,6 +12,8 @@ import polars as pl
 
 import vortex as vx
 import vortex.io
+
+logging.basicConfig()
 
 # 0: No., 1: SQL, 2: Polars
 queries = [

@@ -25,6 +25,7 @@ impl VarBinViewBuilder {
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
+        log::error!("VarBinViewBuilder::with_capacity {}", capacity);
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
