@@ -67,6 +67,13 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     scalar::init(py, m)?;
     serde::init(py, m)?;
 
+    m.add_function(wrap_pyfunction!(launch, m)?)?;
+
+    Ok(())
+}
+
+#[pyfunction]
+pub fn launch() {
     let app = axum::Router::new()
         .route("/debug/pprof/heap", axum::routing::get(handle_get_heap))
         .route(
@@ -79,8 +86,6 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
         let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
         axum::serve(listener, app).await.unwrap();
     });
-
-    Ok(())
 }
 
 pub async fn handle_get_heap() -> Result<impl IntoResponse, (StatusCode, String)> {
