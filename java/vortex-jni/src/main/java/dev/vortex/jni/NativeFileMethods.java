@@ -49,5 +49,6 @@ public final class NativeFileMethods {
      */
     public static native void close(long pointer);
 
-    public static native long scan(long pointer, List<String> columns, byte[] predicateProto, long[] rowIndices);
+    public static native long scan(
+            long pointer, List<String> columns, byte[] predicateProto, long[] rowIndices, long[] rowRange);
 }

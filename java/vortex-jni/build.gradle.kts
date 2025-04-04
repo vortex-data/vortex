@@ -136,10 +136,11 @@ val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
 
 // These are the native platforms that we want to build for and ship inside of our JAR
-val rustTargets = listOf(
-    "aarch64-apple-darwin",
-    "x86_64-unknown-linux-gnu",
-)
+val rustTargets =
+    listOf(
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+    )
 
 rustTargets.forEach { target ->
     tasks.register("cargoBuild_$target", Exec::class) {
@@ -155,11 +156,12 @@ rustTargets.forEach { target ->
             "vortex-jni",
         )
 
-        val platformSuffix = if (target.contains("darwin")) {
-            "dylib"
-        } else {
-            "so"
-        }
+        val platformSuffix =
+            if (target.contains("darwin")) {
+                "dylib"
+            } else {
+                "so"
+            }
 
         outputs.files(targetDir.resolve("$target/release/libvortex_jni.$platformSuffix"))
 
@@ -184,15 +186,17 @@ val copySharedLibrary by tasks.register("copySharedLibrary") {
         doLast {
             copy {
                 println("copy task for $target executing")
-                val arch = when (target.split("-")[0]) {
-                    "amd64", "x86_64" -> "amd64"
-                    else -> target.split("-")[0]
-                }
-                val resourceDir = if (target.contains("darwin")) {
-                    "darwin-$arch"
-                } else {
-                    "linux-$arch"
-                }
+                val arch =
+                    when (target.split("-")[0]) {
+                        "amd64", "x86_64" -> "amd64"
+                        else -> target.split("-")[0]
+                    }
+                val resourceDir =
+                    if (target.contains("darwin")) {
+                        "darwin-$arch"
+                    } else {
+                        "linux-$arch"
+                    }
                 from(platformTask.get().outputs.files)
                 into(projectDir.resolve("src/main/resources/native/$resourceDir"))
             }

@@ -47,9 +47,10 @@ public final class JNIFile implements File {
         }
 
         long[] rowIndices = options.rowIndices().orElse(null);
+        long[] rowRange = options.rowRange().orElse(null);
 
         return new JNIArrayStream(
-                NativeFileMethods.scan(pointer.getAsLong(), options.columns(), predicateProto, rowIndices));
+                NativeFileMethods.scan(pointer.getAsLong(), options.columns(), predicateProto, rowIndices, rowRange));
     }
 
     @Override
