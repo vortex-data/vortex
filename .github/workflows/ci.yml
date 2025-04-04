@@ -97,6 +97,9 @@ jobs:
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
+          echo "Clearing wheel target directory"
+          rm -rf ../target/wheels/
+
           uv venv
           uv pip install "maturin[zig]"
           uv tool run maturin build --interpreter python3.10 --zig
@@ -105,8 +108,8 @@ jobs:
           file_count=$(ls -1 ../target/wheels/ | wc -l)
 
           if [[ $file_count -ne 2 ]]; then
-            echo "Unexpected file count ${file_count}"
-            ls -R ../target/wheels/
+            echo "Unexpected number of files detected ${file_count}:"
+            ls ../target/wheels/
             exit 1
           else
             echo "Generated two files"
