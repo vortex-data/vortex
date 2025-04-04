@@ -84,7 +84,7 @@ jobs:
           working-directory: pyvortex
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
           command: build
-          args: --release --interpreter python3.10 --auditwheel check
+          args: --release --interpreter python3.10 --auditwheel check --zig
       - name: Install UV
         uses: astral-sh/setup-uv@v5
         with:
@@ -118,7 +118,7 @@ jobs:
           target: x86_64
           manylinux: auto
           command: build
-          args: --release --interpreter python3.10 --auditwheel check
+          args: --release --interpreter python3.10 --auditwheel check --zig
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
