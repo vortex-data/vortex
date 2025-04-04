@@ -63,7 +63,6 @@ impl FileOpener for VortexFileOpener {
                 .await?
                 .scan()?
                 .with_metrics(metrics)
-                //.with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)
                 .with_some_filter(filter)
                 .with_canonicalize(true)
