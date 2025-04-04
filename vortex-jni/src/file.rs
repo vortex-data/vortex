@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
-use jni::sys::jlong;
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jint, jlong};
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
@@ -15,15 +15,18 @@ use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
+use vortex_layout::scan::{ScanBuilder, Selection};
 
 use crate::array_stream::NativeArrayStream;
 use crate::block_on;
-use crate::errors::try_or_throw;
+use crate::errors::{JNIError, try_or_throw};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -128,32 +131,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
 
     try_or_throw(&mut env, |env| {
-        // Apply the projection if provided
-        if !project_cols.is_null() {
-            let proj = env.get_list(&project_cols)?;
-            if proj.size(env)? > 0 {
-                // Convert the JList to a Vec<String>
-                let mut projection: Vec<Arc<str>> = Vec::new();
-                let mut iterator = proj.iter(env)?;
-                while let Some(field) = iterator.next(env)? {
-                    let field = env.auto_local(field);
-
-                    let field_name: String = env.get_string(field.as_ref().into())?.into();
-                    projection.push(field_name.into());
-                }
-                let project_expr = select(projection, Identity::new_expr());
-                scan_builder = scan_builder.with_projection(project_expr);
-            }
-        }
-
-        // Apply predicate if one was provided
-        if !predicate.is_null() {
-            let proto_vec = env.convert_byte_array(predicate)?;
-            let expr_proto =
-                Expr::decode(proto_vec.as_slice()).map_err(VortexError::ProstDecodeError)?;
-            let expr = deserialize_expr(&expr_proto)?;
-            scan_builder = scan_builder.with_filter(expr);
-        }
+        scan_builder = build_scan(env, scan_builder, project_cols, predicate)?;
 
         // Apply row indices if provided
         if !row_indices.is_null() {
@@ -170,6 +148,86 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         let scan = scan_builder.with_canonicalize(true).build()?;
         Ok(NativeArrayStream::new(scan.boxed()).into_raw())
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scanWithBitmap(
+    mut env: JNIEnv,
+    _class: JClass,
+    pointer: jlong,
+    project_cols: JObject,
+    predicate: JByteArray,
+    bitmap_data: JByteArray,
+    bitmap_offset: jint,
+    bitmap_len: jint,
+    bitmap_is_include: jboolean,
+) -> jlong {
+    // Return a new pointer to some native memory for the scan.
+    let file = unsafe { NativeFile::from_ptr(pointer) };
+    let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
+    try_or_throw(&mut env, |env| {
+        scan_builder = build_scan(env, scan_builder, project_cols, predicate)?;
+
+        if !bitmap_data.is_null() {
+            let len = usize::try_from(bitmap_len).map_err(|_| vortex_err!("invalid length"))?;
+            let mut i8_buffer = Vec::with_capacity(len);
+
+            // get_byte_array_region checks bounds
+            env.get_byte_array_region(bitmap_data, bitmap_offset, &mut i8_buffer)?;
+
+            // SAFETY: this buffer is used as an opaque byte buffer, no integer operations
+            // is done, so reinterpreting them as u8 is fine
+            let u8_buffer = unsafe { std::mem::transmute::<Vec<i8>, Vec<u8>>(i8_buffer) };
+
+            let roaring_bitmap =
+                roaring::RoaringTreemap::deserialize_from(std::io::Cursor::new(u8_buffer))
+                    .map_err(|_| vortex_err!("Cannot deserialise into roaring bitmap"))?;
+            let selection = match bitmap_is_include {
+                JNI_TRUE => Selection::IncludeRoaring(roaring_bitmap),
+                JNI_FALSE => Selection::ExcludeRoaring(roaring_bitmap),
+                _ => vortex_panic!("invalid jboolean"),
+            };
+            scan_builder = scan_builder.with_selection(selection);
+        }
+        // Canonicalize first, to avoid needing to pay decoding cost for every access.
+        let scan = scan_builder.with_canonicalize(true).build()?;
+        Ok(NativeArrayStream::new(scan.boxed()).into_raw())
+    })
+}
+
+fn build_scan(
+    env: &mut JNIEnv,
+    mut scan_builder: ScanBuilder,
+    project_cols: JObject,
+    predicate: JByteArray,
+) -> Result<ScanBuilder, JNIError> {
+    // Apply the projection if provided
+    if !project_cols.is_null() {
+        let proj = env.get_list(&project_cols)?;
+        if proj.size(env)? > 0 {
+            // Convert the JList to a Vec<String>
+            let mut projection: Vec<Arc<str>> = Vec::new();
+            let mut iterator = proj.iter(env)?;
+            while let Some(field) = iterator.next(env)? {
+                let field = env.auto_local(field);
+
+                let field_name: String = env.get_string(field.as_ref().into())?.into();
+                projection.push(field_name.into());
+            }
+            let project_expr = select(projection, Identity::new_expr());
+            scan_builder = scan_builder.with_projection(project_expr);
+        }
+    }
+
+    // Apply predicate if one was provided
+    if !predicate.is_null() {
+        let proto_vec = env.convert_byte_array(predicate)?;
+        let expr_proto =
+            Expr::decode(proto_vec.as_slice()).map_err(VortexError::ProstDecodeError)?;
+        let expr = deserialize_expr(&expr_proto)?;
+        scan_builder = scan_builder.with_filter(expr);
+    }
+    Ok(scan_builder)
 }
 
 fn make_object_store(

@@ -40,6 +40,15 @@ public interface ScanOptions {
      */
     Optional<long[]> rowIndices();
 
+    Optional<SerializedBitmap> selectionBitmap();
+
+    @Value.Check
+    default void validate() {
+        if (rowIndices().isPresent() && selectionBitmap().isPresent()) {
+            throw new IllegalStateException("Cannot use both row indices and selection bitmap");
+        }
+    }
+
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }

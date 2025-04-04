@@ -23,6 +23,7 @@ jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 prost = { workspace = true }
+roaring = { workspace = true }
 simplelog = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -33,6 +34,8 @@ vortex = { workspace = true, features = [
     "tokio",
     "proto",
 ] }
+vortex-layout = { workspace = true, features = ["roaring"] }
+
 
 [dev-dependencies]
 jni = { version = "0.21.1", features = ["invocation"] }

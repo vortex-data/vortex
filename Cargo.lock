@@ -6264,11 +6264,13 @@ dependencies = [
  "log",
  "object_store",
  "prost",
+ "roaring",
  "simplelog",
  "thiserror 2.0.12",
  "tokio",
  "url",
  "vortex",
+ "vortex-layout",
 ]
 
 [[package]]

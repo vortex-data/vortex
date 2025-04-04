@@ -16,10 +16,7 @@
 package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
-import dev.vortex.api.ArrayStream;
-import dev.vortex.api.DType;
-import dev.vortex.api.File;
-import dev.vortex.api.ScanOptions;
+import dev.vortex.api.*;
 import dev.vortex.api.expressions.proto.ExpressionProtoSerializer;
 import java.util.OptionalLong;
 
@@ -46,10 +43,23 @@ public final class JNIFile implements File {
                     .toByteArray();
         }
 
-        long[] rowIndices = options.rowIndices().orElse(null);
+        if (options.selectionBitmap().isPresent()) {
+            SerializedBitmap bitmap = options.selectionBitmap().get();
+            return new JNIArrayStream(NativeFileMethods.scanWithBitmap(
+                    pointer.getAsLong(),
+                    options.columns(),
+                    predicateProto,
+                    bitmap.data(),
+                    bitmap.offset(),
+                    bitmap.length(),
+                    bitmap.isInclude()));
+        }
 
-        return new JNIArrayStream(
-                NativeFileMethods.scan(pointer.getAsLong(), options.columns(), predicateProto, rowIndices));
+        return new JNIArrayStream(NativeFileMethods.scan(
+                pointer.getAsLong(),
+                options.columns(),
+                predicateProto,
+                options.rowIndices().orElse(null)));
     }
 
     @Override
