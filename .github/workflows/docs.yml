@@ -20,9 +20,10 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: astral-sh/setup-uv@v5
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
-          enable-cache: true
+          sync: false
       - name: build Python and Rust docs
         run: |
           uv run --all-packages make -C docs html

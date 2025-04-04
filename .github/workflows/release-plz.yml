@@ -86,9 +86,9 @@ jobs:
           command: build
           args: --release --interpreter python3.10 --auditwheel check
       - name: Install UV
-        uses: astral-sh/setup-uv@v5
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
-          enable-cache: true
+          sync: false
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -104,9 +104,9 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install UV
-        uses: astral-sh/setup-uv@v5
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
-          enable-cache: true
+          sync: false
       - name: rust-toolchain
         shell: bash
         run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT

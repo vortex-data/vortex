@@ -77,9 +77,10 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
-      - uses: astral-sh/setup-uv@v5
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
-          enable-cache: true
+          sync: false
 
       - name: Compare results
         shell: bash
