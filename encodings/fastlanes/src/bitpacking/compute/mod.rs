@@ -56,12 +56,13 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
     };
 
     let mut current_chunk_idx = (first_idx + offset) / 1024;
-    indices_within_chunk[indices_len] = MaybeUninit::new((first_idx + offset) % 1024);
+    indices_within_chunk[indices_len].write((first_idx + offset) % 1024);
     indices_len += 1;
     for idx in indices {
         let new_chunk_idx = (idx + offset) / 1024;
 
         if new_chunk_idx != current_chunk_idx {
+            // SAFETY: The loop will sequentially initialize all values up to indices_len
             chunk_fn(current_chunk_idx, unsafe {
                 mem::transmute::<&[MaybeUninit<usize>], &[usize]>(
                     &indices_within_chunk[..indices_len],
@@ -71,7 +72,7 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
         }
 
         current_chunk_idx = new_chunk_idx;
-        indices_within_chunk[indices_len] = MaybeUninit::new((idx + offset) % 1024);
+        indices_within_chunk[indices_len].write((idx + offset) % 1024);
         indices_len += 1;
     }
 
