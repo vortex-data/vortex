@@ -11,7 +11,9 @@ use vortex::arrays::ChunkedArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
+use vortex::file::scan::executor::TaskExecutor;
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::layout::scan::executor::TokioExecutor;
 use vortex::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex::{Array, ArrayRef, ToCanonical};
 
@@ -38,7 +40,12 @@ pub async fn read_array_from_reader(
     filter: Option<ExprRef>,
     indices: Option<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
-    let mut scan = vortex_file.scan()?.with_projection(projection);
+    let mut scan = vortex_file
+        .scan()?
+        .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
+            TOKIO_RUNTIME.handle().clone(),
+        )))
+        .with_projection(projection);
 
     if let Some(filter) = filter {
         scan = scan.with_filter(filter);
