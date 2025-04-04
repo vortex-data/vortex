@@ -1,8 +1,5 @@
-<<<<<<< Updated upstream
-=======
 use std::iter;
 use std::ops::Range;
->>>>>>> Stashed changes
 use std::sync::Arc;
 
 use executor::{TaskExecutor, ThreadsExecutor};
@@ -81,7 +78,8 @@ impl ScanBuilder {
     }
 
     pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
-        self.with_some_row_range(Some(row_range))
+        self.row_range = Some(row_range);
+        self
     }
 
     pub fn with_some_row_range(mut self, row_range: Option<Range<u64>>) -> Self {
