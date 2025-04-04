@@ -60,7 +60,7 @@ jobs:
     name: "Python (test)"
     runs-on: ubuntu-latest
     env:
-      RUST_LOG: info,uv=debug
+      RUST_LOG: "info,uv=debug"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,8 +99,8 @@ jobs:
           # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
           uv venv
           uv pip install maturin
-          uv run maturin build --interpreter python3.10 --auditwheel check
-          uv run maturin build --interpreter python3.10 --auditwheel check --sdist
+          uv tool run maturin build --interpreter python3.10 --auditwheel check
+          uv tool run maturin build --interpreter python3.10 --auditwheel check --sdist
 
           file_count=$(ls -1 ../target/wheels/ | wc -l)
 
