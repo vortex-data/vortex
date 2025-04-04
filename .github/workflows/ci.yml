@@ -64,8 +64,6 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-        with:
-          cache: false
       - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
 
       # Ensure the stub files are up-to-date with the public API of the native module.
@@ -89,50 +87,25 @@ jobs:
           uv run make html
         working-directory: docs/
 
-      - name: Rust Version
-        id: rust-version
-        shell: bash
-        run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+      - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        run: |
+          # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
+          uv run maturin build --interpreter python3.10 --compatibility linux
+        working-directory: pyvortex/
 
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          rust-toolchain: ${{ steps.rust-toolchain.version }}
-          working-directory: pyvortex
-          target: 'x86_64'
-          manylinux: '2014'
-          args: --release --interpreter python3.10 --auditwheel check
+      - name: Ensure wheel can run tests successfully
+        run: |
+          set -ex
 
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-wheels
-          path: target/wheels
-          retention-days: 1
+          echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
 
-  test-pypi-release:
-    name: "Release to Test PyPi"
-    needs: [ python-test ]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-    environment:
-      name: push-to-test-pypi
-      url: https://test.pypi.org/p/vortex-array
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
-          # "To download them to the same directory:"
-          path: dist/
-          merge-multiple: true
-      - name: Display structure of downloaded files
-        run: ls -R dist/
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          attestations: true
-          verbose: true
+          rm -rf .venv
+          uv sync --only-dev
+
+          uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
+          uv run pip install pytest
+          cd pyvortex/test
+          uv run pytest
 
   rust-docs:
     name: "Rust (docs)"
