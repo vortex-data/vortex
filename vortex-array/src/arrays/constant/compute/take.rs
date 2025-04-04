@@ -34,8 +34,6 @@ impl TakeFn<&ConstantArray> for ConstantEncoding {
                     return Ok(arr);
                 }
 
-                println!("{:?}", array.dtype());
-
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
                 result_builder.extend_from_array(&arr)?;
