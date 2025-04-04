@@ -156,7 +156,7 @@ impl ScanBuilder {
             .filter_map(|row_range| {
                 if let Some(scan_range) = &self.row_range {
                     // If the row range is fully within the scan range, return it.
-                    if row_range.start < scan_range.start || row_range.end > scan_range.end {
+                    if row_range.start >= scan_range.end || row_range.end < scan_range.start {
                         return None;
                     }
                     // Otherwise, take the intersection of the range.
