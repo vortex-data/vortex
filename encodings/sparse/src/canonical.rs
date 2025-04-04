@@ -75,12 +75,6 @@ fn canonicalize_sparse_primitives<
         )
     };
 
-    // If the number of values in the sparse array matches the array length, then all
-    // values are in fact patches, since patches are sorted this is the correct values.
-    if patches.array_len() == patches.values().len() {
-        return patches.values().to_canonical();
-    }
-
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     parray.patch(patches).map(Canonical::Primitive)
