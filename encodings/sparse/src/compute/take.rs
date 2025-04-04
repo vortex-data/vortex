@@ -16,8 +16,7 @@ impl TakeFn<&SparseArray> for SparseEncoding {
             return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
         };
 
-        // If the number of values in the sparse array matches the array length, then all
-        // values are in fact patches, since patches are sorted this is the correct values.
+        // See `SparseEncoding::slice`.
         if new_patches.array_len() == new_patches.values().len() {
             return Ok(new_patches.into_values());
         }
