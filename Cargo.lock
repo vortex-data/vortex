@@ -467,6 +467,7 @@ version = "0.27.0"
 dependencies = [
  "anyhow",
  "arrow-array",
+ "arrow-cast",
  "arrow-schema",
  "arrow-select",
  "async-trait",
