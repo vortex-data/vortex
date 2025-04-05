@@ -57,9 +57,9 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
     }
 
     VortexWriteOptions::default()
-        .write(
-            File::create(output_path).await?,
+        .write_into(
             ArrayStreamAdapter::new(dtype, vortex_stream),
+            File::create(output_path).await?,
         )
         .await?;
 

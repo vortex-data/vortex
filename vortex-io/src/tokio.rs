@@ -5,39 +5,22 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
-pub struct TokioAdapter<IO>(pub IO);
-
-impl<W: AsyncWrite + Unpin> VortexWrite for TokioAdapter<W> {
-    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        self.0.write_all(buffer.as_slice()).await?;
-        Ok(buffer)
-    }
-
-    async fn flush(&mut self) -> io::Result<()> {
-        self.0.flush().await
-    }
-
-    async fn shutdown(&mut self) -> io::Result<()> {
-        self.0.shutdown().await
-    }
-}
-
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
 ///
-/// We use this because the builtin tokio `File` type is not `Clone` and
+/// We use this because the builtin tokio's [`File`](tokio::fs::File) type is not `Clone` and
 /// also does actually implement a `read_exact_at` operation.
 #[derive(Debug, Clone)]
-pub struct TokioFile(Arc<File>);
+pub struct TokioCloneFile(Arc<File>);
 
-impl TokioFile {
+impl TokioCloneFile {
     pub fn new(file: File) -> Self {
         Self(Arc::new(file))
     }
@@ -55,7 +38,7 @@ impl TokioFile {
 }
 
 // Implement deref coercion for non-mut `File` methods on `TokioFile`.
-impl Deref for TokioFile {
+impl Deref for TokioCloneFile {
     type Target = File;
 
     fn deref(&self) -> &Self::Target {
@@ -63,7 +46,7 @@ impl Deref for TokioFile {
     }
 }
 
-impl VortexReadAt for TokioFile {
+impl VortexReadAt for TokioCloneFile {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip_all, fields(range, alignment))
@@ -120,14 +103,14 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::{TokioFile, VortexReadAt};
+    use crate::{TokioCloneFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_shared_file() {
         let mut tmpfile = NamedTempFile::new().unwrap();
         write!(tmpfile, "0123456789").unwrap();
 
-        let shared_file = TokioFile::open(tmpfile.path()).unwrap();
+        let shared_file = TokioCloneFile::open(tmpfile.path()).unwrap();
 
         let first_half = shared_file
             .read_byte_range(0..5, Alignment::none())
@@ -149,7 +132,7 @@ mod tests {
         write!(file, "test123").unwrap();
 
         // Transfer ownership of the file into our Tokio file.
-        let tokio_file = TokioFile::open(file.path()).unwrap();
+        let tokio_file = TokioCloneFile::open(file.path()).unwrap();
         // Delete the file, so that tokio_file's owned FD is the only thing keeping it around.
         std::fs::remove_file(file.path()).unwrap();
 

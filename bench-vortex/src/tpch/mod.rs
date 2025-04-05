@@ -306,7 +306,9 @@ async fn register_vortex_file(
                     .create(true)
                     .open(vtx_file.path())
                     .await?;
-                VortexWriteOptions::default().write(f, array_stream).await?;
+                VortexWriteOptions::default()
+                    .write_into(array_stream, f)
+                    .await?;
             } else {
                 anyhow::bail!("Writing to S3 does not seem to work!");
             };

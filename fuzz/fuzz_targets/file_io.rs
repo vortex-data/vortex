@@ -31,7 +31,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
 
     runtime.block_on(async move {
         let full_buff = VortexWriteOptions::default()
-            .write(ByteBufferMut::empty(), array_data.to_array_stream())
+            .write_into(array_data.to_array_stream(), ByteBufferMut::empty())
             .await
             .vortex_unwrap();
 

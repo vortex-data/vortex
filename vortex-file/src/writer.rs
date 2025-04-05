@@ -53,10 +53,10 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Perform an async write of the provided stream of `Array`.
-    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
+    pub async fn write_into<W: VortexWrite, S: ArrayStream + Unpin>(
         self,
-        write: W,
         mut stream: S,
+        write: W,
     ) -> VortexResult<W> {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
@@ -146,6 +146,8 @@ impl VortexWriteOptions {
         eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
         write.write_all(eof).await?;
+
+        write.flush().await?;
 
         Ok(write.into_inner())
     }
