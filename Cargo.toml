@@ -155,7 +155,6 @@ rstest_reuse = "0.7.0"
 rustc-hash = "2"
 serde = "1.0.203"
 serde_json = "1.0.116"
-testcontainers = "0.23"
 serde_test = "1.0.176"
 simplelog = "0.12"
 sketches-ddsketch = "0.3.0"
@@ -163,6 +162,7 @@ static_assertions = "1.1"
 tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
+testcontainers = "0.23"
 thiserror = "2.0.3"
 tikv-jemallocator = "0.6"
 tokio = "1.43"
@@ -202,7 +202,7 @@ vortex-proto = { version = "0.27.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.27.0", path = "./encodings/runend" }
 vortex-scalar = { version = "0.27.0", path = "./vortex-scalar", default-features = false }
 vortex-sparse = { version = "0.27.0", path = "./encodings/sparse" }
-vortex-tui = {version = "0.27.0 ", path = "./vortex-tui" }
+vortex-tui = { version = "0.27.0", path = "./vortex-tui" }
 vortex-zigzag = { version = "0.27.0", path = "./encodings/zigzag" }
 # END crates published by this project
 

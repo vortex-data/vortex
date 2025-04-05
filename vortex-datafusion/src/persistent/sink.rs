@@ -246,12 +246,12 @@ mod tests {
         let session = SessionContext::new_with_state(session_state_builder.build());
 
         session
-            .sql(&format!(
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
             STORED AS vortex 
             LOCATION 's3://test-bucket/';",
-            ))
+            )
             .await?;
 
         session
