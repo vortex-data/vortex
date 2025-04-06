@@ -11,10 +11,10 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::stream::ArrayStreamArrayExt;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructDType};
-use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
 fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
@@ -35,7 +35,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             .await
             .vortex_unwrap();
 
-        let output = VortexOpenOptions::in_memory()
+        let mut output = VortexOpenOptions::in_memory()
             .open(full_buff)
             .await
             .vortex_unwrap()
@@ -47,27 +47,29 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             .await
             .vortex_unwrap();
 
-        let output = if output.is_empty() {
-            ChunkedArray::try_new(output, array_data.dtype().clone())
-                .vortex_unwrap()
-                .into_array()
-        } else {
-            ChunkedArray::from_iter(output).into_array()
+        let output_array = match output.len() {
+            0 => Canonical::empty(array_data.dtype()).into_array(),
+            1 => output.pop().vortex_expect("one output"),
+            _ => ChunkedArray::from_iter(output).into_array(),
         };
 
-        assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
+        assert_eq!(
+            array_data.len(),
+            output_array.len(),
+            "Length was not preserved."
+        );
         assert_eq!(
             array_data.dtype(),
-            output.dtype(),
+            output_array.dtype(),
             "DTypes aren't preserved expected {}, actual {}",
             array_data.dtype(),
-            output.dtype()
+            output_array.dtype()
         );
 
         if matches!(array_data.dtype(), DType::Struct(_, _) | DType::List(_, _)) {
-            compare_struct(array_data, output);
+            compare_struct(array_data, output_array);
         } else {
-            let bool_result = compare(&array_data, &output, Operator::Eq)
+            let bool_result = compare(&array_data, &output_array, Operator::Eq)
                 .vortex_unwrap()
                 .to_bool()
                 .vortex_unwrap();
@@ -79,7 +81,7 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
                 vortex_panic!(
                     "Failed to match original array {}with{}",
                     array_data.tree_display(),
-                    output.tree_display()
+                    output_array.tree_display()
                 );
             }
         }

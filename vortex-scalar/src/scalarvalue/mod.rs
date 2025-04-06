@@ -41,8 +41,7 @@ impl ScalarValue {
         use vortex_error::VortexExpect;
 
         let mut ser = flexbuffers::FlexbufferSerializer::new();
-        self.0
-            .serialize(&mut ser)
+        self.serialize(&mut ser)
             .vortex_expect("Failed to serialize ScalarValue");
         let view = ser.view();
 
