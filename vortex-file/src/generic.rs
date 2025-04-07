@@ -8,7 +8,8 @@ use vortex_metrics::VortexMetrics;
 
 use crate::driver::CoalescedDriver;
 use crate::segments::{
-    MokaSegmentCache, SegmentCache, SegmentCacheMetrics, SegmentCacheSourceAdapter,
+    InitialReadSegmentCache, MokaSegmentCache, SegmentCache, SegmentCacheMetrics,
+    SegmentCacheSourceAdapter,
 };
 use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
@@ -28,11 +29,9 @@ impl VortexOpenOptions<GenericVortexFile> {
     /// Open a file using the provided [`VortexReadAt`] implementation.
     pub fn file() -> Self {
         Self::new(Default::default())
-            .with_segment_cache(Arc::new(MokaSegmentCache::new(
-                // Default to a fixed 256MB. Users can override the segment cache to customize
-                // the behavior.
-                256 << 20,
-            )))
+            // Start with an initial in-memory cache of 256MB.
+            // TODO(ngates): would it be better to default to a home directory disk cache?
+            .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
             .with_initial_read_size(Self::INITIAL_READ_SIZE)
     }
 
@@ -44,13 +43,18 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
 
+        let segment_cache = Arc::new(SegmentCacheMetrics::new(
+            InitialReadSegmentCache {
+                initial: self.initial_read_segments,
+                fallback: self.segment_cache,
+            },
+            self.metrics.clone(),
+        ));
+
         let segment_source_factory = Arc::new(GenericVortexFileIo {
             read: Mutex::new(read),
             segment_map: footer.segment_map().clone(),
-            segment_cache: Arc::new(SegmentCacheMetrics::new(
-                self.segment_cache,
-                self.metrics.clone(),
-            )),
+            segment_cache,
             options: self.options,
         });
 

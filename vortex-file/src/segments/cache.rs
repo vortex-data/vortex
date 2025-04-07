@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
@@ -30,7 +31,8 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
-pub(crate) struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
+/// A [`SegmentCache`] based around an in-memory Moka cache.
+pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
     pub fn new(max_capacity_bytes: u64) -> Self {
@@ -62,16 +64,36 @@ impl SegmentCache for MokaSegmentCache {
     }
 }
 
-pub struct SegmentCacheMetrics {
-    segment_cache: Arc<dyn SegmentCache>,
+/// Segment cache containing the initial read segments.
+pub(crate) struct InitialReadSegmentCache {
+    pub(crate) initial: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    pub(crate) fallback: Arc<dyn SegmentCache>,
+}
+
+#[async_trait]
+impl SegmentCache for InitialReadSegmentCache {
+    async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
+        if let Some(buffer) = self.initial.read().vortex_expect("poisoned lock").get(&id) {
+            return Ok(Some(buffer.clone()));
+        }
+        self.fallback.get(id).await
+    }
+
+    async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
+        self.fallback.put(id, buffer).await
+    }
+}
+
+pub struct SegmentCacheMetrics<C> {
+    segment_cache: C,
 
     hits: Arc<Counter>,
     misses: Arc<Counter>,
     stores: Arc<Counter>,
 }
 
-impl SegmentCacheMetrics {
-    pub fn new(segment_cache: Arc<dyn SegmentCache>, metrics: VortexMetrics) -> Self {
+impl<C: SegmentCache> SegmentCacheMetrics<C> {
+    pub fn new(segment_cache: C, metrics: VortexMetrics) -> Self {
         Self {
             segment_cache,
             hits: metrics.counter("vortex.file.segments.cache.hits"),
@@ -82,7 +104,7 @@ impl SegmentCacheMetrics {
 }
 
 #[async_trait]
-impl SegmentCache for SegmentCacheMetrics {
+impl<C: SegmentCache> SegmentCache for SegmentCacheMetrics<C> {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
         let result = self.segment_cache.get(id).await?;
         if result.is_some() {
