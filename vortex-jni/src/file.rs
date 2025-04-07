@@ -125,6 +125,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     project_cols: JObject,
     predicate: JByteArray,
     row_indices: JLongArray,
+    row_range: JLongArray,
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
@@ -142,6 +143,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
                 .collect::<Result<Buffer<u64>, _>>()
                 .map_err(|_| vortex_err!("row indices can not be negative"))?;
             scan_builder = scan_builder.with_row_indices(indices_buffer);
+        } else if !row_range.is_null() {
+            let range = unsafe { env.get_array_elements(&row_range, ReleaseMode::NoCopyBack) }?;
+            let start = u64::try_from(range[0])
+                .map_err(|_| vortex_err!("converting range start to u64"))?;
+            let end =
+                u64::try_from(range[1]).map_err(|_| vortex_err!("converting range end to u64"))?;
+            scan_builder = scan_builder.with_row_range(start..end);
         }
 
         // Canonicalize first, to avoid needing to pay decoding cost for every access.

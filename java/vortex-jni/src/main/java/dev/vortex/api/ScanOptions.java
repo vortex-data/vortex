@@ -49,6 +49,8 @@ public interface ScanOptions {
         }
     }
 
+    Optional<long[]> rowRange();
+
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }

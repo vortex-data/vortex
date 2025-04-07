@@ -24,6 +24,7 @@ or_fun_call = "deny"
 [dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
@@ -42,11 +43,11 @@ futures = { workspace = true }
 governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
-indicatif = { workspace = true }
+indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
-object_store = { workspace = true, features = ["aws", "gcp"] }
+object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }

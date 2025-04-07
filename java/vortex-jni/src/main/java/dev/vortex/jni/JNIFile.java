@@ -43,12 +43,15 @@ public final class JNIFile implements File {
                     .toByteArray();
         }
 
+        long[] rowRange = options.rowRange().orElse(null);
+
         if (options.selectionBitmap().isPresent()) {
             SerializedBitmap bitmap = options.selectionBitmap().get();
             return new JNIArrayStream(NativeFileMethods.scanWithBitmap(
                     pointer.getAsLong(),
                     options.columns(),
                     predicateProto,
+                    rowRange,
                     bitmap.data(),
                     bitmap.offset(),
                     bitmap.length(),
@@ -59,7 +62,8 @@ public final class JNIFile implements File {
                 pointer.getAsLong(),
                 options.columns(),
                 predicateProto,
-                options.rowIndices().orElse(null)));
+                options.rowIndices().orElse(null),
+                rowRange));
     }
 
     @Override

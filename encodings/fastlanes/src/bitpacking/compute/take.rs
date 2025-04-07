@@ -1,3 +1,6 @@
+use std::mem;
+use std::mem::MaybeUninit;
+
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeFn, take};
@@ -61,8 +64,8 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
             .vortex_expect("index must be expressible as usize")
     });
 
-    let mut output = BufferMut::with_capacity(indices.len());
-    let mut unpacked = [T::zero(); 1024];
+    let mut output = BufferMut::<T>::with_capacity(indices.len());
+    let mut unpacked = [const { MaybeUninit::uninit() }; 1024];
     let chunk_len = 128 * bit_width / size_of::<T>();
 
     chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
@@ -79,13 +82,15 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         for offset_chunk in &mut offset_chunk_iter {
             if !have_unpacked {
                 unsafe {
-                    BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked);
+                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                    let dst: &mut [T] = mem::transmute(dst);
+                    BitPacking::unchecked_unpack(bit_width, packed, dst);
                 }
                 have_unpacked = true;
             }
 
             for index in offset_chunk {
-                output.push(unpacked[index]);
+                output.push(unsafe { unpacked[index].assume_init() });
             }
         }
 
@@ -94,7 +99,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
             if have_unpacked {
                 // we already bulk unpacked this chunk, so we can just push the remaining elements
                 for index in remainder {
-                    output.push(unpacked[index]);
+                    output.push(unsafe { unpacked[index].assume_init() });
                 }
             } else {
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
