@@ -27,6 +27,7 @@ mod select;
 pub mod transform;
 pub mod traversal;
 
+pub use between::*;
 pub use binary::*;
 pub use get_item::*;
 pub use identity::*;

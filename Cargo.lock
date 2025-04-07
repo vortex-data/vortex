@@ -463,7 +463,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bench-vortex"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -868,9 +868,9 @@ dependencies = [
 
 [[package]]
 name = "codspeed"
-version = "2.10.0"
+version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d228291b19e82cdef59c17e595c45d482e12c4ddcc9546d2f1cbd1ef28b72af5"
+checksum = "93f4cce9c27c49c4f101fffeebb1826f41a9df2e7498b7cd4d95c0658b796c6c"
 dependencies = [
  "colored",
  "libc",
@@ -881,9 +881,9 @@ dependencies = [
 
 [[package]]
 name = "codspeed-divan-compat"
-version = "2.10.0"
+version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a779df3e120fefc2ab57de3bbe17e241aaf537f41d3cd375305beccdc9479c8"
+checksum = "8620a09dfaf37b3c45f982c4b65bd8f9b0203944da3ffa705c0fcae6b84655ff"
 dependencies = [
  "codspeed",
  "codspeed-divan-compat-macros",
@@ -892,9 +892,9 @@ dependencies = [
 
 [[package]]
 name = "codspeed-divan-compat-macros"
-version = "2.10.0"
+version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8b907fc80c3821d8b35422fb0da01f8965221c36ef43ed8d72876fdc598a1ad"
+checksum = "30fe872bc4214626b35d3a1706a905d0243503bb6ba3bb7be2fc59083d5d680c"
 dependencies = [
  "divan-macros",
  "itertools 0.14.0",
@@ -906,9 +906,9 @@ dependencies = [
 
 [[package]]
 name = "codspeed-divan-compat-walltime"
-version = "2.10.0"
+version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ee667b7d5dd03e260d60afcad3bb4efdde0f500321f69dd5ab3b8e406c6984d"
+checksum = "104caa97b36d4092d89e24e4b103b40ede1edab03c0372d19e14a33f9393132b"
 dependencies = [
  "cfg-if",
  "clap",
@@ -3437,7 +3437,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -3903,8 +3903,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
+ "heck 0.4.1",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -3924,7 +3924,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -4064,7 +4064,7 @@ dependencies = [
 
 [[package]]
 name = "pyvortex"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow",
  "futures",
@@ -4546,9 +4546,9 @@ dependencies = [
 
 [[package]]
 name = "roaring"
-version = "0.10.10"
+version = "0.10.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a652edd001c53df0b3f96a36a8dc93fce6866988efc16808235653c6bcac8bf2"
+checksum = "19e8d2cfa184d94d0726d650a9f4a1be7f9b76ac9fdb954219878dc00c1c1e7b"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -5005,7 +5005,7 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03c3c6b7927ffe7ecaa769ee0e3994da3b8cafc8f444578982c83ecb161af917"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -5431,9 +5431,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.44.1"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f382da615b842244d4b8738c82ed1275e6c5dd90c459a30941cd07080b06c91a"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",
@@ -5781,7 +5781,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "vortex-alp",
  "vortex-array",
@@ -5810,7 +5810,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-alp"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
@@ -5830,7 +5830,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-array"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arbitrary",
  "arrow-arith",
@@ -5876,7 +5876,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-btrblocks"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -5905,7 +5905,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-buffer"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
@@ -5919,7 +5919,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-bytebool"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -5933,7 +5933,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datafusion"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -5972,7 +5972,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-parts"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "getrandom 0.2.15",
  "rkyv 0.8.10",
@@ -5987,7 +5987,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dict"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -6006,7 +6006,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dtype"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arbitrary",
  "arrow-schema",
@@ -6028,7 +6028,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-duckdb"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-array",
  "duckdb",
@@ -6046,7 +6046,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-error"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
@@ -6067,7 +6067,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-expr"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
@@ -6088,7 +6088,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fastlanes"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
@@ -6112,7 +6112,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ffi"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "duckdb",
  "futures",
@@ -6129,7 +6129,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-file"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6172,7 +6172,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-flatbuffers"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "flatbuffers 25.2.10",
  "vortex-buffer",
@@ -6180,7 +6180,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fsst"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-array",
  "codspeed-divan-compat",
@@ -6197,7 +6197,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fuzz"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
@@ -6217,7 +6217,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-io"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -6239,7 +6239,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ipc"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "bytes",
  "flatbuffers 25.2.10",
@@ -6256,7 +6256,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-jni"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow",
  "futures",
@@ -6273,7 +6273,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-layout"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "async-trait",
@@ -6304,7 +6304,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-mask"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "itertools 0.14.0",
@@ -6313,7 +6313,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-metrics"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "getrandom 0.3.2",
  "vortex-error",
@@ -6322,7 +6322,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-proto"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -6330,7 +6330,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -6348,7 +6348,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-scalar"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
@@ -6370,7 +6370,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-sparse"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "itertools 0.14.0",
  "rkyv 0.8.10",
@@ -6386,7 +6386,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-tui"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6404,7 +6404,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-zigzag"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "vortex-array",
  "vortex-buffer",
@@ -7169,7 +7169,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "anyhow",
  "clap",

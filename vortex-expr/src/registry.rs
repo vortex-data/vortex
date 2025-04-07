@@ -53,3 +53,40 @@ pub fn deserialize_expr(expr: &Expr) -> VortexResult<ExprRef> {
         children,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use prost::Message;
+    use vortex_array::compute::{BetweenOptions, StrictComparison};
+    use vortex_proto::expr::Expr;
+
+    use crate::{
+        Between, ExprRef, VortexExprExt, and, deserialize_expr, eq, get_item, ident, lit, or,
+    };
+
+    #[test]
+    fn expression_serde() {
+        let expr: ExprRef = or(
+            and(
+                Between::between(
+                    lit(1),
+                    ident(),
+                    get_item("a", ident()),
+                    BetweenOptions {
+                        lower_strict: StrictComparison::Strict,
+                        upper_strict: StrictComparison::Strict,
+                    },
+                ),
+                lit(1),
+            ),
+            eq(lit(1), ident()),
+        );
+
+        let s_expr = expr.serialize().unwrap();
+        let buf = s_expr.encode_to_vec();
+        let s_expr = Expr::decode(buf.as_slice()).unwrap();
+        let deser_expr = deserialize_expr(&s_expr).unwrap();
+
+        assert_eq!(&deser_expr, &expr);
+    }
+}
