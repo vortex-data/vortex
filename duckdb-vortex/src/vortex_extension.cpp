@@ -365,13 +365,10 @@ void ComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_d
 		};
 	}
 	auto expr = flatten_exprs(arena, conjuncts);
-	// if (bind.filter.has_value()) {
-	// 	std::cout << "complex expr: " << filters.size() << std::endl;
-	// 	for (auto &filter : filters) {
-	// 		std::cout << "complex expr twic: " << filter->ToString() << std::endl;
-	// 	}
-	// 	throw Exception(ExceptionType::INVALID, "complex expr twice");
-	// }
+	// Currently we cannot conjuncts appended to bind twice.
+	if (!conjuncts.empty() && bind.filter.has_value()) {
+		throw Exception(ExceptionType::INVALID, "complex expr twice");
+	}
 
 	if (!bind.filter.has_value()) {
 		bind.filter = std::optional(expr->SerializeAsString());
