@@ -152,7 +152,7 @@ impl Default for GenericFileOptions {
     fn default() -> Self {
         Self {
             io_concurrency: 8,
-            io_dispatcher: IoDispatcher::default(),
+            io_dispatcher: IoDispatcher::shared(),
         }
     }
 }

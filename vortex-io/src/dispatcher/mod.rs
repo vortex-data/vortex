@@ -14,7 +14,7 @@ use futures::FutureExt;
 use futures::channel::oneshot;
 use vortex_error::{VortexResult, vortex_err};
 
-static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
+static SHARED: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(feature = "compio")]
 use self::compio::*;
@@ -106,10 +106,10 @@ impl IoDispatcher {
     }
 }
 
-impl Default for IoDispatcher {
-    fn default() -> Self {
-        // By default, we return a shared handle
-        DEFAULT.clone()
+impl IoDispatcher {
+    /// Returns a handle to the current process's shared Dispatcher.
+    pub fn shared() -> Self {
+        SHARED.clone()
     }
 }
 
