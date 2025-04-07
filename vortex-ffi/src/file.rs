@@ -16,14 +16,24 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
+use vortex::stream::ArrayStreamArrayExt;
 
+use crate::array::FFIArray;
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 pub struct FFIFile {
     pub(crate) inner: VortexFile,
+}
+
+/// Options supplied for opening a file.
+#[repr(C)]
+pub struct FileCreateOptions {
+    /// path of the file to be created.
+    /// This must be a valid URI, even the files (file:///path/to/file)
+    pub path: *const c_char,
 }
 
 /// Options supplied for opening a file.
@@ -88,6 +98,34 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
     let ffi_file = FFIFile { inner: file };
 
     Box::into_raw(Box::new(ffi_file))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn File_create_and_write(
+    options: *const FileCreateOptions,
+    ffi_array: *mut FFIArray,
+) {
+    let options = &*options;
+
+    assert!(!options.path.is_null(), "File_open: null uri");
+    let path = CStr::from_ptr(options.path).to_string_lossy();
+
+    let array = unsafe { &*ffi_array };
+
+    // let callback_stream = todo!();
+    RUNTIME.with(|runtime| {
+        runtime.block_on(async move {
+            let file = tokio::fs::File::create(path.to_string())
+                .await
+                .vortex_expect("creating file");
+            let file = VortexWriteOptions::default()
+                .write(file, array.inner.to_array_stream())
+                .await
+                .vortex_expect("writing file: complete");
+
+            file.sync_all().await.vortex_expect("sync file")
+        })
+    });
 }
 
 /// Whole file statistics.
