@@ -272,6 +272,7 @@ impl TryFrom<PValue> for f64 {
 impl TryFrom<PValue> for f32 {
     type Error = VortexError;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         // We serialize f32 as u32, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
@@ -292,6 +293,7 @@ impl TryFrom<PValue> for f32 {
 impl TryFrom<PValue> for f16 {
     type Error = VortexError;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         // We serialize f16 as u16, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
