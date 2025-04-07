@@ -432,12 +432,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@cargo-semver-checks
       - name: Run cargo-semver-checks
         run: |
-          cargo install cargo-semver-checks --locked
           cargo semver-checks --baseline-rev refs/heads/develop --all-features
 
   build-java:
