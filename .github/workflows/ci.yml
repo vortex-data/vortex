@@ -438,7 +438,7 @@ jobs:
       - name: Run cargo-semver-checks
         run: |
           cargo install cargo-semver-checks --locked
-          cargo semver-checks --baseline-rev develop --all-features
+          cargo semver-checks --baseline-rev refs/heads/develop --all-features
 
   build-java:
     name: Build Java
