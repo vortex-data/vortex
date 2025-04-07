@@ -12,8 +12,6 @@
 #include "vortex_common.hpp"
 #include "expr/expr.hpp"
 
-#include <sys/socket.h>
-
 #ifndef DUCKDB_EXTENSION_MAIN
 #error DUCKDB_EXTENSION_MAIN not defined
 #endif
@@ -315,16 +313,6 @@ unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const Funct
 	return make_uniq<NodeStatistics>(data.num_columns, data.num_columns);
 }
 
-// typedef void (*table_function_type_pushdown_t)(ClientContext &context, optional_ptr<FunctionData> bind_data,
-// const unordered_map<idx_t, LogicalType> &new_column_types);
-
-void TypePushDown(ClientContext &context, optional_ptr<FunctionData> bind_data,
-                  const unordered_map<idx_t, LogicalType> &new_column_types) {
-	for (auto entry : new_column_types) {
-		std::cout << "Type push: " << entry.first << ", " << entry.second.ToString() << std::endl;
-	}
-}
-
 // Removes all filter expressions (from `filters`) which can be pushed down.
 void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_data,
                            vector<unique_ptr<Expression>> &filters) {
@@ -413,7 +401,6 @@ void VortexExtension::Load(DuckDB &db) {
 		return state;
 	};
 
-	vortex_func.type_pushdown = TypePushDown;
 	vortex_func.pushdown_complex_filter = PushdownComplexFilter;
 
 	vortex_func.projection_pushdown = true;

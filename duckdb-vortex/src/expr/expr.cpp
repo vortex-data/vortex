@@ -428,7 +428,6 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 		return nullptr;
 	}
 	default:
-		std::cout << "todo class: " << std::to_string(static_cast<uint8_t>(dexpr.expression_class)) << std::endl;
 		return nullptr;
 	}
 }
