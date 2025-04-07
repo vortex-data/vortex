@@ -13,11 +13,13 @@ use humansize::{DECIMAL, format_size};
 use log::{debug, info};
 use reqwest::Url;
 use tokio::fs::File;
+use tokio::runtime::Handle;
 use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
+use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef};
 
 use crate::datasets::BenchmarkDataset;
@@ -558,6 +560,8 @@ impl BenchmarkDataset for PBIDataset {
                     .open(TokioFile::open(f)?)
                     .await?
                     .scan()?
+                    .spawn_tokio(Handle::current())
+                    .unwrap()
                     .read_all()
                     .await
             })

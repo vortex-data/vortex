@@ -97,7 +97,7 @@ jobs:
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
 

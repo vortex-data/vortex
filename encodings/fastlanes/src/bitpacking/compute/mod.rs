@@ -91,3 +91,19 @@ impl BetweenFn<&BitPackedArray> for BitPackedEncoding {
         .map(Some)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::bitpacking::compute::chunked_indices;
+
+    #[test]
+    fn chunk_indices_repeated() {
+        let mut called = false;
+        chunked_indices([0; 1025].into_iter(), 0, |chunk_idx, idxs| {
+            assert_eq!(chunk_idx, 0);
+            assert_eq!(idxs, [0; 1025]);
+            called = true;
+        });
+        assert!(called);
+    }
+}

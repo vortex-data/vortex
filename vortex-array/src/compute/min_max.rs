@@ -65,21 +65,21 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
     };
 
     if let Some(MinMaxResult { min, max }) = min_max.as_ref() {
-        debug_assert_eq!(
+        assert_eq!(
             min.dtype(),
             array.dtype(),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );
 
-        debug_assert_eq!(
+        assert_eq!(
             max.dtype(),
             array.dtype(),
             "MinMax max dtype mismatch {}",
             array.encoding()
         );
 
-        debug_assert!(
+        assert!(
             min <= max,
             "min > max: min={} max={} encoding={}",
             min,

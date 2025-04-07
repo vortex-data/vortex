@@ -79,7 +79,7 @@ pub fn mask(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
         mask_impl(array, mask)?
     };
 
-    debug_assert_eq!(
+    assert_eq!(
         masked.len(),
         array.len(),
         "Mask should not change length {}\n\n{:?}\n\n{:?}",
@@ -87,7 +87,7 @@ pub fn mask(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
         array,
         masked
     );
-    debug_assert_eq!(
+    assert_eq!(
         masked.dtype(),
         &array.dtype().as_nullable(),
         "Mask dtype mismatch {} {} {} {}",

@@ -211,7 +211,7 @@ fn arrow_compare(
 
 #[inline(always)]
 fn check_compare_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
-    debug_assert_eq!(
+    assert_eq!(
         result.len(),
         lhs.len(),
         "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
@@ -221,7 +221,7 @@ fn check_compare_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
         rhs.encoding(),
         rhs.len()
     );
-    debug_assert_eq!(
+    assert_eq!(
         result.dtype(),
         &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
         "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",

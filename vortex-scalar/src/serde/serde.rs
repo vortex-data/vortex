@@ -163,7 +163,7 @@ impl<'de> Deserialize<'de> for ScalarValue {
             where
                 A: SeqAccess<'v>,
             {
-                let mut elems = vec![];
+                let mut elems = Vec::with_capacity(seq.size_hint().unwrap_or_default());
                 while let Some(e) = seq.next_element::<ScalarValue>()? {
                     elems.push(e);
                 }
@@ -197,46 +197,57 @@ impl Serialize for PValue {
     }
 }
 
-impl<'de> Deserialize<'de> for PValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        ScalarValue::deserialize(deserializer)
-            .and_then(|scalar| scalar.0.as_pvalue().map_err(Error::custom))
-            .and_then(|pvalue| {
-                pvalue.ok_or_else(|| Error::custom("Expected a non-null primitive scalar value"))
-            })
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::mem::discriminant;
     use std::sync::Arc;
 
     use flexbuffers::{FlexbufferSerializer, Reader};
     use rstest::rstest;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::half::f16;
+    use vortex_dtype::{DType, FieldDType, Nullability, PType, StructDType};
 
     use super::*;
     use crate::Scalar;
 
     #[rstest]
-    #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable).into_value())]
-    #[case(Scalar::utf8("hello", Nullability::NonNullable).into_value())]
-    #[case(Scalar::primitive(1u8, Nullability::NonNullable).into_value())]
-    #[case(Scalar::primitive(f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])), Nullability::NonNullable).into_value())]
-    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable).into_value())]
-    fn test_scalar_value_serde_roundtrip(#[case] scalar_value: ScalarValue) {
+    #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable))]
+    #[case(Scalar::utf8("hello", Nullability::NonNullable))]
+    #[case(Scalar::primitive(1u8, Nullability::NonNullable))]
+    #[case(Scalar::primitive(f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])), Nullability::NonNullable))]
+    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable))]
+    #[case(Scalar::struct_(DType::Struct(
+        Arc::new(StructDType::from_iter([
+            ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),
+            ("b", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
+        ])),
+        Nullability::NonNullable),
+        vec![
+            Scalar::primitive(23592960, Nullability::NonNullable),
+            Scalar::primitive(f16::from_bits(0), Nullability::NonNullable),
+        ],
+    ))]
+    #[case(Scalar::struct_(DType::Struct(
+        Arc::new(StructDType::from_iter([
+            ("a", FieldDType::from(DType::Primitive(PType::U64, Nullability::NonNullable))),
+            ("b", FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable))),
+            ("c", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
+        ])),
+        Nullability::NonNullable),
+        vec![
+            Scalar::primitive(415118687234i64, Nullability::NonNullable),
+            Scalar::primitive(0.0f32, Nullability::NonNullable),
+            Scalar::primitive(f16::from_bits(0), Nullability::NonNullable),
+        ],
+    ))]
+    fn test_scalar_value_serde_roundtrip(#[case] scalar: Scalar) {
         let mut serializer = FlexbufferSerializer::new();
-        scalar_value.serialize(&mut serializer).unwrap();
+        scalar.value.serialize(&mut serializer).unwrap();
         let written = serializer.take_buffer();
         let reader = Reader::get_root(written.as_ref()).unwrap();
         let scalar_read_back = ScalarValue::deserialize(reader).unwrap();
         assert_eq!(
-            discriminant(&scalar_value.0),
-            discriminant(&scalar_read_back.0)
+            scalar,
+            Scalar::new(scalar.dtype().clone(), scalar_read_back)
         );
     }
 }

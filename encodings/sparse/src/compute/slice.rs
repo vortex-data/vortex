@@ -13,6 +13,12 @@ impl SliceFn<&SparseArray> for SparseEncoding {
             return Ok(ConstantArray::new(array.fill_scalar().clone(), stop - start).into_array());
         };
 
+        // If the number of values in the sparse array matches the array length, then all
+        // values are in fact patches, since patches are sorted this is the correct values.
+        if new_patches.array_len() == new_patches.values().len() {
+            return Ok(new_patches.into_values());
+        }
+
         Ok(
             SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
                 .into_array(),

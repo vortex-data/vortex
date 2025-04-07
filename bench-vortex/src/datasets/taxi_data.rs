@@ -3,10 +3,12 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
+use vortex::stream::ArrayStreamExt;
 
 use crate::datasets::BenchmarkDataset;
 use crate::datasets::data_downloads::download_data;
@@ -40,6 +42,8 @@ pub async fn fetch_taxi_data() -> ArrayRef {
         .await
         .unwrap()
         .scan()
+        .unwrap()
+        .spawn_tokio(Handle::current())
         .unwrap()
         .read_all()
         .await

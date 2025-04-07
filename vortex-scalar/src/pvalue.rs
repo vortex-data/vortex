@@ -278,6 +278,7 @@ impl TryFrom<PValue> for f32 {
             PValue::U8(u) => Some(Self::from_bits(u as u32)),
             PValue::U16(u) => Some(Self::from_bits(u as u32)),
             PValue::U32(u) => Some(Self::from_bits(u)),
+            PValue::U64(u) => <Self as NumCast>::from(f64::from_bits(u)),
             PValue::F16(f) => <Self as NumCast>::from(f),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
@@ -295,6 +296,8 @@ impl TryFrom<PValue> for f16 {
         match value {
             PValue::U8(u) => Some(Self::from_bits(u as u16)),
             PValue::U16(u) => Some(Self::from_bits(u)),
+            PValue::U32(u) => <Self as NumCast>::from(f32::from_bits(u)),
+            PValue::U64(u) => <Self as NumCast>::from(f64::from_bits(u)),
             PValue::F16(u) => Some(u),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
