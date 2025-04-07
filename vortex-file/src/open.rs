@@ -36,7 +36,6 @@ pub struct VortexOpenOptions<F: FileType> {
     /// An optional, externally provided, file layout.
     // TODO(ngates): add an optional DType so we only read the layout segment.
     footer: Option<Footer>,
-    /// TODO(ngates): rename to initial_segments: HashMap<SegmentId, ByteBuffer>
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
     pub(crate) initial_read_size: u64,
     pub(crate) metrics: VortexMetrics,
