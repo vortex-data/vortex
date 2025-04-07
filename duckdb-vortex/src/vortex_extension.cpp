@@ -334,7 +334,7 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 			iter = filters.erase(iter);
 		} else {
 			++iter;
-		};
+		}
 	}
 }
 

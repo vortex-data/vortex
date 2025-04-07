@@ -438,15 +438,9 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
 		auto bin_op = into_binary_operation(constant_filter.comparison_type);
-		auto value = into_vortex_scalar(arena, constant_filter.constant, true);
 
-		auto column = expr->add_children();
-		set_column(column_name, column);
-
-		auto constant = expr->add_children();
-		constant->set_id(LITERAL_ID);
-		auto literal = constant->mutable_kind()->mutable_literal();
-		literal->set_allocated_value(value);
+		set_column(column_name, expr->add_children());
+		set_literal(arena, constant_filter.constant, true, expr->add_children());
 
 		expr->mutable_kind()->set_binary_op(bin_op);
 		expr->set_id(BINARY_ID);
