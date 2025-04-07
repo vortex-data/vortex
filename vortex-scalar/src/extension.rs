@@ -50,6 +50,10 @@ impl<'a> ExtScalar<'a> {
         Scalar::new(self.ext_dtype.storage_dtype().clone(), self.value.clone())
     }
 
+    pub fn ext_dtype(&self) -> &'a ExtDType {
+        self.ext_dtype
+    }
+
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if self.value.is_null() && !dtype.is_nullable() {
             vortex_bail!(

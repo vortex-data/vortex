@@ -26,9 +26,8 @@ jobs:
     needs: label_trigger
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c6id.8xlarge
       - image=ubuntu24-full-x64
-      - disk=large
       - spot=false
       - tag=${{ matrix.benchmark.id }}
     strategy:
@@ -53,12 +52,24 @@ jobs:
         with:
           version: v1.2.1
 
-      - name: Run ${{ matrix.benchmark.name }} benchmark
+      - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
+          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --package bench-vortex --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
+
+      - name: Setup Polar Signals
+        uses: polarsignals/gh-actions-ps-profiling@v0.2.0
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
+          profiling_frequency: 200
+
+      - name: Run ${{ matrix.benchmark.name }} benchmark
+        shell: bash
+        run: |
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -86,7 +97,7 @@ jobs:
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
 

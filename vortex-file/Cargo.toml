@@ -16,15 +16,15 @@ version = { workspace = true }
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
+linked_hash_set = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
-oneshot = { workspace = true, features = ["async"] }
+object_store = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -49,12 +49,14 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
@@ -63,7 +65,17 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
-object_store = ["vortex-error/object_store", "vortex-io/object_store"]
+object_store = [
+    "dep:object_store",
+    "vortex-error/object_store",
+    "vortex-io/object_store",
+]
+tokio = [
+    "dep:tokio",
+    "vortex-error/tokio",
+    "vortex-io/tokio",
+    "vortex-layout/tokio",
+]
 tracing = [
     "dep:tracing",
     "dep:tracing-futures",

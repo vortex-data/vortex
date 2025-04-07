@@ -16,16 +16,23 @@
 package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
-import com.jakewharton.nopen.annotation.Open;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
 import java.util.OptionalLong;
+import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowSchema;
+import org.apache.arrow.c.CDataDictionaryProvider;
+import org.apache.arrow.c.Data;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
 
-@Open
-public class JNIArray implements Array {
+public final class JNIArray implements Array {
     static {
         NativeLoader.loadJni();
     }
+
+    private final ThreadLocal<long[]> schemaPtr = ThreadLocal.withInitial(() -> new long[1]);
+    private final ThreadLocal<long[]> arrayPtr = ThreadLocal.withInitial(() -> new long[1]);
 
     private OptionalLong pointer;
 
@@ -39,7 +46,29 @@ public class JNIArray implements Array {
         return NativeArrayMethods.getLen(pointer.getAsLong());
     }
 
-    public static native long nativeGetLen(long pointer);
+    @Override
+    public long nbytes() {
+        return NativeArrayMethods.nbytes(pointer.getAsLong());
+    }
+
+    @Override
+    public VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse) {
+        // Export the dataset to Arrow over C Data Interface.
+        NativeArrayMethods.exportToArrow(pointer.getAsLong(), schemaPtr.get(), arrayPtr.get());
+        try (ArrowSchema arrowSchema = ArrowSchema.wrap(schemaPtr.get()[0]);
+                ArrowArray arrowArray = ArrowArray.wrap(arrayPtr.get()[0]);
+                CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
+            if (reuse != null) {
+                Data.importIntoVectorSchemaRoot(allocator, arrowArray, reuse, provider);
+                return reuse;
+            } else {
+                return Data.importVectorSchemaRoot(allocator, arrowArray, arrowSchema, new CDataDictionaryProvider());
+            }
+        } finally {
+            NativeArrayMethods.dropArrowSchema(schemaPtr.get()[0]);
+            NativeArrayMethods.dropArrowArray(arrayPtr.get()[0]);
+        }
+    }
 
     @Override
     public DType getDataType() {

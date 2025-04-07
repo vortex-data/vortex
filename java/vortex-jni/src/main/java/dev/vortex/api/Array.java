@@ -15,8 +15,18 @@
  */
 package dev.vortex.api;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+
 public interface Array extends AutoCloseable {
     long getLen();
+
+    long nbytes();
+
+    /**
+     * Export to an ArrowVector. The data will now be owned by the VectorSchemaRoot after this operation.
+     */
+    VectorSchemaRoot exportToArrow(BufferAllocator allocator, VectorSchemaRoot reuse);
 
     DType getDataType();
 

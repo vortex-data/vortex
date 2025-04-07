@@ -7,7 +7,7 @@ plugins {
 dependencies {
     api("org.apache.spark:spark-catalyst_2.12")
     api("org.apache.spark:spark-sql_2.12")
-    api(project(":vortex-jni"))
+    api(project(":vortex-jni", configuration = "shadow"))
 
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")

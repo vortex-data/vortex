@@ -116,14 +116,17 @@ macro_rules! native_ptype {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 
+            #[inline]
             fn is_nan(self) -> bool {
                 false
             }
 
+            #[inline]
             fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
             }
 
+            #[inline]
             fn is_eq(self, other: Self) -> bool {
                 self == other
             }
@@ -136,14 +139,17 @@ macro_rules! native_float_ptype {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 
+            #[inline]
             fn is_nan(self) -> bool {
                 <$T>::is_nan(self)
             }
 
+            #[inline]
             fn total_compare(self, other: Self) -> Ordering {
                 self.total_cmp(&other)
             }
 
+            #[inline]
             fn is_eq(self, other: Self) -> bool {
                 self.to_bits() == other.to_bits()
             }

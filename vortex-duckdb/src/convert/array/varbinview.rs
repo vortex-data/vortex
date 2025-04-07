@@ -2,15 +2,17 @@ use std::ffi::c_char;
 
 use duckdb::vtab::arrow::WritableVector;
 use itertools::Itertools;
+use vortex_array::Array;
 use vortex_array::arrays::{BinaryView, Inlined, VarBinViewArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::ToDuckDB;
 use crate::buffer::{
-    AssignBufferToVec, ExternalBuffer, FFIDuckDBBufferInternal, new_cpp_vector_buffer,
+    AssignBufferToVec, CppVectorBuffer, ExternalBuffer, FFIDuckDBBufferInternal,
+    new_cpp_vector_buffer,
 };
-
+use crate::convert::array::{ConversionCache, write_validity_from_mask};
 // This is the C++ string view struct
 // private:
 // 	union {
@@ -81,7 +83,11 @@ fn binary_view_to_ptr_binary_view<'a>(
 }
 
 impl ToDuckDB for VarBinViewArray {
-    fn to_duckdb(&self, chunk: &mut dyn WritableVector) -> VortexResult<()> {
+    fn to_duckdb(
+        &self,
+        chunk: &mut dyn WritableVector,
+        _: &mut ConversionCache,
+    ) -> VortexResult<()> {
         let buffers = self.buffers();
         let mut buffer_used = vec![false; buffers.len()];
 
@@ -104,13 +110,126 @@ impl ToDuckDB for VarBinViewArray {
                 let buffer: *mut ExternalBuffer = Box::into_raw(Box::new(
                     FFIDuckDBBufferInternal { inner: Box::new(b) }.into(),
                 ));
-                let extern_buf = unsafe { new_cpp_vector_buffer(buffer) };
+                let extern_buf: *mut CppVectorBuffer = unsafe { new_cpp_vector_buffer(buffer) };
                 // Adds an extra ref to the buffer which will outlive the `views`
+                // Note this fn takes ownership of the cpp vector buffer.
+                // TODO(joe): create a free_cpp_vector_buffer method, maybe?
                 unsafe { AssignBufferToVec(vec.unowned_ptr(), extern_buf) };
             });
 
-        chunk.flat_vector().copy(views.as_slice());
+        let mut vector = chunk.flat_vector();
+        vector.copy(views.as_slice());
+        write_validity_from_mask(self.validity_mask()?, &mut vector);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::arrays::{ConstantArray, VarBinViewArray};
+    use vortex_array::compute::slice;
+    use vortex_array::{Array, ToCanonical};
+
+    use crate::ToDuckDB;
+    use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
+    use crate::convert::array::{ConversionCache, to_duckdb};
+
+    #[test]
+    fn constant_empty_str_array() {
+        let len = 100;
+        let const_ = ConstantArray::new("", len).to_array();
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+        to_duckdb(
+            &const_,
+            &mut DataChunkHandleSlice::new(&mut chunk, 0),
+            &mut ConversionCache::default(),
+        )
+        .unwrap();
+        chunk.set_len(len);
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [1 Columns]
+- CONSTANT VARCHAR: 100 = [ ]
+"#
+        );
+    }
+
+    #[test]
+    fn constant_long_str_array() {
+        let len = 100;
+        let const_ = ConstantArray::new(
+            "long string 100000000000000000000000000000000000000000000000000000000000",
+            len,
+        )
+        .to_array();
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+        to_duckdb(
+            &const_,
+            &mut DataChunkHandleSlice::new(&mut chunk, 0),
+            &mut ConversionCache::default(),
+        )
+        .unwrap();
+        chunk.set_len(len);
+        chunk.verify();
+        assert_eq!(
+            format!("{:?}", chunk),
+            r#"Chunk - [1 Columns]
+- CONSTANT VARCHAR: 100 = [ long string 100000000000000000000000000000000000000000000000000000000000]
+"#
+        );
+    }
+
+    // This tests the sharing of buffers between data chunk, while dropping these buffers early.
+    #[test]
+    fn test_multi_buffer_ref() {
+        let varbin = VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
+        {
+            let start_view = slice(&varbin, 0, 2).unwrap().to_varbinview().unwrap();
+            let mut chunk =
+                DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+            chunk.set_len(start_view.len());
+            start_view
+                .to_duckdb(
+                    &mut DataChunkHandleSlice::new(&mut chunk, 0),
+                    &mut ConversionCache::default(),
+                )
+                .unwrap();
+
+            chunk.verify();
+            assert_eq!(
+                format!("{:?}", chunk),
+                r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 2 = [ a, ab]
+"#
+            );
+            drop(chunk)
+        }
+        {
+            let end_view = slice(&varbin, 2, 5).unwrap().to_varbinview().unwrap();
+            drop(varbin);
+            let mut chunk =
+                DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
+            chunk.set_len(end_view.len());
+            end_view
+                .to_duckdb(
+                    &mut DataChunkHandleSlice::new(&mut chunk, 0),
+                    &mut ConversionCache::default(),
+                )
+                .unwrap();
+            drop(end_view);
+
+            chunk.verify();
+            assert_eq!(
+                format!("{:?}", chunk),
+                r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 3 = [ abc, abcd, abcde]
+"#
+            );
+
+            drop(chunk)
+        }
     }
 }

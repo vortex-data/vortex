@@ -9,14 +9,13 @@ use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArr
 use vortex_array::{Array, ArrayRef, Canonical};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 pub use crate::float::FloatCompressor;
 pub use crate::integer::IntCompressor;
 pub use crate::string::StringCompressor;
 pub use crate::temporal::compress_temporal;
 
-mod downscale;
 mod float;
 pub mod integer;
 mod patches;
@@ -39,6 +38,8 @@ impl Default for GenerateStatsOptions {
     }
 }
 
+const SAMPLE_SIZE: u32 = 64;
+
 /// Stats for the compressor.
 pub trait CompressorStats: Debug + Clone {
     type ArrayType: Array;
@@ -52,11 +53,11 @@ pub trait CompressorStats: Debug + Clone {
 
     fn source(&self) -> &Self::ArrayType;
 
-    fn sample(&self, sample_size: u16, sample_count: u16) -> Self {
+    fn sample(&self, sample_size: u32, sample_count: u32) -> Self {
         self.sample_opts(sample_size, sample_count, GenerateStatsOptions::default())
     }
 
-    fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
+    fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self;
 }
 
 /// Top-level compression scheme trait.
@@ -127,7 +128,22 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     let sample = if is_sample {
         stats.clone()
     } else {
-        stats.sample(64, 10)
+        // We want to sample about 1% of data
+        let source_len = stats.source().len();
+
+        // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
+        let sample_count = usize::max(
+            (source_len / 100) / usize::try_from(SAMPLE_SIZE).vortex_unwrap(),
+            10,
+        );
+
+        log::trace!(
+            "Sampling {} values out of {}",
+            SAMPLE_SIZE as usize * sample_count,
+            source_len
+        );
+
+        stats.sample(SAMPLE_SIZE, sample_count.try_into().vortex_unwrap())
     };
 
     let after = compressor
@@ -219,19 +235,25 @@ pub trait Compressor {
                 continue;
             }
 
-            log::debug!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
+            log::trace!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:#?} ratio = {ratio}");
+            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
 
-            if ratio > best_ratio {
-                best_ratio = ratio;
-                let _ = best_scheme.insert(*scheme);
+            if !(ratio.is_subnormal() || ratio.is_infinite() || ratio.is_nan()) {
+                if ratio > best_ratio {
+                    best_ratio = ratio;
+                    best_scheme = Some(*scheme);
+                }
+            } else {
+                log::trace!(
+                    "Calculated invalid compression ratio {ratio} for scheme: {scheme:?}. Must not be sub-normal, infinite or nan."
+                );
             }
         }
 
-        log::trace!("depth={depth} best scheme = {best_scheme:#?}  ratio = {best_ratio}");
+        log::debug!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
 
         if let Some(best) = best_scheme {
             Ok(best)
@@ -245,9 +267,12 @@ pub trait Compressor {
 pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
-    #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        match array.to_canonical()? {
+        self.compress_canonical(array.to_canonical()?)
+    }
+
+    pub fn compress_canonical(&self, array: Canonical) -> VortexResult<ArrayRef> {
+        match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),

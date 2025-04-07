@@ -6,6 +6,7 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
@@ -18,7 +19,6 @@ use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
-use crate::downscale::downscale_integer_array;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::{
@@ -241,16 +241,15 @@ impl Scheme for FORScheme {
 
         // Difference between max and min
         let full_width: u32 = stats.src.ptype().bit_width().try_into().vortex_unwrap();
-        let padding = 64 - full_width;
-        let bw = full_width + padding - stats.typed.max_minus_min().leading_zeros();
+        let bw = match stats.typed.max_minus_min().checked_ilog2() {
+            Some(l) => l + 1,
+            // If max-min == 0, it we should use a different compression scheme
+            // as we don't want to bitpack down to 0 bits.
+            None => return Ok(0.0),
+        };
 
         // If we're not saving at least 1 byte, don't bother with FOR
         if full_width - bw < 8 {
-            return Ok(0.0);
-        }
-
-        // Don't pack down to 0, instead using constant encoding
-        if bw == 0 {
             return Ok(0.0);
         }
 

@@ -120,7 +120,7 @@ mod test {
         let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
         let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 1, 1, 1]
         );
         assert_eq!(
@@ -143,7 +143,7 @@ mod test {
         ]);
         let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 0, 1, 1, 0, 1, 0]
         );
         let dict_values = dict.values();

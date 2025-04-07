@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{AsyncSegmentReader, SegmentCollector};
+use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
 use crate::{FLAT_LAYOUT_ID, Layout, LayoutId};
 
@@ -26,10 +26,10 @@ impl LayoutVTable for FlatLayout {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(FlatReader::try_new(layout, ctx, segment_reader)?.into_arc())
+        Ok(FlatReader::try_new(layout, segment_source.clone(), ctx.clone())?.into_arc())
     }
 
     fn register_splits(
@@ -44,21 +44,6 @@ impl LayoutVTable for FlatLayout {
                 splits.insert(row_offset + layout.row_count());
                 break;
             }
-        }
-        Ok(())
-    }
-
-    fn required_segments(
-        &self,
-        layout: &Layout,
-        row_offset: u64,
-        _filter_field_mask: &[FieldMask],
-        _projection_field_mask: &[FieldMask],
-        segments: &mut SegmentCollector,
-    ) -> VortexResult<()> {
-        // this would iterate once
-        for segment in layout.segments() {
-            segments.push(row_offset, row_offset + layout.row_count(), segment);
         }
         Ok(())
     }

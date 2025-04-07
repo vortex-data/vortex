@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.io.ByteArrayOutputStream
 
 plugins {
     `java-library`
@@ -6,9 +7,14 @@ plugins {
     `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
+    id("me.champeau.jmh") version "0.7.3"
 }
 
 dependencies {
+    implementation("org.apache.arrow:arrow-c-data")
+    implementation("org.apache.arrow:arrow-memory-core")
+    implementation("org.apache.arrow:arrow-memory-netty")
+
     compileOnly("org.immutables:value")
     annotationProcessor("org.immutables:value")
 
@@ -21,12 +27,26 @@ dependencies {
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 }
 
+jmh {
+    warmupIterations = 3
+    iterations = 3
+    fork = 1
+}
+
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
         }
     }
+}
+
+tasks.withType<Test>().all {
+    jvmArgs(
+        "--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED",
+        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    )
 }
 
 protobuf {
@@ -40,6 +60,15 @@ tasks.withType<ShadowJar> {
     archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
+    relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
+        // exclude C Data Interface since JNI cannot be relocated
+        exclude("org.apache.arrow.c.jni.JniWrapper")
+        exclude("org.apache.arrow.c.jni.PrivateData")
+        exclude("org.apache.arrow.c.jni.CDataJniException")
+        // Also used by JNI: https://github.com/apache/arrow/blob/apache-arrow-11.0.0/java/c/src/main/cpp/jni_wrapper.cc#L341
+        // Note this class is not used by us, but required when loading the native lib
+        exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
+    }
 }
 
 tasks.build {
@@ -58,11 +87,11 @@ tasks.register("generateJniHeaders") {
         }
 
     inputs.files(jniClasses)
-    outputs.dir("$buildDir/generated/jni")
+    outputs.dir("${layout.buildDirectory}/generated/jni")
 
     doLast {
         // Create output directory if it doesn't exist
-        val headerDir = file("$buildDir/generated/jni")
+        val headerDir = file("${layout.buildDirectory}/generated/jni")
         headerDir.mkdirs()
 
         val classesDir =
@@ -113,7 +142,6 @@ val platformLibSuffix =
     }
 
 val targetDir = projectDir.parentFile.parentFile.resolve("target")
-val libraryFile = targetDir.resolve("release/libvortex_jni.$platformLibSuffix")
 
 val cargoCheck by tasks.registering(Exec::class) {
     workingDir = vortexJNI
@@ -122,13 +150,42 @@ val cargoCheck by tasks.registering(Exec::class) {
 
 val cargoBuild by tasks.registering(Exec::class) {
     workingDir = vortexJNI
-    commandLine(
-        "cargo",
-        "build",
-        "--release",
-    )
 
-    outputs.files(libraryFile)
+    val buildWithAsan = project.findProperty("buildWithAsan")?.toString()?.toBoolean() ?: false
+    println("buildWithAsan: $buildWithAsan")
+    if (buildWithAsan) {
+        // Force a rebuild
+        outputs.upToDateWhen { false }
+
+        // Get the target triple for the current platform. We need it
+        // so we can tell cargo to recompile the std crate for this target with ASAN enabled.
+        val output = ByteArrayOutputStream()
+        exec {
+            commandLine("rustc", "--print", "host-tuple")
+            standardOutput = output
+        }
+        val targetTriple = output.toString().trim()
+
+        // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
+        environment("RUSTFLAGS", "-Zsanitizer=address")
+        commandLine(
+            "cargo",
+            "build",
+            "-Zbuild-std",
+            "--target",
+            targetTriple,
+            "--release",
+        )
+        // cargo puts the built artifact in a target-dependent directory when you specify the triple
+        outputs.files(targetDir.resolve("$targetTriple/release/libvortex_jni.$platformLibSuffix"))
+    } else {
+        commandLine(
+            "cargo",
+            "build",
+            "--release",
+        )
+        outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
+    }
 
     // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
     outputs.upToDateWhen { false }
@@ -151,7 +208,7 @@ tasks.named("build").configure {
 val osName = System.getProperty("os.name")
 val osArch =
     when (System.getProperty("os.arch")) {
-        "amd64", "x86_64" -> "x86-64"
+        "amd64", "x86_64" -> "amd64"
         else -> System.getProperty("os.arch")
     }
 val resourceDir =
@@ -161,19 +218,11 @@ val resourceDir =
         "linux-$osArch"
     }
 
-// Create a release build for every platform we care about.
-// Or we distribute different JARs for each platform...not sure the best approach here.
-// Honestly, fat JAR is probably the move. No one cares about JAR size in Java land, portability
-// is more important.
 val copySharedLibrary by tasks.registering(Copy::class) {
     dependsOn(cargoBuild)
 
-    from(libraryFile)
+    from(cargoBuild.get().outputs.files)
     into(projectDir.resolve("src/main/resources/native/$resourceDir"))
-
-    doLast {
-        println("Copied $libraryFile into resource directory")
-    }
 }
 
 tasks.withType<ProcessResources>().configureEach {
@@ -182,5 +231,6 @@ tasks.withType<ProcessResources>().configureEach {
 
 // Remove the JAR task, replace it with shadowJar
 tasks.named("jar").configure {
+    dependsOn("shadowJar")
     enabled = false
 }

@@ -17,11 +17,14 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+arrow = { workspace = true, features = ["ffi"] }
 futures = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 prost = { workspace = true }
+simplelog = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true }
 vortex = { workspace = true, features = [

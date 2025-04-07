@@ -65,9 +65,9 @@ mod test {
     use vortex_dtype::{DType, FieldPath};
 
     use super::*;
+    use crate::LayoutWriterExt;
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
-    use crate::writer::LayoutWriterExt;
+    use crate::segments::TestSegments;
 
     #[test]
     fn test_layout_splits_flat() {

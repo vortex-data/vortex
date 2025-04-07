@@ -41,8 +41,7 @@ impl ScalarValue {
         use vortex_error::VortexExpect;
 
         let mut ser = flexbuffers::FlexbufferSerializer::new();
-        self.0
-            .serialize(&mut ser)
+        self.serialize(&mut ser)
             .vortex_expect("Failed to serialize ScalarValue");
         let view = ser.view();
 
@@ -92,15 +91,16 @@ impl Display for InnerScalarValue {
                 }
             }
             Self::BufferString(bufstr) => {
-                if bufstr.len() > 10 {
-                    write!(
-                        f,
-                        "{}..{}",
-                        &bufstr[0..5],
-                        &bufstr[bufstr.len() - 5..bufstr.len()],
-                    )
+                let bufstr = bufstr.as_str();
+                let str_len = bufstr.chars().count();
+
+                if str_len > 10 {
+                    let prefix = String::from_iter(bufstr.chars().take(5));
+                    let suffix = String::from_iter(bufstr.chars().skip(str_len - 5));
+
+                    write!(f, "\"{prefix}..{suffix}\"")
                 } else {
-                    write!(f, "\"{}\"", bufstr.as_str())
+                    write!(f, "\"{}\"", bufstr)
                 }
             }
             Self::List(elems) => {

@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use flatbuffers::root;
@@ -10,55 +9,42 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::{Footer, Postscript, SegmentSpec};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
+use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub trait FileType: Sized {
     type Options: Clone;
-    type Read: VortexReadAt;
-    type ScanDriver: ScanDriver;
-
-    fn scan_driver(
-        read: Self::Read,
-        options: Self::Options,
-        footer: Footer,
-        segment_cache: Arc<dyn SegmentCache>,
-        metrics: VortexMetrics,
-    ) -> Self::ScanDriver;
 }
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions<F: FileType> {
-    /// The underlying file reader.
-    read: F::Read,
     /// File-specific options
     pub(crate) options: F::Options,
     /// The registry of array encodings.
-    registry: Arc<ArrayRegistry>,
+    pub(crate) registry: Arc<ArrayRegistry>,
     /// The registry of layouts.
-    layout_registry: Arc<LayoutRegistry>,
+    pub(crate) layout_registry: Arc<LayoutRegistry>,
     /// An optional, externally provided, file size.
-    file_size: Option<u64>,
+    pub(crate) file_size: Option<u64>,
     /// An optional, externally provided, DType.
-    dtype: Option<DType>,
+    pub(crate) dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     // TODO(ngates): add an optional DType so we only read the layout segment.
     footer: Option<Footer>,
-    segment_cache: Arc<dyn SegmentCache>,
-    initial_read_size: u64,
-    metrics: VortexMetrics,
+    /// TODO(ngates): rename to initial_segments: HashMap<SegmentId, ByteBuffer>
+    pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub(crate) initial_read_size: u64,
+    pub(crate) metrics: VortexMetrics,
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
-    pub(crate) fn new(read: F::Read, options: F::Options) -> Self {
+    pub(crate) fn new(options: F::Options) -> Self {
         Self {
-            read,
             options,
             registry: DEFAULT_REGISTRY.clone(),
             layout_registry: Arc::new(LayoutRegistry::default()),
@@ -105,7 +91,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     /// Configure a known file layout.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
-    /// Once open, the [`Footer`] can be accessed via [`VortexFile::footer`].
+    /// Once open, the [`Footer`] can be accessed via [`crate::VortexFile::footer`].
     pub fn with_footer(mut self, footer: Footer) -> Self {
         self.dtype = Some(footer.layout().dtype().clone());
         self.footer = Some(footer);
@@ -137,31 +123,15 @@ impl<F: FileType> VortexOpenOptions<F> {
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
-    /// Open the Vortex file using asynchronous IO.
-    pub async fn open(mut self) -> VortexResult<VortexFile<F>> {
-        // If we need to read the file layout, then do so.
-        let footer = match self.footer.take() {
-            None => self.read_footer().await?,
-            Some(footer) => footer,
-        };
-
-        // TODO(ngates): construct layout and array context from the footer + registry.
-
-        Ok(VortexFile {
-            read: self.read,
-            options: self.options,
-            footer,
-            segment_cache: self.segment_cache,
-            metrics: self.metrics,
-            _marker: PhantomData,
-        })
-    }
-
     /// Read the [`Footer`] from the file.
-    async fn read_footer(&self) -> VortexResult<Footer> {
+    pub(crate) async fn read_footer<R: VortexReadAt>(&self, read: &R) -> VortexResult<Footer> {
+        if let Some(footer) = self.footer.as_ref() {
+            return Ok(footer.clone());
+        }
+
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
-            None => self.read.size().await?,
+            None => read.size().await?,
             Some(file_size) => file_size,
         };
         let initial_read_size = self
@@ -170,8 +140,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
             .min(file_size);
         let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read: ByteBuffer = self
-            .read
+        let mut initial_read: ByteBuffer = read
             .read_byte_range(initial_offset..file_size, Alignment::none())
             .await?;
 
@@ -206,8 +175,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - read_more_offset)?);
             new_initial_read.extend_from_slice(
-                &self
-                    .read
+                &read
                     .read_byte_range(read_more_offset..initial_offset, Alignment::none())
                     .await?,
             );
@@ -315,7 +283,6 @@ impl<F: FileType> VortexOpenOptions<F> {
                     let buffer = initial_read
                         .slice(offset..offset + (segment.length as usize))
                         .aligned(segment.alignment);
-
                     self.segment_cache.put(segment_id, buffer).await
                 }),
         )

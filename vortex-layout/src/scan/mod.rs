@@ -1,79 +1,59 @@
+use std::iter;
 use std::sync::Arc;
 
-use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{Stream, StreamExt, stream};
+use futures::executor::LocalPool;
+use futures::future::BoxFuture;
+use futures::task::LocalSpawnExt;
+use futures::{FutureExt, StreamExt, stream};
 use itertools::Itertools;
+pub use selection::*;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_mask::Mask;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::{VortexMetrics, instrument};
 
-use crate::scan::filter::FilterExpr;
-use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::{AsyncSegmentReader, RowRangePruner, SegmentCollector, SegmentStream};
-use crate::{
-    ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask, instrument, range_intersection,
-};
+use crate::layouts::filter::FilterLayoutReader;
+use crate::{ExprEvaluator, LayoutReader};
 
-pub mod executor;
-pub(crate) mod filter;
+pub mod row_mask;
+mod selection;
 mod split_by;
-pub mod unified;
-
-pub trait ScanDriver: 'static + Sized {
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
-
-    /// Return a future that drives the I/O stream for the segment reader.
-    /// The future should return when the stream is complete, and can return an error to
-    /// terminate the scan early.
-    ///
-    /// It is recommended that I/O is spawned and processed on its own thread, with this driver
-    /// serving only as a mechanism to signal completion or error. There is no guarantee around
-    /// how frequently this future will be polled, so it should not be used to drive I/O.
-    ///
-    /// TODO(ngates): make this a future
-    fn io_stream(self, segments: SegmentStream) -> impl Stream<Item = VortexResult<()>>;
-}
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<D: ScanDriver> {
-    driver: D,
-    task_executor: Option<TaskExecutor>,
-    layout: Layout,
-    ctx: ArrayContext, // TODO(ngates): store this on larger context on Layout
+pub struct ScanBuilder {
+    layout_reader: Arc<dyn LayoutReader>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    row_indices: Option<Buffer<u64>>,
+    selection: Selection,
+    /// How to split the file for concurrent processing.
     split_by: SplitBy,
+    /// Whether the arrays returned by the scan should be in canonical form.
     canonicalize: bool,
-    // The number of splits to make progress on concurrently.
+    /// The number of splits to make progress on concurrently.
     concurrency: usize,
-    prefetch_conjuncts: bool,
     metrics: VortexMetrics,
 }
 
-impl<D: ScanDriver> ScanBuilder<D> {
-    pub fn new(driver: D, layout: Layout, ctx: ArrayContext) -> Self {
+impl ScanBuilder {
+    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
-            driver,
-            task_executor: None,
-            layout,
-            ctx,
+            layout_reader,
             projection: Identity::new_expr(),
             filter: None,
-            row_indices: None,
+            selection: Default::default(),
             split_by: SplitBy::Layout,
             canonicalize: false,
-            prefetch_conjuncts: false,
-            concurrency: 1024,
+            // How many row splits to make progress on concurrently (not necessarily in parallel,
+            // that is decided by the TaskExecutor).
+            concurrency: 16,
             metrics: Default::default(),
         }
     }
@@ -93,13 +73,13 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
-        self.row_indices = Some(row_indices);
+    pub fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = selection;
         self
     }
 
-    pub fn with_some_row_indices(mut self, row_indices: Option<Buffer<u64>>) -> Self {
-        self.row_indices = row_indices;
+    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+        self.selection = Selection::IncludeByIndex(row_indices);
         self
     }
 
@@ -121,100 +101,186 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    /// The number of row splits to make progress on concurrently, must be greater than 0.
-    pub fn with_prefetch_conjuncts(mut self, prefetch: bool) -> Self {
-        self.prefetch_conjuncts = prefetch;
-        self
-    }
-
-    pub fn with_task_executor(mut self, task_executor: TaskExecutor) -> Self {
-        self.task_executor = Some(task_executor);
-        self
-    }
-
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
         self.metrics = metrics;
         self
     }
 
-    pub fn build(self) -> VortexResult<Scan<D>> {
-        let projection = simplify_typed(self.projection.clone(), self.layout.dtype())?;
+    #[allow(clippy::unused_enumerate_index)]
+    fn build_tasks(
+        self,
+    ) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<ArrayRef>>>>> {
+        // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
+        // conjunction splitting if a filter is provided.
+        let mut layout_reader = self.layout_reader;
+        if self.filter.is_some() {
+            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
+        }
+
+        // Normalize and simplify the expressions.
+        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, self.layout.dtype()))
+            .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), self.layout.dtype())?;
 
+        // Construct field masks and compute the row splits of the scan.
+        let (filter_mask, projection_mask) =
+            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = filter_mask
             .iter()
             .cloned()
             .chain(projection_mask.iter().cloned())
             .collect();
-
-        let splits = self.split_by.splits(&self.layout, &field_mask)?;
-        let mut collector = SegmentCollector::new(self.metrics.clone());
-        self.layout
-            .required_segments(0, &filter_mask, &projection_mask, &mut collector)?;
-        let (mut row_range_pruner, segments) = collector.finish();
-        let row_indices = self.row_indices.clone();
-        if let Some(indices) = &row_indices {
-            row_range_pruner.retain_matching(indices.clone());
-        }
+        let splits = self.split_by.splits(layout_reader.layout(), &field_mask)?;
 
         let row_masks = splits
             .into_iter()
-            .filter_map(move |row_range| {
-                let Some(row_indices) = &row_indices else {
-                    // If there is no row indices filter, then take the whole range
-                    return Some(RowMask::new_valid_between(row_range.start, row_range.end));
-                };
-
-                // Otherwise, find the indices that are within the row range.
-                let intersection = range_intersection(&row_range, row_indices)?;
-
-                // Construct a row mask for the range.
-                let filter_mask = Mask::from_indices(
-                    usize::try_from(row_range.end - row_range.start)
-                        .vortex_expect("Split ranges are within usize"),
-                    row_indices[intersection]
-                        .iter()
-                        .map(|&idx| {
-                            usize::try_from(idx - row_range.start)
-                                .vortex_expect("index within range")
-                        })
-                        .collect(),
-                );
-                Some(RowMask::new(filter_mask, row_range.start))
-            })
+            .map(|row_range| self.selection.row_mask(&row_range))
+            .filter(|mask| !mask.mask().all_false())
             .collect_vec();
 
-        Ok(Scan {
-            driver: self.driver,
-            task_executor: self
-                .task_executor
-                .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
-            layout: self.layout,
-            ctx: self.ctx,
-            projection,
-            filter,
-            row_masks,
-            canonicalize: self.canonicalize,
-            concurrency: self.concurrency,
-            prefetch_conjuncts: self.prefetch_conjuncts,
-            row_range_pruner,
-            segments,
+        // Create a future to process each row split of the scan.
+        row_masks
+            .into_iter()
+            .enumerate()
+            .map(|(_i, row_mask)| {
+                let row_range = row_mask.row_range();
+
+                let approx_filter_eval = filter
+                    .as_ref()
+                    .map(|expr| layout_reader.pruning_evaluation(&row_range, expr))
+                    .transpose()?;
+                let exact_filter_eval = filter
+                    .as_ref()
+                    .map(|expr| layout_reader.filter_evaluation(&row_range, expr))
+                    .transpose()?;
+                let project_eval = layout_reader.projection_evaluation(&row_range, &projection)?;
+
+                Ok::<_, VortexError>(instrument!("split", [split = _i], async move {
+                    let mut mask = row_mask.mask().clone();
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+
+                    if let Some(approx_filter_eval) = approx_filter_eval {
+                        // First, we run an approximate evaluation to prune the row range.
+                        log::debug!("Pruning row range {:?}", row_range);
+                        mask = approx_filter_eval.invoke(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
+                    }
+
+                    if let Some(exact_filter_eval) = exact_filter_eval {
+                        // Then, we run the full evaluation.
+                        log::debug!("Filtering row range {:?}", row_range);
+                        mask = exact_filter_eval.invoke(mask).await?;
+                        if mask.all_false() {
+                            return Ok(None);
+                        }
+                    }
+
+                    log::debug!("Projecting row range {:?}", row_range);
+                    let mut array = project_eval.invoke(mask).await?;
+                    if self.canonicalize {
+                        log::debug!("Canonicalizing row range {:?}", row_range);
+                        let mut builder = builder_with_capacity(array.dtype(), array.len());
+                        array.append_to_builder(builder.as_mut())?;
+                        array = builder.finish();
+                    }
+
+                    Ok(Some(array))
+                }))
+            })
+            .try_collect()
+    }
+
+    /// Returns a stream over the scan with each CPU task spawned using the given spawn function.
+    pub fn spawn_on<F, S>(self, mut spawner: S) -> VortexResult<impl ArrayStream + 'static>
+    where
+        F: Future<Output = VortexResult<Option<ArrayRef>>>,
+        S: FnMut(BoxFuture<'static, VortexResult<Option<ArrayRef>>>) -> F + 'static,
+    {
+        let concurrency = self.concurrency;
+        let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
+        let tasks = self.build_tasks()?;
+
+        let array_stream = stream::iter(tasks)
+            .map(move |task| spawner(task.boxed()))
+            .buffered(concurrency)
+            .filter_map(|v| async move { v.transpose() });
+
+        Ok(ArrayStreamAdapter::new(
+            dtype,
+            instrument!("array_stream", array_stream),
+        ))
+    }
+
+    /// Returns a stream over the scan with each CPU task spawned onto the given Tokio runtime
+    /// using [`tokio::runtime::Handle::spawn`].
+    ///
+    /// Note that this should only be used if the Tokio runtime is dedicated to CPU-bound tasks.
+    #[cfg(feature = "tokio")]
+    pub fn spawn_tokio(
+        self,
+        handle: tokio::runtime::Handle,
+    ) -> VortexResult<impl ArrayStream + 'static> {
+        self.spawn_on(move |task| {
+            let handle = handle.clone();
+            async move {
+                handle
+                    .spawn(task)
+                    .await
+                    .vortex_expect("Failed to join task")
+            }
         })
     }
 
-    /// Perform the scan operation and return a stream of arrays.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        self.build()?.into_array_stream()
+    /// Returns a stream over the scan with each CPU task spawned onto a Tokio worker thread
+    /// using [`tokio::runtime::Handle::spawn_blocking`].
+    #[cfg(feature = "tokio")]
+    pub fn spawn_tokio_blocking(
+        self,
+        handle: tokio::runtime::Handle,
+    ) -> VortexResult<impl ArrayStream + 'static> {
+        self.spawn_on(move |task| {
+            let handle = handle.clone();
+            async move {
+                handle
+                    .spawn_blocking(|| futures::executor::block_on(task))
+                    .await
+                    .vortex_expect("Failed to join task")
+            }
+        })
     }
 
-    pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
+    /// Returns a stream over the scan with each CPU task polled on the current thread as per
+    /// the behaviour of [`futures::stream::Buffered`].
+    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+        self.spawn_on(|task| task)
+    }
+
+    /// Returns a blocking iterator over the scan.
+    ///
+    /// All work will be performed on the current thread, with tasks interleaved per the
+    /// configured concurrency.
+    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
+        let mut local_pool = LocalPool::new();
+        let spawner = local_pool.spawner();
+        let array_stream = self.spawn_on(move |task| {
+            spawner
+                .spawn_local_with_handle(task)
+                .map_err(|e| vortex_err!("Failed to spawn task: {e}"))
+                .vortex_expect("Failed to spawn task")
+        })?;
+
+        let mut array_stream = Box::pin(array_stream);
+        Ok(ArrayIteratorAdapter::new(
+            array_stream.dtype().clone(),
+            iter::from_fn(move || local_pool.run_until(array_stream.next())),
+        ))
     }
 }
 
@@ -255,116 +321,4 @@ fn filter_and_projection_masks(
 
 fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
-}
-
-pub struct Scan<D> {
-    driver: D,
-    task_executor: TaskExecutor,
-    layout: Layout,
-    ctx: ArrayContext,
-    // Guaranteed to be simplified
-    projection: ExprRef,
-    // Guaranteed to be simplified
-    filter: Option<ExprRef>,
-    row_masks: Vec<RowMask>,
-    canonicalize: bool,
-    //TODO(adam): bake this into the executors?
-    concurrency: usize,
-    prefetch_conjuncts: bool,
-    row_range_pruner: RowRangePruner,
-    segments: SegmentStream,
-}
-
-impl<D: ScanDriver> Scan<D> {
-    /// Perform the scan operation and return a stream of arrays.
-    ///
-    /// The returned stream should be considered to perform I/O-bound operations and requires
-    /// frequent polling to make progress.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        // Create a single LayoutReader that is reused for the entire scan.
-        let segment_reader = self.driver.segment_reader();
-        let task_executor = self.task_executor.clone();
-        let reader: Arc<dyn LayoutReader> = self.layout.reader(segment_reader, self.ctx.clone())?;
-
-        let pruning = self
-            .filter
-            .as_ref()
-            .map(|filter| {
-                let pruning = Arc::new(FilterExpr::try_new(
-                    reader
-                        .dtype()
-                        .as_struct()
-                        .ok_or_else(|| {
-                            vortex_err!("Vortex scan currently only works for struct arrays")
-                        })?
-                        .clone(),
-                    filter.clone(),
-                    self.prefetch_conjuncts,
-                )?);
-
-                VortexResult::Ok(pruning)
-            })
-            .transpose()?;
-
-        // We start with a stream of row masks
-        let row_masks = stream::iter(self.row_masks);
-        let projection = self.projection.clone();
-        let row_range_pruner = self.row_range_pruner.clone();
-
-        let exec_stream = row_masks
-            .map(move |row_mask| {
-                let reader = reader.clone();
-                let projection = projection.clone();
-                let pruning = pruning.clone();
-                let reader = reader.clone();
-                let mut row_range_pruner = row_range_pruner.clone();
-
-                // This future is the processing task
-                instrument!("process", async move {
-                    let row_mask = match pruning {
-                        None => row_mask,
-                        Some(pruning_filter) => {
-                            pruning_filter
-                                .new_evaluation(&row_mask)
-                                .evaluate(reader.clone())
-                                .await?
-                        }
-                    };
-
-                    // Filter out all-false masks
-                    if row_mask.filter_mask().all_false() {
-                        row_range_pruner
-                            .remove(row_mask.begin()..row_mask.end())
-                            .await?;
-                        Ok(None)
-                    } else {
-                        let mut array = reader.evaluate_expr(row_mask, projection).await?;
-                        if self.canonicalize {
-                            let mut builder = builder_with_capacity(array.dtype(), array.len());
-                            array.append_to_builder(builder.as_mut())?;
-                            array = builder.finish();
-                        }
-                        VortexResult::Ok(Some(array))
-                    }
-                })
-            })
-            .map(move |processing_task| task_executor.spawn(processing_task))
-            .buffered(self.concurrency)
-            .filter_map(|v| async move { v.unnest().transpose() });
-
-        let exec_stream = instrument!("exec_stream", exec_stream);
-        let io_stream = self.driver.io_stream(self.segments);
-
-        let unified = UnifiedDriverStream {
-            exec_stream,
-            io_stream,
-        };
-
-        let result_dtype = self.projection.return_dtype(self.layout.dtype())?;
-        Ok(ArrayStreamAdapter::new(result_dtype, unified))
-    }
-
-    pub async fn read_all(self) -> VortexResult<ArrayRef> {
-        self.into_array_stream()?.read_all().await
-    }
 }

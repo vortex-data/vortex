@@ -1,6 +1,7 @@
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -27,7 +28,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
         Validity::Array(a) => Some(a.to_bool()?.boolean_buffer().clone()),
     };
 
-    Ok(match validity {
+    let (ends, values) = match validity {
         None => {
             match_each_native_ptype!(array.ptype(), |$P| {
                 let (ends, values) = runend_encode_primitive(array.as_slice::<$P>());
@@ -47,7 +48,11 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
                 )
             })
         }
-    })
+    };
+
+    let ends = downscale_integer_array(ends.to_array())?.to_primitive()?;
+
+    Ok((ends, values))
 }
 
 fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buffer<T>) {
@@ -279,7 +284,7 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.to_primitive().unwrap();
 
-        assert_eq!(ends.as_slice::<u64>(), vec![2, 5, 10]);
+        assert_eq!(ends.as_slice::<u8>(), vec![2, 5, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
     }
 
@@ -294,7 +299,7 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.to_primitive().unwrap();
 
-        assert_eq!(ends.as_slice::<u64>(), vec![2, 4, 5, 8, 10]);
+        assert_eq!(ends.as_slice::<u8>(), vec![2, 4, 5, 8, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
     }
 

@@ -1,17 +1,17 @@
 mod compare;
 
-use vortex_array::arrays::varbin_scalar;
+use vortex_array::arrays::{VarBinArray, varbin_scalar};
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{
-    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn, filter,
-    scalar_at, slice, take,
+    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn,
+    fill_null, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
+use vortex_array::{Array, ArrayComputeImpl, ArrayExt, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -44,7 +44,9 @@ impl SliceFn<&FSSTArray> for FSSTEncoding {
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            slice(array.codes(), start, stop)?,
+            slice(array.codes(), start, stop)?
+                .as_::<VarBinArray>()
+                .clone(),
             slice(array.uncompressed_lengths(), start, stop)?,
         )?
         .into_array())
@@ -58,8 +60,14 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            take(array.codes(), indices)?,
-            take(array.uncompressed_lengths(), indices)?,
+            take(array.codes(), indices)?.as_::<VarBinArray>().clone(),
+            fill_null(
+                &take(array.uncompressed_lengths(), indices)?,
+                Scalar::new(
+                    array.uncompressed_lengths_dtype().clone(),
+                    ScalarValue::from(0),
+                ),
+            )?,
         )?
         .into_array())
     }
@@ -95,7 +103,7 @@ impl FilterKernel for FSSTEncoding {
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            filter(array.codes(), mask)?,
+            filter(array.codes(), mask)?.as_::<VarBinArray>().clone(),
             filter(array.uncompressed_lengths(), mask)?,
         )?
         .into_array())

@@ -11,6 +11,7 @@ requires-python = ">= 3.10"
 polars = ["polars>=1.24.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
+duckdb = ["duckdb>=1.1.2"]
 
 [project.urls]
 Documentation = "https://docs.vortex.dev"
@@ -29,11 +30,13 @@ managed = true
 python-source = "python"
 module-name = "vortex._lib"
 features = ["pyo3/extension-module"]
+compatibility = "manylinux2014"
 include = [
     { path = "rust-toolchain.toml", format = "sdist" },
     { path = "README.md", format = "sdist" },
     { path = "python/vortex/py.typed", format = "sdist" },
 ]
+
 
 [dependency-groups]
 dev = [

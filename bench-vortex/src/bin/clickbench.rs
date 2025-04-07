@@ -26,7 +26,7 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "5")]
+    #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
@@ -40,9 +40,9 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     emit_plan: bool,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
     #[arg(long)]
     export_spans: bool,
@@ -50,7 +50,7 @@ struct Args {
     flavor: Flavor,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     single_file: bool,
 }
 
@@ -66,6 +66,8 @@ fn main() -> anyhow::Result<()> {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
@@ -77,7 +79,8 @@ fn main() -> anyhow::Result<()> {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_level(true)
-            .with_line_number(true);
+            .with_line_number(true)
+            .with_ansi(std::io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)

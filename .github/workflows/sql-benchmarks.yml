@@ -34,11 +34,10 @@ jobs:
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
+      - family=c6id.8xlarge
       - image=ubuntu24-full-x64
-      - disk=large
       - spot=false
-      - tag=${{ matrix.include.id }}
+      - tag=${{ matrix.id }}
 
     steps:
       - uses: runs-on/action@v1
@@ -59,31 +58,54 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
+      - name: Build binary
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
+        run: |
+          cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
+
+      - name: Generate data
+        shell: bash
+        run:
+          # Generate data, running each query once to make sure they don't panic.
+          target/release_debug/${{ matrix.binary_name }} --formats parquet,vortex -i1
+
+      - name: Upload data
+        if: matrix.remote_storage != null
+        shell: bash
+        env:
+          AWS_REGION: 'eu-west-1'
+        run: |
+          aws s3 rm --recursive ${{ matrix.remote_storage }}
+          aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
+
+      - name: Setup Polar Signals
+        uses: polarsignals/gh-actions-ps-profiling@v0.2.0
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
+          profiling_frequency: 200
+
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-          cargo run \
-              --bin ${{ matrix.binary_name }} \
-              --package bench-vortex \
-              --release \
-              -- \
-              -d gh-json \
-              --export-spans \
-            | tee results.json
+          target/release_debug/${{ matrix.binary_name }} \
+            -d gh-json \
+            --export-spans \
+          | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
           AWS_REGION: 'eu-west-1'
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
@@ -91,16 +113,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-          # Generate data, running each query once to make sure they don't panic.
-          cargo run --release --bin ${{ matrix.binary_name }} --package bench-vortex -- --formats parquet,vortex -i1
-          aws s3 rm --recursive ${{ matrix.remote_storage }}
-          aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
-
-          cargo run \
-              --package bench-vortex \
-              --bin ${{ matrix.binary_name }} \
-              --release \
-              -- \
+          target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --formats parquet,vortex \
               --export-spans \

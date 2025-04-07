@@ -1,7 +1,7 @@
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{
     DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
@@ -49,9 +49,9 @@ pub fn slice_canonical_array(
                 .iter()
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
-            StructArray::try_new(
-                struct_array.names().clone(),
+            StructArray::try_new_with_dtype(
                 sliced_children,
+                struct_array.struct_dtype().clone(),
                 stop - start,
                 validity,
             )

@@ -16,7 +16,7 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "10")]
+    #[arg(short, long, default_value_t = 10)]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,

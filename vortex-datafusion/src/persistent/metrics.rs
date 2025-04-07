@@ -1,15 +1,17 @@
 //! Vortex table provider metrics.
 use std::sync::Arc;
 
+use datafusion::datasource::physical_plan::FileScanConfig;
 use datafusion::datasource::source::DataSourceExec;
 use datafusion_physical_plan::metrics::{
-    Count, ExecutionPlanMetricsSet, Gauge, Label as DatafusionLabel,
-    MetricValue as DatafusionMetricValue, MetricsSet,
+    Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
 };
 use datafusion_physical_plan::{
     ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
-use vortex_metrics::{DefaultTags, Metric, MetricId, Tags, VortexMetrics};
+use vortex_metrics::{Metric, MetricId, Tags};
+
+use crate::persistent::source::VortexSource;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
 
@@ -32,39 +34,33 @@ impl VortexMetricsFinder {
 impl ExecutionPlanVisitor for VortexMetricsFinder {
     type Error = std::convert::Infallible;
     fn pre_visit(&mut self, plan: &dyn ExecutionPlan) -> Result<bool, Self::Error> {
-        if let Some(metrics) = plan
-            .as_any()
-            .downcast_ref::<DataSourceExec>()
-            .and_then(|exec| exec.metrics())
-        {
-            self.0.push(metrics);
+        if let Some(exec) = plan.as_any().downcast_ref::<DataSourceExec>() {
+            if let Some(metrics) = exec.metrics() {
+                self.0.push(metrics);
+            }
+
+            // Include our own metrics from VortexSource
+            if let Some(file_scan) = exec.data_source().as_any().downcast_ref::<FileScanConfig>() {
+                if let Some(scan) = file_scan
+                    .file_source
+                    .as_any()
+                    .downcast_ref::<VortexSource>()
+                {
+                    let mut set = MetricsSet::new();
+                    for metric in scan
+                        .metrics
+                        .snapshot()
+                        .iter()
+                        .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
+                    {
+                        set.push(Arc::new(metric));
+                    }
+
+                    self.0.push(set);
+                }
+            }
         }
         Ok(true)
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct VortexSourceMetrics {
-    pub vortex: VortexMetrics,
-    pub execution_plan: ExecutionPlanMetricsSet,
-}
-
-impl VortexSourceMetrics {
-    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> VortexMetrics {
-        self.vortex.child_with_tags(additional_tags)
-    }
-
-    pub fn report_to_datafusion(&self) -> &ExecutionPlanMetricsSet {
-        let base = &self.execution_plan;
-        for metric in self
-            .vortex
-            .snapshot()
-            .iter()
-            .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
-        {
-            base.register(Arc::new(metric));
-        }
-        base
     }
 }
 

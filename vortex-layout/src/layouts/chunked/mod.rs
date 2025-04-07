@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use crate::data::Layout;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::{AsyncSegmentReader, SegmentCollector};
+use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
 use crate::{CHUNKED_LAYOUT_ID, LayoutId};
 
@@ -28,10 +28,10 @@ impl LayoutVTable for ChunkedLayout {
     fn reader(
         &self,
         layout: Layout,
-        ctx: ArrayContext,
-        segment_reader: Arc<dyn AsyncSegmentReader>,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(ChunkedReader::try_new(layout, ctx, segment_reader)?.into_arc())
+        Ok(ChunkedReader::try_new(layout, segment_source.clone(), ctx.clone())?.into_arc())
     }
 
     fn register_splits(
@@ -47,23 +47,6 @@ impl LayoutVTable for ChunkedLayout {
             child.register_splits(field_mask, offset, splits)?;
             offset += child.row_count();
             splits.insert(offset);
-        }
-        Ok(())
-    }
-
-    fn required_segments(
-        &self,
-        layout: &Layout,
-        row_offset: u64,
-        filter_field_mask: &[FieldMask],
-        projection_field_mask: &[FieldMask],
-        segments: &mut SegmentCollector,
-    ) -> VortexResult<()> {
-        let mut offset = row_offset;
-        for i in 0..layout.nchildren() {
-            let child = layout.child(i, layout.dtype().clone(), format!("[{i}]"))?;
-            child.required_segments(offset, filter_field_mask, projection_field_mask, segments)?;
-            offset += child.row_count();
         }
         Ok(())
     }

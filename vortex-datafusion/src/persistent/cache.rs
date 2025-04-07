@@ -10,16 +10,17 @@ use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_err};
-use vortex_file::{Footer, SegmentSpec, VortexOpenOptions};
-use vortex_io::ObjectStoreReadAt;
+use vortex_file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::SegmentId;
+use vortex_metrics::VortexMetrics;
 
-#[derive(Debug, Clone)]
-pub(crate) struct FooterCache {
-    inner: Cache<Key, Footer, DefaultHashBuilder>,
+#[derive(Clone)]
+pub(crate) struct VortexFileCache {
+    inner: Cache<Key, VortexFile, DefaultHashBuilder>,
     array_registry: Arc<ArrayRegistry>,
     layout_registry: Arc<LayoutRegistry>,
+    metrics: VortexMetrics,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -58,19 +59,20 @@ fn estimate_layout_size(footer: &Footer) -> usize {
     segments_size + stats_size + layout_size
 }
 
-impl FooterCache {
+impl VortexFileCache {
     pub fn new(
         size_mb: usize,
         array_registry: Arc<ArrayRegistry>,
         layout_registry: Arc<LayoutRegistry>,
+        metrics: VortexMetrics,
     ) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
-            .eviction_listener(|k: Arc<Key>, _v: Footer, cause| {
+            .eviction_listener(|k: Arc<Key>, _v: VortexFile, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
             })
-            .weigher(|_k, footer| {
-                let size = estimate_layout_size(footer);
+            .weigher(|_k, vxf| {
+                let size = estimate_layout_size(vxf.footer());
                 u32::try_from(size).unwrap_or(u32::MAX)
             })
             .build_with_hasher(DefaultHashBuilder::default());
@@ -79,27 +81,28 @@ impl FooterCache {
             inner,
             array_registry,
             layout_registry,
+            metrics,
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
         object_store: Arc<dyn ObjectStore>,
-    ) -> VortexResult<Footer> {
+    ) -> VortexResult<VortexFile> {
         self.inner
-            .try_get_with(Key::from(object), async {
-                let os_read_at =
-                    ObjectStoreReadAt::new(object_store, object.location.clone(), None);
-                let vxf = VortexOpenOptions::file(os_read_at)
+            .try_get_with(
+                Key::from(object),
+                VortexOpenOptions::file()
                     .with_array_registry(self.array_registry.clone())
                     .with_layout_registry(self.layout_registry.clone())
+                    .with_metrics(
+                        self.metrics
+                            .child_with_tags([("filename", object.location.to_string())]),
+                    )
                     .with_file_size(object.size as u64)
-                    .open()
-                    .await?;
-                Ok(vxf.footer().clone())
-            })
+                    .open_object_store(&object_store, object.location.as_ref()),
+            )
             .await
             .map_err(|e: Arc<VortexError>| {
                 Arc::try_unwrap(e).unwrap_or_else(|e| vortex_err!("{}", e.to_string()))

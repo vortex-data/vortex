@@ -14,10 +14,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
-use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -56,7 +56,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype.clone(),
             writer,
             RepartitionWriterOptions {
-                block_size_minimum: 8 * (1 << 20),  // 1 MB
+                block_size_minimum: 1 << 20,        // 1 MB
                 block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
             },
         )
@@ -139,20 +139,19 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
             let canonical_chunk = chunk.to_canonical()?;
+            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
 
             if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
+                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
             {
-                let ratio =
-                    encoded_chunk.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64;
+                let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
-                // not sure this condition is right, but the idea is to make sure the ratio is within the expected drift.
-                // If it isn't we  fall back to the compressor.
-                if ratio < prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD {
+                // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
+                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
-                        "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                        "Compressed to a ratio of {ratio}, which is below the threshold of {}",
                         prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
@@ -170,14 +169,17 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             Some(array) => array,
             None => {
                 let canonical_chunk = chunk.to_canonical()?;
-                let compressed = BtrBlocksCompressor.compress(canonical_chunk.as_ref())?;
+                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
                 self.previous_chunk = Some(PreviousCompression {
                     chunk: compressed.clone(),
-                    ratio: compressed.nbytes() as f64 / canonical_chunk.as_ref().nbytes() as f64,
+                    ratio: canonical_size / compressed.nbytes() as f64,
                 });
                 compressed
             }
         };
+
+        compressed_chunk.statistics().inherit(chunk.statistics());
 
         self.child.push_chunk(segment_writer, compressed_chunk)
     }

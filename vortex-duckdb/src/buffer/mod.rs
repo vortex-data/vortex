@@ -39,7 +39,6 @@ pub unsafe extern "C" fn ExternalBuffer_free(buffer: *mut ExternalBuffer) {
 }
 
 #[repr(C)]
-#[allow(dead_code)]
 pub struct CppVectorBuffer {
     pub ptr: *mut c_void,
 }

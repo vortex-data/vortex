@@ -3,7 +3,6 @@ use vortex_array::arrays::{
     BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use vortex_array::validity::Validity;
-use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_native_ptype};
@@ -71,9 +70,9 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                 .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 
-            StructArray::try_new(
-                struct_array.names().clone(),
+            StructArray::try_new_with_dtype(
                 filtered_children,
+                struct_array.struct_dtype().clone(),
                 filter.iter().filter(|b| **b).map(|b| *b as usize).sum(),
                 validity,
             )

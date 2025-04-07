@@ -2,9 +2,9 @@
 #[macro_export]
 macro_rules! instrument {
     ($span_name:expr, $expr:expr) => {
-        instrument!($span_name, {}, $expr)
+        instrument!($span_name, [], $expr)
     };
-    ($span_name:expr, { $($key:ident = $value:expr),* $(,)? }, $expr:expr) => {
+    ($span_name:expr, [ $($key:ident = $value:expr),* $(,)? ], $expr:expr) => {
         {
             let task = $expr;
             #[cfg(feature = "tracing")]

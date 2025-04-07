@@ -216,6 +216,7 @@ impl Mask {
     }
 
     /// Create a new [`Mask`] from a [`Vec<usize>`].
+    // TODO(ngates): this should take an IntoIterator<usize>.
     pub fn from_indices(len: usize, indices: Vec<usize>) -> Self {
         let true_count = indices.len();
         assert!(indices.is_sorted(), "Mask indices must be sorted");
@@ -240,6 +241,28 @@ impl Mask {
         Self::Values(Arc::new(MaskValues {
             buffer: buf.finish(),
             indices: OnceLock::from(indices),
+            slices: Default::default(),
+            true_count,
+            density: true_count as f64 / len as f64,
+        }))
+    }
+
+    /// Create a new [`Mask`] from an [`IntoIterator<Item = usize>`] of indices to be excluded.
+    pub fn from_excluded_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
+        let mut buf = BooleanBufferBuilder::new(len);
+        buf.append_n(len, true);
+
+        let mut false_count: usize = 0;
+        indices.into_iter().for_each(|idx| {
+            buf.set_bit(idx, false);
+            false_count += 1;
+        });
+        debug_assert_eq!(buf.len(), len);
+        let true_count = len - false_count;
+
+        Self::Values(Arc::new(MaskValues {
+            buffer: buf.finish(),
+            indices: Default::default(),
             slices: Default::default(),
             true_count,
             density: true_count as f64 / len as f64,

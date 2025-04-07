@@ -16,7 +16,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use std::sync::PoisonError;
+use std::sync::{Arc, PoisonError};
 use std::{env, fmt, io};
 
 pub use ext::*;
@@ -100,6 +100,9 @@ pub enum VortexError {
     /// A wrapper for other errors, carrying additional context.
     #[error("{0}: {1}")]
     Context(ErrString, #[source] Box<VortexError>),
+    /// A wrapper for shared errors that require cloning.
+    #[error(transparent)]
+    Shared(Arc<VortexError>),
     /// A wrapper for errors from the Arrow library.
     #[error("{0}\nBacktrace:\n{1}")]
     ArrowError(arrow_schema::ArrowError, Backtrace),
@@ -273,6 +276,26 @@ impl Debug for VortexError {
 
 /// A type alias for Results that return VortexErrors as their error type.
 pub type VortexResult<T> = Result<T, VortexError>;
+
+/// A vortex result that can be shared or cloned.
+pub type SharedVortexResult<T> = Result<T, Arc<VortexError>>;
+
+impl From<Arc<VortexError>> for VortexError {
+    fn from(value: Arc<VortexError>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&Arc<VortexError>> for VortexError {
+    fn from(e: &Arc<VortexError>) -> Self {
+        if let VortexError::Shared(e_inner) = e.as_ref() {
+            // don't re-wrap
+            VortexError::Shared(Arc::clone(e_inner))
+        } else {
+            VortexError::Shared(Arc::clone(e))
+        }
+    }
+}
 
 /// A trait for unwrapping a VortexResult.
 pub trait VortexUnwrap {

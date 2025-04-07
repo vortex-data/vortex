@@ -1,10 +1,19 @@
-
 #include "expr/expr.hpp"
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/common/exception.hpp"
 
+#include <cstdint>
+#include <duckdb/parser/expression/columnref_expression.hpp>
+#include <duckdb/parser/expression/comparison_expression.hpp>
+#include <duckdb/parser/expression/constant_expression.hpp>
+#include <duckdb/planner/expression/bound_between_expression.hpp>
+#include <duckdb/planner/expression/bound_columnref_expression.hpp>
+#include <duckdb/planner/expression/bound_comparison_expression.hpp>
+#include <duckdb/planner/expression/bound_constant_expression.hpp>
+#include <duckdb/planner/expression/bound_function_expression.hpp>
+#include <duckdb/planner/expression/bound_operator_expression.hpp>
 #include <duckdb/planner/filter/conjunction_filter.hpp>
 #include <duckdb/planner/filter/optional_filter.hpp>
 
@@ -21,15 +30,21 @@ using duckdb::Value;
 using google::protobuf::Arena;
 using std::string;
 
+// vortex expr proto ids.
+const string BETWEEN_ID = "between";
 const string BINARY_ID = "binary";
 const string GET_ITEM_ID = "get_item";
 const string IDENTITY_ID = "identity";
+const string LIKE_ID = "like";
 const string LITERAL_ID = "literal";
+const string NOT_ID = "not";
 
 // Temporal ids
 const string VORTEX_DATE_ID = "vortex.date";
 const string VORTEX_TIME_ID = "vortex.time";
 const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
+
+const string DUCKDB_FUNCTION_NAME_CONTAINS = "contains";
 
 enum TimeUnit : uint8_t {
 	/// Nanoseconds
@@ -61,6 +76,22 @@ vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
 		                {{"id", std::to_string(static_cast<uint8_t>(type))}});
 	}
 	return value->second;
+}
+
+TimeUnit timestamp_to_time_unit(const LogicalType &type) {
+	switch (type.id()) {
+	case LogicalTypeId::TIMESTAMP_SEC:
+		return TimeUnit::S;
+	case LogicalTypeId::TIMESTAMP_MS:
+		return TimeUnit::Ms;
+	case LogicalTypeId::TIMESTAMP:
+		return TimeUnit::Us;
+	case LogicalTypeId::TIMESTAMP_NS:
+		return TimeUnit::Ns;
+	default:
+		throw Exception(ExceptionType::INVALID, "timestamp_to_time_unit given none timestamp type",
+		                {{"id", type.ToString()}});
+	}
 }
 
 vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, bool nullable) {
@@ -128,6 +159,28 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::D)}));
 		return dtype;
 	}
+	case LogicalTypeId::TIME: {
+		dtype->mutable_extension()->set_id(VORTEX_TIME_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::Us)}));
+		return dtype;
+	}
+	case LogicalTypeId::TIMESTAMP_SEC:
+	case LogicalTypeId::TIMESTAMP_MS:
+	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_NS: {
+		dtype->mutable_extension()->set_id(VORTEX_TIMESTAMP_ID);
+		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
+		storage->mutable_primitive()->set_nullable(nullable);
+		storage->mutable_primitive()->set_type(vortex::dtype::I64);
+		auto time_unit = static_cast<char>(timestamp_to_time_unit(type_));
+		// This signifies a timestamp without a timezone
+		// TODO(joe): support timezones
+		dtype->mutable_extension()->set_metadata(std::string({time_unit, 0, 0}));
+		return dtype;
+	}
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_dtype", {{"id", type_.ToString()}});
 	}
@@ -140,7 +193,7 @@ vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type
 	return scalar;
 }
 
-vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool nullable) {
+vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
 	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
 	auto dtype = into_vortex_dtype(arena, value.type().id(), nullable);
 	scalar->set_allocated_dtype(dtype);
@@ -180,16 +233,31 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, Value &value, bool null
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::FLOAT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<float32_t>());
+		scalar->mutable_value()->set_f32_value(value.GetValue<float_t>());
 		return scalar;
 	case LogicalTypeId::DOUBLE:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<float64_t>());
+		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
 		return scalar;
 	case LogicalTypeId::VARCHAR:
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());
 		return scalar;
 	case LogicalTypeId::DATE:
 		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
+	case LogicalTypeId::TIME:
+		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_SEC:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_MS:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		return scalar;
+	case LogicalTypeId::TIMESTAMP_NS:
+		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
@@ -205,6 +273,13 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 	auto id = column->add_children();
 	id->mutable_kind()->mutable_identity();
 	id->set_id(IDENTITY_ID);
+}
+
+void set_literal(Arena &arena, const Value &value, bool nullable, vortex::expr::Expr *constant) {
+	auto literal = constant->mutable_kind()->mutable_literal();
+	auto dvalue = into_vortex_scalar(arena, value, nullable);
+	literal->set_allocated_value(dvalue);
+	constant->set_id(LITERAL_ID);
 }
 
 vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
@@ -232,9 +307,13 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 	return hd;
 }
 
-vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
+vortex::expr::Expr *flatten_exprs(Arena &arena, const duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
-	D_ASSERT(!child_filters.empty());
+	if (child_filters.empty()) {
+		auto expr = arena.Create<vortex::expr::Expr>(&arena);
+		set_literal(arena, Value(true), true, expr);
+		return expr;
+	}
 
 	if (child_filters.size() == 1) {
 		return child_filters[0];
@@ -257,21 +336,111 @@ vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Exp
 	return hd;
 }
 
+std::optional<string> expr_to_like_pattern(const duckdb::Expression &dexpr) {
+	switch (dexpr.expression_class) {
+	case duckdb::ExpressionClass::BOUND_CONSTANT: {
+		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
+		auto contains_pattern = dconstant.value.GetValue<string>();
+		auto like_pattern = "%" + contains_pattern + "%";
+		return std::optional(like_pattern);
+	};
+	default:
+		return std::nullopt;
+	}
+}
+
+vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &dexpr) {
+	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
+	switch (dexpr.expression_class) {
+	case duckdb::ExpressionClass::BOUND_COLUMN_REF: {
+		auto &dcol_ref = dexpr.Cast<duckdb::BoundColumnRefExpression>();
+		auto column = expr;
+		set_column(dcol_ref.GetName(), column);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_CONSTANT: {
+		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
+		set_literal(arena, Value(dconstant.value), true, expr);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_COMPARISON: {
+		auto &dcompare = dexpr.Cast<duckdb::BoundComparisonExpression>();
+		auto left = expr->add_children();
+		left->Swap(expression_into_vortex_expr(arena, *dcompare.left));
+		auto right = expr->add_children();
+		right->Swap(expression_into_vortex_expr(arena, *dcompare.right));
+		auto bin_op = into_binary_operation(dcompare.type);
+		expr->mutable_kind()->set_binary_op(bin_op);
+		expr->set_id(BINARY_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_BETWEEN: {
+		auto &dbetween = dexpr.Cast<duckdb::BoundBetweenExpression>();
+		auto col = expression_into_vortex_expr(arena, *dbetween.input);
+		auto lower = expression_into_vortex_expr(arena, *dbetween.lower);
+		auto upper = expression_into_vortex_expr(arena, *dbetween.upper);
+		// Between order on vx is arr, lower, upper.
+		expr->add_children()->Swap(col);
+		expr->add_children()->Swap(lower);
+		expr->add_children()->Swap(upper);
+		auto kind = expr->mutable_kind()->mutable_between();
+		kind->set_lower_strict(!dbetween.lower_inclusive);
+		kind->set_upper_strict(!dbetween.upper_inclusive);
+		expr->set_id(BETWEEN_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_OPERATOR: {
+		auto &dop = dexpr.Cast<duckdb::BoundOperatorExpression>();
+		if (dop.type != ExpressionType::OPERATOR_NOT) {
+			return nullptr;
+		}
+		auto child = expr->add_children();
+		auto fn = expression_into_vortex_expr(arena, *dop.children[0]);
+		if (fn == nullptr) {
+			return nullptr;
+		}
+		child->Swap(fn);
+		expr->mutable_kind()->mutable_not_();
+		expr->set_id(NOT_ID);
+		return expr;
+	}
+	case duckdb::ExpressionClass::BOUND_FUNCTION: {
+		auto &dfunc_expr = dexpr.Cast<duckdb::BoundFunctionExpression>();
+		auto &dfunc = dfunc_expr.function;
+		if (dfunc.name == DUCKDB_FUNCTION_NAME_CONTAINS) {
+			assert(dfunc_expr.children.size() == 2);
+			// value
+			expr->add_children()->Swap(expression_into_vortex_expr(arena, *dfunc_expr.children[0]));
+			// pattern
+			auto pattern = expr->add_children();
+
+			auto pattern_value = expr_to_like_pattern(*dfunc_expr.children[1]);
+			if (!pattern_value.has_value()) {
+				return nullptr;
+			}
+			set_literal(arena, Value(pattern_value.value()), true, pattern);
+			auto like = expr->mutable_kind()->mutable_like();
+			like->set_case_insensitive(false);
+			like->set_negated(false);
+			expr->set_id(LIKE_ID);
+			return expr;
+		}
+		return nullptr;
+	}
+	default:
+		return nullptr;
+	}
+}
+
 vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
 	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
 		auto bin_op = into_binary_operation(constant_filter.comparison_type);
-		auto value = into_vortex_scalar(arena, constant_filter.constant, true);
 
-		auto column = expr->add_children();
-		set_column(column_name, column);
-
-		auto constant = expr->add_children();
-		constant->set_id(LITERAL_ID);
-		auto literal = constant->mutable_kind()->mutable_literal();
-		literal->set_allocated_value(value);
+		set_column(column_name, expr->add_children());
+		set_literal(arena, constant_filter.constant, true, expr->add_children());
 
 		expr->mutable_kind()->set_binary_op(bin_op);
 		expr->set_id(BINARY_ID);

@@ -6,7 +6,7 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
 > \[!TIP\]
-> Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev) 
+> Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev)
 
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
 Arrow arrays in-memory, on-disk, and over-the-wire.
@@ -245,7 +245,7 @@ This repo uses uv to manage the combined Rust/Python monorepo build. After insta
 
 ```bash
 # Install uv from https://docs.astral.sh/uv/getting-started/installation/
-uv sync
+uv sync --all-packages
 ```
 
 ## License

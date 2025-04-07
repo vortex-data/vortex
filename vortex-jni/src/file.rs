@@ -1,35 +1,36 @@
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JList, JMap, JObject, JString};
+use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::jlong;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
-use vortex::io::ObjectStoreReadAt;
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
 
-use crate::TOKIO_RUNTIME;
 use crate::array_stream::NativeArrayStream;
-use crate::errors::Throwable;
+use crate::errors::try_or_throw;
+use crate::{TOKIO_RUNTIME, block_on};
 
 pub struct NativeFile {
-    inner: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
+    inner: VortexFile,
 }
 
 impl NativeFile {
-    pub fn new(file: VortexFile<GenericVortexFile<ObjectStoreReadAt>>) -> Box<Self> {
+    pub fn new(file: VortexFile) -> Box<Self> {
         Box::new(NativeFile { inner: file })
     }
 
@@ -41,6 +42,7 @@ impl NativeFile {
         unsafe { Box::from_raw(pointer as *mut NativeFile) }
     }
 
+    #[allow(clippy::expect_used)]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeFile)
@@ -59,54 +61,38 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
     uri: JString,
     options: JObject,
 ) -> jlong {
-    let file_path: String = env
-        .get_string(&uri)
-        .expect("Failed to convert JString")
-        .into();
+    try_or_throw(&mut env, |env| {
+        let file_path: String = env.get_string(&uri)?.into();
 
-    let Ok(url) = Url::parse(&file_path) else {
-        vortex_err!("Invalid URL: {file_path}").throw_illegal_argument(&mut env);
-        return 0;
-    };
+        let Ok(url) = Url::parse(&file_path) else {
+            throw_runtime!("Invalid URL: {file_path}");
+        };
 
-    // Convert the options map to a hashmap
-    let mut properties: HashMap<String, String> = HashMap::new();
-    if !env
-        .is_same_object(&options, JObject::null())
-        .expect("same_object")
-    {
-        env.with_local_frame(1_024, |env| {
-            let opts = JMap::from_env(env, &options).expect("JMap.from_env");
-            let mut iterator = opts.iter(env).expect("JMap.iter");
-            while let Some((key, val)) = iterator.next(env).expect("JMap.iter") {
-                let key_str = env.get_string((&key).into()).expect("get_string");
-                let val_str = env.get_string((&val).into()).expect("get_string");
+        let mut properties: HashMap<String, String> = HashMap::new();
 
+        if !options.is_null() {
+            let opts = env.get_map(&options)?;
+            let mut iterator = opts.iter(env)?;
+            while let Some((key, val)) = iterator.next(env)? {
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
                 properties.insert(key_str.into(), val_str.into());
             }
-
-            Ok::<(), jni::errors::Error>(())
-        })
-        .expect("Failed to read properties");
-    }
-
-    match make_object_store(&url, &properties) {
-        Ok((store, scheme)) => {
-            let reader = ObjectStoreReadAt::new(store.clone(), url.path().into(), Some(scheme));
-            let open_file = TOKIO_RUNTIME.block_on(VortexOpenOptions::file(reader).open());
-            match open_file {
-                Ok(open_file) => NativeFile::new(open_file).into_raw(),
-                Err(err) => {
-                    err.throw_runtime(&mut env, "open_file");
-                    0
-                }
-            }
         }
-        Err(err) => {
-            err.throw_illegal_argument(&mut env);
-            0
-        }
-    }
+
+        let start = std::time::Instant::now();
+        let (store, _scheme) = make_object_store(&url, &properties)?;
+        let duration = std::time::Instant::now().duration_since(start);
+        log::debug!("make_object_store latency = {duration:?}");
+        let open_file = block_on(
+            "VortexOpenOptions.open()",
+            VortexOpenOptions::file().open_object_store(&store, url.path()),
+        )?;
+
+        Ok(NativeFile::new(open_file).into_raw())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -135,93 +121,83 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     pointer: jlong,
     project_cols: JObject,
     predicate: JByteArray,
+    row_indices: JLongArray,
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
-    let mut scan_builder = file.inner.scan();
+    let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
 
-    // Apply the projection if provided
-    if !env
-        .is_same_object(&project_cols, JObject::null())
-        .expect("same_object")
-        && JList::from_env(&mut env, &project_cols)
-            .expect("JList")
-            .size(&mut env)
-            .expect("JList.size")
-            > 0
-    {
-        // Convert the JList to a Vec<String>
-        let mut projection: Vec<Arc<str>> = Vec::new();
-        env.with_local_frame(1_024, |env| {
-            let proj = JList::from_env(env, &project_cols).expect("JList.from_env");
-            let mut iterator = proj.iter(env).expect("project_cols.iter");
-            while let Some(field) = iterator.next(env).expect("project_cols.next") {
-                let field_name: String = env
-                    .get_string(&JString::from(field))
-                    .expect("Failed to convert JString")
-                    .into();
-                projection.push(field_name.into());
-            }
+    try_or_throw(&mut env, |env| {
+        // Apply the projection if provided
+        if !project_cols.is_null() {
+            let proj = env.get_list(&project_cols)?;
+            if proj.size(env)? > 0 {
+                // Convert the JList to a Vec<String>
+                let mut projection: Vec<Arc<str>> = Vec::new();
+                let mut iterator = proj.iter(env)?;
+                while let Some(field) = iterator.next(env)? {
+                    let field = env.auto_local(field);
 
-            Ok::<(), jni::errors::Error>(())
-        })
-        .expect("Failed to read projection columns");
-        let project_expr = select(projection, Identity::new_expr());
-        scan_builder = scan_builder.with_projection(project_expr);
-    }
-
-    // Apply predicate if one was provided
-    if !env
-        .is_same_object(&predicate, JObject::null())
-        .expect("same_object")
-    {
-        let proto_vec = env
-            .convert_byte_array(predicate)
-            .expect("convert byte array");
-        let expr_proto =
-            Expr::decode(proto_vec.as_slice()).vortex_expect("decode filter expression");
-        match deserialize_expr(&expr_proto) {
-            Ok(expr) => {
-                scan_builder = scan_builder.with_filter(expr);
-            }
-            Err(err) => {
-                err.throw_illegal_argument(&mut env);
-                return -1;
+                    let field_name: String = env.get_string(field.as_ref().into())?.into();
+                    projection.push(field_name.into());
+                }
+                let project_expr = select(projection, Identity::new_expr());
+                scan_builder = scan_builder.with_projection(project_expr);
             }
         }
-    }
 
-    // Canonicalize first, to avoid needing to pay decoding cost for every access.
-    scan_builder = scan_builder.with_canonicalize(true);
-
-    // build and wrap scan with native object
-    match scan_builder.build() {
-        Ok(scan) => NativeArrayStream::new(
-            scan.into_array_stream()
-                .vortex_expect("into_array_stream")
-                .boxed(),
-        )
-        .into_raw(),
-
-        Err(err) => {
-            err.throw_runtime(&mut env, "scan_builder");
-            -1
+        // Apply predicate if one was provided
+        if !predicate.is_null() {
+            let proto_vec = env.convert_byte_array(predicate)?;
+            let expr_proto =
+                Expr::decode(proto_vec.as_slice()).map_err(VortexError::ProstDecodeError)?;
+            let expr = deserialize_expr(&expr_proto)?;
+            scan_builder = scan_builder.with_filter(expr);
         }
-    }
+
+        // Apply row indices if provided
+        if !row_indices.is_null() {
+            let indices = unsafe { env.get_array_elements(&row_indices, ReleaseMode::NoCopyBack) }?;
+            let indices_buffer: Buffer<u64> = indices
+                .iter()
+                .map(|long: &i64| u64::try_from(*long))
+                .collect::<Result<Buffer<u64>, _>>()
+                .map_err(|_| vortex_err!("row indices can not be negative"))?;
+            scan_builder = scan_builder.with_row_indices(indices_buffer);
+        }
+
+        // Canonicalize first, to avoid needing to pay decoding cost for every access.
+        let scan = scan_builder
+            .with_canonicalize(true)
+            .spawn_tokio(TOKIO_RUNTIME.handle().clone())?;
+        Ok(NativeArrayStream::new(scan.boxed()).into_raw())
+    })
 }
 
 fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
 ) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
+    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
+    let cache_key = url_cache_key(url);
+
+    {
+        if let Some(cached) = OBJECT_STORES.lock().vortex_expect("poison").get(&cache_key) {
+            return Ok((cached.clone(), scheme));
+        }
+        // guard dropped at close of scope
+    }
+
     // Configure extra properties on that scheme instead.
-    match scheme {
+    let store: Arc<dyn ObjectStore> = match scheme {
         ObjectStoreScheme::Local => {
             log::trace!("using LocalFileSystem object store");
-            Ok((Arc::new(LocalFileSystem::default()), scheme))
+            Arc::new(LocalFileSystem::default())
         }
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
@@ -234,23 +210,27 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::MicrosoftAzure => {
             log::trace!("using MicrosoftAzure object store");
 
-            let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
+            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
+            //  to avoid that.
+            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
+            let mut builder = MicrosoftAzureBuilder::new()
+                .with_url(url.to_string())
+                .with_client_options(client_opts);
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
+                    log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Azure config key: {}", key);
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         ObjectStoreScheme::GoogleCloudStorage => {
             log::trace!("using GoogleCloudStorage object store");
@@ -264,11 +244,28 @@ fn make_object_store(
                 }
             }
 
-            let store = Arc::new(builder.build()?);
-            Ok((store, scheme))
+            Arc::new(builder.build()?)
         }
         store => {
             vortex_bail!("Unsupported store scheme: {store:?}");
         }
+    };
+
+    {
+        OBJECT_STORES
+            .lock()
+            .vortex_expect("poison")
+            .insert(cache_key, store.clone());
+        // Guard dropped at close of scope.
     }
+
+    Ok((store, scheme))
+}
+
+fn url_cache_key(url: &Url) -> String {
+    format!(
+        "{}://{}",
+        url.scheme(),
+        &url[url::Position::BeforeHost..url::Position::AfterPort],
+    )
 }

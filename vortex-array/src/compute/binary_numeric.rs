@@ -171,13 +171,13 @@ fn arrow_numeric(
 
 #[inline(always)]
 fn check_numeric_result(result: ArrayRef, lhs: &dyn Array, rhs: &dyn Array) -> ArrayRef {
-    debug_assert_eq!(
+    assert_eq!(
         result.len(),
         lhs.len(),
         "Numeric operation length mismatch {}",
         rhs.encoding()
     );
-    debug_assert_eq!(
+    assert_eq!(
         result.dtype(),
         &DType::Primitive(
             PType::try_from(lhs.dtype())

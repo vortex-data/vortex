@@ -118,12 +118,6 @@ impl PyScalar {
     pub fn inner(&self) -> &Scalar {
         &self.0
     }
-
-    /// Return the inner [`Scalar`] value.
-    #[allow(dead_code)]
-    pub fn into_inner(self) -> Scalar {
-        self.0
-    }
 }
 
 /// Define the interface methods of a `PyScalar`. Note that all children should override these

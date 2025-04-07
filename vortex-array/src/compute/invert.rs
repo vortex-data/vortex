@@ -31,13 +31,13 @@ pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
     if let Some(f) = array.vtable().invert_fn() {
         let inverted = f.invert(array)?;
 
-        debug_assert_eq!(
+        assert_eq!(
             inverted.len(),
             array.len(),
             "Invert length mismatch {}",
             array.encoding()
         );
-        debug_assert_eq!(
+        assert_eq!(
             inverted.dtype(),
             array.dtype(),
             "Invert dtype mismatch {}",

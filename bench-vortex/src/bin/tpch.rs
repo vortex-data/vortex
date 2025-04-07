@@ -35,7 +35,7 @@ struct Args {
     threads: Option<usize>,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
-    #[arg(short, long, default_value = "5")]
+    #[arg(short, long, default_value_t = 10)]
     iterations: usize,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
@@ -47,7 +47,7 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
@@ -74,6 +74,8 @@ fn main() -> ExitCode {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
@@ -85,7 +87,8 @@ fn main() -> ExitCode {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_level(true)
-            .with_line_number(true);
+            .with_line_number(true)
+            .with_ansi(std::io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)

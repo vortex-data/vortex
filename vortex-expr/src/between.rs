@@ -73,12 +73,14 @@ impl PartialEq for Between {
 }
 
 #[cfg(feature = "proto")]
-mod proto {
+pub(crate) mod proto {
+    use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
 
     use crate::between::Between;
-    use crate::{ExprSerializable, Id};
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
 
     pub(crate) struct BetweenSerde;
 
@@ -94,7 +96,36 @@ mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            vortex_bail!(NotImplemented: "", self.id())
+            Ok(Kind::Between(kind::Between {
+                lower_strict: self.options.lower_strict == StrictComparison::Strict,
+                upper_strict: self.options.upper_strict == StrictComparison::Strict,
+            }))
+        }
+    }
+
+    impl ExprDeserialize for BetweenSerde {
+        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Between(between) = kind else {
+                vortex_bail!("wrong kind {:?}, want between", kind)
+            };
+
+            Ok(Between::between(
+                children[0].clone(),
+                children[1].clone(),
+                children[2].clone(),
+                BetweenOptions {
+                    lower_strict: if between.lower_strict {
+                        StrictComparison::Strict
+                    } else {
+                        StrictComparison::NonStrict
+                    },
+                    upper_strict: if between.upper_strict {
+                        StrictComparison::Strict
+                    } else {
+                        StrictComparison::NonStrict
+                    },
+                },
+            ))
         }
     }
 }

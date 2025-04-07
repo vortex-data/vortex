@@ -20,7 +20,6 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=m7i.2xlarge
       - image=ubuntu24-full-x64
-      - spot=false
       - disk=large
     steps:
       - uses: actions/checkout@v4

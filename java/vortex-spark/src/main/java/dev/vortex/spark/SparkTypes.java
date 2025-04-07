@@ -18,10 +18,7 @@ package dev.vortex.spark;
 import com.google.common.collect.Streams;
 import dev.vortex.api.DType;
 import org.apache.spark.sql.connector.catalog.Column;
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.types.TimestampType$;
+import org.apache.spark.sql.types.*;
 
 /**
  * Helpers for converting between Spark and Vortex type systems.
@@ -88,7 +85,11 @@ public final class SparkTypes {
                     throw new IllegalArgumentException("Spark does not support Vortex TIME data type");
                 }
 
-                if (dType.isDate() || dType.isTimestamp()) {
+                if (dType.isDate()) {
+                    return DateType$.MODULE$;
+                }
+
+                if (dType.isTimestamp()) {
                     return TimestampType$.MODULE$;
                 }
 
