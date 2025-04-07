@@ -20,11 +20,13 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
-
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with:
+          sync: false
       - name: build Python and Rust docs
         run: |
-          uv run make -C docs html
+          uv run --all-packages make -C docs html
       - name: Upload static files as artifact
         id: deployment
         uses: actions/upload-pages-artifact@v3

@@ -5,9 +5,11 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr;
 
+use crate::between::proto::BetweenSerde;
 use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
 use crate::identity::proto::IdentitySerde;
+use crate::like::proto::LikeSerde;
 use crate::literal::proto::LiteralSerde;
 use crate::merge::proto::MergeSerde;
 use crate::not::proto::NotSerde;
@@ -16,14 +18,16 @@ use crate::select::proto::SelectSerde;
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
+    &BetweenSerde,
     &BinarySerde,
-    &LiteralSerde,
     &GetItemSerde,
     &IdentitySerde,
-    &NotSerde,
-    &SelectSerde,
-    &PackSerde,
+    &LikeSerde,
+    &LiteralSerde,
     &MergeSerde,
+    &NotSerde,
+    &PackSerde,
+    &SelectSerde,
 ];
 
 static EXPRESSIONS_REGISTRY: LazyLock<HashMap<&'static str, &&'static dyn ExprDeserialize>> =

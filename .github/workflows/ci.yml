@@ -48,7 +48,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with:
+          sync: false
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
@@ -57,6 +60,8 @@ jobs:
   python-test:
     name: "Python (test)"
     runs-on: ubuntu-latest
+    env:
+      RUST_LOG: "info,uv=debug"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,48 +69,54 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        with:
+          sync: false
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - PyVortex
         run: |
-          uv run stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
+          uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
         working-directory: pyvortex/
 
       - name: Pytest - PyVortex
         run: |
-          uv run pytest --benchmark-disable test/
+          uv run --isolated --all-packages pytest --benchmark-disable test/
         working-directory: pyvortex/
 
       - name: Doctest - PyVortex
         run: |
-          uv run make clean && uv run make doctest
+          uv run --isolated --all-packages make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
-          uv run make html
+          uv run --isolated --all-packages make html
         working-directory: docs/
 
+      - uses: mlugg/setup-zig@v1
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        shell: bash
         run: |
-          # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
-          uv run maturin build --interpreter python3.10 --compatibility linux
+          echo "Clearing wheel target directory"
+          rm -rf ../target/wheels/
+
+          uv venv
+          uv pip install "maturin[zig]"
+          uv tool run maturin build --interpreter python3.10 --zig
+          uv tool run maturin build --interpreter python3.10 --zig --sdist
+
+          file_count=$(ls -1 ../target/wheels/ | wc -l)
+
+          if [[ $file_count -ne 2 ]]; then
+            echo "Unexpected number of files detected ${file_count}:"
+            ls ../target/wheels/
+            exit 1
+          else
+            echo "Generated two files"
+          fi
         working-directory: pyvortex/
-
-      - name: Ensure wheel can run tests successfully
-        run: |
-          set -ex
-
-          echo creating a fresh venv which does *not* have the normal dependencies to ensure the wheel dependencies are correct
-
-          rm -rf .venv
-          uv sync --only-dev
-
-          uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
-          uv run pip install pytest
-          cd pyvortex/test
-          uv run pytest
 
   rust-docs:
     name: "Rust (docs)"

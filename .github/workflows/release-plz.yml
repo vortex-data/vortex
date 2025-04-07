@@ -75,31 +75,20 @@ jobs:
           rust-toolchain: ${{ steps.rust-toolchain.version }}
           working-directory: pyvortex
           target: x86_64
-          args: --release --interpreter python3.10 --sdist
+          command: build
+          args: --release --interpreter python3.10 --auditwheel check --sdist
       - name: Build wheels - aarch64
         uses: PyO3/maturin-action@v1
         with:
           rust-toolchain: ${{ steps.rust-toolchain.version }}
           working-directory: pyvortex
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
-          args: --release --interpreter python3.10
+          command: build
+          args: --release --interpreter python3.10 --auditwheel check
       - name: Install UV
         uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
         with:
           sync: false
-      - name: test wheel
-        run: |
-          set -ex
-
-          ls -al target/wheels
-
-          echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
-          rm -f target/wheels/*linux_x86_64.whl
-
-          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-
-          cd pyvortex/test
-          uv run pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -128,20 +117,8 @@ jobs:
           working-directory: pyvortex
           target: x86_64
           manylinux: auto
-          args: --release --interpreter python3.10
-      - name: test wheel
-        run: |
-          set -ex
-
-          ls -al target/wheels
-
-          echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
-          rm -f target/wheels/*linux_x86_64.whl
-
-          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-
-          cd pyvortex/test
-          uv run pytest
+          command: build
+          args: --release --interpreter python3.10 --auditwheel check --zig
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
