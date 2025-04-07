@@ -165,6 +165,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scanWithBitmap(
     pointer: jlong,
     project_cols: JObject,
     predicate: JByteArray,
+    row_range: JLongArray,
     bitmap_data: JByteArray,
     bitmap_offset: jint,
     bitmap_len: jint,
@@ -175,6 +176,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scanWithBitmap(
     let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
     try_or_throw(&mut env, |env| {
         scan_builder = build_scan(env, scan_builder, project_cols, predicate)?;
+
+        if !row_range.is_null() {
+            let range = unsafe { env.get_array_elements(&row_range, ReleaseMode::NoCopyBack) }?;
+            let start = u64::try_from(range[0])
+                .map_err(|_| vortex_err!("converting range start to u64"))?;
+            let end =
+                u64::try_from(range[1]).map_err(|_| vortex_err!("converting range end to u64"))?;
+            scan_builder = scan_builder.with_row_range(start..end);
+        }
 
         if !bitmap_data.is_null() {
             let len = usize::try_from(bitmap_len).map_err(|_| vortex_err!("invalid length"))?;
