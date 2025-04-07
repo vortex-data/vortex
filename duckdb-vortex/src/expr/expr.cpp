@@ -385,7 +385,7 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 		expr->add_children()->Swap(upper);
 		auto kind = expr->mutable_kind()->mutable_between();
 		kind->set_lower_strict(!dbetween.lower_inclusive);
-		kind->set_lower_strict(!dbetween.upper_inclusive);
+		kind->set_upper_strict(!dbetween.upper_inclusive);
 		expr->set_id(BETWEEN_ID);
 		return expr;
 	}
