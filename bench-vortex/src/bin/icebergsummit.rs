@@ -8,7 +8,7 @@ use futures::StreamExt;
 use indicatif::ProgressBar;
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::path::Path;
-use object_store::{ObjectMeta, ObjectStore};
+use object_store::{ObjectMeta, ObjectStore, PutPayload};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::async_reader::ParquetObjectReader;
 use tokio::sync::Semaphore;
@@ -17,7 +17,6 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::VortexWriteOptions;
-use vortex::io::ObjectStoreWriter;
 use vortex::stream::ArrayStreamAdapter;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
@@ -99,13 +98,15 @@ async fn exec_convert(
         .div_ceil(BATCH_SIZE as u64);
 
     let output_path = rename_vortex(path);
-    let writer = ObjectStoreWriter::new(write_store, output_path.clone())
-        .await
-        .expect("make writer");
-    VortexWriteOptions::default()
-        .write(writer, ArrayStreamAdapter::new(dtype, vortex_stream))
+    let mut output = Vec::new();
+    let mut written = VortexWriteOptions::default()
+        .write(output, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await
         .expect("write vortex");
+    write_store
+        .put(&output_path, PutPayload::from(written))
+        .await
+        .expect("upload");
     println!("complete writing {output_path}");
 }
 
