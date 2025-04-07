@@ -432,6 +432,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Run cargo-semver-checks
