@@ -1,0 +1,17 @@
+# name: test/sql/vortex.test
+# description: test vortex extension
+# group: [vortex]
+
+# Before we load the extension, this will fail
+
+require vortex
+
+query I
+SELECT COUNT(*) FROM read_vortex('__TEST_DIR__/hits_*.vortex');
+----
+99997497
+
+query I
+SELECT COUNT(*) FROM read_vortex('__TEST_DIR__/hits_*.vortex') WHERE "URL" LIKE '%google%';
+----
+1015816
