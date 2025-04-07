@@ -307,7 +307,7 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 	return hd;
 }
 
-vortex::expr::Expr *flatten_exprs(Arena &arena, duckdb::vector<vortex::expr::Expr *> &child_filters) {
+vortex::expr::Expr *flatten_exprs(Arena &arena, const duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
 	if (child_filters.empty()) {
 		auto expr = arena.Create<vortex::expr::Expr>(&arena);
