@@ -211,4 +211,3 @@ benchmarks/.out
 profile.json.gz
 *.trace.json
 *.folded
-*.txt

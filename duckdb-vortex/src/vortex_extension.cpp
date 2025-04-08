@@ -353,23 +353,6 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 	}
 }
 
-void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
-                     LocalFunctionData &lstate, DataChunk &input) {
-	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-	auto bind = bind_data.Cast<VortexWriteBindData>();
-
-	auto chunk = DataChunk();
-	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
-
-	for (int i = 0; i < input.ColumnCount(); i++) {
-		input.data[i].Flatten(input.size());
-	}
-
-	auto new_array =
-	    FFIArray_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
-	global_state.array = make_uniq<VortexArray>(new_array);
-}
-
 /// Called when the extension is loaded by DuckDB.
 /// It is responsible for registering functions and initializing state.
 ///

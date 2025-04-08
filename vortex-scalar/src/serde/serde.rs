@@ -223,7 +223,7 @@ mod tests {
         Nullability::NonNullable),
         vec![
             Scalar::primitive(23592960, Nullability::NonNullable),
-            Scalar::primitive(f16::from_bits(0), Nullability::NonNullable),
+            Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
         ],
     ))]
     #[case(Scalar::struct_(DType::Struct(
@@ -235,8 +235,8 @@ mod tests {
         Nullability::NonNullable),
         vec![
             Scalar::primitive(415118687234i64, Nullability::NonNullable),
-            Scalar::primitive(0.0f32, Nullability::NonNullable),
-            Scalar::primitive(f16::from_bits(0), Nullability::NonNullable),
+            Scalar::primitive(2.6584664e36f32, Nullability::NonNullable),
+            Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
         ],
     ))]
     fn test_scalar_value_serde_roundtrip(#[case] scalar: Scalar) {

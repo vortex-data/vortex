@@ -196,9 +196,26 @@ Vortex to model more complex arrays while still exposing a logical interface. Fo
 `ChunkedArray` where the first chunk is run-length encoded and the second chunk is dictionary encoded.
 In Arrow, `RunLengthArray` and `DictionaryArray` are separate incompatible types, and so cannot be combined in this way.
 
-## Usage
+## vx - Vortex's built-in file investigation tool
 
-For best performance we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
+Vortex has its own TUI-based tool called `vx` that can be used to investigate a file's structure. It can show a file's layout, compressions, columns statistics and chunking.
+We keep adding new capabilities and features to it all the time because we use it ourselves during development!
+
+In order to install `vx`, you need to have `cargo` install and then you can just the following command to get the latest release
+
+```bash
+cargo install vortex-tui --locked
+```
+
+If you want to build it from source, you can pull this repo and run
+
+```bash
+cargo install --path vortex-tui --locked
+```
+
+## Performance Tips
+
+For the best performance, we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
 allocator.
 
 ```rust
