@@ -15,9 +15,11 @@ use tokio::sync::Semaphore;
 use vortex::TryIntoArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect};
+use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
+
+const CONCURRENT_UPLOADS: usize = 32;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 pub async fn main() {
@@ -32,12 +34,13 @@ pub async fn main() {
     let read_store: Arc<dyn ObjectStore> = Arc::new(read_store);
     let write_store: Arc<dyn ObjectStore> = Arc::new(write_store);
 
-    // Only allow 16 concurrent uploads.
-    let semaphore = Arc::new(Semaphore::new(16));
+    let semaphore = Arc::new(Semaphore::new(CONCURRENT_UPLOADS));
 
     let mut filtered = read_store.list(None);
 
-    let mut tasks = vec![];
+    let (finish_tx, mut finish_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let mut task_count = 0;
     while let Some(next) = filtered.next().await {
         let blob = next.unwrap();
         if !blob.location.as_ref().ends_with(".parquet") {
@@ -49,15 +52,26 @@ pub async fn main() {
         let _read_store = read_store.clone();
         let _write_store = write_store.clone();
         let _sem = semaphore.clone();
-        let task = tokio::spawn(async move {
+        let _sender = finish_tx.clone();
+        task_count += 1;
+        tokio::spawn(async move {
+            let location = blob.location.clone();
             let _perm = _sem.acquire().await.unwrap();
-            exec_convert(_read_store, _write_store, blob).await;
+            let result = exec_convert(_read_store, _write_store, blob).await;
+            _sender.send((location, result)).unwrap();
         });
-        tasks.push(task);
     }
 
-    for task in ProgressBar::new(tasks.len() as u64).wrap_iter(tasks.into_iter()) {
-        task.await.unwrap();
+    for _task in ProgressBar::new(task_count as u64).wrap_iter(0..task_count) {
+        let (path, result) = finish_rx.recv().await.expect("next finish");
+        match result {
+            Ok(()) => {
+                println!("completed: path={}", path);
+            }
+            Err(err) => {
+                eprintln!("error: path={path}: {err}");
+            }
+        }
     }
 }
 
@@ -67,23 +81,21 @@ async fn exec_convert(
     read_store: Arc<dyn ObjectStore>,
     write_store: Arc<dyn ObjectStore>,
     meta: ObjectMeta,
-) {
+) -> VortexResult<()> {
     eprintln!("Converting input Parquet file: {}", meta.location);
 
     let path = meta.location.clone();
 
     let obj_reader = ParquetObjectReader::new(read_store.clone(), meta);
     let parquet = ParquetRecordBatchStreamBuilder::new(obj_reader)
-        .await
-        .expect("parquet reader build")
+        .await?
         .with_batch_size(BATCH_SIZE);
     let num_rows = parquet.metadata().file_metadata().num_rows();
 
     let schema_no_decimal = Schema::new(cast_decimal_fields(&parquet.schema().fields()));
     let dtype = DType::from_arrow(&schema_no_decimal);
     let mut vortex_stream = parquet
-        .build()
-        .expect("build reader stream")
+        .build()?
         .map(|record_batch| {
             record_batch
                 .map_err(VortexError::from)
@@ -101,13 +113,13 @@ async fn exec_convert(
     let mut output = Vec::new();
     let mut written = VortexWriteOptions::default()
         .write(output, ArrayStreamAdapter::new(dtype, vortex_stream))
-        .await
-        .expect("write vortex");
+        .await?;
     write_store
         .put(&output_path, PutPayload::from(written))
-        .await
-        .expect("upload");
+        .await?;
     println!("complete writing {output_path}");
+
+    Ok(())
 }
 
 fn rename_vortex(path: Path) -> Path {
