@@ -126,7 +126,7 @@ prost = "0.13.4"
 prost-build = "0.13.4"
 prost-types = "0.13.4"
 # bump pyo3 to >0.24 on next arrow release, for RUSTSEC-2025-0020
-pyo3 = { version = "0.23.4", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.24.0", features = ["extension-module", "abi3-py310"] }
 pyo3-log = "0.12.1"
 rancor = "0.1.0"
 rand = "0.9.0"
