@@ -143,29 +143,30 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype));
 
 		column_names.push_back(field_name);
-		column_types.push_back(*duckdb_type);
+		column_types.push_back(LogicalType(*duckdb_type));
+		delete duckdb_type;
 		DType_free(field_dtype);
 	}
 }
 
 std::string EnsureFileProtocol(const std::string &path) {
-	auto final_path = path;
+	auto absolute_path = path;
 	const std::string prefix = "file://";
 
-	std::filesystem::path p = final_path;
+	std::filesystem::path p = absolute_path;
 	if (!p.is_absolute()) {
 		try {
-			final_path = absolute(p).string();
+			absolute_path = absolute(p).string();
 		} catch (const std::exception &e) {
 			throw InternalException(std::string("Error making path absolute: ") + e.what());
 		}
 	}
 
 	// Check if the string already starts with "file://"
-	if (final_path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), final_path.begin())) {
-		return final_path;
+	if (absolute_path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), absolute_path.begin())) {
+		return absolute_path;
 	}
-	return prefix + final_path;
+	return prefix + absolute_path;
 }
 
 static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
