@@ -524,9 +524,9 @@ impl PBIDataset {
                 &self.path_for_file_type(output_fname, FileType::Vortex),
                 |output_path| async {
                     VortexWriteOptions::default()
-                        .write_into(
-                            parquet_to_vortex(f).await.unwrap(),
+                        .write(
                             File::create(output_path).await.unwrap(),
+                            parquet_to_vortex(f).await.unwrap(),
                         )
                         .await
                 },

@@ -103,9 +103,10 @@ impl FileSink for VortexSink {
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
             let mut writer = VortexWriteOptions::default()
-                .write_into(stream_adapter, writer)
+                .write(writer, stream_adapter)
                 .await?;
 
+            writer.flush().await?;
             writer.shutdown().await?;
         }
 

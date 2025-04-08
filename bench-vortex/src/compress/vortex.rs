@@ -13,7 +13,7 @@ use vortex::stream::ArrayStreamArrayExt;
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
     Ok(VortexWriteOptions::default()
-        .write_into(array.to_array_stream(), Cursor::new(buf))
+        .write(Cursor::new(buf), array.to_array_stream())
         .await?
         .position())
 }

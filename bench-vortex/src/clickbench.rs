@@ -208,9 +208,7 @@ pub async fn convert_parquet_to_vortex(
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default()
-                        .write_into(array_stream, f)
-                        .await?;
+                    VortexWriteOptions::default().write(f, array_stream).await?;
 
                     anyhow::Ok(())
                 })

@@ -48,7 +48,7 @@ async fn test_read_simple() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -106,7 +106,7 @@ async fn test_read_simple_with_spawn() {
             .unwrap();
 
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -135,7 +135,7 @@ async fn test_read_projection() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
 
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -224,7 +224,7 @@ async fn unequal_batches() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -288,7 +288,7 @@ async fn write_chunked() {
         .unwrap()
         .into_array();
     let buf = VortexWriteOptions::default()
-        .write_into(chunked_st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), chunked_st.to_array_stream())
         .await
         .unwrap();
 
@@ -328,7 +328,7 @@ async fn filter_string() {
     .unwrap()
     .into_array();
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -388,7 +388,7 @@ async fn filter_or() {
     .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -460,7 +460,7 @@ async fn filter_and() {
     .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -522,7 +522,7 @@ async fn test_with_indices_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let buf = VortexWriteOptions::default()
-        .write_into(expected_array.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), expected_array.to_array_stream())
         .await
         .unwrap();
 
@@ -612,7 +612,7 @@ async fn test_with_indices_on_two_columns() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_into(st.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
         .unwrap();
 
@@ -684,7 +684,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let buf = VortexWriteOptions::default()
-        .write_into(expected_array.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), expected_array.to_array_stream())
         .await
         .unwrap();
 
@@ -797,7 +797,7 @@ async fn filter_string_chunked() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_into(array.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), array.to_array_stream())
         .await
         .unwrap();
 
@@ -889,7 +889,7 @@ async fn test_pruning_with_or() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_into(array.to_array_stream(), ByteBufferMut::empty())
+        .write(ByteBufferMut::empty(), array.to_array_stream())
         .await
         .unwrap();
 
@@ -975,9 +975,9 @@ async fn test_repeated_projection() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_into(
-            single_column_array.to_array_stream(),
+        .write(
             ByteBufferMut::empty(),
+            single_column_array.to_array_stream(),
         )
         .await
         .unwrap();
@@ -1015,7 +1015,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
     .into_array();
 
     let buffer: Bytes = VortexWriteOptions::default()
-        .write_into(array.to_array_stream(), vec![])
+        .write(vec![], array.to_array_stream())
         .await?
         .into();
     VortexOpenOptions::in_memory().open(buffer).await
@@ -1048,7 +1048,7 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 
     let buffer: Bytes = VortexWriteOptions::default()
         .exclude_dtype()
-        .write_into(array.to_array_stream(), vec![])
+        .write(vec![], array.to_array_stream())
         .await?
         .into();
 
