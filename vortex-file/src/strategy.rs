@@ -47,29 +47,21 @@ impl LayoutStrategy for VortexLayoutStrategy {
             buffer_size: 2 << 20, // 2MB
         }) as _);
 
-        // Compress each chunk with btrblocks.
-        let writer = BtrBlocksCompressedWriter {
-            previous_chunk: None,
-            child: strategy.new_writer(ctx, dtype)?,
-        }
-        .boxed();
-
-        let compress_strategy = BtrBlocksCompressedStrategy {
-            child: strategy,
-        };
+        let compress_strategy = BtrBlocksCompressedStrategy { child: strategy };
 
         let writer = if dict_layout_supported(dtype) {
-            DictLayoutWriter::new(
+            DictLayoutWriter::try_new(
                 ctx.clone(),
                 dtype,
-                compress_strategy,
+                ArcRef::new_arc(Arc::new(compress_strategy)),
                 ArcRef::new_ref(&FlatLayout),
                 DictLayoutOptions {
                     max_dict_size_bytes: 1024 * 1024,
                 },
-            )
+            )?
+            .boxed()
         } else {
-            compress_strategy.new_writer(ctx, &DType::Null)
+            compress_strategy.new_writer(ctx, &DType::Null)?
         };
 
         // Prior to compression, re-partition into size-based chunks.

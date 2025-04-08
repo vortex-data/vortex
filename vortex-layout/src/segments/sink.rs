@@ -12,4 +12,6 @@ pub trait SegmentWriter {
     //  serialize it into a single segment that is 512 byte aligned? Or else, we should guarantee
     //  to align the the first segment to 512, and then assume that coalescing captures the rest.
     fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
+
+    // TODO: put flush here so layout writers do not need flush / finish
 }
