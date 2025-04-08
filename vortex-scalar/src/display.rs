@@ -1,111 +1,20 @@
 use std::fmt::{Display, Formatter};
 
-use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
-use vortex_error::{VortexExpect, vortex_panic};
 
-use crate::binary::BinaryScalar;
-use crate::extension::ExtScalar;
-use crate::struct_::StructScalar;
-use crate::utf8::Utf8Scalar;
-use crate::{ListScalar, Scalar};
+use crate::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.dtype() {
-            DType::Null | DType::Bool(_) | DType::Primitive(..) => Display::fmt(&self.value, f),
-            DType::Utf8(_) => {
-                match Utf8Scalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    None => write!(f, "null"),
-                    Some(bs) => write!(f, "\"{}\"", bs.as_str()),
-                }
-            }
-            DType::Binary(_) => {
-                match BinaryScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    None => write!(f, "null"),
-                    Some(buf) => {
-                        write!(
-                            f,
-                            "\"{}\"",
-                            buf.as_slice().iter().map(|b| format!("{b:x}")).format(",")
-                        )
-                    }
-                }
-            }
-            DType::Struct(dtype, _) => {
-                let v = StructScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-
-                if v.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(f, "{{")?;
-                    let formatted_fields = dtype
-                        .names()
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, name)| {
-                            let val = v.field_by_idx(idx).vortex_expect("not out of bounds");
-                            format!("{name}:{val}")
-                        })
-                        .format(",");
-                    write!(f, "{}", formatted_fields)?;
-                    write!(f, "}}")
-                }
-            }
-            DType::List(..) => {
-                let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-                match v.elements() {
-                    None => write!(f, "null"),
-                    Some(elems) => {
-                        write!(f, "[{}]", elems.iter().format(","))
-                    }
-                }
-            }
-            // Specialized handling for date/time/timestamp builtin extension types.
-            DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
-                let metadata =
-                    TemporalMetadata::try_from(dtype.as_ref()).map_err(|_| std::fmt::Error)?;
-                let storage_scalar = self.as_extension().storage();
-
-                match storage_scalar.dtype() {
-                    DType::Null => {
-                        write!(f, "null")
-                    }
-                    DType::Primitive(..) => {
-                        let maybe_timestamp = storage_scalar
-                            .as_primitive()
-                            .as_::<i64>()
-                            .and_then(|maybe_timestamp| {
-                                maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
-                            })
-                            .map_err(|_| std::fmt::Error)?;
-                        match maybe_timestamp {
-                            None => write!(f, "null"),
-                            Some(v) => write!(f, "{}", v),
-                        }
-                    }
-                    _ => {
-                        vortex_panic!(
-                            "Expected temporal extension data type to have Primitive or Null storage type"
-                        )
-                    }
-                }
-            }
-            // Generic handling of unknown extension types.
-            // TODO(aduffy): Allow extension authors plugin their own Scalar display.
-            DType::Extension(..) => {
-                let storage_value = ExtScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .storage();
-                write!(f, "{}", storage_value)
-            }
+            DType::Null => write!(f, "null"),
+            DType::Bool(_) => write!(f, "{}", self.as_bool()),
+            DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
+            DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
+            DType::Binary(_) => write!(f, "{}", self.as_binary()),
+            DType::Struct(..) => write!(f, "{}", self.as_struct()),
+            DType::List(..) => write!(f, "{}", self.as_list()),
+            DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
 }

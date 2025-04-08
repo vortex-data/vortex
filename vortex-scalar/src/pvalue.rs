@@ -342,17 +342,17 @@ impl From<usize> for PValue {
 impl Display for PValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::U8(v) => write!(f, "{}_u8", v),
-            Self::U16(v) => write!(f, "{}_u16", v),
-            Self::U32(v) => write!(f, "{}_u32", v),
-            Self::U64(v) => write!(f, "{}_u64", v),
-            Self::I8(v) => write!(f, "{}_i8", v),
-            Self::I16(v) => write!(f, "{}_i16", v),
-            Self::I32(v) => write!(f, "{}_i32", v),
-            Self::I64(v) => write!(f, "{}_i64", v),
-            Self::F16(v) => write!(f, "{}_f16", v),
-            Self::F32(v) => write!(f, "{}_f32", v),
-            Self::F64(v) => write!(f, "{}_f64", v),
+            Self::U8(v) => write!(f, "{}u8", v),
+            Self::U16(v) => write!(f, "{}u16", v),
+            Self::U32(v) => write!(f, "{}u32", v),
+            Self::U64(v) => write!(f, "{}u64", v),
+            Self::I8(v) => write!(f, "{}i8", v),
+            Self::I16(v) => write!(f, "{}i16", v),
+            Self::I32(v) => write!(f, "{}i32", v),
+            Self::I64(v) => write!(f, "{}i64", v),
+            Self::F16(v) => write!(f, "{}f16", v),
+            Self::F32(v) => write!(f, "{}f32", v),
+            Self::F64(v) => write!(f, "{}f64", v),
         }
     }
 }
