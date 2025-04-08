@@ -100,6 +100,7 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
     Box::into_raw(Box::new(ffi_file))
 }
 
+/// This function creates a new file by writing the ffi array to the path in the options args.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_create_and_write(
     options: *const FileCreateOptions,
