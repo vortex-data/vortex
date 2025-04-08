@@ -422,6 +422,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: "recursive"
+      - name: Install cross-rs
+        run: cargo install cross --git https://github.com/cross-rs/cross
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
