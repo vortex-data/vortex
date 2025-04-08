@@ -106,6 +106,12 @@ impl IoDispatcher {
     }
 }
 
+impl Default for IoDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IoDispatcher {
     /// Returns a handle to the current process's shared Dispatcher.
     pub fn shared() -> Self {
