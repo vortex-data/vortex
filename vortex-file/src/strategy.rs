@@ -139,12 +139,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
             let canonical_chunk = chunk.to_canonical()?;
+            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
 
             if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
+                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
             {
-                let ratio =
-                    canonical_chunk.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
+                let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
                 // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
                 if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {

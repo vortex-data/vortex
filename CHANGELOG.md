@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.27.0...vortex-tui-v0.28.0) - 2025-04-07
+
+### Other
+- More configurable scan execution ([#2899](https://github.com/spiraldb/vortex/pull/2899))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-datafusion` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.27.0...vortex-datafusion-v0.28.0) - 2025-04-07
+
+### Other
+- More configurable scan execution ([#2899](https://github.com/spiraldb/vortex/pull/2899))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex` - [0.28.0](https://github.com/spiraldb/vortex/compare/0.27.0...0.28.0) - 2025-04-07
+
+### Other
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-file` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.27.0...vortex-file-v0.28.0) - 2025-04-07
+
+### Fixed
+- Arrays with negative values cannot be encoded like bitpacked arrays ([#2917](https://github.com/spiraldb/vortex/pull/2917))
+
+### Other
+- More configurable scan execution ([#2899](https://github.com/spiraldb/vortex/pull/2899))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-layout` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.27.0...vortex-layout-v0.28.0) - 2025-04-07
+
+### Other
+- More configurable scan execution ([#2899](https://github.com/spiraldb/vortex/pull/2899))
+- Add more ways to select rows in a scan ([#2905](https://github.com/spiraldb/vortex/pull/2905))
+- Use sketches instead of time-based decay histogram ([#2900](https://github.com/spiraldb/vortex/pull/2900))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-io` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.27.0...vortex-io-v0.28.0) - 2025-04-07
+
+### Other
+- (duckdb) use large vector for dict values & use remove tokio from vortex-ffi calls ([#2863](https://github.com/spiraldb/vortex/pull/2863))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-metrics` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-metrics-v0.27.0...vortex-metrics-v0.28.0) - 2025-04-07
+
+### Other
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-expr` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.27.0...vortex-expr-v0.28.0) - 2025-04-07
+
+### Other
+- Add all vortex expressions to proto serde ([#2907](https://github.com/spiraldb/vortex/pull/2907))
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
+## `vortex-btrblocks` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.27.0...vortex-btrblocks-v0.28.0) - 2025-04-07
+
+### Other
+- Compress offsets for FSST codes ([#2901](https://github.com/spiraldb/vortex/pull/2901))
+
+## `vortex-sparse` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.27.0...vortex-sparse-v0.28.0) - 2025-04-07
+
+### Other
+- slice and take on a sparse array where all values are patches return the patch values ([#2906](https://github.com/spiraldb/vortex/pull/2906))
+
+## `vortex-fsst` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.27.0...vortex-fsst-v0.28.0) - 2025-04-07
+
+### Other
+- Compress offsets for FSST codes ([#2901](https://github.com/spiraldb/vortex/pull/2901))
+
+## `vortex-fastlanes` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.27.0...vortex-fastlanes-v0.28.0) - 2025-04-07
+
+### Fixed
+- Arrays with negative values cannot be encoded like bitpacked arrays ([#2917](https://github.com/spiraldb/vortex/pull/2917))
+
+### Other
+- Add test for repeated indices in chunked_indices function ([#2928](https://github.com/spiraldb/vortex/pull/2928))
+- Revert "Use fixed sized array instead of vector for bitpacked take/filter index grouping" ([#2927](https://github.com/spiraldb/vortex/pull/2927))
+- Use fixed sized array instead of vector for bitpacked take/filter index grouping ([#2915](https://github.com/spiraldb/vortex/pull/2915))
+- Faster bitpacked fitler and take without zeroing memory ([#2904](https://github.com/spiraldb/vortex/pull/2904))
+
+## `vortex-array` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.27.0...vortex-array-v0.28.0) - 2025-04-07
+
+### Fixed
+- compute fn `invert` constant correct nullability ([#2913](https://github.com/spiraldb/vortex/pull/2913))
+
+### Other
+- Stats merging should use the stat dtype and not array dtype ([#2919](https://github.com/spiraldb/vortex/pull/2919))
+- Use non debug asserts in compute function entry points ([#2914](https://github.com/spiraldb/vortex/pull/2914))
+- slice and take on a sparse array where all values are patches return the patch values ([#2906](https://github.com/spiraldb/vortex/pull/2906))
+
+## `vortex-scalar` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.27.0...vortex-scalar-v0.28.0) - 2025-04-07
+
+### Fixed
+- Handle floats getting widened during flexbuffer serialization if they're part of a list containing wider type ([#2926](https://github.com/spiraldb/vortex/pull/2926))
+
+### Other
+- float serde handles non 0 values getting widened ([#2930](https://github.com/spiraldb/vortex/pull/2930))
+
+## `vortex-mask` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.27.0...vortex-mask-v0.28.0) - 2025-04-07
+
+### Other
+- Add more ways to select rows in a scan ([#2905](https://github.com/spiraldb/vortex/pull/2905))
+
+## `vortex-proto` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.27.0...vortex-proto-v0.28.0) - 2025-04-07
+
+### Other
+- Add all vortex expressions to proto serde ([#2907](https://github.com/spiraldb/vortex/pull/2907))
+
+## `vortex-error` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.27.0...vortex-error-v0.28.0) - 2025-04-07
+
+### Other
+- Refactor segment prefetching ([#2714](https://github.com/spiraldb/vortex/pull/2714))
+
 ## `vortex-datafusion` - [0.27.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.26.0...vortex-datafusion-v0.27.0) - 2025-04-02
 
 ### Other

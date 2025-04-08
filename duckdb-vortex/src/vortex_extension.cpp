@@ -34,6 +34,10 @@ struct VortexBindData : public TableFunctionData {
 
 	shared_ptr<MultiFileList> file_list;
 
+	// Used to create a arena for protobuf exprs, need a ptr since the bind arg is const.
+	unique_ptr<google::protobuf::Arena> arena;
+	vector<vortex::expr::Expr *> conjuncts;
+
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<VortexBindData>();
 		return file_list == other.file_list && column_names == other.column_names &&
@@ -106,22 +110,19 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	}
 };
 
-string create_filter_expression(const VortexBindData &bind_data, VortexScanGlobalState &global_state) {
-	if (global_state.filter == nullptr) {
-		return "";
+// Use to create vortex expressions from `TableFilterSet` filter.
+void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
+                            optional_ptr<TableFilterSet> filter, vector<idx_t> column_ids,
+                            vector<vortex::expr::Expr *> &conjuncts) {
+	if (filter == nullptr) {
+		return;
 	}
 
-	google::protobuf::Arena arena;
-	vector<vortex::expr::Expr *> exprs;
-
-	for (const auto &[col_id, value] : global_state.filter->filters) {
-		auto col_name = bind_data.column_names[global_state.column_ids[col_id]];
+	for (const auto &[col_id, value] : filter->filters) {
+		auto col_name = column_names[column_ids[col_id]];
 		auto conj = table_expression_into_expr(arena, *value, col_name);
-		exprs.push_back(conj);
+		conjuncts.push_back(conj);
 	}
-
-	auto expr = flatten_exprs(arena, exprs);
-	return expr->SerializeAsString();
 }
 
 /// Extracts schema information from a Vortex file's data type.
@@ -290,6 +291,8 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
                                            vector<LogicalType> &column_types, vector<string> &column_names) {
 	auto result = make_uniq<VortexBindData>();
 
+	result->arena = make_uniq<google::protobuf::Arena>();
+
 	// Get the filename glob from the input.
 	auto vec = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
 	result->file_list = make_shared_ptr<GlobMultiFileList>(context, vec, FileGlobOptions::DISALLOW_EMPTY);
@@ -308,6 +311,31 @@ unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const Funct
 	auto &data = bind_data->Cast<VortexBindData>();
 
 	return make_uniq<NodeStatistics>(data.num_columns, data.num_columns);
+}
+
+// Removes all filter expressions (from `filters`) which can be pushed down.
+void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_data,
+                           vector<unique_ptr<Expression>> &filters) {
+	auto &bind = bind_data->Cast<VortexBindData>();
+
+	if (filters.empty()) {
+		return;
+	}
+
+	bind.conjuncts.reserve(filters.size());
+
+	for (auto iter = filters.begin(); iter != filters.end();) {
+		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
+		if (expr != nullptr) {
+			bind.conjuncts.push_back(expr);
+		}
+
+		if (expr != nullptr) {
+			iter = filters.erase(iter);
+		} else {
+			++iter;
+		}
+	}
 }
 
 /// Called when the extension is loaded by DuckDB.
@@ -335,7 +363,11 @@ void VortexExtension::Load(DuckDB &db) {
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
 		state->expanded_files = bind.file_list->GetAllFiles();
 
-		state->filter_str = create_filter_expression(bind, *state);
+		// Most expressions are extracted from `PushdownComplexFilter`, the final filters come from `input.filters`.
+		vector<vortex::expr::Expr *> conjuncts;
+		std::ranges::copy(bind.conjuncts, std::back_inserter(conjuncts));
+		CreateFilterExpression(*bind.arena, bind.column_names, input.filters, input.column_ids, conjuncts);
+
 		auto column_names = std::vector<char const *>();
 		for (auto col_id : state->projection_ids) {
 			assert(col_id < bind.column_names.size());
@@ -346,6 +378,14 @@ void VortexExtension::Load(DuckDB &db) {
 		// Can ignore mutex since no other threads are running now.
 		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file.get());
 		state->next_file = 1;
+
+		auto exprs = flatten_exprs(*bind.arena, bind.conjuncts);
+		if (exprs != nullptr) {
+			state->filter_str = exprs->SerializeAsString();
+		}
+
+		// We are finished with the arena
+		bind.arena->Reset();
 
 		return std::move(state);
 	};
@@ -360,6 +400,8 @@ void VortexExtension::Load(DuckDB &db) {
 		auto state = make_uniq<VortexScanLocalState>(thread_id);
 		return state;
 	};
+
+	vortex_func.pushdown_complex_filter = PushdownComplexFilter;
 
 	vortex_func.projection_pushdown = true;
 	vortex_func.cardinality = VortexCardinality;

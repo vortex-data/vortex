@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{VortexError, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::{Precision, Stat, StatType};
@@ -20,7 +20,10 @@ impl<S> StatsProviderExt for S where S: StatsProvider {}
 
 pub trait StatsProviderExt: StatsProvider {
     fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
-        self.get(stat).map(|v| v.into_scalar(dtype.clone()))
+        let stat_dtype = stat
+            .dtype(dtype)
+            .vortex_expect("getting scalar for stat dtype");
+        self.get(stat).map(|v| v.into_scalar(stat_dtype))
     }
 
     fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: &DType) -> Option<S::Bound> {
