@@ -365,9 +365,8 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 		input.data[i].Flatten(input.size());
 	}
 
-	std::cout << input.ToString() << std::endl;
-
-	auto new_array = FFIArray_append_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
+	auto new_array =
+	    FFIArray_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
 	global_state.array = make_uniq<VortexArray>(new_array);
 }
 
@@ -378,9 +377,9 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 /// Vortex files in SQL queries.
 void VortexExtension::Load(DuckDB &db) {
 	DatabaseInstance &instance = *db.instance;
-	TableFunction vortex_func("read_vortex", {LogicalType::VARCHAR}, VortexScanFunction, VortexBind);
+	TableFunction vortex_scan("read_vortex", {LogicalType::VARCHAR}, VortexScanFunction, VortexBind);
 
-	vortex_func.init_global = [](ClientContext &context,
+	vortex_scan.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
 		auto &bind = input.bind_data->Cast<VortexBindData>();
 		auto state = make_uniq<VortexScanGlobalState>();
@@ -423,7 +422,7 @@ void VortexExtension::Load(DuckDB &db) {
 		return std::move(state);
 	};
 
-	vortex_func.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
+	vortex_scan.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
 		auto &v_global_state = global_state->Cast<VortexScanGlobalState>();
 
@@ -434,12 +433,13 @@ void VortexExtension::Load(DuckDB &db) {
 		return state;
 	};
 
-	vortex_func.pushdown_complex_filter = PushdownComplexFilter;
+	vortex_scan.pushdown_complex_filter = PushdownComplexFilter;
+	vortex_scan.projection_pushdown = true;
+	vortex_scan.cardinality = VortexCardinality;
+	vortex_scan.filter_pushdown = true;
+	vortex_scan.filter_prune = true;
 
-	vortex_func.projection_pushdown = true;
-	vortex_func.cardinality = VortexCardinality;
-	vortex_func.filter_pushdown = true;
-	vortex_func.filter_prune = true;
+	ExtensionUtil::RegisterFunction(instance, vortex_scan);
 
 	CopyFunction function("vortex");
 	function.copy_to_bind = [](ClientContext &context, CopyFunctionBindInput &input, const vector<string> &names,
@@ -465,10 +465,10 @@ void VortexExtension::Load(DuckDB &db) {
 			auto col = new LogicalType(col_type);
 			column_types.push_back(reinterpret_cast<duckdb_logical_type>(col));
 		}
-		auto array = FFIArray_create_empty(column_types.data(), column_names.data(), column_names.size());
+		auto array =
+		    FFIArray_create_empty_from_duckdb_table(column_types.data(), column_names.data(), column_names.size());
 
 		gstate->array = make_uniq<VortexArray>(array);
-		std::cout << "file_path: " << file_path << std::endl;
 		return std::move(gstate);
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,
@@ -486,14 +486,9 @@ void VortexExtension::Load(DuckDB &db) {
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {
 		return CopyFunctionExecutionMode::REGULAR_COPY_TO_FILE;
 	};
-
 	function.extension = "vortex";
 	ExtensionUtil::RegisterFunction(instance, function);
-	ExtensionUtil::RegisterFunction(instance, vortex_func);
 }
-
-// typedef unique_ptr<FunctionData> (*copy_to_bind_t)(ClientContext &context, CopyFunctionBindInput &input,
-// const vector<string> &names, const vector<LogicalType> &sql_types);
 
 /// Returns the name of the Vortex extension.
 ///

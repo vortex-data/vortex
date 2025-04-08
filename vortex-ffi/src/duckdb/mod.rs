@@ -19,7 +19,7 @@ use vortex_duckdb::{
 
 use crate::array::FFIArray;
 use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
-use crate::to_string_vec;
+use crate::to_string;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
@@ -69,29 +69,21 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_create_empty(
+pub unsafe extern "C" fn FFIArray_create_empty_from_duckdb_table(
     type_array: *const duckdb_logical_type,
     names: *const *const c_char,
     len: c_int,
 ) -> *mut FFIArray {
-    // let mut field_names = Vec::new();
-    // for i in 0..len {
-    //     let col_name = unsafe { *names.offset(i as isize) };
-    //     let col_name: Arc<str> = to_string(col_name).into();
-    //     field_names.push(col_name);
-    // }
+    let field_names: Vec<Arc<str>> = (0..len)
+        .map(|i| to_string(*names.offset(i as isize)))
+        .map(|str| Arc::from(str))
+        .collect();
 
-    let field_names = to_string_vec(names, len)
-        .iter()
-        .map(|s| Arc::from(s.as_str()))
-        .collect::<Vec<_>>();
+    let types: Vec<DType> = (0..len)
+        .map(|i| LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) }))
+        .map(|type_| DType::from_duckdb(type_, Nullable))
+        .collect();
 
-    let mut types = Vec::new();
-    for i in 0..len {
-        let type_ = LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) });
-        let type_ = DType::from_duckdb(type_, Nullable);
-        types.push(type_);
-    }
     let file_dtype = DType::Struct(
         Arc::new(StructDType::new(field_names.into(), types)),
         Nullability::NonNullable,
@@ -107,13 +99,11 @@ pub unsafe extern "C" fn FFIArray_create_empty(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_append_chunk(
+pub unsafe extern "C" fn FFIArray_append_duckdb_chunk(
     array: *mut FFIArray,
     chunk: duckdb_data_chunk,
 ) -> *mut FFIArray {
-    let array = unsafe { Box::from_raw(array) };
-
-    println!("0");
+    let array = unsafe { &*array };
 
     let struct_type = array
         .inner
@@ -121,7 +111,6 @@ pub unsafe extern "C" fn FFIArray_append_chunk(
         .as_struct()
         .vortex_expect("can only write a struct array from duckdb");
 
-    println!("1");
     let chunked_array = array
         .inner
         .as_any()
@@ -130,25 +119,18 @@ pub unsafe extern "C" fn FFIArray_append_chunk(
 
     let chunk = DataChunkHandle::new_unowned(chunk);
 
-    println!("2");
     let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
         chunk: &chunk,
         nullable: None,
         names: Some(struct_type.names().clone()),
     })
-    .map_err(|e| {
-        println!("{}", e.to_string());
-        e
-    })
     .vortex_expect("from_duckdb convert");
-    println!("3");
 
     let mut chunks = chunked_array.chunks().to_vec();
     chunks.push(new_chunk);
 
     let chunked_array = ChunkedArray::try_new(chunks, chunked_array.dtype().clone())
         .vortex_expect("appending array");
-    println!("4");
 
     Box::leak(Box::new(FFIArray {
         inner: chunked_array.to_array(),

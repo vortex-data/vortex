@@ -237,20 +237,14 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
         let names = &named_chunk.names;
         let len = chunk.len();
 
-        println!("cn");
-
         let columns = (0..chunk.num_columns())
             .map(|i| {
-                println!("cn {}", i);
                 let vector = chunk.flat_vector(i);
                 let array = ArrayRef::from_duckdb(SizedFlatVector {
                     vector,
                     nullable: named_chunk.nullable.map(|null| null[i]).unwrap_or(true),
                     len,
-                });
-                println!("cnf {:?}", array);
-
-                let array = array?;
+                })?;
 
                 // Figure out the column names
                 Ok((
@@ -264,7 +258,6 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
             .collect::<VortexResult<Vec<_>>>()?;
 
         let (names, arrays): (Vec<_>, Vec<_>) = columns.into_iter().unzip();
-        println!("st");
 
         // All top level struct are non-nullable in duckdb, only inner columns can be nullable.
         StructArray::try_new(names.into(), arrays, len, Validity::NonNullable)
@@ -276,10 +269,8 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
     // TODO(joe): going via is slow, make it faster.
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
         let len = sized_vector.len;
-        println!("l {}", len);
         let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len)
             .map_err(|e| vortex_err!("Failed to convert duckdb array to vortex: {}", e))?;
-        println!("l2");
         Ok(ArrayRef::from_arrow(arrow_arr, sized_vector.nullable))
     }
 }

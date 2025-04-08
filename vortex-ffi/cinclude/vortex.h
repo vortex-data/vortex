@@ -290,13 +290,13 @@ unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct Array *FFIArray_create_empty(const duckdb_logical_type *type_array,
-                                    const char *const *names,
-                                    int len);
+struct Array *FFIArray_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
+                                                      const char *const *names,
+                                                      int len);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct Array *FFIArray_append_chunk(struct Array *array, duckdb_data_chunk chunk);
+struct Array *FFIArray_append_duckdb_chunk(struct Array *array, duckdb_data_chunk chunk);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)

@@ -32,7 +32,7 @@ struct VortexArray {
 	}
 
 	~VortexArray() {
-	//	FFIArray_free(array);
+		FFIArray_free(array);
 	}
 
 	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const VortexConversionCache *cache) const {
