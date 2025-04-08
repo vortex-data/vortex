@@ -55,27 +55,17 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		auto gstate = make_uniq<VortexWriteGlobalData>();
 		gstate->file_name = file_path;
 
-		auto column_names_str = std::vector<std::string *>();
 		auto column_names = std::vector<const char *>();
-		for (auto col_id : bind.column_names) {
-			auto str = new std::string(col_id);
-			column_names_str.push_back(str);
-			column_names.push_back(str->c_str());
+		for (const auto &col_id : bind.column_names) {
+			column_names.push_back(col_id.c_str());
 		}
+
 		auto column_types = std::vector<duckdb_logical_type>();
-		for (auto col_type : bind.sql_types) {
-			auto col = new LogicalType(col_type);
-			column_types.push_back(reinterpret_cast<duckdb_logical_type>(col));
+		for (auto &col_type : bind.sql_types) {
+			column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
 		}
 		auto array =
 		    FFIArray_create_empty_from_duckdb_table(column_types.data(), column_names.data(), column_names.size());
-
-		for (auto type_ : column_types) {
-			delete reinterpret_cast<LogicalType *>(type_);
-		}
-		for (auto str : column_names_str) {
-			delete str;
-		}
 
 		gstate->array = make_uniq<VortexArray>(array);
 		return std::move(gstate);
