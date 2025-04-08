@@ -32,7 +32,7 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
-            array.statistics().compute_min::<Option<$P>>().unwrap_or_default().unwrap_or_default() < 0
+            array.statistics().compute_min::<$P>().unwrap_or_default() < 0
         });
         if has_negative_values {
             vortex_bail!("cannot bitpack_encode array containing negative integers")

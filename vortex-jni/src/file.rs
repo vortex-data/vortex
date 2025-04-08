@@ -22,8 +22,8 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamExt;
 
 use crate::array_stream::NativeArrayStream;
-use crate::block_on;
 use crate::errors::try_or_throw;
+use crate::{TOKIO_RUNTIME, block_on};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -167,7 +167,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         }
 
         // Canonicalize first, to avoid needing to pay decoding cost for every access.
-        let scan = scan_builder.with_canonicalize(true).build()?;
+        let scan = scan_builder
+            .with_canonicalize(true)
+            .spawn_tokio(TOKIO_RUNTIME.handle().clone())?;
         Ok(NativeArrayStream::new(scan.boxed()).into_raw())
     })
 }

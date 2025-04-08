@@ -11,13 +11,22 @@ impl TakeFn<&ConstantArray> for ConstantEncoding {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                Ok(ConstantArray::new(array.scalar().clone(), indices.len()).into_array())
+                let nullability = array.dtype().nullability() | indices.dtype().nullability();
+                let scalar = Scalar::new(
+                    array.scalar().dtype().with_nullability(nullability),
+                    array.scalar().value().clone(),
+                );
+                Ok(ConstantArray::new(scalar, indices.len()).into_array())
             }
-            AllOr::None => Ok(ConstantArray::new(
-                Scalar::null(array.dtype().clone()),
-                indices.len(),
-            )
-            .into_array()),
+            AllOr::None => {
+                Ok(ConstantArray::new(
+                    Scalar::null(array.dtype().with_nullability(
+                        array.dtype().nullability() | indices.dtype().nullability(),
+                    )),
+                    indices.len(),
+                )
+                .into_array())
+            }
             AllOr::Some(v) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
@@ -38,6 +47,7 @@ impl TakeFn<&ConstantArray> for ConstantEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
 
     use crate::arrays::{ConstantArray, PrimitiveArray};
@@ -59,6 +69,10 @@ mod tests {
         .unwrap();
         let valid_indices: &[usize] = &[1usize];
         assert_eq!(
+            &array.dtype().with_nullability(Nullability::Nullable),
+            taken.dtype()
+        );
+        assert_eq!(
             taken.to_primitive().unwrap().as_slice::<i32>(),
             &[42, 42, 42]
         );
@@ -66,5 +80,24 @@ mod tests {
             taken.validity_mask().unwrap().indices(),
             AllOr::Some(valid_indices)
         );
+    }
+
+    #[test]
+    fn take_all_valid_indices() {
+        let array = ConstantArray::new(42, 10).to_array();
+        let taken = take(
+            &array,
+            &PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array(),
+        )
+        .unwrap();
+        assert_eq!(
+            &array.dtype().with_nullability(Nullability::Nullable),
+            taken.dtype()
+        );
+        assert_eq!(
+            taken.to_primitive().unwrap().as_slice::<i32>(),
+            &[42, 42, 42]
+        );
+        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
     }
 }

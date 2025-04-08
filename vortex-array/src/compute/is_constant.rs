@@ -117,7 +117,7 @@ fn is_constant_impl(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Op
         }
     }
 
-    debug_assert!(
+    assert!(
         all_valid,
         "All values must be valid as an invariant of the VTable."
     );

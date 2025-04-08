@@ -1,3 +1,10 @@
+#pragma once
+
+#include "duckdb.hpp"
+
+#ifndef ENABLE_DUCKDB_FFI
+#define ENABLE_DUCKDB_FFI
+#endif
 
 #include "vortex.h"
 

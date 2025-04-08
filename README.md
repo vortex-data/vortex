@@ -6,7 +6,7 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
 > \[!TIP\]
-> Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev) 
+> Check out our [Docs](https://docs.vortex.dev/) and per-commit [Benchmarks](https://bench.vortex.dev)
 
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
 Arrow arrays in-memory, on-disk, and over-the-wire.
@@ -196,9 +196,26 @@ Vortex to model more complex arrays while still exposing a logical interface. Fo
 `ChunkedArray` where the first chunk is run-length encoded and the second chunk is dictionary encoded.
 In Arrow, `RunLengthArray` and `DictionaryArray` are separate incompatible types, and so cannot be combined in this way.
 
-## Usage
+## vx - Vortex's built-in file investigation tool
 
-For best performance we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
+Vortex has its own TUI-based tool called `vx` that can be used to investigate a file's structure. It can show a file's layout, compressions, columns statistics and chunking.
+We keep adding new capabilities and features to it all the time because we use it ourselves during development!
+
+In order to install `vx`, you need to have `cargo` install and then you can just the following command to get the latest release
+
+```bash
+cargo install vortex-tui --locked
+```
+
+If you want to build it from source, you can pull this repo and run
+
+```bash
+cargo install --path vortex-tui --locked
+```
+
+## Performance Tips
+
+For the best performance, we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
 allocator.
 
 ```rust
@@ -245,7 +262,7 @@ This repo uses uv to manage the combined Rust/Python monorepo build. After insta
 
 ```bash
 # Install uv from https://docs.astral.sh/uv/getting-started/installation/
-uv sync
+uv sync --all-packages
 ```
 
 ## License

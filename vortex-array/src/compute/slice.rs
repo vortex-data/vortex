@@ -68,13 +68,13 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
         }
     }
 
-    debug_assert_eq!(
+    assert_eq!(
         sliced.len(),
         stop - start,
         "Slice length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
+    assert_eq!(
         sliced.dtype(),
         array.dtype(),
         "Slice dtype mismatch {}",

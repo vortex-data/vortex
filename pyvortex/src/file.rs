@@ -13,7 +13,6 @@ use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
 use vortex::expr::{ExprRef, ident, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
@@ -164,7 +163,9 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.build()?));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
+            builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
+        ));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -181,9 +182,6 @@ impl PyVortexFile {
             .get()
             .vxf
             .scan()?
-            .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(
-                TOKIO_RUNTIME.handle().clone(),
-            )))
             .with_canonicalize(true)
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
@@ -192,7 +190,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let stream = ArrayStreamExt::boxed(builder.build()?);
+        let stream = ArrayStreamExt::boxed(builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?);
         let dtype = stream.dtype().clone();
 
         // The I/O of the array stream won't make progress unless it's polled. So we need to spawn it.

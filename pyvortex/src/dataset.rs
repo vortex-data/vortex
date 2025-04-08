@@ -49,7 +49,7 @@ pub async fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    let stream = scan.build()?;
+    let stream = scan.into_array_stream()?;
     let dtype = stream.dtype().clone();
 
     let all_arrays = stream.try_collect::<Vec<_>>().await?;
@@ -142,7 +142,9 @@ impl PyVortexDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let iter = ArrayStreamToIterator::new(scan.build()?.boxed() as SendableArrayStream);
+        let iter = ArrayStreamToIterator::new(
+            scan.spawn_tokio(TOKIO_RUNTIME.handle().clone())?.boxed() as SendableArrayStream,
+        );
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 

@@ -31,13 +31,13 @@ pub fn try_cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
 
     let casted = try_cast_impl(array, dtype)?;
 
-    debug_assert_eq!(
+    assert_eq!(
         casted.len(),
         array.len(),
         "Cast length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
+    assert_eq!(
         casted.dtype(),
         dtype,
         "Cast dtype mismatch {}",

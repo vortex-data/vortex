@@ -105,7 +105,7 @@ dependencies = [
  "arrow-schema",
  "chrono",
  "half",
- "hashbrown",
+ "hashbrown 0.15.2",
  "num",
 ]
 
@@ -267,12 +267,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-once-cell"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
-
-[[package]]
 name = "async-trait"
 version = "0.1.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,9 +359,9 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cc"
-version = "1.2.17"
+version = "1.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fcb57c740ae1daf453ae85f16e37396f672b039e00d9d866e07ddb24e328e3a"
+checksum = "525046617d8376e3db1deffb079e91cef90a89fc3ca5c185bbf8c9ecdd15cd5c"
 dependencies = [
  "shlex",
 ]
@@ -423,6 +417,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "crossbeam-utils"
+version = "0.8.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+
+[[package]]
 name = "crunchy"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -447,6 +447,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -716,6 +730,12 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+
+[[package]]
+name = "hashbrown"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
@@ -899,12 +919,12 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.8.0"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3954d50fe15b02142bf25d3b8bdadb634ec3948f103d04ffe3031bc8fe9d7058"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]
@@ -1508,20 +1528,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "range_union_find"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "650ca3577642cea7367b6be622edcd9496e8bc97867d7d644c4290289614c63b"
-dependencies = [
- "num-traits",
- "sorted-vec",
-]
-
-[[package]]
 name = "redox_syscall"
-version = "0.5.10"
+version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b8c0c260b63a8219631167be35e6a988e9554dbd323f8bd08439c8ed1302bd1"
+checksum = "d2f103c6d277498fbceb16e84d317e2a400f160f46904d5f5410848c829511a3"
 dependencies = [
  "bitflags 2.9.0",
 ]
@@ -1572,7 +1582,7 @@ checksum = "1e147371c75553e1e2fcdb483944a8540b8438c31426279553b9a8182a9b7b65"
 dependencies = [
  "bytecheck",
  "bytes",
- "hashbrown",
+ "hashbrown 0.15.2",
  "indexmap",
  "munge",
  "ptr_meta",
@@ -1705,6 +1715,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "sketches-ddsketch"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e9a774a6c28142ac54bb25d25562e6bcf957493a184f15ad4eebccb23e410a"
+
+[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1715,15 +1731,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.14.0"
+version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
-
-[[package]]
-name = "sorted-vec"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d372029cb5195f9ab4e4b9aef550787dce78b124fcaee8d82519925defcd6f0d"
+checksum = "8917285742e9f3e1683f0a9c4e6b57960b7314d0b08d30d1ecd426713ee2eee9"
 
 [[package]]
 name = "spin"
@@ -1904,7 +1914,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "vortex-alp",
  "vortex-array",
@@ -1931,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-alp"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "itertools",
  "num-traits",
@@ -1948,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-array"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -1958,12 +1968,13 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "cfg-if",
  "enum-iterator",
  "flatbuffers 25.2.10",
  "flexbuffers",
  "futures-util",
  "getrandom 0.3.2",
- "hashbrown",
+ "hashbrown 0.15.2",
  "humansize",
  "itertools",
  "log",
@@ -1987,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-btrblocks"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "getrandom 0.2.15",
@@ -2014,7 +2025,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-buffer"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
@@ -2025,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-bytebool"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -2039,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-parts"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "getrandom 0.2.15",
  "rkyv",
@@ -2053,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dict"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -2069,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dtype"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-schema",
  "flatbuffers 25.2.10",
@@ -2087,7 +2098,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-error"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-schema",
  "flatbuffers 25.2.10",
@@ -2100,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-expr"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "dyn-hash",
  "itertools",
@@ -2114,7 +2125,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fastlanes"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
@@ -2132,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-flatbuffers"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "flatbuffers 25.2.10",
  "vortex-buffer",
@@ -2140,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fsst"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-array",
  "fsst-rs",
@@ -2155,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ipc"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "bytes",
  "flatbuffers 25.2.10",
@@ -2171,22 +2182,20 @@ dependencies = [
 
 [[package]]
 name = "vortex-layout"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
- "async-once-cell",
  "async-trait",
  "bit-vec",
  "bytes",
- "exponential-decay-histogram",
+ "dashmap",
  "flatbuffers 25.2.10",
  "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools",
  "log",
- "pin-project-lite",
- "range_union_find",
+ "sketches-ddsketch",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2199,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-mask"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "itertools",
@@ -2208,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-metrics"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "getrandom 0.3.2",
  "vortex-error",
@@ -2217,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-proto"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -2225,7 +2234,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-buffer",
  "itertools",
@@ -2241,7 +2250,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-scalar"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "arrow-array",
  "flatbuffers 25.2.10",
@@ -2259,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-sparse"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "itertools",
  "rkyv",
@@ -2274,7 +2283,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-zigzag"
-version = "0.25.2"
+version = "0.28.0"
 dependencies = [
  "vortex-array",
  "vortex-buffer",

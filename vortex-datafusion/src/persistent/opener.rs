@@ -9,7 +9,6 @@ use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_layout::scan::SplitBy;
-use vortex_layout::scan::executor::{TaskExecutor, TokioExecutor};
 use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -64,7 +63,6 @@ impl FileOpener for VortexFileOpener {
                 .await?
                 .scan()?
                 .with_metrics(metrics)
-                .with_task_executor(TaskExecutor::Tokio(TokioExecutor::new(Handle::current())))
                 .with_projection(projection)
                 .with_some_filter(filter)
                 .with_canonicalize(true)
@@ -72,7 +70,7 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .build()?
+                .spawn_tokio(Handle::current())?
                 .map(move |array| {
                     let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
