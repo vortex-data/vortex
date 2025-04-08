@@ -31,7 +31,7 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	auto chunk = DataChunk();
 	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
 
-	for (int i = 0; i < input.ColumnCount(); i++) {
+	for (int i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
 	}
 
