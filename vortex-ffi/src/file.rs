@@ -102,7 +102,7 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_create_and_write(
+pub unsafe extern "C" fn File_create_and_write_array(
     options: *const FileCreateOptions,
     ffi_array: *mut FFIArray,
 ) {

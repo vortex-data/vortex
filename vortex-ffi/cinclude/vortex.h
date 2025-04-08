@@ -315,7 +315,7 @@ struct File *File_open(const struct FileOpenOptions *options);
 /**
  * This function creates a new file by writing the ffi array to the path in the options args.
  */
-void File_create_and_write(const struct FileCreateOptions *options, struct Array *ffi_array);
+void File_create_and_write_array(const struct FileCreateOptions *options, struct Array *ffi_array);
 
 struct FileStatistics *File_statistics(struct File *file);
 
