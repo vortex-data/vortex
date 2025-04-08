@@ -18,9 +18,9 @@ use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 /// We use this because the builtin tokio's [`File`](tokio::fs::File) type is not `Clone` and
 /// also does actually implement a `read_exact_at` operation.
 #[derive(Debug, Clone)]
-pub struct TokioCloneFile(Arc<File>);
+pub struct TokioFile(Arc<File>);
 
-impl TokioCloneFile {
+impl TokioFile {
     pub fn new(file: File) -> Self {
         Self(Arc::new(file))
     }
@@ -38,7 +38,7 @@ impl TokioCloneFile {
 }
 
 // Implement deref coercion for non-mut `File` methods on `TokioFile`.
-impl Deref for TokioCloneFile {
+impl Deref for TokioFile {
     type Target = File;
 
     fn deref(&self) -> &Self::Target {
@@ -46,7 +46,7 @@ impl Deref for TokioCloneFile {
     }
 }
 
-impl VortexReadAt for TokioCloneFile {
+impl VortexReadAt for TokioFile {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip_all, fields(range, alignment))
@@ -103,14 +103,14 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::{TokioCloneFile, VortexReadAt};
+    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_shared_file() {
         let mut tmpfile = NamedTempFile::new().unwrap();
         write!(tmpfile, "0123456789").unwrap();
 
-        let shared_file = TokioCloneFile::open(tmpfile.path()).unwrap();
+        let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
         let first_half = shared_file
             .read_byte_range(0..5, Alignment::none())
@@ -132,7 +132,7 @@ mod tests {
         write!(file, "test123").unwrap();
 
         // Transfer ownership of the file into our Tokio file.
-        let tokio_file = TokioCloneFile::open(file.path()).unwrap();
+        let tokio_file = TokioFile::open(file.path()).unwrap();
         // Delete the file, so that tokio_file's owned FD is the only thing keeping it around.
         std::fs::remove_file(file.path()).unwrap();
 

@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexOpenOptions;
-use vortex::io::TokioCloneFile;
+use vortex::io::TokioFile;
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
-    let opened = TokioCloneFile::open(file)?;
+    let opened = TokioFile::open(file)?;
     let vxf = VortexOpenOptions::file().open(opened).await?;
 
     let segment_map = vxf.footer().segment_map();

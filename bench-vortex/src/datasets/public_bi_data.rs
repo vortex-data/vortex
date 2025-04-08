@@ -18,7 +18,7 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::io::TokioCloneFile;
+use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef};
 
@@ -557,7 +557,7 @@ impl BenchmarkDataset for PBIDataset {
         let arrays = stream::iter(self.list_files(FileType::Vortex))
             .map(|f| async move {
                 VortexOpenOptions::file()
-                    .open(TokioCloneFile::open(f)?)
+                    .open(TokioFile::open(f)?)
                     .await?
                     .scan()?
                     .spawn_tokio(Handle::current())
