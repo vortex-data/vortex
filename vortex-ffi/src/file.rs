@@ -86,12 +86,10 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
     // tokio dep
-    let result = RUNTIME.with(|runtime| {
-        runtime.block_on(async move {
-            VortexOpenOptions::file()
-                .open_object_store(&object_store, uri.path())
-                .await
-        })
+    let result = RUNTIME.block_on(async move {
+        VortexOpenOptions::file()
+            .open_object_store(&object_store, uri.path())
+            .await
     });
 
     let file = result.vortex_expect("open");
@@ -113,20 +111,17 @@ pub unsafe extern "C" fn File_create_and_write_array(
 
     let array = unsafe { &*ffi_array };
 
-    // let callback_stream = todo!();
-    RUNTIME.with(|runtime| {
-        runtime.block_on(async move {
-            let file = tokio::fs::File::create(path.to_string())
-                .await
-                .vortex_expect("creating file");
-            let file = VortexWriteOptions::default()
-                .write(file, array.inner.to_array_stream())
-                .await
-                .vortex_expect("writing file: complete");
+    RUNTIME.block_on(async move {
+        let file = tokio::fs::File::create(path.to_string())
+            .await
+            .vortex_expect("creating file");
+        let file = VortexWriteOptions::default()
+            .write(file, array.inner.to_array_stream())
+            .await
+            .vortex_expect("writing file: complete");
 
-            file.sync_all().await.vortex_expect("sync file")
-        })
-    });
+        file.sync_all().await.vortex_expect("sync file")
+    })
 }
 
 /// Whole file statistics.
@@ -195,8 +190,8 @@ pub unsafe extern "C" fn File_scan(
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
-    let stream = RUNTIME
-        .with(|rt| stream.spawn_tokio(rt.handle().clone()))
+    let stream = stream
+        .spawn_tokio(RUNTIME.handle().clone())
         .vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {
