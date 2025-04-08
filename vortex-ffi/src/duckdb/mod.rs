@@ -76,7 +76,7 @@ pub unsafe extern "C" fn FFIArray_create_empty_from_duckdb_table(
 ) -> *mut FFIArray {
     let field_names: Vec<Arc<str>> = (0..len)
         .map(|i| to_string(*names.offset(i as isize)))
-        .map(|str| Arc::from(str))
+        .map(Arc::from)
         .collect();
 
     let types: Vec<DType> = (0..len)
