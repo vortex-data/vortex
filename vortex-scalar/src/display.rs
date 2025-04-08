@@ -43,19 +43,19 @@ mod tests {
 
     #[test]
     fn display_primitive() {
-        assert_eq!(format!("{}", Scalar::from(0_u8)), "0_u8");
-        assert_eq!(format!("{}", Scalar::from(255_u8)), "255_u8");
+        assert_eq!(format!("{}", Scalar::from(0u8)), "0u8");
+        assert_eq!(format!("{}", Scalar::from(255u8)), "255u8");
 
-        assert_eq!(format!("{}", Scalar::from(0_u16)), "0_u16");
-        assert_eq!(format!("{}", Scalar::from(!0_u16)), "65535_u16");
+        assert_eq!(format!("{}", Scalar::from(0u16)), "0u16");
+        assert_eq!(format!("{}", Scalar::from(!0u16)), "65535u16");
 
-        assert_eq!(format!("{}", Scalar::from(0_u32)), "0_u32");
-        assert_eq!(format!("{}", Scalar::from(!0_u32)), "4294967295_u32");
+        assert_eq!(format!("{}", Scalar::from(0u32)), "0u32");
+        assert_eq!(format!("{}", Scalar::from(!0u32)), "4294967295u32");
 
-        assert_eq!(format!("{}", Scalar::from(0_u64)), "0_u64");
+        assert_eq!(format!("{}", Scalar::from(0u64)), "0u64");
         assert_eq!(
-            format!("{}", Scalar::from(!0_u64)),
-            "18446744073709551615_u64"
+            format!("{}", Scalar::from(!0u64)),
+            "18446744073709551615u64"
         );
 
         assert_eq!(
@@ -83,7 +83,7 @@ mod tests {
                     NonNullable
                 )
             ),
-            "\"48,65,6c,6c,6f,20,57,6f,72,6c,64,21\""
+            "\"48 65 6c 6c 6f 20 57 6f 72 6c 64 21\""
         );
         assert_eq!(format!("{}", Scalar::null(DType::Binary(Nullable))), "null");
     }
@@ -118,12 +118,12 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype(), vec![Scalar::null_typed::<u32>()])
             ),
-            "{foo:null}"
+            "{foo: null}"
         );
 
         assert_eq!(
             format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(32_u32)])),
-            "{foo:32_u32}"
+            "{foo: 32u32}"
         );
     }
 
@@ -151,7 +151,7 @@ mod tests {
                     vec![Scalar::null(f1), Scalar::null(f2.clone())]
                 )
             ),
-            "{foo:null,bar:null}"
+            "{foo: null, bar: null}"
         );
 
         assert_eq!(
@@ -159,7 +159,7 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
             ),
-            "{foo:true,bar:null}"
+            "{foo: true, bar: null}"
         );
 
         assert_eq!(
@@ -167,7 +167,7 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
             ),
-            "{foo:true,bar:32_u32}"
+            "{foo: true, bar: 32u32}"
         );
     }
 

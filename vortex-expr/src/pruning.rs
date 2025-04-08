@@ -660,7 +660,7 @@ mod tests {
 
         assert_eq!(
             PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
-            "PruningPredicate(($.a_min >= 42_i32), {a: {min}})"
+            "PruningPredicate(($.a_min >= 42i32), {a: {min}})"
         );
     }
 

@@ -21,7 +21,7 @@ impl Display for BinaryScalar<'_> {
             Some(v) => write!(
                 f,
                 "\"{}\"",
-                v.as_slice().iter().map(|b| format!("{b:x}")).format("")
+                v.as_slice().iter().map(|b| format!("{b:x}")).format(" ")
             ),
         }
     }
