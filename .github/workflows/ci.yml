@@ -214,6 +214,10 @@ jobs:
         run: ./vortex_tests
         working-directory: ${{ github.workspace }}/duckdb-vortex/build/debug/extension/vortex/test
 
+      - name: DuckDB sql unit tests
+        run: make test_debug
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
   check-min-deps:
     name: "Check build with minimal dependencies"
     runs-on:
