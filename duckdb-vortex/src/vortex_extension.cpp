@@ -9,6 +9,8 @@
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
 
+#include <filesystem>
+
 #include "vortex_common.hpp"
 #include "expr/expr.hpp"
 
@@ -161,13 +163,23 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 }
 
 std::string EnsureFileProtocol(const std::string &path) {
+	auto final_path = path;
 	const std::string prefix = "file://";
 
-	// Check if the string already starts with "file://"
-	if (path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin())) {
-		return path;
+	std::filesystem::path p = final_path;
+	if (!p.is_absolute()) {
+		try {
+			final_path = absolute(p).string();
+		} catch (const std::exception &e) {
+			throw InternalException(std::string("Error making path absolute: ") + e.what());
+		}
 	}
-	return prefix + path;
+
+	// Check if the string already starts with "file://"
+	if (final_path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), final_path.begin())) {
+		return final_path;
+	}
+	return prefix + final_path;
 }
 
 static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
@@ -351,6 +363,23 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 			++iter;
 		}
 	}
+}
+
+void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
+                     LocalFunctionData &lstate, DataChunk &input) {
+	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
+	auto bind = bind_data.Cast<VortexWriteBindData>();
+
+	auto chunk = DataChunk();
+	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
+
+	for (int i = 0; i < input.ColumnCount(); i++) {
+		input.data[i].Flatten(input.size());
+	}
+
+	auto new_array =
+	    FFIArray_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
+	global_state.array = make_uniq<VortexArray>(new_array);
 }
 
 /// Called when the extension is loaded by DuckDB.
