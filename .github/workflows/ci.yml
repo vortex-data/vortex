@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.7.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.8.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -70,7 +70,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
         with:
           sync: false
 
