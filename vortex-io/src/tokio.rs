@@ -15,8 +15,8 @@ use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
 ///
-/// We use this because the builtin tokio's [`File`](tokio::fs::File) type is not `Clone` and
-/// also does actually implement a `read_exact_at` operation.
+/// We use this because tokio's [`File`](tokio::fs::File) type is not `Clone` and
+/// also does not implement a `read_exact_at` operation.
 #[derive(Debug, Clone)]
 pub struct TokioFile(Arc<File>);
 
