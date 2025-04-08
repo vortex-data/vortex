@@ -12,9 +12,8 @@
 #include <filesystem>
 
 #include "vortex_common.hpp"
+#include "vortex_write.hpp"
 #include "expr/expr.hpp"
-
-#include <duckdb/function/copy_function.hpp>
 
 #ifndef DUCKDB_EXTENSION_MAIN
 #error DUCKDB_EXTENSION_MAIN not defined
@@ -113,19 +112,6 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	    : thread_id_counter(0), finished(false), cache_id(0), file_slots(), next_file(0), filter(nullptr) {
 	}
 };
-
-struct VortexWriteBindData : public TableFunctionData {
-	vector<LogicalType> sql_types;
-	vector<string> column_names;
-};
-
-struct VortexWriteGlobalData : public GlobalFunctionData {
-	std::string file_name;
-	std::unique_ptr<VortexFile> file;
-	unique_ptr<VortexArray> array;
-};
-
-struct VortexWriteLocalData : public LocalFunctionData {};
 
 // Use to create vortex expressions from `TableFilterSet` filter.
 void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
@@ -365,23 +351,6 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 	}
 }
 
-void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
-                     LocalFunctionData &lstate, DataChunk &input) {
-	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-	auto bind = bind_data.Cast<VortexWriteBindData>();
-
-	auto chunk = DataChunk();
-	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
-
-	for (int i = 0; i < input.ColumnCount(); i++) {
-		input.data[i].Flatten(input.size());
-	}
-
-	auto new_array =
-	    FFIArray_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
-	global_state.array = make_uniq<VortexArray>(new_array);
-}
-
 /// Called when the extension is loaded by DuckDB.
 /// It is responsible for registering functions and initializing state.
 ///
@@ -453,53 +422,7 @@ void VortexExtension::Load(DuckDB &db) {
 
 	ExtensionUtil::RegisterFunction(instance, vortex_scan);
 
-	CopyFunction function("vortex");
-	function.copy_to_bind = [](ClientContext &context, CopyFunctionBindInput &input, const vector<string> &names,
-	                           const vector<LogicalType> &sql_types) -> unique_ptr<FunctionData> {
-		auto result = make_uniq<VortexWriteBindData>();
-		result->sql_types = sql_types;
-		result->column_names = names;
-		return std::move(result);
-	};
-	function.copy_to_initialize_global = [](ClientContext &context, FunctionData &bind_data,
-	                                        const string &file_path) -> unique_ptr<GlobalFunctionData> {
-		auto &bind = bind_data.Cast<VortexWriteBindData>();
-		auto gstate = make_uniq<VortexWriteGlobalData>();
-		gstate->file_name = file_path;
-
-		auto column_names = std::vector<const char *>();
-		for (auto col_id : bind.column_names) {
-			auto str = new std::string(col_id);
-			column_names.push_back(str->c_str());
-		}
-		auto column_types = std::vector<duckdb_logical_type>();
-		for (auto col_type : bind.sql_types) {
-			auto col = new LogicalType(col_type);
-			column_types.push_back(reinterpret_cast<duckdb_logical_type>(col));
-		}
-		auto array =
-		    FFIArray_create_empty_from_duckdb_table(column_types.data(), column_names.data(), column_names.size());
-
-		gstate->array = make_uniq<VortexArray>(array);
-		return std::move(gstate);
-	};
-	function.copy_to_initialize_local = [](ExecutionContext &context,
-	                                       FunctionData &bind_data) -> unique_ptr<LocalFunctionData> {
-		return std::move(make_uniq<VortexWriteLocalData>());
-	};
-	function.copy_to_sink = VortexWriteSink;
-	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
-		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		auto opts = new FileCreateOptions;
-		opts->path = global_state.file_name.c_str();
-		File_create_and_write(opts, global_state.array->array);
-	};
-	function.execution_mode = [](bool preserve_insertion_order,
-	                             bool supports_batch_index) -> CopyFunctionExecutionMode {
-		return CopyFunctionExecutionMode::REGULAR_COPY_TO_FILE;
-	};
-	function.extension = "vortex";
-	ExtensionUtil::RegisterFunction(instance, function);
+	RegisterVortexWriteFunction(instance);
 }
 
 /// Returns the name of the Vortex extension.

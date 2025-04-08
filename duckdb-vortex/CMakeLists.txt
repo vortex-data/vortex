@@ -33,13 +33,13 @@ execute_process(
     WORKING_DIRECTORY "${vcpkg_SOURCE_DIR}"
 )
 
-if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
+if (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
     set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/arm64-osx)
-elseif(APPLE)
+elseif (APPLE)
     set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/x64-osx)
-elseif(UNIX AND NOT APPLE)
+elseif (UNIX AND NOT APPLE)
     set(CMAKE_PREFIX_PATH ${VCPKG_INSTALL_DIR}/x64-linux)
-endif()
+endif ()
 
 find_package(Catch2 CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
@@ -55,7 +55,7 @@ corrosion_import_crate(MANIFEST_PATH ../Cargo.toml
 )
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
-set(EXTENSION_SOURCES src/vortex_extension.cpp src/expr/expr.cpp)
+set(EXTENSION_SOURCES src/vortex_extension.cpp src/expr/expr.cpp src/vortex_write.cpp)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 # Generate C++ code from .proto files.
