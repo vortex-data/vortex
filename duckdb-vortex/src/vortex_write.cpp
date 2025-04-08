@@ -55,9 +55,11 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		auto gstate = make_uniq<VortexWriteGlobalData>();
 		gstate->file_name = file_path;
 
+		auto column_names_str = std::vector<std::string *>();
 		auto column_names = std::vector<const char *>();
 		for (auto col_id : bind.column_names) {
 			auto str = new std::string(col_id);
+			column_names_str.push_back(str);
 			column_names.push_back(str->c_str());
 		}
 		auto column_types = std::vector<duckdb_logical_type>();
@@ -67,6 +69,13 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		}
 		auto array =
 		    FFIArray_create_empty_from_duckdb_table(column_types.data(), column_names.data(), column_names.size());
+
+		for (auto type_ : column_types) {
+			delete reinterpret_cast<LogicalType *>(type_);
+		}
+		for (auto str : column_names_str) {
+			delete str;
+		}
 
 		gstate->array = make_uniq<VortexArray>(array);
 		return std::move(gstate);
@@ -78,9 +87,9 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		auto opts = new FileCreateOptions;
-		opts->path = global_state.file_name.c_str();
-		File_create_and_write(opts, global_state.array->array);
+		auto opts = FileCreateOptions();
+		opts.path = global_state.file_name.c_str();
+		File_create_and_write(&opts, global_state.array->array);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {
