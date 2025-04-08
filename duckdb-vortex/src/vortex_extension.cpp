@@ -144,8 +144,8 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 
 		column_names.push_back(field_name);
 		column_types.push_back(LogicalType(*duckdb_type));
-		delete duckdb_type;
 		DType_free(field_dtype);
+		delete duckdb_type;
 	}
 }
 
