@@ -416,7 +416,7 @@ jobs:
 
   build-java:
     name: Build Java
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
