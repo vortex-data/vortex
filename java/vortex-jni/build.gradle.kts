@@ -146,8 +146,8 @@ rustTargets.forEach { target ->
         workingDir = vortexJNI
 
         commandLine(
-            "cross",
-            "build",
+            "cargo",
+            "zigbuild",
             "--release",
             "--target",
             target,
