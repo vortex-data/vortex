@@ -19,8 +19,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_ZIGBUILD_ZIG_PATH: /Users/runner/hostedtoolcache/zig/0.14.0/arm64/zig
-  CARGO_ZIGBUILD_PYTHON_PATH: /opt/homebrew/bin/python3
 
 jobs:
   lint-toml:
@@ -446,6 +444,3 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew shadowJar jar
         working-directory: java/
-      - name: Setup tmate session
-        if: ${{ failure() }}
-        uses: mxschmitt/action-tmate@v3
