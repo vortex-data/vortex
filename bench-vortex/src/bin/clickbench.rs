@@ -59,7 +59,7 @@ struct Args {
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
     flavor: Flavor,
     #[arg(long)]
-    remote_data_dir: Option<String>,
+    use_remote_data_dir: Option<String>,
     #[arg(long, default_value_t = false)]
     single_file: bool,
 }
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
             .collect(),
     };
 
-    let base_url = data_source_base_url(&args.remote_data_dir, args.flavor)?;
+    let base_url = data_source_base_url(&args.use_remote_data_dir, args.flavor)?;
     let progress_bar = ProgressBar::new((queries.len() * args.formats.len()) as u64);
     let mut query_measurements = Vec::default();
     let mut metrics = Vec::default();
