@@ -130,13 +130,11 @@ impl SegmentCache for VortexFileSegmentCache {
                 file: self.file_key.clone(),
                 segment_id,
             })
-            .await
-            .clone())
+            .await)
     }
 
     async fn put(&self, segment_id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        Ok(self
-            .segment_cache
+        self.segment_cache
             .insert(
                 SegmentKey {
                     file: self.file_key.clone(),
@@ -144,7 +142,8 @@ impl SegmentCache for VortexFileSegmentCache {
                 },
                 buffer,
             )
-            .await)
+            .await;
+        Ok(())
     }
 }
 
