@@ -426,6 +426,8 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.14.0
+      - name: "check Zig"
+        run: zig version
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
       - uses: ./.github/actions/cleanup
