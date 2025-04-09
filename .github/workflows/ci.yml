@@ -446,3 +446,6 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew shadowJar jar
         working-directory: java/
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
