@@ -147,8 +147,8 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
 
-    let parquet_inputs =
-        std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
+    let parquet_inputs = std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
+
     info!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
