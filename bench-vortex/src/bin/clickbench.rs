@@ -240,11 +240,14 @@ fn init_data_source(
     runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
     match file_format {
-        Format::Parquet => {
-            if engine == Engine::DataFusion {
+        Format::Parquet => match engine {
+            Engine::DataFusion => {
                 clickbench::register_parquet_files(context, "hits", url, &HITS_SCHEMA, single_file)?
             }
-        }
+            Engine::DuckDB => {
+                vortex_panic!("{file_format} x {engine:?} not supported")
+            }
+        },
         Format::OnDiskVortex => {
             runtime.block_on(async {
                 if url.scheme() == "file" {
@@ -253,15 +256,21 @@ fn init_data_source(
                         .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
                 }
 
-                if engine == Engine::DataFusion {
-                    clickbench::register_vortex_files(
-                        context.clone(),
-                        "hits",
-                        url,
-                        &HITS_SCHEMA,
-                        single_file,
-                    )
-                    .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                match engine {
+                    Engine::DataFusion => {
+                        clickbench::register_vortex_files(
+                            context.clone(),
+                            "hits",
+                            url,
+                            &HITS_SCHEMA,
+                            single_file,
+                        )
+                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                    }
+
+                    Engine::DuckDB => {
+                        vortex_panic!("{file_format} x {engine:?} not supported")
+                    }
                 }
             });
         }
