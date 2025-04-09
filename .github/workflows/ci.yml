@@ -19,6 +19,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CROSS_NO_WARNINGS: 0
 
 jobs:
   lint-toml:
