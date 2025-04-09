@@ -21,8 +21,8 @@ pub struct FFIArrayStreamInner {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> *const DType {
-    let stream = &*stream;
-    stream
+    unsafe { stream.as_ref() }
+        .vortex_expect("null stream")
         .inner
         .as_ref()
         .vortex_expect("FFIArrayStream_dtype: called after finish")
@@ -38,7 +38,7 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
 /// It is an error to call this function again after the stream is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> bool {
-    let stream = &mut *stream;
+    let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
     let inner = stream
         .inner
         .as_mut()
@@ -66,8 +66,9 @@ pub unsafe extern "C" fn FFIArrayStream_next(stream: *mut FFIArrayStream) -> boo
 /// Predicate function to check if the array stream is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) -> bool {
-    let stream = &*stream;
-    stream.inner.is_none()
+    unsafe { stream.as_ref().vortex_expect("null stream") }
+        .inner
+        .is_none()
 }
 
 /// Get the current array batch from the stream. Returns a unique pointer.
@@ -79,7 +80,7 @@ pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) 
 /// This function is unsafe because it dereferences the `stream` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> *mut FFIArray {
-    let stream = &mut *stream;
+    let stream = unsafe { stream.as_mut().vortex_expect("null stream") };
 
     let current = stream
         .current

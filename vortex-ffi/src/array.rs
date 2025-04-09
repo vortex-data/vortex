@@ -22,7 +22,7 @@ pub struct FFIArray {
 /// Get the length of the array.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
-    let array = &*ffi_array;
+    let array = ffi_array.as_ref().vortex_expect("array null");
 
     array.inner.len() as u64
 }
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
 /// for ensuring that it is never dereferenced after the array has been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_dtype(ffi_array: *const FFIArray) -> *const DType {
-    let array = &*ffi_array;
+    let array = ffi_array.as_ref().vortex_expect("array null");
 
     array.inner.dtype()
 }
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
     ffi_array: *const FFIArray,
     index: u32,
 ) -> *const FFIArray {
-    let array = &*ffi_array;
+    let array = ffi_array.as_ref().vortex_expect("array null");
 
     let field_array = array
         .inner
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn FFIArray_slice(
     start: u32,
     stop: u32,
 ) -> *mut FFIArray {
-    let array = &*array;
+    let array = array.as_ref().vortex_expect("array null");
     let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)
         .vortex_expect("FFIArray_slice: slice");
     Box::into_raw(Box::new(FFIArray { inner: sliced }))
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn FFIArray_slice(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_is_null(array: *const FFIArray, index: u32) -> bool {
-    let array = &*array;
+    let array = array.as_ref().vortex_expect("array null");
     array
         .inner
         .is_invalid(index as usize)
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn FFIArray_is_null(array: *const FFIArray, index: u32) ->
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArray_null_count(array: *const FFIArray) -> u32 {
-    let array = &*array;
+    let array = array.as_ref().vortex_expect("array null");
     array
         .inner
         .as_ref()
@@ -107,7 +107,7 @@ macro_rules! ffiarray_get_ptype {
         paste::paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C" fn [<FFIArray_get_ $ptype>](array: *const FFIArray, index: u32) -> $ptype {
-                let array = &*array;
+                let array = array.as_ref().vortex_expect("array null");
                 let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
                 value.as_primitive()
                     .as_::<$ptype>()
@@ -117,7 +117,7 @@ macro_rules! ffiarray_get_ptype {
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C" fn [<FFIArray_get_storage_ $ptype>](array: *const FFIArray, index: u32) -> $ptype {
-                let array = &*array;
+                let array = array.as_ref().vortex_expect("array null");
                 let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
                 value.as_extension()
                     .storage()
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn FFIArray_get_utf8(
     dst: *mut c_void,
     len: *mut c_int,
 ) {
-    let array = &*array;
+    let array = array.as_ref().vortex_expect("array null");
     let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn FFIArray_get_binary(
     dst: *mut c_void,
     len: *mut c_int,
 ) {
-    let array = &*array;
+    let array = array.as_ref().vortex_expect("array null");
     let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
     let utf8_scalar = value.as_binary();
     if let Some(bytes) = utf8_scalar.value() {

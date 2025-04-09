@@ -23,7 +23,7 @@ use crate::to_string;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_to_duckdb_logical_type(dtype: *mut DType) -> duckdb_logical_type {
-    let dtype = unsafe { &*dtype };
+    let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
     dtype
         .to_duckdb_type()
@@ -43,7 +43,10 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
     cache: *mut FFIConversionCache,
 ) -> c_uint {
     let offset = offset as usize;
-    let array = unsafe { &(*stream).inner };
+
+    let array = &unsafe { stream.as_ref() }
+        .vortex_expect("null stream")
+        .inner;
 
     assert!(array.len() > offset, "offset out of bounds");
 
@@ -103,7 +106,7 @@ pub unsafe extern "C" fn FFIArray_append_duckdb_chunk(
     array: *mut FFIArray,
     chunk: duckdb_data_chunk,
 ) -> *mut FFIArray {
-    let array = unsafe { &*array };
+    let array = unsafe { array.as_ref().vortex_expect("null array") };
 
     let struct_type = array
         .inner
