@@ -425,7 +425,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.14.0
       - name: "check Zig"
         run: zig version
       - name: check python3
