@@ -57,12 +57,17 @@ impl Debug for VortexFormat {
 #[derive(Debug)]
 pub struct VortexFormatOptions {
     /// The size of the in-memory [`vortex_file::Footer`] cache.
-    pub cache_size_mb: usize,
+    pub footer_cache_size_mb: usize,
+    /// The size of the in-memory segment cache.
+    pub segment_cache_size_mb: usize,
 }
 
 impl Default for VortexFormatOptions {
     fn default() -> Self {
-        Self { cache_size_mb: 256 }
+        Self {
+            footer_cache_size_mb: 64,
+            segment_cache_size_mb: 1024,
+        }
     }
 }
 
@@ -141,7 +146,8 @@ impl VortexFormat {
         let opts = VortexFormatOptions::default();
         Self {
             file_cache: VortexFileCache::new(
-                opts.cache_size_mb,
+                opts.footer_cache_size_mb,
+                opts.segment_cache_size_mb,
                 array_registry,
                 layout_registry,
                 metrics.clone(),
