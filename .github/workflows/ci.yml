@@ -424,6 +424,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: "recursive"
+      - uses: ./.github/actions/cleanup
       - uses: mlugg/setup-zig@v1
         with:
           version: master
@@ -433,7 +434,6 @@ jobs:
         run: which python3
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
-      - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Setup Java
