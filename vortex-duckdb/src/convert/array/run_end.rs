@@ -55,6 +55,7 @@ pub fn selection_vector_from_ends_slice<E: NativePType + AsPrimitive<usize> + Or
     Ok(selection)
 }
 
+// We can convert a run end array into a dictionary like array and pass that to duckdb.
 impl ToDuckDB for RunEndArray {
     fn to_duckdb(
         &self,
