@@ -27,7 +27,9 @@ feature_flagged_allocator!();
 #[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
 enum Engine {
     #[default]
+    #[clap(name = "datafusion")]
     DataFusion,
+    #[clap(name = "duckdb")]
     DuckDB,
 }
 
