@@ -25,7 +25,7 @@ use tokio::runtime::Handle;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
@@ -95,15 +95,19 @@ pub enum PBIDataset {
 
 pub fn fetch_schemas_and_queries() -> VortexResult<PathBuf> {
     let base_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi");
-    Command::new(
+    let output = Command::new(
         base_dir
             .join("fetch_schemas_and_queries.sh")
             .to_str()
             .unwrap(),
     )
-    .status()?
-    .exit_ok()
-    .map_err(|e| vortex_err!("Failed to fetch public bi queries: {}", e))?;
+    .output()?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        vortex_bail!("public_bi fetch failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
     Ok(base_dir)
 }
 
@@ -438,7 +442,7 @@ pub async fn public_bi_csv_to_parquet_file(
 
     let create_table_with_doubles = replace_decimals(&table.create_table_sql);
 
-    TokioCommand::new("duckdb")
+    let output = TokioCommand::new("duckdb")
         .arg("-c")
         .arg(format!(
             "
@@ -453,8 +457,13 @@ pub async fn public_bi_csv_to_parquet_file(
              COPY {table_name} TO '{parquet_path}' (FORMAT parquet, COMPRESSION zstd);
              ",
         ))
-        .status()
-        .await?
-        .exit_ok()
-        .map_err(|e| vortex_err!("Failed to convert csv to parquet: {}", e))
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        vortex_bail!("duckdb convert failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
+    Ok(())
 }
