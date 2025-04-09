@@ -477,9 +477,12 @@ async fn execute_duckdb_query(
     };
 
     let file_glob = if single_file {
-        format!("{}/{extension}/hits.{extension}", data_path.display())
+        format!(
+            "{}/{extension}/hits.{extension}",
+            data_path.to_string_lossy()
+        )
     } else {
-        format!("{}/{extension}/*.{extension}", data_path.display())
+        format!("{}/{extension}/*.{extension}", data_path.to_string_lossy())
     };
 
     let time_instant = Instant::now();
@@ -493,7 +496,7 @@ async fn execute_duckdb_query(
             "CREATE VIEW hits AS SELECT * FROM read_{extension}('{file_glob}');",
         ))
         .arg("-c")
-        .arg(format!(".read {}", query_file.display()))
+        .arg(format!(".read {}", query_file.to_string_lossy()))
         .output()
         .await?;
 
