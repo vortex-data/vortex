@@ -68,6 +68,8 @@ pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
 
 /// Convert the array to an Arrow array of the given type.
 pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
+    array.statistics().retain(&[]);
+
     if let Some(result) = array
         .vtable()
         .to_arrow_fn()
