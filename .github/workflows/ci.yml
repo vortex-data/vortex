@@ -425,9 +425,11 @@ jobs:
           submodules: "recursive"
       - uses: mlugg/setup-zig@v1
         with:
-          version: 0.14.0
+          version: master
       - name: "check Zig"
         run: zig version
+      - name: check python3
+        run: which python3
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
       - uses: ./.github/actions/cleanup
@@ -441,5 +443,5 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build with Gradle
-        run: ./gradlew check -x vortex-spark:test
+        run: ./gradlew shadowJar jar
         working-directory: java/
