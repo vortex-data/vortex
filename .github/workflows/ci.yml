@@ -19,7 +19,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CROSS_NO_WARNINGS: 0
+  CARGO_ZIGBUILD_ZIG_PATH: /Users/runner/hostedtoolcache/zig/0.14.0/arm64/zig
 
 jobs:
   lint-toml:
