@@ -1,6 +1,8 @@
+use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
@@ -9,6 +11,32 @@ use crate::{Scalar, ScalarValue};
 pub struct ExtScalar<'a> {
     ext_dtype: &'a ExtDType,
     value: &'a ScalarValue,
+}
+
+impl Display for ExtScalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Specialized handling for date/time/timestamp builtin extension types.
+        if is_temporal_ext_type(self.ext_dtype().id()) {
+            let metadata =
+                TemporalMetadata::try_from(self.ext_dtype()).map_err(|_| std::fmt::Error)?;
+
+            let maybe_timestamp = self
+                .storage()
+                .as_primitive()
+                .as_::<i64>()
+                .and_then(|maybe_timestamp| {
+                    maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
+                })
+                .map_err(|_| std::fmt::Error)?;
+
+            match maybe_timestamp {
+                None => write!(f, "null"),
+                Some(v) => write!(f, "{}", v),
+            }
+        } else {
+            write!(f, "{}({})", self.ext_dtype().id(), self.storage())
+        }
+    }
 }
 
 impl PartialEq for ExtScalar<'_> {

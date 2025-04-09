@@ -5,9 +5,7 @@ use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
-use bench_vortex::public_bi::PBIDataset::{
-    AirlineSentiment, Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags,
-};
+use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -79,7 +77,6 @@ fn compress(
     ];
     let datasets: Vec<&dyn BenchmarkDataset> = [
         &TaxiData as &dyn BenchmarkDataset,
-        PBI_DATASETS.get(AirlineSentiment),
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
         PBI_DATASETS.get(CMSprovider),

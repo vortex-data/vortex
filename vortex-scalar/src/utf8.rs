@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use vortex_buffer::BufferString;
@@ -11,6 +12,15 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<BufferString>,
+}
+
+impl Display for Utf8Scalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            None => write!(f, "null"),
+            Some(v) => write!(f, "\"{}\"", v.as_str()),
+        }
+    }
 }
 
 impl PartialEq for Utf8Scalar<'_> {

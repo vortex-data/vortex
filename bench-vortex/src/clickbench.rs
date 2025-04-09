@@ -147,8 +147,8 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
 
-    let parquet_inputs =
-        std::fs::read_dir(parquet_path.clone())?.collect::<std::io::Result<Vec<_>>>()?;
+    let parquet_inputs = std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
+
     info!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
@@ -170,7 +170,6 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
             let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
 
             tokio::spawn(async move {
-                let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     info!("Processing file '{filename}'");
                     let array_stream = parquet_to_vortex(parquet_file_path)?;
@@ -195,7 +194,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub async fn register_vortex_files(
+pub fn register_vortex_files(
     session: SessionContext,
     table_name: &str,
     input_path: &Url,
@@ -218,12 +217,12 @@ pub async fn register_vortex_files(
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session.register_table(table_name, listing_table as _)?;
+    session.register_table(table_name, listing_table)?;
 
     Ok(())
 }
 
-pub async fn register_parquet_files(
+pub fn register_parquet_files(
     session: &SessionContext,
     table_name: &str,
     input_path: &Url,
@@ -245,7 +244,7 @@ pub async fn register_parquet_files(
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
-    session.register_table(table_name, listing_table as _)?;
+    session.register_table(table_name, listing_table)?;
 
     Ok(())
 }

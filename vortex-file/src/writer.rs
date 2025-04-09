@@ -13,6 +13,10 @@ use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
+/// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
+///
+/// By default, the [`LayoutStrategy`] will be the [`VortexLayoutStrategy`], which includes re-chunking and will also
+/// uncompress all data back to its canonical form before compressing it using the [`BtrBlocksCompressor`](vortex_btrblocks::BtrBlocksCompressor).
 pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
@@ -146,6 +150,8 @@ impl VortexWriteOptions {
         eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
         write.write_all(eof).await?;
+
+        write.flush().await?;
 
         Ok(write.into_inner())
     }

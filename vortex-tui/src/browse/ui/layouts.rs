@@ -12,7 +12,7 @@ use vortex::expr::Identity;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::{ArrayRef, ArrayVariants};
+use vortex::{Array, ArrayRef, ArrayVariants};
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::{ExprEvaluator, LayoutVTable};
 
@@ -176,6 +176,10 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .height(1);
 
         let rows = array.statistics().into_iter().map(|(stat, value)| {
+            let value = value.into_scalar(
+                stat.dtype(array.dtype())
+                    .vortex_expect("stat invalid for dtype"),
+            );
             let stat = Cell::from(Text::from(format!("{stat}")));
             let value = Cell::from(Text::from(format!("{value}")));
             Row::new(vec![stat, value])
