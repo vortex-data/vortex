@@ -47,7 +47,7 @@ pub fn selection_vector_from_ends_slice<E: NativePType + AsPrimitive<usize> + Or
         unsafe {
             data_slice
                 .get_unchecked_mut(start..end)
-                .fill(value as sel_t);
+                .fill(sel_t::try_from(value)?);
         }
         start = end;
     }
