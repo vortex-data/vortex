@@ -18,7 +18,7 @@ use vortex_array::compute::{take, to_arrow_preferred};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -59,42 +59,61 @@ pub fn to_duckdb(
     chunk: &mut dyn WritableVector,
     cache: &mut ConversionCache,
 ) -> VortexResult<()> {
+    if try_to_duckdb(array, chunk, cache)?.is_some() {
+        return Ok(());
+    };
+    let canonical_array = array.to_canonical()?.into_array();
+    if try_to_duckdb(&canonical_array, chunk, cache)?.is_some() {
+        return Ok(());
+    };
+    to_arrow_preferred(&canonical_array)?.to_duckdb(chunk, cache)
+}
+
+fn try_to_duckdb(
+    array: &ArrayRef,
+    chunk: &mut dyn WritableVector,
+    cache: &mut ConversionCache,
+) -> VortexResult<Option<()>> {
     if let Some(constant) = array.as_constant() {
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
-        Ok(())
+        Ok(Some(()))
     } else if array.is_encoding(ChunkedEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<ChunkedArray>()
             .vortex_expect("chunk checked")
             .to_duckdb(chunk, cache)
+            .map(Some)
     } else if array.is_encoding(VarBinViewEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<VarBinViewArray>()
             .vortex_expect("varbinview id checked")
             .to_duckdb(chunk, cache)
+            .map(Some)
     } else if array.is_encoding(FSSTEncoding.id()) {
         let arr = array
             .as_any()
             .downcast_ref::<FSSTArray>()
             .vortex_expect("FSSTArray id checked");
-        arr.to_varbinview()?.to_duckdb(chunk, cache)
+        arr.to_varbinview()?.to_duckdb(chunk, cache).map(Some)
     } else if array.is_encoding(DictEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<DictArray>()
             .vortex_expect("dict id checked")
             .to_duckdb(chunk, cache)
+            .map(Some)
     } else if array.is_encoding(RunEndEncoding.id()) {
         array
             .as_any()
             .downcast_ref::<RunEndArray>()
             .vortex_expect("dict id checked")
             .to_duckdb(chunk, cache)
+            .map(Some)
     } else {
-        to_arrow_preferred(array)?.to_duckdb(chunk, cache)
+        Ok(None)
     }
 }
 
@@ -106,7 +125,7 @@ impl ToDuckDB for ChunkedArray {
     ) -> VortexResult<()> {
         // TODO(joe): support multi-chunk arrays without canonical.
         if self.chunks().len() > 1 {
-            to_arrow_preferred(self)?.to_duckdb(chunk, cache)
+            to_duckdb(&self.to_canonical()?.into_array(), chunk, cache)
         } else {
             to_duckdb(&self.chunks()[0], chunk, cache)
         }

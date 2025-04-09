@@ -1,14 +1,16 @@
 use std::sync::{Arc, Mutex};
 
 use futures::{StreamExt, pin_mut};
-use moka::future::CacheBuilder;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
 use crate::driver::CoalescedDriver;
-use crate::segments::{CachedSegmentSource, InMemorySegmentCache, SegmentCache};
+use crate::segments::{
+    InitialReadSegmentCache, MokaSegmentCache, SegmentCache, SegmentCacheMetrics,
+    SegmentCacheSourceAdapter,
+};
 use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
@@ -27,10 +29,9 @@ impl VortexOpenOptions<GenericVortexFile> {
     /// Open a file using the provided [`VortexReadAt`] implementation.
     pub fn file() -> Self {
         Self::new(Default::default())
-            .with_segment_cache(Arc::new(InMemorySegmentCache::new(
-                // For now, use a fixed 1GB overhead.
-                CacheBuilder::new(1 << 30),
-            )))
+            // Start with an initial in-memory cache of 256MB.
+            // TODO(ngates): would it be better to default to a home directory disk cache?
+            .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
             .with_initial_read_size(Self::INITIAL_READ_SIZE)
     }
 
@@ -42,10 +43,18 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
         let footer = self.read_footer(&read).await?;
 
+        let segment_cache = Arc::new(SegmentCacheMetrics::new(
+            InitialReadSegmentCache {
+                initial: self.initial_read_segments,
+                fallback: self.segment_cache,
+            },
+            self.metrics.clone(),
+        ));
+
         let segment_source_factory = Arc::new(GenericVortexFileIo {
             read: Mutex::new(read),
             segment_map: footer.segment_map().clone(),
-            segment_cache: self.segment_cache,
+            segment_cache,
             options: self.options,
         });
 
@@ -70,7 +79,7 @@ impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
         let (segment_source, events) = SegmentEvents::create();
 
         // Wrap the source to resolve segments from the initial read cache.
-        let segment_source = Arc::new(CachedSegmentSource::new(
+        let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
             self.segment_cache.clone(),
             segment_source,
         ));

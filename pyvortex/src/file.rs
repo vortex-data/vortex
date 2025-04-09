@@ -13,6 +13,7 @@ use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
 use vortex::expr::{ExprRef, ident, select};
 use vortex::file::scan::SplitBy;
+use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
@@ -38,7 +39,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = TOKIO_RUNTIME.block_on(VortexOpenOptions::file().open(TokioFile::open(path)?))?;
+    let vxf = TOKIO_RUNTIME.block_on(
+        VortexOpenOptions::file()
+            .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
+            .open(TokioFile::open(path)?),
+    )?;
     Ok(PyVortexFile { vxf })
 }
 
