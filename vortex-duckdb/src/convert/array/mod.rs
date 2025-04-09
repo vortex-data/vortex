@@ -52,7 +52,22 @@ pub trait ToDuckDB {
     ) -> VortexResult<()>;
 }
 
-pub fn try_to_duckdb(
+pub fn to_duckdb(
+    array: &ArrayRef,
+    chunk: &mut dyn WritableVector,
+    cache: &mut ConversionCache,
+) -> VortexResult<()> {
+    if try_to_duckdb(array, chunk, cache)?.is_some() {
+        return Ok(());
+    };
+    let canonical_array = array.to_canonical()?.into_array();
+    if try_to_duckdb(&canonical_array, chunk, cache)?.is_some() {
+        return Ok(());
+    };
+    to_arrow_preferred(&canonical_array)?.to_duckdb(chunk, cache)
+}
+
+fn try_to_duckdb(
     array: &ArrayRef,
     chunk: &mut dyn WritableVector,
     cache: &mut ConversionCache,
@@ -91,21 +106,6 @@ pub fn try_to_duckdb(
     } else {
         Ok(None)
     }
-}
-
-pub fn to_duckdb(
-    array: &ArrayRef,
-    chunk: &mut dyn WritableVector,
-    cache: &mut ConversionCache,
-) -> VortexResult<()> {
-    if let Some(_) = try_to_duckdb(array, chunk, cache)? {
-        return Ok(());
-    };
-    let canonical_array = array.to_canonical()?.into_array();
-    if let Some(_) = try_to_duckdb(&canonical_array, chunk, cache)? {
-        return Ok(());
-    };
-    to_arrow_preferred(&canonical_array)?.to_duckdb(chunk, cache)
 }
 
 impl ToDuckDB for ChunkedArray {
