@@ -12,7 +12,7 @@ if [ -d ".git" ]; then
     git pull origin master
 else
     git init
-    git remote add origin "git@github.com:cwida/public_bi_benchmark.git"
+    git remote add origin "https://github.com/cwida/public_bi_benchmark.git"
     git config core.sparseCheckout true
     # checkout tables and queries under the benchmark folder only
     cat > .git/info/sparse-checkout << EOF
