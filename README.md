@@ -22,7 +22,6 @@ Vortex is a next-generation columnar file format and toolkit designed for high-p
     - Pluggable encoding system
     - Zero-copy compatibility with Apache Arrow
 
-> [!CAUTION]
 > 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
 > features are still being implemented.
 
