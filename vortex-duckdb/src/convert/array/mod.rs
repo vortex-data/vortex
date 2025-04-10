@@ -49,30 +49,37 @@ impl ConversionCache {
         }
     }
 
+    fn insert_cached_array(
+        &mut self,
+        arr_value: usize,
+        array: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let canon = array.to_canonical()?;
+        self.canonical_cache
+            .insert(arr_value, (array.clone(), canon));
+        Ok(self
+            .canonical_cache
+            .get(&arr_value)
+            .vortex_expect("just added")
+            .1
+            .clone()
+            .into_array())
+    }
+
     pub fn cached_array(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         let arr_value = Arc::as_ptr(array).addr();
 
         let entry = self.canonical_cache.get(&arr_value);
-        let value_vector: Canonical = match entry {
-            None => {
-                let canon = array.to_canonical()?;
-                self.canonical_cache
-                    .insert(arr_value, (array.clone(), canon));
-                self.canonical_cache
-                    .get(&arr_value)
-                    .vortex_expect("just added")
-                    .1
-                    .clone()
-            }
+        match entry {
+            None => self.insert_cached_array(arr_value, array),
             Some((cached_array_ref, cached_canonical)) => {
                 if Arc::ptr_eq(cached_array_ref, array) {
-                    cached_canonical.clone()
+                    Ok(cached_canonical.clone().into_array())
                 } else {
-                    cached_array_ref.to_canonical()?
+                    self.insert_cached_array(arr_value, array)
                 }
             }
-        };
-        Ok(value_vector.into_array())
+        }
     }
 }
 
