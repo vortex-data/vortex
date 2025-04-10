@@ -1,34 +1,35 @@
 🌪️ Vortex
-=======
+=========
 
 [![Build Status](https://github.com/fulcrum-so/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/spiraldb/vortex/actions)
 [![Crates.io](https://img.shields.io/crates/v/vortex-array.svg)](https://crates.io/crates/vortex-array)
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
-> [!TIP]
-> 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
+📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
 ## Overview
 
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data analytics. It provides:
 
 - **⚡️ Blazing Fast Performance**
-  - 100-200x faster random access reads than Apache Parquet
-  - 2-10x faster scans while maintaining similar compression ratios
-  - Optimized for wide tables with zero-copy/zero-parse metadata
+    - 100-200x faster random access reads than Apache Parquet
+    - 2-10x faster scans while maintaining similar compression ratios
+    - Optimized for wide tables with zero-copy/zero-parse metadata
 
 - **🔧 Extensible Architecture**
-  - Modeled after Apache DataFusion's extensible approach
-  - Pluggable encoding system
-  - Zero-copy compatibility with Apache Arrow
+    - Modeled after Apache DataFusion's extensible approach
+    - Pluggable encoding system
+    - Zero-copy compatibility with Apache Arrow
 
 > [!CAUTION]
-> 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some features are still being implemented.
+> 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
+> features are still being implemented.
 
 ## Key Features
 
 ### Core Capabilities
+
 - ✨ **Logical Types** - Clean separation between logical schema and physical layout
 - 🔄 **Zero-Copy Arrow Integration** - Seamless conversion to/from Apache Arrow arrays
 - 🧩 **Extensible Encodings** - Pluggable physical layouts with built-in optimizations
@@ -39,7 +40,9 @@ Vortex is a next-generation columnar file format and toolkit designed for high-p
 ### Technical Architecture
 
 #### Logical vs Physical Design
+
 Vortex strictly separates logical and physical concerns:
+
 - **Logical Layer**: Defines data types and schema
 - **Physical Layer**: Handles encoding and storage implementation
 - **Built-in Encodings**: Compatible with Apache Arrow's memory format
@@ -50,6 +53,7 @@ Vortex strictly separates logical and physical concerns:
 ### Installation
 
 #### Command Line Tool (vx)
+
 ```bash
 # Install latest release
 cargo install vortex-tui --locked
@@ -61,6 +65,7 @@ cargo install --path vortex-tui --locked
 ### Development Setup
 
 #### Prerequisites (macOS)
+
 ```bash
 # Optional but recommended dependencies
 brew install flatbuffers protobuf  # For .fbs and .proto files
@@ -81,6 +86,7 @@ uv sync --all-packages
 ### Performance Optimization
 
 For optimal performance, use [MiMalloc](https://github.com/microsoft/mimalloc):
+
 ```rust
 #[global_allocator]
 static GLOBAL_ALLOC: MiMalloc = MiMalloc;
@@ -89,12 +95,16 @@ static GLOBAL_ALLOC: MiMalloc = MiMalloc;
 ## Project Information
 
 ### License
+
 Licensed under the Apache License, Version 2.0
 
 ### Governance
-Vortex is committed to remaining open-source, following governance models inspired by the [Substrait project](https://substrait.io/governance/) and Apache Software Foundation. (More details coming Q4 2024)
+
+Vortex is committed to remaining open-source, following governance models inspired by
+the [Substrait project](https://substrait.io/governance/) and Apache Software Foundation. (More details coming Q4 2024)
 
 ### Contributing
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Acknowledgments 🏆
@@ -102,15 +112,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 This project builds upon groundbreaking work from the academic and open-source communities:
 
 ### Key Research Papers
+
 - [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) - Efficient columnar compression
 - [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) - High-performance integer compression
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
 - [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) - Adaptive lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
-- [Cloud Object Storage Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance analytics
+- [Cloud Object Storage Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance
+  analytics
 - [ClickHouse](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf) - Fast analytics for everyone
 
 ### Open Source Inspiration
+
 - [Apache Arrow](https://arrow.apache.org) & [Apache DataFusion](https://github.com/apache/datafusion)
 - [parquet2](https://github.com/jorgecarleitao/parquet2) by Jorge Leitao
 - [DuckDB](https://github.com/duckdb/duckdb)
