@@ -377,14 +377,14 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 		}
 		state->projected_column_names = column_names;
 
-		// Can ignore mutex since no other threads are running now.
-		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file.get());
-		state->next_file = 1;
-
 		auto exprs = flatten_exprs(*bind.arena, bind.conjuncts);
 		if (exprs != nullptr) {
 			state->filter_str = exprs->SerializeAsString();
 		}
+
+		// Can ignore mutex since no other threads are running now.
+		state->file_slots[0].array_stream = OpenArrayStream(bind, *state, bind.initial_file.get());
+		state->next_file = 1;
 
 		// We are finished with the arena
 		bind.arena->Reset();
