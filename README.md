@@ -101,7 +101,7 @@ Licensed under the Apache License, Version 2.0
 ### Governance
 
 Vortex is committed to remaining open-source, following governance models inspired by
-the [Substrait project](https://substrait.io/governance/) and Apache Software Foundation. (More details coming Q4 2024)
+the [Substrait project](https://substrait.io/governance/) and Apache Software Foundation.
 
 ### Contributing
 
