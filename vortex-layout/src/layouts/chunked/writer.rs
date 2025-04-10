@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::arcref::ArcRef;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
@@ -5,7 +7,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::data::Layout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
@@ -20,7 +22,7 @@ pub struct ChunkedLayoutStrategy {
 impl Default for ChunkedLayoutStrategy {
     fn default() -> Self {
         Self {
-            chunk_strategy: ArcRef::new_ref(&FlatLayout),
+            chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
         }
     }
 }
