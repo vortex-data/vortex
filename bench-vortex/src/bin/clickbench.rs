@@ -460,7 +460,7 @@ async fn execute_datafusion_query(
 /// # Returns
 ///
 /// The duration of the fastest execution
-#[allow(clippy::let_and_return)]
+#[allow(clippy::let_and_return, clippy::too_many_arguments)]
 fn benchmark_duckdb_query(
     query_idx: usize,
     query_string: &str,
