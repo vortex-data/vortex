@@ -364,7 +364,7 @@ fn execute_queries(
             }
 
             Engine::DuckDB => {
-                let duckdb_path = duckdb_executable_path(&duckdb_path);
+                let duckdb_path = duckdb_executable_path(duckdb_path);
 
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
@@ -559,11 +559,7 @@ fn duckdb_executable_path(
     let mut current_dir = std::env::current_dir().expect("failed to get current dir");
 
     while current_dir.file_name().is_some() {
-        if current_dir
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map_or(false, |name| name == "vortex")
-        {
+        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
             repo_root = Some(current_dir.to_string_lossy().into_owned());
             break;
         }
