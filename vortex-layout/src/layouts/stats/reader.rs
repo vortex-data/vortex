@@ -18,6 +18,7 @@ use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
+// TODO(osatici): is it ok to call invoke over and over?
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;

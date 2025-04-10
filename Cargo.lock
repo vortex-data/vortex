@@ -6399,6 +6399,7 @@ dependencies = [
  "getrandom 0.3.2",
  "itertools 0.14.0",
  "log",
+ "rkyv 0.8.10",
  "roaring",
  "rstest",
  "sketches-ddsketch",

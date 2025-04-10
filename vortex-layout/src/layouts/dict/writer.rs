@@ -1,16 +1,18 @@
+use bytes::Bytes;
 use vortex_array::arcref::ArcRef;
 use vortex_array::compute::slice;
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef, RkyvMetadata, SerializeMetadata};
 use vortex_dict::builders::{DictEncoder, dict_encoder};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
+use crate::layouts::chunked::writer::chunked_layout;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentWriter;
 use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
 
 pub struct DictLayoutOptions {
-    /// max dictionary size in bytes
+    /// max dictionary size in bytes, uncompressed
     pub max_dict_size_bytes: usize,
 }
 
@@ -142,32 +144,46 @@ impl LayoutWriter for DictLayoutWriter {
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let mut dict_writer = self.dict_strategy.new_writer(&self.ctx, &self.dtype)?;
-        let dict = dict_writer.push_one(segments, self.state.dict_values()?)?;
+        let values_layout = dict_writer.push_one(segments, self.state.dict_values()?)?;
 
-        let (row_count, children) = match std::mem::take(&mut self.state) {
+        match std::mem::take(&mut self.state) {
             State::Uninit => vortex_bail!("DictLayoutWriter finish called before push_chunk"),
             State::Codes(mut codes) => {
                 let codes_layout = codes.writer.finish(segments)?;
-                (codes_layout.row_count(), vec![dict, codes_layout])
+                dict_layout(values_layout, codes_layout)
             }
             State::Fallback(mut state) => {
                 let codes_layout = state.codes_writer.finish(segments)?;
                 let fallback_layout = state.fallback_writer.finish(segments)?;
-                (
+                Ok(chunked_layout(
+                    self.dtype.clone(),
                     codes_layout.row_count() + fallback_layout.row_count(),
-                    vec![dict, codes_layout, fallback_layout],
-                )
+                    vec![dict_layout(values_layout, codes_layout)?, fallback_layout],
+                ))
             }
-        };
-
-        Ok(Layout::new_owned(
-            "dict".into(),
-            LayoutVTableRef::new_ref(&DictLayout),
-            self.dtype.clone(),
-            row_count,
-            vec![],
-            children,
-            None,
-        ))
+        }
     }
+}
+
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct DictLayoutMetadata {
+    pub codes_ptype: PType,
+}
+
+fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
+    let codes_ptype = codes.dtype().try_into()?;
+    let metadata = Bytes::copy_from_slice(
+        &RkyvMetadata(DictLayoutMetadata { codes_ptype })
+            .serialize()
+            .ok_or_else(|| vortex_err!("could not serialize dict layout metadata"))?,
+    );
+    Ok(Layout::new_owned(
+        "dict".into(),
+        LayoutVTableRef::new_ref(&DictLayout),
+        values.dtype().clone(),
+        codes.row_count(),
+        vec![],
+        vec![values, codes],
+        Some(metadata),
+    ))
 }

@@ -54,7 +54,9 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 ctx.clone(),
                 dtype,
                 ArcRef::new_arc(Arc::new(compress_strategy)),
-                ArcRef::new_ref(&FlatLayout),
+                ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                    child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+                })),
                 DictLayoutOptions {
                     max_dict_size_bytes: 1024 * 1024,
                 },

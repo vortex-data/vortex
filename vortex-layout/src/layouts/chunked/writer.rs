@@ -95,15 +95,18 @@ impl LayoutWriter for ChunkedLayoutWriter {
         if children.len() == 1 {
             return Ok(children.pop().vortex_expect("child layout"));
         }
-
-        Ok(Layout::new_owned(
-            "chunked".into(),
-            LayoutVTableRef::new_ref(&ChunkedLayout),
-            self.dtype.clone(),
-            self.row_count,
-            vec![],
-            children,
-            None,
-        ))
+        Ok(chunked_layout(self.dtype.clone(), self.row_count, children))
     }
+}
+
+pub(crate) fn chunked_layout(dtype: DType, row_count: u64, children: Vec<Layout>) -> Layout {
+    Layout::new_owned(
+        "chunked".into(),
+        LayoutVTableRef::new_ref(&ChunkedLayout),
+        dtype,
+        row_count,
+        vec![],
+        children,
+        None,
+    )
 }
