@@ -43,8 +43,8 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 arrow = { workspace = true }
-parquet = { workspace = true }
 itertools = { workspace = true }
+parquet = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { path = ".", features = ["parquet", "tokio"] }
 
