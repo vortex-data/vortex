@@ -14,10 +14,12 @@ impl ToDuckDB for ChunkedArray {
         cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         let chunks = self.chunks();
-        // TODO(joe): support multi-chunk arrays without canonical.
         if chunks.len() == 1 {
             return to_duckdb(&self.chunks()[0], chunk, cache);
         } else if chunks.len() == 2 {
+            // It is common that a 2k split can contain a chunked array containing a pair of dictionaries
+            // We this is special cased and handled without a usual canonical, once there is a way to
+            // pre-canonicalize or cache, then this can be removed
             if let (Some(dict1), Some(dict2)) = (
                 chunks[0].as_any().downcast_ref::<DictArray>(),
                 chunks[1].as_any().downcast_ref::<DictArray>(),
