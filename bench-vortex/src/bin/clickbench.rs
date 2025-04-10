@@ -370,7 +370,6 @@ fn execute_queries(
                     *query_idx,
                     query_string,
                     iterations,
-                    runtime,
                     file_format,
                     base_url,
                     single_file,
@@ -465,14 +464,12 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    runtime: &tokio::runtime::Runtime,
     file_format: Format,
     base_url: &Url,
     single_file: bool,
     duckdb_path: &std::path::Path,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        runtime.block_on(async {
             let duration = execute_duckdb_query(
                 query_string,
                 base_url,
@@ -480,17 +477,15 @@ fn benchmark_duckdb_query(
                 single_file,
                 duckdb_path,
             )
-            .await
             .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
             fastest.min(duration)
-        })
     });
 
     fastest_run
 }
 
-async fn execute_duckdb_query(
+fn execute_duckdb_query(
     query_string: &str,
     base_url: &Url,
     file_format: Format,
@@ -515,13 +510,12 @@ async fn execute_duckdb_query(
     let register_tables =
         format!("CREATE VIEW hits AS SELECT * FROM read_{extension}('{file_glob}')",);
 
-    let output = tokio::process::Command::new(duckdb_path)
+    let output = std::process::Command::new(duckdb_path)
         .arg("-c")
         .arg(register_tables)
         .arg("-c")
         .arg(query_string)
-        .output()
-        .await?;
+        .output()?;
 
     // DuckDB does not return non-zero exit codes in case of failures.
     // Therefore, we need to additionally check whether stderr is set.
