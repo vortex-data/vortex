@@ -41,6 +41,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     pub async fn open<R: VortexReadAt + Send + Sync>(self, read: R) -> VortexResult<VortexFile> {
+        let read = Arc::new(read);
         let footer = self.read_footer(&read).await?;
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -67,7 +68,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 }
 
 struct GenericVortexFileIo<R> {
-    read: R,
+    read: Arc<R>,
     segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     options: GenericFileOptions,
@@ -101,7 +102,7 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
                 async move {
                     // Drive the segment event stream.
                     let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(read.clone()))
+                        .map(|coalesced_req| coalesced_req.launch(&read))
                         .buffer_unordered(io_concurrency);
                     pin_mut!(stream);
 
