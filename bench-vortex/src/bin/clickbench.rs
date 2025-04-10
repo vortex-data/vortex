@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 use std::fs::{self};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
@@ -24,29 +25,13 @@ use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
-#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
-enum Engine {
-    #[default]
-    #[clap(name = "datafusion")]
-    DataFusion,
-    #[clap(name = "duckdb")]
-    DuckDB,
-}
-
-impl std::fmt::Display for Engine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Engine::DataFusion => write!(f, "DataFusion"),
-            Engine::DuckDB => write!(f, "DuckDB"),
-        }
-    }
-}
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(long, value_enum, default_value_t = Engine::DataFusion)]
     engine: Engine,
+    #[arg(long)]
+    duckdb_path: Option<std::path::PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
@@ -71,6 +56,24 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(long, default_value_t = false)]
     single_file: bool,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
+enum Engine {
+    #[default]
+    #[clap(name = "datafusion")]
+    DataFusion,
+    #[clap(name = "duckdb")]
+    DuckDB,
+}
+
+impl std::fmt::Display for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine::DataFusion => write!(f, "DataFusion"),
+            Engine::DuckDB => write!(f, "DuckDB"),
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -162,6 +165,7 @@ fn main() -> anyhow::Result<()> {
             &base_url,
             &progress_bar,
             &mut query_measurements,
+            &args.duckdb_path,
             &session_context,
             &mut execution_plans,
             &mut metrics,
@@ -320,6 +324,7 @@ fn execute_queries(
     base_url: &Url,
     progress_bar: &ProgressBar,
     query_measurements: &mut Vec<QueryMeasurement>,
+    duckdb_path: &Option<std::path::PathBuf>,
     session_context: &datafusion::execution::context::SessionContext,
     execution_plans: &mut Vec<(usize, std::sync::Arc<dyn execution_plan::ExecutionPlan>)>,
     metrics: &mut Vec<(
@@ -359,6 +364,8 @@ fn execute_queries(
             }
 
             Engine::DuckDB => {
+                let duckdb_path = duckdb_executable_path(&duckdb_path);
+
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
                     query_string,
@@ -367,6 +374,7 @@ fn execute_queries(
                     file_format,
                     base_url,
                     single_file,
+                    &duckdb_path,
                 );
 
                 query_measurements.push(QueryMeasurement {
@@ -461,12 +469,19 @@ fn benchmark_duckdb_query(
     file_format: Format,
     base_url: &Url,
     single_file: bool,
+    duckdb_path: &std::path::Path,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
         runtime.block_on(async {
-            let duration = execute_duckdb_query(query_string, base_url, file_format, single_file)
-                .await
-                .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
+            let duration = execute_duckdb_query(
+                query_string,
+                base_url,
+                file_format,
+                single_file,
+                duckdb_path,
+            )
+            .await
+            .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
             fastest.min(duration)
         })
@@ -480,6 +495,7 @@ async fn execute_duckdb_query(
     base_url: &Url,
     file_format: Format,
     single_file: bool,
+    duckdb_path: &std::path::Path,
 ) -> anyhow::Result<Duration> {
     let extension = match file_format {
         Format::Parquet => "parquet",
@@ -494,21 +510,12 @@ async fn execute_duckdb_query(
         format!("{base_url}{extension}/*.{extension}")
     };
 
-    // TODO: double check
-    let file_glob = file_glob.strip_prefix("file://").unwrap();
+    let file_glob = file_glob.strip_prefix("file://").unwrap_or(&file_glob);
     let time_instant = Instant::now();
     let register_tables =
         format!("CREATE VIEW hits AS SELECT * FROM read_{extension}('{file_glob}')",);
 
-    let repo_root = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .unwrap_or_else(|_| ".".to_string());
-
-    let duckdb_path = format!("{repo_root}/duckdb-vortex/build/release/duckdb");
-
-    let output = tokio::process::Command::new(&duckdb_path)
+    let output = tokio::process::Command::new(duckdb_path)
         .arg("-c")
         .arg(register_tables)
         .arg("-c")
@@ -528,6 +535,55 @@ async fn execute_duckdb_query(
     Ok(time_instant.elapsed())
 }
 
+fn duckdb_executable_path(
+    user_supplied_path_flag: &Option<std::path::PathBuf>,
+) -> std::path::PathBuf {
+    let validate_path = |duckdb_path: &std::path::PathBuf| {
+        if !duckdb_path.as_path().exists() {
+            panic!(
+                "failed to find duckdb executable at: {}",
+                duckdb_path.display()
+            );
+        }
+    };
+
+    // User supplied path takes priority.
+    if let Some(duckdb_path) = user_supplied_path_flag {
+        validate_path(duckdb_path);
+        return duckdb_path.to_owned();
+    }
+
+    // Try to find the 'vortex' top-level directory. This is preferred over logic along
+    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
+    let mut repo_root = None;
+    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
+
+    while current_dir.file_name().is_some() {
+        if current_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map_or(false, |name| name == "vortex")
+        {
+            repo_root = Some(current_dir.to_string_lossy().into_owned());
+            break;
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    let duckdb_path = std::path::PathBuf::from_str(&format!(
+        "{}/duckdb-vortex/build/release/duckdb",
+        repo_root.unwrap_or_default()
+    ))
+    .expect("failed to create DuckDB executable path");
+
+    validate_path(&duckdb_path);
+
+    duckdb_path
+}
+
 /// Writes execution plan details to files.
 ///
 /// Creates 2 plan files for each query execution:
@@ -539,13 +595,13 @@ fn write_execution_plan(
     execution_plan: &std::sync::Arc<dyn execution_plan::ExecutionPlan>,
 ) {
     fs::write(
-        format!("clickbench_{format}_q{query_idx:02}.plan",),
+        format!("clickbench_{format}_q{query_idx:02}.plan"),
         format!("{:#?}", execution_plan),
     )
     .expect("Unable to write file");
 
     fs::write(
-        format!("clickbench_{format}_q{query_idx:02}.short.plan",),
+        format!("clickbench_{format}_q{query_idx:02}.short.plan"),
         format!(
             "{}",
             DisplayableExecutionPlan::with_full_metrics(execution_plan.as_ref())
