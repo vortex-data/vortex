@@ -186,6 +186,8 @@ impl ToJson for TimingMeasurement {
 #[derive(Clone, Debug)]
 pub struct QueryMeasurement {
     pub query_idx: usize,
+    // Database engine: Datafusion or DuckDB
+    pub engine: String,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub time: Duration,

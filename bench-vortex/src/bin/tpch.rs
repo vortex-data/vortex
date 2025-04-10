@@ -274,6 +274,7 @@ async fn bench_main(
 
             measurements.push(QueryMeasurement {
                 query_idx,
+                engine: "DataFusion".to_owned(),
                 storage,
                 time: fastest_result,
                 format,

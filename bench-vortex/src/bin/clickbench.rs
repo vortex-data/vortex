@@ -33,6 +33,15 @@ enum Engine {
     DuckDB,
 }
 
+impl std::fmt::Display for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine::DataFusion => write!(f, "DataFusion"),
+            Engine::DuckDB => write!(f, "DuckDB"),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -341,6 +350,7 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
+                    engine: engine.to_string(),
                     storage: "nvme".to_string(),
                     time: fastest_run,
                     format: file_format,
@@ -361,6 +371,7 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
+                    engine: engine.to_string(),
                     storage: "nvme".to_string(),
                     time: fastest_run,
                     format: file_format,
