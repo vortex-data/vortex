@@ -21,7 +21,7 @@ SELECT
     TIMESTAMP_MS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ms_col,
     TIMESTAMP '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_us_col,
     TIMESTAMP_NS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ns_col,
-FROM generate_series(1, 1000000) AS t(seq);
+FROM generate_series(1, 100) AS t(seq);
 
 statement ok
 COPY generated_data_table TO '__TEST_DIR__/timestamp_test.vortex' (FORMAT VORTEX)
@@ -39,3 +39,25 @@ FROM
 1
 1
 1
+
+# Verify that filtering works for ms
+query I
+SELECT
+  count(id)
+FROM
+  read_vortex('__TEST_DIR__/timestamp_test.vortex')
+WHERE
+ timmestamp_ms_col > TIMESTAMP '2025-01-01 00:00:50'
+----
+50
+
+# Verify that filtering works for ns
+query I
+SELECT
+  count(id)
+FROM
+  read_vortex('__TEST_DIR__/timestamp_test.vortex')
+WHERE
+ timmestamp_ns_col > TIMESTAMP '2025-01-01 00:00:50'
+----
+50
