@@ -48,42 +48,109 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 (KeyCode::Tab, _) => {
                     // toggle between tabs
                     app.current_tab = match app.current_tab {
-                        Tab::Layout => Tab::Encodings,
-                        Tab::Encodings => Tab::Layout,
+                        Tab::Layout => Tab::Segments,
+                        Tab::Segments => Tab::Layout,
                     };
                 }
                 (KeyCode::Up | KeyCode::Char('k'), _)
                 | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                     // We send the key-up to the list state if we're looking at
                     // the Layouts tab.
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_up_by(1);
+                    match app.current_tab {
+                        Tab::Layout => {
+                            app.layouts_list_state.select_previous();
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.vertical_scroll =
+                                app.segment_grid_state.vertical_scroll.saturating_sub(10);
+                            app.segment_grid_state.vertical_scroll_state = app
+                                .segment_grid_state
+                                .vertical_scroll_state
+                                .position(app.segment_grid_state.vertical_scroll);
+                        }
                     }
                 }
                 (KeyCode::Down | KeyCode::Char('j'), _)
-                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_down_by(1);
+                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
+                    Tab::Layout => {
+                        app.layouts_list_state.select_next();
                     }
-                }
+                    Tab::Segments => {
+                        app.segment_grid_state.vertical_scroll = app
+                            .segment_grid_state
+                            .vertical_scroll
+                            .saturating_add(10)
+                            .min(app.segment_grid_state.max_vertical_scroll);
+                        app.segment_grid_state.vertical_scroll_state = app
+                            .segment_grid_state
+                            .vertical_scroll_state
+                            .position(app.segment_grid_state.vertical_scroll);
+                    }
+                },
                 (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_up_by(10);
+                    match app.current_tab {
+                        Tab::Layout => {
+                            app.layouts_list_state.scroll_up_by(10);
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.vertical_scroll =
+                                app.segment_grid_state.vertical_scroll.saturating_sub(100);
+                            app.segment_grid_state.vertical_scroll_state = app
+                                .segment_grid_state
+                                .vertical_scroll_state
+                                .position(app.segment_grid_state.vertical_scroll);
+                        }
                     }
                 }
                 (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_down_by(10);
+                    match app.current_tab {
+                        Tab::Layout => {
+                            app.layouts_list_state.scroll_down_by(10);
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.vertical_scroll = app
+                                .segment_grid_state
+                                .vertical_scroll
+                                .saturating_add(100)
+                                .min(app.segment_grid_state.max_vertical_scroll);
+                            app.segment_grid_state.vertical_scroll_state = app
+                                .segment_grid_state
+                                .vertical_scroll_state
+                                .position(app.segment_grid_state.vertical_scroll);
+                        }
                     }
                 }
                 (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.select_first();
+                    match app.current_tab {
+                        Tab::Layout => {
+                            app.layouts_list_state.select_first();
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.horizontal_scroll =
+                                app.segment_grid_state.horizontal_scroll.saturating_sub(200);
+                            app.segment_grid_state.horizontal_scroll_state = app
+                                .segment_grid_state
+                                .horizontal_scroll_state
+                                .position(app.segment_grid_state.horizontal_scroll);
+                        }
                     }
                 }
                 (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.select_last();
+                    match app.current_tab {
+                        Tab::Layout => {
+                            app.layouts_list_state.select_last();
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.horizontal_scroll = app
+                                .segment_grid_state
+                                .horizontal_scroll
+                                .saturating_add(200)
+                                .min(app.segment_grid_state.max_horizontal_scroll);
+                            app.segment_grid_state.horizontal_scroll_state = app
+                                .segment_grid_state
+                                .horizontal_scroll_state
+                                .position(app.segment_grid_state.horizontal_scroll);
+                        }
                     }
                 }
                 (KeyCode::Enter, _) => {
@@ -98,13 +165,38 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 }
                 (KeyCode::Left | KeyCode::Char('h'), _)
                 | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        // Ascend back up to the Parent node
-                        app.cursor = app.cursor.parent();
-                        // Reset the list scroll state.
-                        app.layouts_list_state = ListState::default().with_selected(Some(0));
+                    match app.current_tab {
+                        Tab::Layout => {
+                            // Ascend back up to the Parent node
+                            app.cursor = app.cursor.parent();
+                            // Reset the list scroll state.
+                            app.layouts_list_state = ListState::default().with_selected(Some(0));
+                        }
+                        Tab::Segments => {
+                            app.segment_grid_state.horizontal_scroll =
+                                app.segment_grid_state.horizontal_scroll.saturating_sub(20);
+                            app.segment_grid_state.horizontal_scroll_state = app
+                                .segment_grid_state
+                                .horizontal_scroll_state
+                                .position(app.segment_grid_state.horizontal_scroll);
+                        }
                     }
                 }
+                (KeyCode::Right | KeyCode::Char('l'), _)
+                | (KeyCode::Char('b'), KeyModifiers::ALT) => match app.current_tab {
+                    Tab::Layout => {}
+                    Tab::Segments => {
+                        app.segment_grid_state.horizontal_scroll = app
+                            .segment_grid_state
+                            .horizontal_scroll
+                            .saturating_add(20)
+                            .min(app.segment_grid_state.max_horizontal_scroll);
+                        app.segment_grid_state.horizontal_scroll_state = app
+                            .segment_grid_state
+                            .horizontal_scroll_state
+                            .position(app.segment_grid_state.horizontal_scroll);
+                    }
+                },
 
                 (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                     app.key_mode = KeyMode::Search;

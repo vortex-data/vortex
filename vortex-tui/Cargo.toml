@@ -15,7 +15,6 @@ version = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
 futures-util = { workspace = true }
@@ -23,6 +22,7 @@ humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
+taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio", "parquet"] }
 vortex-layout = { workspace = true }
