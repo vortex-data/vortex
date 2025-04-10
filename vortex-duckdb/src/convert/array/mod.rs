@@ -1,6 +1,9 @@
+mod chunked;
 mod data_chunk_adaptor;
 mod run_end;
 mod varbinview;
+
+use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 pub use data_chunk_adaptor::NamedDataChunk;
@@ -18,7 +21,7 @@ use vortex_array::compute::{take, to_arrow_preferred};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -33,6 +36,7 @@ use crate::{DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDBType};
 #[derive(Default)]
 pub struct ConversionCache {
     pub values_cache: HashMap<usize, FlatVector>,
+    pub canonical_cache: HashMap<usize, Canonical>,
     // A value which must be unique for a given duckdb pipeline.
     pub instance_id: u64,
 }
@@ -43,6 +47,23 @@ impl ConversionCache {
             instance_id: id,
             ..Self::default()
         }
+    }
+
+    pub fn cached_array(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let arr_value = Arc::as_ptr(array).addr();
+
+        let entry = self.canonical_cache.get(&arr_value);
+        let value_vector = match entry {
+            None => {
+                let canon = array.to_canonical()?;
+                self.canonical_cache.insert(arr_value, canon);
+                self.canonical_cache
+                    .get(&arr_value)
+                    .vortex_expect("just added")
+            }
+            Some(entry) => entry,
+        };
+        Ok(value_vector.clone().into_array())
     }
 }
 
@@ -117,21 +138,6 @@ fn try_to_duckdb(
     }
 }
 
-impl ToDuckDB for ChunkedArray {
-    fn to_duckdb(
-        &self,
-        chunk: &mut dyn WritableVector,
-        cache: &mut ConversionCache,
-    ) -> VortexResult<()> {
-        // TODO(joe): support multi-chunk arrays without canonical.
-        if self.chunks().len() > 1 {
-            to_duckdb(&self.to_canonical()?.into_array(), chunk, cache)
-        } else {
-            to_duckdb(&self.chunks()[0], chunk, cache)
-        }
-    }
-}
-
 impl ToDuckDB for DictArray {
     fn to_duckdb(
         &self,
@@ -161,7 +167,8 @@ impl ToDuckDB for DictArray {
                         self.values().dtype().to_duckdb_type()?,
                         self.values().len(),
                     );
-                    to_duckdb(self.values(), &mut value_vector, cache)?;
+                    let cached_array = cache.cached_array(self.values())?;
+                    to_duckdb(&cached_array, &mut value_vector, cache)?;
                     cache.values_cache.insert(value_ptr, value_vector);
                     cache
                         .values_cache
