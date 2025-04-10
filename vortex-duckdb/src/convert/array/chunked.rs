@@ -75,7 +75,6 @@ mod tests {
 
         to_duckdb_chunk(&struct_, &mut data_chunk, &mut cache).unwrap();
 
-        println!("{:?}", data_chunk);
         assert_eq!(
             format!("{:?}", data_chunk),
             r#"Chunk - [1 Columns]
