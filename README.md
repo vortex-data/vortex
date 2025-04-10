@@ -52,7 +52,23 @@ Vortex strictly separates logical and physical concerns:
 
 ### Installation
 
-#### Command Line Tool (vx)
+#### Rust Crate
+
+All features are exported through the main `vortex` crate.
+
+```bash
+cargo add vortex
+```
+
+#### Python Package
+
+```bash
+uv add vortex-array
+```
+
+#### Command Line UI (vx)
+
+For browsing the structure of Vortex files, you can use the `vx` command-line tool.
 
 ```bash
 # Install latest release
@@ -60,6 +76,9 @@ cargo install vortex-tui --locked
 
 # Or build from source
 cargo install --path vortex-tui --locked
+
+# Usage
+vx browse <file>
 ```
 
 ### Development Setup
