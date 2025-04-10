@@ -16,6 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        engine: [datafusion, duckdb]
         # Regarding "include:":
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
         include:
@@ -23,21 +24,24 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             local_dir: bench-vortex/data/tpch/1
+
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
+
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
+
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
       - spot=false
-      - tag=${{ matrix.id }}
+      - tag=${{ matrix.id }}-${{ matrix.engine }}
 
     steps:
       - uses: runs-on/action@v1
@@ -80,11 +84,20 @@ jobs:
           aws s3 rm --recursive ${{ matrix.remote_storage }}
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
+      - name: Install Ninja
+        if: matrix.engine == 'duckdb'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: DuckDB extension build
+        if: matrix.engine == 'duckdb'
+        run: GEN=ninja NATIVE_ARCH=1 LTO=thin make release
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.2.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
+          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }};engine=${{ matrix.engine }}'
           profiling_frequency: 200
 
       - name: Run ${{ matrix.name }} benchmark
@@ -95,14 +108,16 @@ jobs:
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
-          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }};engine=${{ matrix.engine }}'
+          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engine {0}', matrix.engine) || '' }}"
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
             --export-spans \
+            ${ENGINE_FLAG} \
           | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark with ${{ matrix.engine }}
         if: matrix.remote_storage != null
         shell: bash
         env:
@@ -111,12 +126,14 @@ jobs:
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
-          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }};engine=${{ matrix.engine }}'
+          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engine {0}', matrix.engine) || '' }}"
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --formats parquet,vortex \
               --export-spans \
+              ${ENGINE_FLAG} \
               -d gh-json \
             | tee results.json
 
@@ -125,8 +142,8 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
         with:
           sync: false
-      - name: Compare results
 
+      - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
         run: |
@@ -136,9 +153,10 @@ jobs:
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
+            | grep "engine=${{ matrix.engine }}" \
             > base.json
 
-          echo '# Benchmarks: ${{ matrix.name }}' > comment.md
+          echo '# Benchmarks: ${{ matrix.name }} (${{ matrix.engine }})' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
@@ -154,7 +172,7 @@ jobs:
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment. Therefore, each
           # unique benchmark configuration must have a unique comment-tag.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ matrix.engine }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
