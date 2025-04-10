@@ -379,13 +379,13 @@ impl CoalescedSegmentRequest {
     }
 
     /// Launch the request, reading the byte range from the provided reader.
-    pub async fn launch<R: VortexReadAt>(self, read: R) {
+    pub async fn launch<R: VortexReadAt>(self, read: &R) {
         let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
         let byte_range = self.byte_range.clone();
-        self.resolve(
-            read.read_byte_range(byte_range, alignment)
-                .await
-                .map_err(VortexError::from),
-        )
+        let buffer = read
+            .read_byte_range(byte_range, alignment)
+            .await
+            .map_err(VortexError::from);
+        self.resolve(buffer)
     }
 }

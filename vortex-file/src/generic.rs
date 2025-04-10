@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::{StreamExt, pin_mut};
 use vortex_error::{VortexExpect, VortexResult};
@@ -40,7 +40,8 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    pub async fn open<R: VortexReadAt + Send>(self, read: R) -> VortexResult<VortexFile> {
+    pub async fn open<R: VortexReadAt + Send + Sync>(self, read: R) -> VortexResult<VortexFile> {
+        let read = Arc::new(read);
         let footer = self.read_footer(&read).await?;
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -52,7 +53,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         ));
 
         let segment_source_factory = Arc::new(GenericVortexFileIo {
-            read: Mutex::new(read),
+            read,
             segment_map: footer.segment_map().clone(),
             segment_cache,
             options: self.options,
@@ -67,13 +68,13 @@ impl VortexOpenOptions<GenericVortexFile> {
 }
 
 struct GenericVortexFileIo<R> {
-    read: Mutex<R>,
+    read: Arc<R>,
     segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     options: GenericFileOptions,
 }
 
-impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
+impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo<R> {
     fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
         // We use segment events for driving I/O.
         let (segment_source, events) = SegmentEvents::create();
@@ -84,10 +85,7 @@ impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
             segment_source,
         ));
 
-        let read = InstrumentedReadAt::new(
-            self.read.lock().vortex_expect("poisoned lock").clone(),
-            &metrics,
-        );
+        let read = InstrumentedReadAt::new(self.read.clone(), &metrics);
 
         let driver = CoalescedDriver::new(
             read.performance_hint(),
@@ -104,7 +102,7 @@ impl<R: VortexReadAt + Send> SegmentSourceFactory for GenericVortexFileIo<R> {
                 async move {
                     // Drive the segment event stream.
                     let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(read.clone()))
+                        .map(|coalesced_req| coalesced_req.launch(&read))
                         .buffer_unordered(io_concurrency);
                     pin_mut!(stream);
 

@@ -90,7 +90,7 @@ pub unsafe extern "C" fn DType_free(dtype: *mut DType) {
 /// Get the dtype variant tag for an [`DType`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
-    match &*dtype {
+    match dtype.as_ref().vortex_expect("null dtype") {
         DType::Null => DTYPE_NULL,
         DType::Bool(_) => DTYPE_BOOL,
         DType::Primitive(ptype, _) => match ptype {
@@ -116,14 +116,15 @@ pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_nullable(dtype: *const DType) -> bool {
-    let dtype = &*dtype;
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
     dtype.is_nullable()
 }
 
 /// For `DTYPE_STRUCT` variant DTypes, get the number of fields.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_field_count(dtype: *const DType) -> u32 {
-    let DType::Struct(struct_dtype, _) = &*dtype else {
+    let DType::Struct(struct_dtype, _) = unsafe { dtype.as_ref() }.vortex_expect("dtype null")
+    else {
         panic!("FFIDType_field_count: not a struct dtype")
     };
 
@@ -143,7 +144,8 @@ pub unsafe extern "C" fn DType_field_name(
     assert!(!dst.is_null(), "DType_field_name: null ptr dst");
     assert!(!len.is_null(), "DType_field_name: null ptr len");
 
-    let DType::Struct(struct_dtype, _) = &*dtype else {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+    let DType::Struct(struct_dtype, _) = dtype else {
         panic!("FFIDType_field_name: not a struct dtype")
     };
 
@@ -162,7 +164,8 @@ pub unsafe extern "C" fn DType_field_name(
 /// by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> *mut DType {
-    let DType::Struct(struct_dtype, _) = &*dtype else {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+    let DType::Struct(struct_dtype, _) = dtype else {
         panic!("DType_field_dtype: not a struct dtype")
     };
 
@@ -184,7 +187,8 @@ pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> *
 pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType {
     assert!(!dtype.is_null(), "DType_element_type: null ptr");
 
-    let DType::List(element_dtype, _) = &*dtype else {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+    let DType::List(element_dtype, _) = dtype else {
         panic!("DType_element_type: not a list dtype")
     };
 
@@ -193,7 +197,9 @@ pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_is_time(dtype: *const DType) -> bool {
-    match &*dtype {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+
+    match dtype {
         DType::Extension(ext_dtype) => ext_dtype.id() == &*TIME_ID,
         _ => false,
     }
@@ -201,7 +207,9 @@ pub unsafe extern "C" fn DType_is_time(dtype: *const DType) -> bool {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_is_date(dtype: *const DType) -> bool {
-    match &*dtype {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+
+    match dtype {
         DType::Extension(ext_dtype) => ext_dtype.id() == &*DATE_ID,
         _ => false,
     }
@@ -209,7 +217,9 @@ pub unsafe extern "C" fn DType_is_date(dtype: *const DType) -> bool {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_is_timestamp(dtype: *const DType) -> bool {
-    match &*dtype {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+
+    match dtype {
         DType::Extension(ext_dtype) => ext_dtype.id() == &*TIMESTAMP_ID,
         _ => false,
     }
@@ -217,7 +227,9 @@ pub unsafe extern "C" fn DType_is_timestamp(dtype: *const DType) -> bool {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_time_unit(dtype: *const DType) -> u8 {
-    let DType::Extension(ext_dtype) = &*dtype else {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+
+    let DType::Extension(ext_dtype) = dtype else {
         panic!("DType_time_unit: not a time dtype")
     };
 
@@ -229,7 +241,9 @@ pub unsafe extern "C" fn DType_time_unit(dtype: *const DType) -> u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DType_time_zone(dtype: *const DType, dst: *mut c_void, len: *mut c_int) {
-    let DType::Extension(ext_dtype) = &*dtype else {
+    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
+
+    let DType::Extension(ext_dtype) = dtype else {
         panic!("DType_time_unit: not a time dtype")
     };
 

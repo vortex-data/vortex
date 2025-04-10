@@ -19,3 +19,10 @@ SELECT * FROM read_vortex('__TEST_DIR__/test.vortex');
 2
 3
 4
+
+# read vortex
+query I
+SELECT * FROM read_vortex('__TEST_DIR__/test.vortex') where generate_series >= 3;
+----
+3
+4

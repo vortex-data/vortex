@@ -13,7 +13,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
@@ -68,7 +68,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype,
             writer,
             ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
-                child: ArcRef::new_ref(&FlatLayout),
+                child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             })),
             StatsLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
