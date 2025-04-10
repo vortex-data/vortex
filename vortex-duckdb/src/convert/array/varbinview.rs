@@ -12,7 +12,8 @@ use crate::buffer::{
     AssignBufferToVec, CppVectorBuffer, ExternalBuffer, FFIDuckDBBufferInternal,
     new_cpp_vector_buffer,
 };
-use crate::convert::array::{ConversionCache, write_validity_from_mask};
+use crate::convert::array::ConversionCache;
+use crate::convert::array::validity::write_validity_from_mask;
 // This is the C++ string view struct
 // private:
 // 	union {
@@ -133,8 +134,9 @@ mod tests {
     use vortex_array::{Array, ToCanonical};
 
     use crate::ToDuckDB;
+    use crate::convert::array::ConversionCache;
+    use crate::convert::array::array_ref::to_duckdb;
     use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
-    use crate::convert::array::{ConversionCache, to_duckdb};
 
     #[test]
     fn constant_empty_str_array() {

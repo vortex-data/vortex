@@ -10,7 +10,7 @@ use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_runend::{RunEndArray, trimmed_ends_iter};
 
-use crate::convert::array::to_duckdb;
+use crate::convert::array::array_ref::to_duckdb;
 use crate::convert::scalar::ToDuckDBScalar;
 use crate::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE, ToDuckDB, ToDuckDBType};
 

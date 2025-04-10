@@ -4,8 +4,9 @@ use vortex_array::{Array, IntoArray};
 use vortex_dict::DictArray;
 use vortex_error::VortexResult;
 
-use crate::convert::array::to_duckdb;
-use crate::{ConversionCache, ToDuckDB};
+use crate::ToDuckDB;
+use crate::convert::array::array_ref::to_duckdb;
+use crate::convert::array::cache::ConversionCache;
 
 impl ToDuckDB for ChunkedArray {
     fn to_duckdb(
