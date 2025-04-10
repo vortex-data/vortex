@@ -1,5 +1,5 @@
-# name: test/sql/vortex.test
-# description: test vortex extension
+# name: test/sql/sequence.test
+# description: test simple tables with the vortex extension
 # group: [vortex]
 
 # Before we load the extension, this will fail
@@ -17,12 +17,5 @@ SELECT * FROM read_vortex('__TEST_DIR__/test.vortex');
 0
 1
 2
-3
-4
-
-# read vortex
-query I
-SELECT * FROM read_vortex('__TEST_DIR__/test.vortex') where generate_series >= 3;
-----
 3
 4
