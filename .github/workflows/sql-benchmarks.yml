@@ -98,7 +98,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }};engine=${{ matrix.engine }}'
-          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engine {0}', matrix.engine) || '' }}"
+          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engines {0}', matrix.engine) || '' }}"
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
@@ -116,7 +116,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }};engine=${{ matrix.engine }}'
-          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engine {0}', matrix.engine) || '' }}"
+          ENGINE_FLAG: "${{ matrix.binary_name == 'clickbench' && format('--engines {0}', matrix.engine) || '' }}"
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
