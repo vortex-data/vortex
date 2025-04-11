@@ -28,7 +28,7 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_enum, default_values_t = vec![Engine::DataFusion])]
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Engine::DataFusion])]
     engines: Vec<Engine>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
@@ -136,79 +136,83 @@ fn main() -> anyhow::Result<()> {
     };
 
     let base_url = data_source_base_url(&args.use_remote_data_dir, args.flavor)?;
-    let progress_bar = ProgressBar::new((queries.len() * args.formats.len()) as u64);
-    let mut query_measurements = Vec::default();
-    let mut metrics = Vec::default();
+    let progress_bar =
+        ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64);
 
-    for file_format in &args.formats {
-        let session_context = get_session_with_cache(args.emulate_object_store);
-        // Register object store to the session.
-        make_object_store(&session_context, &base_url)?;
-        let mut execution_plans = Vec::default();
+    for engine in args.engines {
+        let mut query_measurements = Vec::default();
+        let mut metrics = Vec::default();
 
-        init_data_source(
-            *file_format,
-            &args.engines,
-            &session_context,
-            &base_url,
-            args.single_file,
-            &runtime,
-        )?;
+        for file_format in &args.formats {
+            let session_context = get_session_with_cache(args.emulate_object_store);
+            // Register object store to the session.
+            make_object_store(&session_context, &base_url)?;
+            let mut execution_plans = Vec::default();
 
-        execute_queries(
-            &queries,
-            args.engines[0],
-            args.iterations,
-            args.single_file,
-            &runtime,
-            *file_format,
-            &base_url,
-            &progress_bar,
-            &mut query_measurements,
-            &args.duckdb_path,
-            &session_context,
-            &mut execution_plans,
-            &mut metrics,
-        );
+            init_data_source(
+                *file_format,
+                engine,
+                &session_context,
+                &base_url,
+                args.single_file,
+                &runtime,
+            )?;
 
-        if args.export_spans {
-            if let Err(e) = runtime
-                .block_on(async move { export_plan_spans(*file_format, execution_plans).await })
-            {
-                warn!("failed to export spans {e}");
+            execute_queries(
+                &queries,
+                engine,
+                args.iterations,
+                args.single_file,
+                &runtime,
+                *file_format,
+                &base_url,
+                &progress_bar,
+                &mut query_measurements,
+                &args.duckdb_path,
+                &session_context,
+                &mut execution_plans,
+                &mut metrics,
+            );
+
+            if args.export_spans {
+                if let Err(e) = runtime
+                    .block_on(async move { export_plan_spans(*file_format, execution_plans).await })
+                {
+                    warn!("failed to export spans {e}");
+                }
             }
         }
-    }
 
-    match args.engines[0] {
-        Engine::DataFusion => match args.display_format {
-            DisplayFormat::Table => {
-                for (query_idx, file_format, metric_sets) in metrics {
-                    println!("metrics for query={query_idx}, {file_format}:");
-                    for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
-                        println!("scan[{query_idx}]:");
-                        for metric in metrics_set
-                            .timestamps_removed()
-                            .aggregate()
-                            .sorted_for_display()
-                            .iter()
-                        {
-                            println!("{metric}");
+        match engine {
+            Engine::DataFusion => match args.display_format {
+                DisplayFormat::Table => {
+                    for (query_idx, file_format, metric_sets) in metrics {
+                        println!("metrics for query={query_idx}, {file_format}:");
+                        for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
+                            println!("scan[{query_idx}]:");
+                            for metric in metrics_set
+                                .timestamps_removed()
+                                .aggregate()
+                                .sorted_for_display()
+                                .iter()
+                            {
+                                println!("{metric}");
+                            }
                         }
                     }
+                    render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
                 }
-                render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
-            }
 
-            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-        },
+                DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
+            },
 
-        Engine::DuckDB => match args.display_format {
-            DisplayFormat::Table => {
-                render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
-            }
-            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-        },
+            Engine::DuckDB => match args.display_format {
+                DisplayFormat::Table => {
+                    render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
+                }
+                DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
+            },
+        }
     }
 
     Ok(())
@@ -255,54 +259,44 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 /// Parquet files are registered directly. Vortex files are created form Parquet files.
 fn init_data_source(
     file_format: Format,
-    engines: &Vec<Engine>,
+    engine: Engine,
     context: &datafusion::execution::context::SessionContext,
     url: &Url,
     single_file: bool,
     runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
-    for engine in engines {
-        match file_format {
-            Format::Parquet => match engine {
-                Engine::DataFusion => clickbench::register_parquet_files(
-                    context,
-                    "hits",
-                    url,
-                    &HITS_SCHEMA,
-                    single_file,
-                )?,
-                Engine::DuckDB => { /* nothing to do */ }
-            },
-            Format::OnDiskVortex => {
-                runtime.block_on(async {
-                    if url.scheme() == "file" {
-                        clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
-                            .await
-                            .unwrap_or_else(|err| {
-                                panic!("init of {file_format} failed with: {err}")
-                            });
-                    }
-
-                    match engine {
-                        Engine::DataFusion => {
-                            clickbench::register_vortex_files(
-                                context.clone(),
-                                "hits",
-                                url,
-                                &HITS_SCHEMA,
-                                single_file,
-                            )
-                            .unwrap_or_else(|err| {
-                                panic!("init of {file_format} failed with: {err}")
-                            });
-                        }
-
-                        Engine::DuckDB => { /* nothing to do */ }
-                    }
-                });
+    match file_format {
+        Format::Parquet => match engine {
+            Engine::DataFusion => {
+                clickbench::register_parquet_files(context, "hits", url, &HITS_SCHEMA, single_file)?
             }
-            _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
+            Engine::DuckDB => { /* nothing to do */ }
+        },
+        Format::OnDiskVortex => {
+            runtime.block_on(async {
+                if url.scheme() == "file" {
+                    clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
+                        .await
+                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                }
+
+                match engine {
+                    Engine::DataFusion => {
+                        clickbench::register_vortex_files(
+                            context.clone(),
+                            "hits",
+                            url,
+                            &HITS_SCHEMA,
+                            single_file,
+                        )
+                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                    }
+
+                    Engine::DuckDB => { /* nothing to do */ }
+                }
+            });
         }
+        _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
     }
 
     Ok(())
