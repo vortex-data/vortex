@@ -28,8 +28,8 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_enum, default_value_t = Engine::DataFusion)]
-    engine: Engine,
+    #[arg(long, value_enum, default_values_t = vec![Engine::DataFusion])]
+    engines: Vec<Engine>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
     #[arg(short, long, default_value_t = 5)]
@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
 
         init_data_source(
             *file_format,
-            args.engine,
+            &args.engines,
             &session_context,
             &base_url,
             args.single_file,
@@ -157,7 +157,7 @@ fn main() -> anyhow::Result<()> {
 
         execute_queries(
             &queries,
-            args.engine,
+            args.engines[0],
             args.iterations,
             args.single_file,
             &runtime,
@@ -180,7 +180,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    match args.engine {
+    match args.engines[0] {
         Engine::DataFusion => match args.display_format {
             DisplayFormat::Table => {
                 for (query_idx, file_format, metric_sets) in metrics {
@@ -255,45 +255,56 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 /// Parquet files are registered directly. Vortex files are created form Parquet files.
 fn init_data_source(
     file_format: Format,
-    engine: Engine,
+    engines: &Vec<Engine>,
     context: &datafusion::execution::context::SessionContext,
     url: &Url,
     single_file: bool,
     runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
-    match file_format {
-        Format::Parquet => match engine {
-            Engine::DataFusion => {
-                clickbench::register_parquet_files(context, "hits", url, &HITS_SCHEMA, single_file)?
-            }
-            Engine::DuckDB => { /* nothing to do */ }
-        },
-        Format::OnDiskVortex => {
-            runtime.block_on(async {
-                if url.scheme() == "file" {
-                    clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
-                        .await
-                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
-                }
-
-                match engine {
-                    Engine::DataFusion => {
-                        clickbench::register_vortex_files(
-                            context.clone(),
-                            "hits",
-                            url,
-                            &HITS_SCHEMA,
-                            single_file,
-                        )
-                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+    for engine in engines {
+        match file_format {
+            Format::Parquet => match engine {
+                Engine::DataFusion => clickbench::register_parquet_files(
+                    context,
+                    "hits",
+                    url,
+                    &HITS_SCHEMA,
+                    single_file,
+                )?,
+                Engine::DuckDB => { /* nothing to do */ }
+            },
+            Format::OnDiskVortex => {
+                runtime.block_on(async {
+                    if url.scheme() == "file" {
+                        clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
+                            .await
+                            .unwrap_or_else(|err| {
+                                panic!("init of {file_format} failed with: {err}")
+                            });
                     }
 
-                    Engine::DuckDB => { /* nothing to do */ }
-                }
-            });
+                    match engine {
+                        Engine::DataFusion => {
+                            clickbench::register_vortex_files(
+                                context.clone(),
+                                "hits",
+                                url,
+                                &HITS_SCHEMA,
+                                single_file,
+                            )
+                            .unwrap_or_else(|err| {
+                                panic!("init of {file_format} failed with: {err}")
+                            });
+                        }
+
+                        Engine::DuckDB => { /* nothing to do */ }
+                    }
+                });
+            }
+            _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
         }
-        _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
     }
+
     Ok(())
 }
 
@@ -470,16 +481,16 @@ fn benchmark_duckdb_query(
     duckdb_path: &std::path::Path,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-            let duration = execute_duckdb_query(
-                query_string,
-                base_url,
-                file_format,
-                single_file,
-                duckdb_path,
-            )
-            .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
+        let duration = execute_duckdb_query(
+            query_string,
+            base_url,
+            file_format,
+            single_file,
+            duckdb_path,
+        )
+        .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
-            fastest.min(duration)
+        fastest.min(duration)
     });
 
     fastest_run
