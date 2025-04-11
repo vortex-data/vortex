@@ -463,20 +463,20 @@ async fn execute_datafusion_query(
     iteration: usize,
     session_context: datafusion::execution::context::SessionContext,
 ) -> anyhow::Result<(Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>)> {
-    let time_instant = Instant::now();
     let query_string = query_string.to_owned();
 
-    let execution_plan = tokio::task::spawn(async move {
+    let (duration, execution_plan) = tokio::task::spawn(async move {
+        let time_instant = Instant::now();
         let (_, execution_plan) = execute_query(&session_context, &query_string)
             .instrument(info_span!("execute_query", query_idx, iteration))
             .await
             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
 
-        execution_plan
+        (time_instant.elapsed(), execution_plan)
     })
     .await?;
 
-    Ok((time_instant.elapsed(), execution_plan))
+    Ok((duration, execution_plan))
 }
 
 /// Executes a single ClickBench query using DuckDB.
