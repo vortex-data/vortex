@@ -6,7 +6,6 @@ use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -186,24 +185,60 @@ pub fn gather_patches(
         _ => Validity::AllValid,
     };
 
-    match_each_integer_ptype!(parray.ptype(), |$T| {
-        let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
-        let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);
-        for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
-            if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i).vortex_expect("validity") {
-                indices.push(i as u64);
-                values.push(*v);
-            }
-        }
+    let array_len = parray.len();
+    let is_valid_fn = |idx| parray.is_valid(idx).vortex_expect("validity");
 
-        let indices = downscale_integer_array(indices.into_array())?;
-        VortexResult::Ok((!indices.is_empty()).then(|| Patches::new(
-            parray.len(),
+    if array_len < u8::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u8, _>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, is_valid_fn)
+        })
+    } else if array_len < u16::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u16, _>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, is_valid_fn)
+        })
+    } else if array_len < u32::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u32, _>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, is_valid_fn)
+        })
+    } else {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u64, _>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, is_valid_fn)
+        })
+    }
+}
+
+fn gather_patches_impl<T, P, F>(
+    data: &[T],
+    bit_width: u8,
+    num_exceptions_hint: usize,
+    patch_validity: Validity,
+    is_valid_fn: F,
+) -> VortexResult<Option<Patches>>
+where
+    T: PrimInt + NativePType,
+    P: NativePType,
+    F: Fn(usize) -> bool,
+{
+    let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
+    let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
+
+    for (i, v) in data.iter().enumerate() {
+        if (v.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
+            && is_valid_fn(i)
+        {
+            indices.push(P::from(i).vortex_expect("cast index from usize"));
+            values.push(*v);
+        }
+    }
+
+    VortexResult::Ok((!indices.is_empty()).then(|| {
+        Patches::new(
+            data.len(),
             0,
-            indices,
+            indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
-        )))
-    })
+        )
+    }))
 }
 
 pub fn unpack(array: &BitPackedArray) -> VortexResult<PrimitiveArray> {
