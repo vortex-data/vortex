@@ -183,39 +183,59 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        match engine {
-            Engine::DataFusion => match args.display_format {
-                DisplayFormat::Table => {
-                    for (query_idx, file_format, metric_sets) in metrics {
-                        println!("metrics for query={query_idx}, {file_format}:");
-                        for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
-                            println!("scan[{query_idx}]:");
-                            for metric in metrics_set
-                                .timestamps_removed()
-                                .aggregate()
-                                .sorted_for_display()
-                                .iter()
-                            {
-                                println!("{metric}");
-                            }
-                        }
-                    }
-                    render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
-                }
-
-                DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-            },
-
-            Engine::DuckDB => match args.display_format {
-                DisplayFormat::Table => {
-                    render_table(query_measurements, &args.formats, RatioMode::Time).unwrap()
-                }
-                DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-            },
-        }
+        print_results(
+            engine,
+            metrics,
+            &args.display_format,
+            query_measurements,
+            &args.formats,
+        );
     }
 
     Ok(())
+}
+
+fn print_results(
+    engine: Engine,
+    metrics: Vec<(
+        usize,
+        Format,
+        Vec<datafusion::physical_plan::metrics::MetricsSet>,
+    )>,
+    display_format: &DisplayFormat,
+    query_measurements: Vec<QueryMeasurement>,
+    file_formats: &[Format],
+) {
+    match engine {
+        Engine::DataFusion => match display_format {
+            DisplayFormat::Table => {
+                for (query_idx, file_format, metric_sets) in metrics {
+                    println!("metrics for query={query_idx}, {file_format}:");
+                    for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
+                        println!("scan[{query_idx}]:");
+                        for metric in metrics_set
+                            .timestamps_removed()
+                            .aggregate()
+                            .sorted_for_display()
+                            .iter()
+                        {
+                            println!("{metric}");
+                        }
+                    }
+                }
+                render_table(query_measurements, file_formats, RatioMode::Time).unwrap()
+            }
+
+            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
+        },
+
+        Engine::DuckDB => match display_format {
+            DisplayFormat::Table => {
+                render_table(query_measurements, file_formats, RatioMode::Time).unwrap()
+            }
+            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
+        },
+    }
 }
 
 /// Determines the URL location for benchmark data, either local or remote.
