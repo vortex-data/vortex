@@ -8,10 +8,10 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::{
-    Format, IdempotentPath, default_env_filter, execute_query, feature_flagged_allocator,
+    Engine, Format, IdempotentPath, default_env_filter, execute_query, feature_flagged_allocator,
     get_session_with_cache, make_object_store,
 };
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::execution_plan;
 use indicatif::ProgressBar;
@@ -36,7 +36,12 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_enum,
+        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
+    )]
     formats: Vec<Format>,
     #[arg(long)]
     only_vortex: bool,
@@ -56,24 +61,6 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(long, default_value_t = false)]
     single_file: bool,
-}
-
-#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
-enum Engine {
-    #[default]
-    #[clap(name = "datafusion")]
-    DataFusion,
-    #[clap(name = "duckdb")]
-    DuckDB,
-}
-
-impl std::fmt::Display for Engine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Engine::DataFusion => write!(f, "DataFusion"),
-            Engine::DuckDB => write!(f, "DuckDB"),
-        }
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -139,8 +126,8 @@ fn main() -> anyhow::Result<()> {
     let progress_bar =
         ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64);
 
-    for engine in args.engines {
-        let mut query_measurements = Vec::default();
+    let mut query_measurements = Vec::default();
+    for engine in args.engines.iter() {
         let mut metrics = Vec::default();
 
         for file_format in &args.formats {
@@ -151,7 +138,7 @@ fn main() -> anyhow::Result<()> {
 
             init_data_source(
                 *file_format,
-                engine,
+                *engine,
                 &session_context,
                 &base_url,
                 args.single_file,
@@ -160,7 +147,7 @@ fn main() -> anyhow::Result<()> {
 
             execute_queries(
                 &queries,
-                engine,
+                *engine,
                 args.iterations,
                 args.single_file,
                 &runtime,
@@ -182,69 +169,54 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-
-        print_results(
-            engine,
-            metrics,
-            &args.display_format,
-            query_measurements,
-            &args.formats,
-        );
+        print_metrics(metrics);
     }
+
+    print_results(
+        &args.display_format,
+        query_measurements,
+        &args.formats,
+        &args.engines,
+    );
 
     Ok(())
 }
 
-fn print_results(
-    engine: Engine,
+fn print_metrics(
     metrics: Vec<(
         usize,
         Format,
         Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
+) {
+    for (query_idx, file_format, metric_sets) in metrics {
+        println!("metrics for query={query_idx}, {file_format}:");
+        for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
+            println!("scan[{query_idx}]:");
+            for metric in metrics_set
+                .timestamps_removed()
+                .aggregate()
+                .sorted_for_display()
+                .iter()
+            {
+                println!("{metric}");
+            }
+        }
+    }
+}
+
+fn print_results(
     display_format: &DisplayFormat,
     query_measurements: Vec<QueryMeasurement>,
     file_formats: &[Format],
+    engines: &[Engine],
 ) {
-    match engine {
-        Engine::DataFusion => match display_format {
-            DisplayFormat::Table => {
-                for (query_idx, file_format, metric_sets) in metrics {
-                    println!("metrics for query={query_idx}, {file_format}:");
-                    for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
-                        println!("scan[{query_idx}]:");
-                        for metric in metrics_set
-                            .timestamps_removed()
-                            .aggregate()
-                            .sorted_for_display()
-                            .iter()
-                        {
-                            println!("{metric}");
-                        }
-                    }
-                }
-                render_table(
-                    query_measurements,
-                    file_formats,
-                    RatioMode::Time,
-                    &Some(engine.to_string()),
-                )
-                .unwrap()
-            }
+    match display_format {
+        DisplayFormat::Table => {
+            render_table(query_measurements, file_formats, RatioMode::Time, engines).unwrap()
+        }
 
-            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-        },
-
-        Engine::DuckDB => match display_format {
-            DisplayFormat::Table => render_table(
-                query_measurements,
-                file_formats,
-                RatioMode::Time,
-                &Some(engine.to_string()),
-            )
-            .unwrap(),
-            DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
-        },
+        DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
     }
 }
 
@@ -301,6 +273,9 @@ fn init_data_source(
                 clickbench::register_parquet_files(context, "hits", url, &HITS_SCHEMA, single_file)?
             }
             Engine::DuckDB => { /* nothing to do */ }
+            Engine::Vortex => {
+                unreachable!("require another engine")
+            }
         },
         Format::OnDiskVortex => {
             runtime.block_on(async {
@@ -323,6 +298,9 @@ fn init_data_source(
                     }
 
                     Engine::DuckDB => { /* nothing to do */ }
+                    Engine::Vortex => {
+                        unreachable!("require another engine")
+                    }
                 }
             });
         }
@@ -390,7 +368,7 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine: engine.to_string(),
+                    engine,
                     storage: "nvme".to_string(),
                     time: fastest_run,
                     format: file_format,
@@ -413,13 +391,14 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine: engine.to_string(),
+                    engine,
                     storage: "nvme".to_string(),
                     time: fastest_run,
                     format: file_format,
                     dataset: "clickbench".to_string(),
                 });
             }
+            Engine::Vortex => unreachable!("require another engine"),
         };
 
         progress_bar.inc(1);

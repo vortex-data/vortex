@@ -87,6 +87,26 @@ impl Format {
     }
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
+pub enum Engine {
+    #[default]
+    Vortex,
+    #[clap(name = "datafusion")]
+    DataFusion,
+    #[clap(name = "duckdb")]
+    DuckDB,
+}
+
+impl std::fmt::Display for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine::DataFusion => write!(f, "DataFusion"),
+            Engine::DuckDB => write!(f, "DuckDB"),
+            Engine::Vortex => write!(f, "Vortex"),
+        }
+    }
+}
+
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
 pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
