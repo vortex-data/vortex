@@ -20,21 +20,10 @@ jobs:
         # Regarding "include:":
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
         include:
-          - id: tpch-nvme
-            binary_name: tpch
-            name: TPC-H on NVME
-            local_dir: bench-vortex/data/tpch/1
-
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
-
-          - id: tpch-s3
-            binary_name: tpch
-            name: TPC-H on S3
-            local_dir: bench-vortex/data/tpch/1
-            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
 
     runs-on:
       - runs-on=${{ github.run_id }}
