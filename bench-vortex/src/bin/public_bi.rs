@@ -5,7 +5,8 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::{
-    Format, default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
+    Engine, Format, default_env_filter, execute_query, feature_flagged_allocator,
+    get_session_with_cache,
 };
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -151,7 +152,7 @@ fn main() -> anyhow::Result<()> {
             ));
             all_measurements.push(QueryMeasurement {
                 query_idx,
-                engine: "DataFusion".to_owned(),
+                engine: Engine::DataFusion,
                 storage: "nvme".to_string(),
                 time: fastest_result,
                 format: *format,
@@ -177,7 +178,13 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, &args.formats, RatioMode::Time, &None).unwrap()
+            render_table(
+                all_measurements,
+                &args.formats,
+                RatioMode::Time,
+                &[Engine::DataFusion],
+            )
+            .unwrap()
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }

@@ -10,7 +10,7 @@ use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
 };
-use bench_vortex::{Format, default_env_filter, feature_flagged_allocator};
+use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
 use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
@@ -274,7 +274,7 @@ async fn bench_main(
 
             measurements.push(QueryMeasurement {
                 query_idx,
-                engine: "DataFusion".to_owned(),
+                engine: Engine::DataFusion,
                 storage,
                 time: fastest_result,
                 format,
@@ -338,7 +338,13 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{}", m);
             }
-            render_table(measurements, &formats, RatioMode::Time, &None).unwrap();
+            render_table(
+                measurements,
+                &formats,
+                RatioMode::Time,
+                &[Engine::DataFusion],
+            )
+            .unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();

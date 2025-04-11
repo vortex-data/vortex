@@ -5,7 +5,7 @@ use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
-use bench_vortex::{Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use tokio::runtime::{Builder, Runtime};
@@ -81,6 +81,7 @@ fn random_access(
             || indices.clone(),
             |indices| async { take_vortex_tokio(&taxi_vortex, indices).await.unwrap() },
         ),
+        engine: Engine::Vortex,
     });
     progress.inc(1);
 
@@ -95,13 +96,14 @@ fn random_access(
                 || indices.clone(),
                 |indices| async { take_parquet(&taxi_parquet, indices).await.unwrap() },
             ),
+            engine: Engine::Vortex,
         });
         progress.inc(1);
     }
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &formats, RatioMode::Time, &None).unwrap();
+            render_table(measurements, &formats, RatioMode::Time, &[Engine::Vortex]).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();
