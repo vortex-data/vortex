@@ -6,6 +6,7 @@ use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -53,6 +54,7 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
     let packed = unsafe { bitpack_unchecked(array, bit_width)? };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(array, bit_width, num_exceptions))
+        .transpose()?
         .flatten();
 
     // SAFETY: values already checked to be non-negative.
@@ -178,7 +180,7 @@ pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
     num_exceptions_hint: usize,
-) -> Option<Patches> {
+) -> VortexResult<Option<Patches>> {
     let patch_validity = match parray.validity() {
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
@@ -193,12 +195,14 @@ pub fn gather_patches(
                 values.push(*v);
             }
         }
-        (!indices.is_empty()).then(|| Patches::new(
+
+        let indices = downscale_integer_array(indices.into_array())?;
+        VortexResult::Ok((!indices.is_empty()).then(|| Patches::new(
             parray.len(),
             0,
-            indices.into_array(),
+            indices,
             PrimitiveArray::new(values, patch_validity).into_array(),
-        ))
+        )))
     })
 }
 
