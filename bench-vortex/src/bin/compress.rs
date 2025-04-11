@@ -132,7 +132,13 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.throughputs, &formats, RatioMode::Throughput).unwrap();
+            render_table(
+                measurements.throughputs,
+                &formats,
+                RatioMode::Throughput,
+                &None,
+            )
+            .unwrap();
             render_table(
                 measurements.ratios,
                 if formats.contains(&Format::OnDiskVortex) {
@@ -141,6 +147,7 @@ fn compress(
                     &[]
                 },
                 RatioMode::Throughput,
+                &None,
             )
             .unwrap();
         }

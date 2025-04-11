@@ -223,16 +223,26 @@ fn print_results(
                         }
                     }
                 }
-                render_table(query_measurements, file_formats, RatioMode::Time).unwrap()
+                render_table(
+                    query_measurements,
+                    file_formats,
+                    RatioMode::Time,
+                    &Some(engine.to_string()),
+                )
+                .unwrap()
             }
 
             DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
         },
 
         Engine::DuckDB => match display_format {
-            DisplayFormat::Table => {
-                render_table(query_measurements, file_formats, RatioMode::Time).unwrap()
-            }
+            DisplayFormat::Table => render_table(
+                query_measurements,
+                file_formats,
+                RatioMode::Time,
+                &Some(engine.to_string()),
+            )
+            .unwrap(),
             DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
         },
     }

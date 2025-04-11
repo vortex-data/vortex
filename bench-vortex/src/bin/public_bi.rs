@@ -177,7 +177,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, &args.formats, RatioMode::Time).unwrap()
+            render_table(all_measurements, &args.formats, RatioMode::Time, &None).unwrap()
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }

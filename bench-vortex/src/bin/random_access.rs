@@ -101,7 +101,7 @@ fn random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &formats, RatioMode::Time).unwrap();
+            render_table(measurements, &formats, RatioMode::Time, &None).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();

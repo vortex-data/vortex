@@ -24,6 +24,7 @@ pub fn render_table<T: ToTable>(
     all_measurements: Vec<T>,
     formats: &[Format],
     mode: RatioMode,
+    engine: &Option<String>,
 ) -> anyhow::Result<()> {
     let mut measurements: HashMap<Format, Vec<TableValue>> =
         HashMap::with_capacity(all_measurements.len().div_ceil(formats.len()));
@@ -47,8 +48,12 @@ pub fn render_table<T: ToTable>(
     let mut table_builder = Builder::default();
     let mut colors = vec![];
 
-    let mut header = vec!["Benchmark"];
-    header.extend(formats.iter().map(|f| f.name()));
+    let mut header = vec!["Benchmark".to_owned()];
+    header.extend(
+        formats
+            .iter()
+            .map(|f| format!("{} {}", f.name(), engine.clone().unwrap_or_default())),
+    );
     table_builder.push_record(header);
 
     for (idx, baseline_measure) in baseline.iter().enumerate() {
