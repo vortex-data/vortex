@@ -98,9 +98,10 @@ impl ArrayCanonicalImpl for DictArray {
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
-            // For this case, it is *always* faster to decompress the values first and then create
-            // copies of the view pointers.
-            DType::Utf8(_) | DType::Binary(_) => {
+            // For this case, it is faster to decompress the values first and then create
+            // copies of the view pointers. If this array has more values than codes, we do not
+            // canonicalize the entire values child, and fallback to take
+            DType::Utf8(_) | DType::Binary(_) if self.values().len() < self.codes().len() => {
                 let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
                 take(&canonical_values, self.codes())?.to_canonical()
             }
