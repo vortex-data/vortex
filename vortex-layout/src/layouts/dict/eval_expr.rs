@@ -51,7 +51,9 @@ impl ExprEvaluator for DictReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let values_eval = self.values_eval(expr.clone());
-        let codes_eval = self.codes.projection_evaluation(row_range, expr)?;
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &Identity::new_expr())?;
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
@@ -75,9 +77,10 @@ impl MaskEvaluation for DictMaskEvaluation {
         let values_result = self.values_eval.clone().await?;
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
 
-        // creating a mask from the dict array would canonicalise it,
+        // Creating a mask from the dict array would canonicalise it,
         // it should be fine for now as long as values is already canonical,
-        // so different row ranges do not double canonicalise it
+        // so different row ranges do not canonicalise the same array
+        // multiple times.
         let dict_mask = &Mask::try_from(
             DictArray::try_new(codes, values_result)?
                 .to_array()

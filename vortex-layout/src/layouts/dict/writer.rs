@@ -86,6 +86,31 @@ struct Codes {
     writer: Box<dyn LayoutWriter>,
 }
 
+impl Codes {
+    fn transition(
+        mut self,
+        chunk: &dyn Array,
+        codes_len: usize,
+        segments: &mut dyn SegmentWriter,
+        child_strategy: ArcRef<dyn LayoutStrategy>,
+        ctx: &ArrayContext,
+        dtype: &DType,
+    ) -> VortexResult<State> {
+        if let Some(remainder) = remainder(chunk, codes_len)? {
+            self.writer.flush(segments)?;
+            let mut fallback = child_strategy.new_writer(ctx, dtype)?;
+            fallback.push_chunk(segments, remainder)?;
+            Ok(State::Fallback(Fallback {
+                dict_values: self.encoder.values()?,
+                codes_writer: self.writer,
+                fallback_writer: fallback,
+            }))
+        } else {
+            Ok(State::Codes(self))
+        }
+    }
+}
+
 struct Fallback {
     dict_values: ArrayRef,
     codes_writer: Box<dyn LayoutWriter>,
@@ -102,27 +127,39 @@ impl LayoutWriter for DictLayoutWriter {
             State::Uninit => {
                 let mut encoder = dict_encoder(&chunk, self.options.max_dict_size_bytes)?;
                 let codes = encoder.encode(&chunk)?;
-                let mut writer = self.child_strategy.new_writer(&self.ctx, codes.dtype())?;
+                let codes_len = codes.len();
+
+                // match values nullability
+                let codes_dtype = if self.dtype.is_nullable() {
+                    codes.dtype().as_nullable()
+                } else {
+                    codes.dtype().clone()
+                };
+                let mut writer = self.child_strategy.new_writer(&self.ctx, &codes_dtype)?;
                 writer.push_chunk(segments, codes)?;
-                State::Codes(Codes { encoder, writer })
+
+                Codes { encoder, writer }.transition(
+                    &chunk,
+                    codes_len,
+                    segments,
+                    self.child_strategy.clone(),
+                    &self.ctx,
+                    &self.dtype,
+                )?
             }
             State::Codes(mut codes) => {
                 let chunk_codes = codes.encoder.encode(&chunk)?;
                 let codes_len = chunk_codes.len();
+
                 codes.writer.push_chunk(segments, chunk_codes)?;
-                if codes_len <= chunk.len() {
-                    codes.writer.flush(segments)?;
-                    let mut fallback = self.child_strategy.new_writer(&self.ctx, &self.dtype)?;
-                    let remaining = slice(&chunk, codes_len, chunk.len())?;
-                    fallback.push_chunk(segments, remaining)?;
-                    State::Fallback(Fallback {
-                        dict_values: codes.encoder.values()?,
-                        codes_writer: codes.writer,
-                        fallback_writer: fallback,
-                    })
-                } else {
-                    State::Codes(codes)
-                }
+                codes.transition(
+                    &chunk,
+                    codes_len,
+                    segments,
+                    self.child_strategy.clone(),
+                    &self.ctx,
+                    &self.dtype,
+                )?
             }
             State::Fallback(mut fallback) => {
                 fallback.fallback_writer.push_chunk(segments, chunk)?;
@@ -163,6 +200,12 @@ impl LayoutWriter for DictLayoutWriter {
             }
         }
     }
+}
+
+fn remainder(array: &dyn Array, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
+    (encoded_len < array.len())
+        .then(|| slice(array, encoded_len, array.len()))
+        .transpose()
 }
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

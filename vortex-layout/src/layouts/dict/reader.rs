@@ -4,6 +4,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, RkyvMetadata};
+use vortex_dtype::DType;
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -42,8 +43,11 @@ impl DictReader {
             .child(0, layout.dtype().clone(), "values")?
             .reader(segment_source, ctx)?;
 
+        let codes_dtype =
+            DType::from(metadata.codes_ptype).with_nullability(values.dtype().nullability());
+
         let codes = layout
-            .child(1, metadata.codes_ptype.into(), "codes")?
+            .child(1, codes_dtype, "codes")?
             .reader(segment_source, ctx)?;
         Ok(Self {
             layout,
