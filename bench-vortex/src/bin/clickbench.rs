@@ -86,6 +86,24 @@ enum EngineCtx {
     DuckDB(DuckDBCtx),
 }
 
+impl EngineCtx {
+    fn new_with_datafusion(
+        session_ctx: datafusion::execution::context::SessionContext,
+        emit_execution_plan: bool,
+    ) -> Self {
+        EngineCtx::DataFusion(DataFusionCtx {
+            execution_plans: std::vec::Vec::new(),
+            metrics: std::vec::Vec::new(),
+            session: session_ctx,
+            emit_execution_plan,
+        })
+    }
+
+    fn new_with_duckdb(duckdb_path: Option<std::path::PathBuf>) -> Self {
+        EngineCtx::DuckDB(DuckDBCtx { duckdb_path })
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -161,15 +179,8 @@ fn main() -> anyhow::Result<()> {
             make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
 
             let mut engine_ctx = match engine {
-                Engine::DataFusion => EngineCtx::DataFusion(DataFusionCtx {
-                    execution_plans: std::vec::Vec::new(),
-                    metrics: std::vec::Vec::new(),
-                    session: session_ctx,
-                    emit_execution_plan: args.emit_plan,
-                }),
-                Engine::DuckDB => EngineCtx::DuckDB(DuckDBCtx {
-                    duckdb_path: args.duckdb_path.clone(),
-                }),
+                Engine::DataFusion => EngineCtx::new_with_datafusion(session_ctx, args.emit_plan),
+                Engine::DuckDB => EngineCtx::new_with_duckdb(args.duckdb_path.clone()),
                 _ => unreachable!("engine not supported"),
             };
 
