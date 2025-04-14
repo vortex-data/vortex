@@ -56,6 +56,10 @@ impl Pack {
         &self.names
     }
 
+    pub fn values(&self) -> &[ExprRef] {
+        &self.values
+    }
+
     pub fn field(&self, field_name: &FieldName) -> VortexResult<ExprRef> {
         let idx = self
             .names

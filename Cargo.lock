@@ -6084,6 +6084,7 @@ dependencies = [
  "prost-types",
  "serde",
  "serde_json",
+ "uuid",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

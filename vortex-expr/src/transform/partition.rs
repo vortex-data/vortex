@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use itertools::Itertools;
+use uuid::Uuid;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -70,9 +72,13 @@ impl PartitionedExpr {
     }
 }
 
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd)]
+struct FieldNameIdx(FieldName, usize);
+
 #[derive(Debug)]
 struct StructFieldExpressionSplitter<'a> {
     sub_expressions: HashMap<FieldName, Vec<ExprRef>>,
+    remap: HashMap<FieldNameIdx, FieldName>,
     accesses: &'a FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
 }
@@ -81,19 +87,16 @@ impl<'a> StructFieldExpressionSplitter<'a> {
     fn new(accesses: &'a FieldAccesses<'a>, scope_dtype: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
+            remap: HashMap::new(),
             accesses,
             scope_dtype,
         }
     }
 
-    pub(crate) fn field_idx_name(field: &FieldName, idx: usize) -> FieldName {
-        format!("__e__{}.{}", field, idx).into()
-    }
-
     fn split(expr: ExprRef, dtype: &DType) -> VortexResult<PartitionedExpr> {
         let scope_dtype = match dtype {
             DType::Struct(scope_dtype, _) => scope_dtype,
-            _ => vortex_bail!("Expected a struct dtype, got {:?}", dtype),
+            _ => vortex_bail!("Expected a struct dtype, got {}", dtype),
         };
 
         let field_accesses = immediate_scope_accesses(&expr, scope_dtype)?;
@@ -113,15 +116,25 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             // If there is a single expr then we don't need to `pack` this, and we must update
             // the root expr removing this access.
             let expr = if exprs.len() == 1 {
-                remove_accesses.push(Self::field_idx_name(&name, 0));
+                remove_accesses.push(
+                    splitter
+                        .remap
+                        .get(&FieldNameIdx(name.clone(), 0))
+                        .vortex_expect("Expected expression to be remapped")
+                        .clone(),
+                );
                 exprs.first().vortex_expect("exprs is non-empty").clone()
             } else {
-                pack(
-                    exprs
-                        .into_iter()
-                        .enumerate()
-                        .map(|(idx, expr)| (Self::field_idx_name(&name, idx), expr)),
-                )
+                pack(exprs.into_iter().enumerate().map(|(idx, expr)| {
+                    (
+                        splitter
+                            .remap
+                            .get(&FieldNameIdx(name.clone(), idx))
+                            .vortex_expect("Expected expression to be remapped")
+                            .clone(),
+                        expr,
+                    )
+                }))
             };
 
             let expr = simplify_typed(expr.clone(), &field_dtype)?;
@@ -182,10 +195,11 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 .transform(&mut ScopeStepIntoFieldExpr(field_name.clone()))?;
             sub_exprs.push(replaced.result);
 
-            let access = get_item(
-                Self::field_idx_name(field_name, idx),
-                get_item(field_name.clone(), ident()),
-            );
+            let remapped: Arc<str> = Arc::from(Uuid::new_v4().to_string());
+            self.remap
+                .insert(FieldNameIdx(field_name.clone(), idx), remapped.clone());
+
+            let access = get_item(remapped, get_item(field_name.clone(), ident()));
 
             return Ok(FoldDown::SkipChildren(access));
         };
@@ -206,13 +220,14 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
                 sub_exprs.push(ident());
 
+                let remapped: Arc<str> = Arc::from(Uuid::new_v4().to_string());
+                self.remap
+                    .insert(FieldNameIdx(field_name.clone(), idx), remapped.clone());
+
                 elements.push((
                     field_name.clone(),
                     // Partitions are packed into a struct of field name -> occurrence idx -> array
-                    get_item(
-                        Self::field_idx_name(field_name, idx),
-                        get_item(field_name.clone(), ident()),
-                    ),
+                    get_item(remapped, get_item(field_name.clone(), ident())),
                 ));
             }
 
@@ -273,7 +288,7 @@ mod tests {
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{Pack, and, get_item, ident, lit, pack, select};
+    use crate::{BinaryExpr, Pack, and, get_item, ident, lit, pack, select};
 
     fn dtype() -> DType {
         DType::Struct(
@@ -342,18 +357,12 @@ mod tests {
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
+        let simplified = simplify(split_a.clone()).unwrap();
+        let pack = simplified.as_any().downcast_ref::<Pack>().unwrap();
+        assert_eq!(pack.names().len(), 2);
         assert_eq!(
-            &simplify(split_a.clone()).unwrap(),
-            &pack([
-                (
-                    StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-                    get_item("a", ident())
-                ),
-                (
-                    StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                    get_item("b", ident())
-                )
-            ])
+            pack.values(),
+            &[get_item("a", ident()), get_item("b", ident())]
         );
         let split_c = partitioned.find_partition(&"c".into()).unwrap();
         assert_eq!(&simplify(split_c.clone()).unwrap(), &ident())
@@ -401,24 +410,23 @@ mod tests {
 
         // This fetches [].$c which is unused, however a previous optimisation should replace select
         // with get_item and pack removing this field.
+        let root_and = partitioned
+            .root
+            .as_any()
+            .downcast_ref::<BinaryExpr>()
+            .unwrap();
+        let and_left = root_and.lhs().as_any().downcast_ref::<GetItem>().unwrap();
+        let and_right = root_and.rhs().as_any().downcast_ref::<Pack>().unwrap();
+        let right_a_get_item = and_right.values()[0]
+            .as_any()
+            .downcast_ref::<GetItem>()
+            .unwrap();
+
+        assert_eq!(and_left.child(), &get_item("a", ident()));
         assert_eq!(
-            &partitioned.root,
-            &and(
-                get_item(
-                    StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-                    get_item("a", ident())
-                ),
-                pack([
-                    (
-                        "a",
-                        get_item(
-                            StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                            get_item("a", ident())
-                        )
-                    ),
-                    ("b", get_item("b", ident()))
-                ])
-            )
-        )
+            and_right.names(),
+            &FieldNames::from(["a".into(), "b".into()])
+        );
+        assert_eq!(right_a_get_item.child(), &get_item("a", ident()));
     }
 }
