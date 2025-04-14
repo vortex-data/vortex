@@ -126,20 +126,20 @@ fn color(baseline: MeasurementValue, value: MeasurementValue, mode: RatioMode) -
     match mode {
         RatioMode::Time => {
             if value > (baseline + baseline / 2) {
-                Color::BG_RED
+                Color::BG_RED | Color::FG_BLACK
             } else if value > (baseline + baseline / 10) {
-                Color::BG_YELLOW
+                Color::BG_YELLOW | Color::FG_BLACK
             } else {
-                Color::BG_BRIGHT_GREEN
+                Color::BG_BRIGHT_GREEN | Color::FG_BLACK
             }
         }
         RatioMode::Throughput => {
             if value < (baseline - baseline / 2) {
-                Color::BG_RED
+                Color::BG_RED | Color::FG_BLACK
             } else if value < (baseline - baseline / 10) {
-                Color::BG_YELLOW
+                Color::BG_YELLOW | Color::FG_BLACK
             } else {
-                Color::BG_BRIGHT_GREEN
+                Color::BG_BRIGHT_GREEN | Color::FG_BLACK
             }
         }
     }
