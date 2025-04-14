@@ -403,6 +403,13 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 		return state;
 	};
 
+	vortex_scan.table_scan_progress = [](ClientContext &context, const FunctionData *bind_data,
+	                                     const GlobalTableFunctionState *global_state) {
+		auto &gstate = global_state->Cast<VortexScanGlobalState>();
+
+		return 100 * (static_cast<double>(gstate.next_file.load()) / static_cast<double>(gstate.expanded_files.size()));
+	};
+
 	vortex_scan.pushdown_complex_filter = PushdownComplexFilter;
 	vortex_scan.projection_pushdown = true;
 	vortex_scan.cardinality = VortexCardinality;
