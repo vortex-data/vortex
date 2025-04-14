@@ -331,16 +331,10 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 
 	bind.conjuncts.reserve(filters.size());
 
-	for (auto iter = filters.begin(); iter != filters.end();) {
-		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
+	for (auto &filter : filters) {
+		auto expr = expression_into_vortex_expr(*bind.arena, *filter);
 		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);
-		}
-
-		if (expr != nullptr) {
-			iter = filters.erase(iter);
-		} else {
-			++iter;
 		}
 	}
 }
