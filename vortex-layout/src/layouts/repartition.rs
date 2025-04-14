@@ -1,15 +1,33 @@
 use std::collections::VecDeque;
 
+use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
 use vortex_array::nbytes::NBytes;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentWriter;
-use crate::{Layout, LayoutWriter};
+use crate::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
+pub struct RepartitionStrategy {
+    pub options: RepartitionWriterOptions,
+    pub child: ArcRef<dyn LayoutStrategy>,
+}
+
+impl LayoutStrategy for RepartitionStrategy {
+    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(RepartitionWriter::new(
+            dtype.clone(),
+            self.child.new_writer(ctx, dtype)?,
+            self.options.clone(),
+        )
+        .boxed())
+    }
+}
+
+#[derive(Clone)]
 pub struct RepartitionWriterOptions {
     /// The minimum uncompressed size in bytes for a block.
     pub block_size_minimum: usize,

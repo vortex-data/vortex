@@ -17,7 +17,9 @@ use vortex_layout::layouts::dict::writer::{
     DictLayoutOptions, DictLayoutWriter, dict_layout_supported,
 };
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
+use vortex_layout::layouts::repartition::{
+    RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
+};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
@@ -40,20 +42,30 @@ impl LayoutStrategy for VortexLayoutStrategy {
 
         // We buffer arrays per column, before flushing them into a chunked layout.
         // This helps to keep consecutive chunks of a column adjacent for more efficient reads.
-        let strategy: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
-            child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
-            // TODO(ngates): this should really be amortized by the number of fields? Maybe the
-            //  strategy could keep track of how many writers were created?
-            buffer_size: 2 << 20, // 2MB
-        }) as _);
+        let buffered_strategy: ArcRef<dyn LayoutStrategy> =
+            ArcRef::new_arc(Arc::new(BufferedStrategy {
+                child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
+                // TODO(ngates): this should really be amortized by the number of fields? Maybe the
+                //  strategy could keep track of how many writers were created?
+                buffer_size: 2 << 20, // 2MB
+            }) as _);
 
-        let compress_strategy = BtrBlocksCompressedStrategy { child: strategy };
+        // Prior to compression, re-partition into size-based chunks.
+        let coalescing_strategy = RepartitionStrategy {
+            options: RepartitionWriterOptions {
+                block_size_minimum: 1 << 20,        // 1 MB
+                block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
+            },
+            child: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                child: buffered_strategy,
+            })),
+        };
 
         let writer = if dict_layout_supported(dtype) {
             DictLayoutWriter::try_new(
                 ctx.clone(),
                 dtype,
-                ArcRef::new_arc(Arc::new(compress_strategy)),
+                ArcRef::new_arc(Arc::new(coalescing_strategy)),
                 ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
                     child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
                 })),
@@ -63,19 +75,8 @@ impl LayoutStrategy for VortexLayoutStrategy {
             )?
             .boxed()
         } else {
-            compress_strategy.new_writer(ctx, &DType::Null)?
+            coalescing_strategy.new_writer(ctx, dtype)?
         };
-
-        // Prior to compression, re-partition into size-based chunks.
-        let writer = RepartitionWriter::new(
-            dtype.clone(),
-            writer,
-            RepartitionWriterOptions {
-                block_size_minimum: 1 << 20,        // 1 MB
-                block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
-            },
-        )
-        .boxed();
 
         // Prior to repartitioning, we record statistics
         let stats_writer = StatsLayoutWriter::new(

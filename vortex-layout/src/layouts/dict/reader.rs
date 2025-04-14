@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, RkyvMetadata};
+use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, RkyvMetadata};
 use vortex_dtype::DType;
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
