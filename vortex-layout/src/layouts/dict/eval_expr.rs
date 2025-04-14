@@ -1,6 +1,7 @@
 use std::ops::{BitAnd, Range};
 
 use async_trait::async_trait;
+use futures::join;
 use vortex_array::arrays::StructArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dict::DictArray;
@@ -99,8 +100,8 @@ struct DictArrayEvaluation {
 #[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let values_result = self.values_eval.clone().await?;
-        let codes = self.codes_eval.invoke(mask).await?;
+        let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
+        let (values_result, codes) = (values_result?, codes?);
 
         match values_result.as_struct_typed() {
             // If the expression returns a struct push down the dict creation,
