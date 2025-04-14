@@ -22,10 +22,8 @@ table Postscript {
     dtype: PostscriptSegment;
     /// Segment containing the file-level `Statistics` flatbuffer.
     statistics: PostscriptSegment;
-    /// Segment containing the root `Layout` flatbuffer.
+    /// Segment containing the `FileLayout` flatbuffer.
     layout: PostscriptSegment (required);
-    // Segment containing the `Registry` flatbuffer of dictionary-encoded configuration.
-    registry: PostscriptSegment (required);
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
@@ -49,7 +47,10 @@ table FileStatistics {
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,
 /// compression schemes, encryption schemes, etc.
-table Registry {
+table FileLayout {
+    // The root [`Layout`] of the file.
+    layout: Layout (required);
+
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];
     // Dictionary-encoded layout specs, up to u16::MAX.
@@ -107,5 +108,5 @@ table EncryptionSpec {
 // [footer]
 
 root_type FileStatistics;
-root_type Registry;
+root_type FileLayout;
 root_type Postscript;
