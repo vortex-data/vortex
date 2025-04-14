@@ -8,11 +8,6 @@ plugins {
     id("com.gradleup.shadow") version "8.3.6"
 }
 
-java {
-    withJavadocJar()
-    withSourcesJar()
-}
-
 dependencies {
     implementation("org.apache.arrow:arrow-c-data")
     implementation("org.apache.arrow:arrow-memory-core")
@@ -67,8 +62,11 @@ mavenPublishing {
             developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
             url = "https://github.com/spiraldb/vortex"
         }
+    }
 
-        // shadowJar block should be dropped
+    repositories {
+        mavenCentral()
+        mavenLocal()
     }
 }
 

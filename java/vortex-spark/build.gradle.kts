@@ -7,11 +7,6 @@ plugins {
     `jvm-test-suite`
 }
 
-java {
-    withJavadocJar()
-    withSourcesJar()
-}
-
 dependencies {
     api("org.apache.spark:spark-catalyst_2.12")
     api("org.apache.spark:spark-sql_2.12")
@@ -61,6 +56,11 @@ mavenPublishing {
             developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
             url = "https://github.com/spiraldb/vortex"
         }
+    }
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
     }
 }
 
