@@ -18,7 +18,7 @@ use vortex::error::VortexExpect;
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     // Using a new_multi_thread runtime since a current local runtime has a deadlock.
-    Builder::new_multi_thread()
+    Builder::new_current_thread()
         .enable_all()
         .build()
         .vortex_expect("building runtime")
