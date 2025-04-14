@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::footer::FileStatistics;
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
-use crate::footer::{Footer, Postscript, SegmentSpec};
+use crate::footer::{FileStatistics, Footer, Postscript, SegmentSpec};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -20,7 +23,7 @@ use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
-    file_statistics: Option<Vec<Stat>>,
+    file_statistics: Vec<Stat>,
 }
 
 impl Default for VortexWriteOptions {
@@ -28,7 +31,7 @@ impl Default for VortexWriteOptions {
         Self {
             strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
-            file_statistics: Some(PRUNING_STATS.to_vec()),
+            file_statistics: PRUNING_STATS.to_vec(),
         }
     }
 }
@@ -103,15 +106,24 @@ impl VortexWriteOptions {
             .flush_async(&mut write, &mut segment_map)
             .await?;
 
-        // Write the DType, followed by the Footer. We choose this order because in many cases
-        // the reader can provide an external DType, therefore we may not even need to read it.
-        // We will always need the footer, therefore we write it closest to the end of the file
-        // and therefore most likely to be picked up in the initial read.
+        // We write our footer components in order of least likely to be needed to most likely.
+        // DType is the least likely to be needed, as many readers may provide this from an
+        // external source.
         let dtype_segment = if self.exclude_dtype {
             None
         } else {
             Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
         };
+        let statistics_segment = if self.file_statistics.is_empty() {
+            None
+        } else {
+            let file_statistics = FileStatistics(layout_writer.into_stats_sets().into());
+            Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
+        };
+        let layout_segment = self.write_flatbuffer(&mut write, &layout).await?;
+        let registry_segment = self
+            .write_flatbuffer(&mut write, RegistryFlatBufferWriter {})
+            .await?;
 
         let footer_segment = self
             .write_flatbuffer(
@@ -130,7 +142,9 @@ impl VortexWriteOptions {
         // Assemble the postscript, and write it manually to avoid any framing.
         let postscript = Postscript {
             dtype: dtype_segment,
-            footer: footer_segment,
+            statistics: statistics_segment,
+            layout: layout_segment,
+            registry: registry_segment,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes();
         if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {

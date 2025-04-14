@@ -150,6 +150,11 @@ impl<F: FileType> VortexOpenOptions<F> {
         // If we haven't been provided a DType, we must read one from the file.
         let dtype_segment = self.dtype.is_none().then(|| postscript.dtype.ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))).transpose()?;
 
+        // The other postscript segments are required.
+        let footer_segment = postscript
+            .footer
+            .ok_or_else(|| vortex_err!("Vortex file doesn't embed a Footer"))?;
+
         // Check if we need to read more bytes for the DType or Footer.
         let mut read_more_offset = initial_offset;
 

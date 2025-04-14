@@ -1,11 +1,16 @@
+mod compression;
+mod file_statistics;
 mod postscript;
+mod registry;
 mod segment;
 
 use std::sync::Arc;
 
+pub(crate) use file_statistics::*;
 use flatbuffers::{FlatBufferBuilder, root};
 use itertools::Itertools;
 pub(crate) use postscript::*;
+pub(crate) use registry::*;
 pub use segment::*;
 use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
@@ -19,9 +24,9 @@ use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
-    ctx: ArrayContext,
+    array_ctx: ArrayContext,
     layout_ctx: LayoutContext,
-    layout: Layout,
+    root_layout: Layout,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<Arc<[StatsSet]>>,
 }
@@ -33,7 +38,7 @@ impl Footer {
     ///
     /// Panics if the segments are not ordered by byte offset.
     pub fn new(
-        ctx: ArrayContext,
+        array_ctx: ArrayContext,
         layout_ctx: LayoutContext,
         root_layout: Layout,
         segments: Arc<[SegmentSpec]>,
@@ -47,9 +52,9 @@ impl Footer {
                 .all(|(a, b)| a.offset <= b.offset)
         );
         Self {
-            ctx,
+            array_ctx,
             layout_ctx,
-            layout: root_layout,
+            root_layout,
             segments,
             statistics,
         }
@@ -133,7 +138,7 @@ impl Footer {
 
     /// Returns the array [`ArrayContext`] of the file.
     pub fn ctx(&self) -> &ArrayContext {
-        &self.ctx
+        &self.array_ctx
     }
 
     /// Returns the [`LayoutContext`] of the file.
@@ -143,7 +148,7 @@ impl Footer {
 
     /// Returns the root [`Layout`] of the file.
     pub fn layout(&self) -> &Layout {
-        &self.layout
+        &self.root_layout
     }
 
     /// Returns the segment map of the file.
@@ -158,12 +163,12 @@ impl Footer {
 
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
-        self.layout.dtype()
+        self.root_layout.dtype()
     }
 
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
-        self.layout.row_count()
+        self.root_layout.row_count()
     }
 
     /// Creates a [`FlatBufferRoot`] for the footer that can be used to serialize the footer
@@ -216,7 +221,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.id().as_ref());
-                fb::ArrayEncoding::create(fbb, &fb::ArrayEncodingArgs { id: Some(id) })
+                fb::ArraySpec::create(fbb, &fb::ArraySpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
         let array_encodings = fbb.create_vector(array_encodings.as_slice());
@@ -226,7 +231,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.id().as_ref());
-                fb::LayoutEncoding::create(fbb, &fb::LayoutEncodingArgs { id: Some(id) })
+                fb::LayoutSpec::create(fbb, &fb::LayoutSpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
         let layout_encodings = fbb.create_vector(layout_encodings.as_slice());
