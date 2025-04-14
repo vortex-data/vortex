@@ -1,6 +1,7 @@
 use std::ops::{BitAnd, Range};
 
 use async_trait::async_trait;
+use vortex_array::arrays::StructArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dict::DictArray;
 use vortex_error::VortexResult;
@@ -100,6 +101,21 @@ impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let values_result = self.values_eval.clone().await?;
         let codes = self.codes_eval.invoke(mask).await?;
-        Ok(DictArray::try_new(codes, values_result)?.to_array())
+
+        match values_result.as_struct_typed() {
+            // If the expression returns a struct push down the dict creation,
+            // return a struct of dicts
+            Some(struct_typed) => Ok(StructArray::try_new(
+                struct_typed.names().clone(),
+                struct_typed
+                    .fields()
+                    .map(|field| Ok(DictArray::try_new(codes.clone(), field)?.to_array()))
+                    .collect::<VortexResult<Vec<_>>>()?,
+                codes.len(),
+                struct_typed.dtype().nullability().into(),
+            )?
+            .to_array()),
+            None => Ok(DictArray::try_new(codes, values_result)?.to_array()),
+        }
     }
 }
