@@ -12,7 +12,8 @@ use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
-use crate::{Format, GIT_COMMIT_ID};
+use crate::Format;
+use crate::engines::df::GIT_COMMIT_ID;
 
 pub trait MetricsSetExt {
     fn merge_all_with_label(&mut self, other: MetricsSet, labels: &[Label]);

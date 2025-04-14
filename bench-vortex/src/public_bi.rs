@@ -33,7 +33,7 @@ use vortex::{Array as _, ArrayRef};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::BenchmarkDataset;
+use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
 use crate::{IdempotentPath, idempotent_async};
 
@@ -391,7 +391,7 @@ impl PBIData {
 }
 
 #[async_trait]
-impl BenchmarkDataset for PBIBenchmark {
+impl Dataset for PBIBenchmark {
     fn name(&self) -> &str {
         &self.name
     }

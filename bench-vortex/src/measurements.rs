@@ -7,7 +7,8 @@ use std::time::Duration;
 use serde::{Serialize, Serializer};
 use vortex::error::vortex_panic;
 
-use crate::{Engine, Format, GIT_COMMIT_ID};
+use crate::engines::df::GIT_COMMIT_ID;
+use crate::{Engine, Format};
 
 pub trait ToJson {
     fn to_json(&self) -> JsonValue;
