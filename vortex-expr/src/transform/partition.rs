@@ -13,7 +13,7 @@ use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, Transf
 use crate::{ExprRef, GetItem, Identity, get_item, ident, pack};
 
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
-    LazyLock::new(|| DefaultHashBuilder::default());
+    LazyLock::new(DefaultHashBuilder::default);
 
 /// Partition an expression over the fields of the scope.
 ///

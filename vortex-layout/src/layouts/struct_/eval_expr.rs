@@ -23,9 +23,18 @@ use crate::{
 impl ExprEvaluator for StructReader {
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let partitioned = self.partition_expr(expr.clone());
+
+        if partitioned.partition_names.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .pruning_evaluation(row_range, &partitioned.partitions[0]);
+        }
+
         // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
         //  there's not much we can do? Maybe... it's complicated...
         Ok(Box::new(NoOpPruningEvaluation))
@@ -38,6 +47,13 @@ impl ExprEvaluator for StructReader {
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
+
+        // Short-circuit if there is only one partition
+        if partitioned.partition_names.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .filter_evaluation(row_range, &partitioned.partitions[0]);
+        }
 
         // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
 
@@ -75,6 +91,13 @@ impl ExprEvaluator for StructReader {
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
+
+        // Short-circuit if there is only one partition
+        if partitioned.partition_names.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .projection_evaluation(row_range, &partitioned.partitions[0]);
+        }
 
         // Construct evaluations for each child.
         let field_evals: Vec<_> = partitioned
