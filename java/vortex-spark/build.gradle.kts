@@ -5,7 +5,6 @@ apply(plugin = "com.vanniktech.maven.publish")
 plugins {
     `java-library`
     `jvm-test-suite`
-    `maven-publish`
 }
 
 java {

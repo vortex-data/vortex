@@ -4,7 +4,6 @@ import com.vanniktech.maven.publish.SonatypeHost
 plugins {
     `java-library`
     `jvm-test-suite`
-    `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
 }
