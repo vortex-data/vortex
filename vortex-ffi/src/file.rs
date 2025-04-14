@@ -1,9 +1,9 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{ptr, slice};
 
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -13,7 +13,7 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
@@ -21,6 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
+use crate::error::FFIError;
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -65,6 +66,59 @@ pub struct FileScanOptions {
 
     /// Splits the file into chunks of this size, if zero then we use the write layout.
     pub split_by_row_count: c_int,
+}
+
+pub unsafe extern "C" fn File_open2(
+    options: *const FileOpenOptions,
+    error: *mut *const FFIError,
+) -> *mut FFIFile {
+    let result = (|| {
+        {
+            let options = unsafe {
+                options
+                    .as_ref()
+                    .ok_or_else(|| Err(vortex_err!("null options")))
+            }?;
+
+            if options.uri.is_null() {
+                vortex_bail!("null uri")
+            }
+            let uri = CStr::from_ptr(options.uri).to_string_lossy();
+            let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+
+            let prop_keys = to_string_vec(options.property_keys, options.property_len);
+            let prop_vals = to_string_vec(options.property_vals, options.property_len);
+
+            let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
+
+            // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
+            // tokio dep
+            let result = RUNTIME.block_on(async move {
+                VortexOpenOptions::file()
+                    .open_object_store(&object_store, uri.path())
+                    .await
+            });
+
+            let file = result?;
+            let ffi_file = FFIFile { inner: file };
+            VortexResult::Ok(ffi_file)
+        }
+    })();
+
+    match result {
+        Ok(file) => Box::into_raw(Box::new(file)),
+        Err(err) => {
+            let cstr: CStr = err.into();
+            error.write(
+                Box::into_raw(Box::new(FFIError {
+                    code: -1,
+                    message: cstr.as_ptr(),
+                }))
+                .cast(),
+            );
+            ptr::null_mut()
+        }
+    }
 }
 
 /// Open a file at the given path on the file system.

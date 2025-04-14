@@ -6,6 +6,7 @@ mod array;
 mod dtype;
 #[cfg(feature = "duckdb")]
 mod duckdb;
+mod error;
 mod file;
 mod log;
 mod stream;
