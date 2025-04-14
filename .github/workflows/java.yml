@@ -101,3 +101,7 @@ jobs:
           cp ../libvortex_jni_linux_amd64.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
       - name: Build Java
         run: ./gradlew shadowJar
+      - name: Publish to Maven Central
+        if: github.ref == 'refs/heads/develop'
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+      
