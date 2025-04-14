@@ -66,7 +66,7 @@ impl Default for VortexFormatOptions {
     fn default() -> Self {
         Self {
             footer_cache_size_mb: 64,
-            segment_cache_size_mb: 1024,
+            segment_cache_size_mb: 0,
         }
     }
 }

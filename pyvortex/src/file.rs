@@ -41,6 +41,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
     let vxf = TOKIO_RUNTIME.block_on(
         VortexOpenOptions::file()
+            // TODO(ngates): use a globally shared segment cache for all files
             .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
             .open(TokioFile::open(path)?),
     )?;
