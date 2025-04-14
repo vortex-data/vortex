@@ -6,7 +6,8 @@ use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
 use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
 
-pub(crate) struct FileStatistics(Arc<[StatsSet]>);
+#[derive(Clone, Debug)]
+pub(crate) struct FileStatistics(pub(crate) Arc<[StatsSet]>);
 
 impl FlatBufferRoot for FileStatistics {}
 
@@ -34,7 +35,7 @@ impl WriteFlatBuffer for FileStatistics {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let field_stats = self.0.iter().map(|s| s.write_flatbuffer(fbb)).collect_vec();
-        let field_stats = field_stats.map(|s| fbb.create_vector(s.as_slice()));
+        let field_stats = fbb.create_vector(field_stats.as_slice());
 
         fb::FileStatistics::create(
             fbb,

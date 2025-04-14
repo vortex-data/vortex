@@ -22,8 +22,8 @@ table Postscript {
     dtype: PostscriptSegment;
     /// Segment containing the file-level `Statistics` flatbuffer.
     statistics: PostscriptSegment;
-    /// Segment containing the `FileLayout` flatbuffer.
-    layout: PostscriptSegment (required);
+    /// Segment containing the `FileLayout` flatbuffer (required).
+    layout: PostscriptSegment;
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
@@ -49,7 +49,7 @@ table FileStatistics {
 /// compression schemes, encryption schemes, etc.
 table FileLayout {
     // The root [`Layout`] of the file.
-    layout: Layout (required);
+    layout: Layout;
 
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];

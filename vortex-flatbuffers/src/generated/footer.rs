@@ -399,13 +399,13 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_STATISTICS, None)}
   }
-  /// Segment containing the `FileLayout` flatbuffer.
+  /// Segment containing the `FileLayout` flatbuffer (required).
   #[inline]
-  pub fn layout(&self) -> PostscriptSegment<'a> {
+  pub fn layout(&self) -> Option<PostscriptSegment<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, None).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, None)}
   }
 }
 
@@ -418,7 +418,7 @@ impl flatbuffers::Verifiable for Postscript<'_> {
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("dtype", Self::VT_DTYPE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("layout", Self::VT_LAYOUT, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("layout", Self::VT_LAYOUT, false)?
      .finish();
     Ok(())
   }
@@ -434,7 +434,7 @@ impl<'a> Default for PostscriptArgs<'a> {
     PostscriptArgs {
       dtype: None,
       statistics: None,
-      layout: None, // required field
+      layout: None,
     }
   }
 }
@@ -467,7 +467,6 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<Postscript<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, Postscript::VT_LAYOUT,"layout");
     flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -794,11 +793,11 @@ impl<'a> FileLayout<'a> {
 
 
   #[inline]
-  pub fn layout(&self) -> Layout<'a> {
+  pub fn layout(&self) -> Option<Layout<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FileLayout::VT_LAYOUT, None).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FileLayout::VT_LAYOUT, None)}
   }
   #[inline]
   pub fn array_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>> {
@@ -844,7 +843,7 @@ impl flatbuffers::Verifiable for FileLayout<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArraySpec>>>>("array_specs", Self::VT_ARRAY_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutSpec>>>>("layout_specs", Self::VT_LAYOUT_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segment_specs", Self::VT_SEGMENT_SPECS, false)?
@@ -866,7 +865,7 @@ impl<'a> Default for FileLayoutArgs<'a> {
   #[inline]
   fn default() -> Self {
     FileLayoutArgs {
-      layout: None, // required field
+      layout: None,
       array_specs: None,
       layout_specs: None,
       segment_specs: None,
@@ -916,7 +915,6 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileLayoutBuilder<'a, 'b, A> {
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<FileLayout<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, FileLayout::VT_LAYOUT,"layout");
     flatbuffers::WIPOffset::new(o.value())
   }
 }

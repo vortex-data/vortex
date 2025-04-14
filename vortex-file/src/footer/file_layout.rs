@@ -1,13 +1,22 @@
+use std::sync::Arc;
+
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use vortex_array::ArrayContext;
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, footer as fb};
-use vortex_layout::LayoutContext;
+use vortex_layout::{Layout, LayoutContext};
 
-pub struct RegistryFlatBufferWriter {}
+use crate::footer::segment::SegmentSpec;
 
-impl FlatBufferRoot for RegistryFlatBufferWriter {}
+pub(crate) struct FileLayoutFlatBufferWriter {
+    pub(crate) ctx: ArrayContext,
+    pub(crate) layout: Layout,
+    pub(crate) segment_specs: Arc<[SegmentSpec]>,
+}
 
-impl WriteFlatBuffer for RegistryFlatBufferWriter {
-    type Target<'a> = fb::Registry<'a>;
+impl FlatBufferRoot for FileLayoutFlatBufferWriter {}
+
+impl WriteFlatBuffer for FileLayoutFlatBufferWriter {
+    type Target<'a> = fb::FileLayout<'a>;
 
     fn write_flatbuffer<'fb>(
         &self,
@@ -17,14 +26,10 @@ impl WriteFlatBuffer for RegistryFlatBufferWriter {
         let layout_ctx = LayoutContext::empty();
         let layout = self.layout.write_flatbuffer(fbb, &layout_ctx);
 
-        let segments = fbb.create_vector_from_iter(self.segments.iter().map(fb::SegmentSpec::from));
-        let statistics = self
-            .statistics
-            .as_ref()
-            .map(|stats| stats.iter().map(|s| s.write_flatbuffer(fbb)).collect_vec());
-        let statistics = statistics.map(|s| fbb.create_vector(s.as_slice()));
+        let segment_specs =
+            fbb.create_vector_from_iter(self.segment_specs.iter().map(fb::SegmentSpec::from));
 
-        let array_encodings = self
+        let array_specs = self
             .ctx
             .encodings()
             .iter()
@@ -33,9 +38,9 @@ impl WriteFlatBuffer for RegistryFlatBufferWriter {
                 fb::ArraySpec::create(fbb, &fb::ArraySpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
-        let array_encodings = fbb.create_vector(array_encodings.as_slice());
+        let array_specs = fbb.create_vector(array_specs.as_slice());
 
-        let layout_encodings = layout_ctx
+        let layout_specs = layout_ctx
             .encodings()
             .iter()
             .map(|e| {
@@ -43,14 +48,15 @@ impl WriteFlatBuffer for RegistryFlatBufferWriter {
                 fb::LayoutSpec::create(fbb, &fb::LayoutSpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
-        let layout_encodings = fbb.create_vector(layout_encodings.as_slice());
+        let layout_specs = fbb.create_vector(layout_specs.as_slice());
 
-        fb::Registry::create(
+        fb::FileLayout::create(
             fbb,
-            &fb::RegistryArgs {
-                array_specs: None,
-                layout_specs: None,
-                segment_specs: None,
+            &fb::FileLayoutArgs {
+                layout: Some(layout),
+                segment_specs: Some(segment_specs),
+                array_specs: Some(array_specs),
+                layout_specs: Some(layout_specs),
                 compression_specs: None,
                 encryption_specs: None,
             },
