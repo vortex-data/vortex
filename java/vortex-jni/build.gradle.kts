@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.io.ByteArrayOutputStream
 
 plugins {
     `java-library`
@@ -145,9 +146,18 @@ rustTargets.forEach { target ->
     tasks.register("cargoBuild_$target", Exec::class) {
         workingDir = vortexJNI
 
+	val output = ByteArrayOutputStream()
+        exec {
+            commandLine("rustc", "--print", "host-tuple")
+            standardOutput = output
+        }
+        val hostTuple = output.toString().trim()
+
         commandLine(
             "cargo",
-            "zigbuild",
+	    // NOTE(aduffy): when using zigbuild on macOS with target aarch64-apple-darwin,
+	    //  the `ring` crate has link issues.
+            if (hostTuple == target) { "build" } else { "zigbuild" },
             "--release",
             "--target",
             target,
