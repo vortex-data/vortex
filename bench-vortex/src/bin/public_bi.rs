@@ -143,21 +143,25 @@ fn main() -> anyhow::Result<()> {
                 });
                 fastest_result = fastest_result.min(exec_duration);
             }
-            progress_bar.inc(1);
+
             let plan = last_plan.expect("must have at least one iteration");
+
             metrics.push((
                 query_idx,
                 format,
                 VortexMetricsFinder::find_all(plan.as_ref()),
             ));
+
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 engine: Engine::DataFusion,
-                storage: "nvme".to_string(),
+                storage: "nvme".to_owned(),
                 time: fastest_result,
                 format: *format,
-                dataset: pbi_dataset.name.to_string(),
+                dataset: pbi_dataset.name.to_owned(),
             });
+
+            progress_bar.inc(1);
         }
     }
 

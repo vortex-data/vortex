@@ -278,13 +278,14 @@ async fn bench_main(
                 storage,
                 time: fastest_result,
                 format,
-                dataset: "tpch".to_string(),
+                dataset: "tpch".to_owned(),
             });
 
             progress.inc(1);
         }
+
         if export_spans {
-            if let Err(e) = export_plan_spans(format, plans).await {
+            if let Err(e) = export_plan_spans(format, &plans).await {
                 warn!("failed to export spans {e}");
             }
         }

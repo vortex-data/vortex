@@ -49,6 +49,8 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
+    #[arg(long, default_value_t = false)]
+    emit_plan: bool,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(long, default_value_t = false)]
@@ -61,6 +63,27 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(long, default_value_t = false)]
     single_file: bool,
+}
+
+struct DataFusionCtx {
+    execution_plans: Vec<(usize, std::sync::Arc<dyn execution_plan::ExecutionPlan>)>,
+    metrics: Vec<(
+        usize,
+        Format,
+        Vec<datafusion_physical_plan::metrics::MetricsSet>,
+    )>,
+
+    session: datafusion::execution::context::SessionContext,
+    emit_execution_plan: bool,
+}
+
+struct DuckDBCtx {
+    duckdb_path: Option<std::path::PathBuf>,
+}
+
+enum EngineCtx {
+    DataFusion(DataFusionCtx),
+    DuckDB(DuckDBCtx),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -103,16 +126,18 @@ fn main() -> anyhow::Result<()> {
         panic!("use `--formats vortex` instead of `--only-vortex`");
     }
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let tokio_runtime = || {
+        match args.threads {
+            Some(0) => panic!("Can't use 0 threads for runtime"),
+            Some(1) => Builder::new_current_thread().enable_all().build(),
+            Some(n) => Builder::new_multi_thread()
+                .worker_threads(n)
+                .enable_all()
+                .build(),
+            None => Builder::new_multi_thread().enable_all().build(),
+        }
+        .expect("Failed building the Runtime")
+    };
 
     let queries = match &args.queries {
         None => clickbench_queries(),
@@ -126,50 +151,64 @@ fn main() -> anyhow::Result<()> {
     let progress_bar =
         ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64);
 
-    let mut query_measurements = Vec::default();
-    for engine in args.engines.iter() {
-        let mut metrics = Vec::default();
+    let mut query_measurements = Vec::new();
 
+    for engine in &args.engines {
         for file_format in &args.formats {
-            let session_context = get_session_with_cache(args.emulate_object_store);
+            let session_ctx = get_session_with_cache(args.emulate_object_store);
+
             // Register object store to the session.
-            make_object_store(&session_context, &base_url)?;
-            let mut execution_plans = Vec::default();
+            make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
+
+            let mut engine_ctx = match engine {
+                Engine::DataFusion => EngineCtx::DataFusion(DataFusionCtx {
+                    execution_plans: std::vec::Vec::new(),
+                    metrics: std::vec::Vec::new(),
+                    session: session_ctx,
+                    emit_execution_plan: args.emit_plan,
+                }),
+                Engine::DuckDB => EngineCtx::DuckDB(DuckDBCtx {
+                    duckdb_path: args.duckdb_path.clone(),
+                }),
+                _ => unreachable!("engine not supported"),
+            };
+
+            let tokio_runtime = tokio_runtime();
 
             init_data_source(
                 *file_format,
-                *engine,
-                &session_context,
                 &base_url,
                 args.single_file,
-                &runtime,
-            )?;
+                &engine_ctx,
+                &tokio_runtime,
+            )
+            .expect("Failed to initialize data source");
 
-            execute_queries(
+            let bench_measurements = execute_queries(
                 &queries,
-                *engine,
                 args.iterations,
                 args.single_file,
-                &runtime,
+                &tokio_runtime,
+                *file_format,
                 &base_url,
                 &progress_bar,
-                *file_format,
-                &mut query_measurements,
-                &args.duckdb_path,
-                &session_context,
-                &mut execution_plans,
-                &mut metrics,
+                &mut engine_ctx,
             );
 
-            if args.export_spans {
-                if let Err(e) = runtime
-                    .block_on(async move { export_plan_spans(*file_format, execution_plans).await })
-                {
-                    warn!("failed to export spans {e}");
+            if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
+                if args.export_spans {
+                    if let Err(err) = tokio_runtime.block_on(async move {
+                        export_plan_spans(*file_format, &ctx.execution_plans).await
+                    }) {
+                        warn!("failed to export spans {err}");
+                    }
                 }
+
+                print_metrics(&ctx.metrics);
             }
+
+            query_measurements.extend(bench_measurements);
         }
-        print_metrics(metrics);
     }
 
     print_results(
@@ -183,7 +222,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn print_metrics(
-    metrics: Vec<(
+    metrics: &Vec<(
         usize,
         Format,
         Vec<datafusion::physical_plan::metrics::MetricsSet>,
@@ -191,9 +230,10 @@ fn print_metrics(
 ) {
     for (query_idx, file_format, metric_sets) in metrics {
         println!("metrics for query={query_idx}, {file_format}:");
-        for (query_idx, metrics_set) in metric_sets.into_iter().enumerate() {
+        for (query_idx, metrics_set) in metric_sets.iter().enumerate() {
             println!("scan[{query_idx}]:");
             for metric in metrics_set
+                .clone()
                 .timestamps_removed()
                 .aggregate()
                 .sorted_for_display()
@@ -261,46 +301,43 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 /// Parquet files are registered directly. Vortex files are created form Parquet files.
 fn init_data_source(
     file_format: Format,
-    engine: Engine,
-    context: &datafusion::execution::context::SessionContext,
-    url: &Url,
+    base_url: &Url,
     single_file: bool,
-    runtime: &tokio::runtime::Runtime,
+    engine_ctx: &EngineCtx,
+    tokio_runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
     match file_format {
-        Format::Parquet => match engine {
-            Engine::DataFusion => {
-                clickbench::register_parquet_files(context, "hits", url, &HITS_SCHEMA, single_file)?
-            }
-            Engine::DuckDB => { /* nothing to do */ }
-            Engine::Vortex => {
-                unreachable!("require another engine")
-            }
+        Format::Parquet => match engine_ctx {
+            EngineCtx::DataFusion(ctx) => clickbench::register_parquet_files(
+                &ctx.session,
+                "hits",
+                base_url,
+                &HITS_SCHEMA,
+                single_file,
+            )?,
+            EngineCtx::DuckDB(_) => { /* nothing to do */ }
         },
         Format::OnDiskVortex => {
-            runtime.block_on(async {
-                if url.scheme() == "file" {
-                    clickbench::convert_parquet_to_vortex(&url.to_file_path().unwrap())
+            tokio_runtime.block_on(async {
+                if base_url.scheme() == "file" {
+                    clickbench::convert_parquet_to_vortex(&base_url.to_file_path().unwrap())
                         .await
                         .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
                 }
 
-                match engine {
-                    Engine::DataFusion => {
+                match engine_ctx {
+                    EngineCtx::DataFusion(ctx) => {
                         clickbench::register_vortex_files(
-                            context.clone(),
+                            ctx.session.clone(),
                             "hits",
-                            url,
+                            base_url,
                             &HITS_SCHEMA,
                             single_file,
                         )
                         .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
                     }
 
-                    Engine::DuckDB => { /* nothing to do */ }
-                    Engine::Vortex => {
-                        unreachable!("require another engine")
-                    }
+                    EngineCtx::DuckDB(_) => { /* nothing to do */ }
                 }
             });
         }
@@ -315,52 +352,45 @@ fn init_data_source(
 /// # Arguments
 ///
 /// * `queries` - Query indices and their corresponding SQL strings
-/// * `engine` - DataFusion or DuckDB
 /// * `iterations` - Number of times to execute each query
 /// * `single_file` - Whether to use a single file or multiple files for the dataset
-/// * `runtime` - Tokio runtime
+/// * `tokio_runtime` - Tokio runtime
 /// * `file_format` - Parquet, Vortex, etc.
 /// * `base_url` - Base URL where the dataset is located
 /// * `progress_bar` - Progress indicator for tracking query execution
-/// * `query_measurements` - Vector to store query performance measurements
-/// * `session_context` - DataFusion session context
-/// * `execution_plans` - Vector to store execution plans
-/// * `metrics` - Vector to store metrics
+/// * `engine_ctx` - DataFusion or DuckDB context
 #[allow(clippy::too_many_arguments)]
 fn execute_queries(
     queries: &[(usize, String)],
-    engine: Engine,
     iterations: usize,
     single_file: bool,
-    runtime: &tokio::runtime::Runtime,
+    tokio_runtime: &tokio::runtime::Runtime,
+    file_format: Format,
     base_url: &Url,
     progress_bar: &ProgressBar,
-    file_format: Format,
-    query_measurements: &mut Vec<QueryMeasurement>,
-    duckdb_path: &Option<std::path::PathBuf>,
-    session_context: &datafusion::execution::context::SessionContext,
-    execution_plans: &mut Vec<(usize, std::sync::Arc<dyn execution_plan::ExecutionPlan>)>,
-    metrics: &mut Vec<(
-        usize,
-        Format,
-        Vec<datafusion_physical_plan::metrics::MetricsSet>,
-    )>,
-) {
+    engine_ctx: &mut EngineCtx,
+) -> Vec<QueryMeasurement> {
+    let mut query_measurements = Vec::default();
+
     for (query_idx, query_string) in queries {
-        match engine {
-            Engine::DataFusion => {
+        match engine_ctx {
+            EngineCtx::DataFusion(ctx) => {
                 let (fastest_run, execution_plan) = benchmark_datafusion_query(
                     *query_idx,
                     query_string,
                     iterations,
-                    session_context,
-                    runtime,
+                    &ctx.session,
+                    tokio_runtime,
                 );
 
-                execution_plans.push((*query_idx, execution_plan.clone()));
-                write_execution_plan(*query_idx, file_format, &execution_plan);
+                ctx.execution_plans
+                    .push((*query_idx, execution_plan.clone()));
 
-                metrics.push((
+                if ctx.emit_execution_plan {
+                    write_execution_plan(*query_idx, file_format, &execution_plan);
+                }
+
+                ctx.metrics.push((
                     *query_idx,
                     file_format,
                     VortexMetricsFinder::find_all(execution_plan.as_ref()),
@@ -368,16 +398,16 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine,
-                    storage: "nvme".to_string(),
+                    engine: Engine::DataFusion,
+                    storage: "nvme".to_owned(),
                     time: fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_string(),
+                    dataset: "clickbench".to_owned(),
                 });
             }
 
-            Engine::DuckDB => {
-                let duckdb_path = duckdb_executable_path(duckdb_path);
+            EngineCtx::DuckDB(args) => {
+                let duckdb_path = duckdb_executable_path(&args.duckdb_path);
 
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
@@ -391,18 +421,19 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine,
+                    engine: Engine::DuckDB,
                     storage: "nvme".to_string(),
                     time: fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_string(),
+                    dataset: "clickbench".to_owned(),
                 });
             }
-            Engine::Vortex => unreachable!("require another engine"),
         };
 
         progress_bar.inc(1);
     }
+
+    query_measurements
 }
 
 /// Executes a single ClickBench query using DataFusion.
@@ -416,13 +447,13 @@ fn benchmark_datafusion_query(
     query_string: &str,
     iterations: usize,
     context: &datafusion::execution::context::SessionContext,
-    runtime: &tokio::runtime::Runtime,
+    tokio_runtime: &tokio::runtime::Runtime,
 ) -> (Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>) {
     let execution_plan = OnceCell::new();
 
     let fastest_run =
         (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, iteration| {
-            runtime.block_on(async {
+            tokio_runtime.block_on(async {
                 let (duration, plan) =
                     execute_datafusion_query(query_idx, query_string, iteration, context.clone())
                         .await
@@ -473,7 +504,7 @@ async fn execute_datafusion_query(
 /// # Returns
 ///
 /// The duration of the fastest execution
-#[allow(clippy::let_and_return, clippy::too_many_arguments)]
+#[allow(clippy::let_and_return)]
 fn benchmark_duckdb_query(
     query_idx: usize,
     query_string: &str,
