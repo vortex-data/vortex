@@ -84,7 +84,10 @@ pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIF
 
     // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
     // tokio dep
-    let result = RUNTIME.block_on(async move {
+    println!("File_open handle");
+    let handle = RUNTIME.with(|r| r.handle().clone());
+    println!("afterFile_open handle");
+    let result = handle.block_on(async move {
         VortexOpenOptions::file()
             .open_object_store(&object_store, uri.path())
             .await
@@ -109,7 +112,11 @@ pub unsafe extern "C" fn File_create_and_write_array(
 
     let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
 
-    RUNTIME.block_on(async move {
+    println!("File_create_write handle");
+    let handle = RUNTIME.with(|r| r.handle().clone());
+    println!("after File_create_write handle");
+
+    handle.block_on(async move {
         let file = tokio::fs::File::create(path.to_string())
             .await
             .vortex_expect("creating file");
@@ -119,7 +126,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
             .vortex_expect("writing file: complete");
 
         file.sync_all().await.vortex_expect("sync file")
-    })
+    });
 }
 
 /// Whole file statistics.
@@ -185,9 +192,11 @@ pub unsafe extern "C" fn File_scan(
         stream = stream.with_projection(select(field_names, Identity::new_expr()));
     }
 
-    let stream = stream
-        .spawn_tokio(RUNTIME.handle().clone())
-        .vortex_expect("into_array_stream");
+    println!("File_scan handle");
+    let s = RUNTIME.with(|r| r.handle().clone());
+    println!("after File_scan handle");
+
+    let stream = stream.spawn_tokio(s).vortex_expect("into_array_stream");
 
     let inner = Some(Box::new(FFIArrayStreamInner {
         stream: Box::pin(stream),

@@ -16,13 +16,24 @@ use std::sync::LazyLock;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
+// static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+// Using a new_multi_thread runtime since a current local runtime has a deadlock.
+// Builder::new_multi_thread()
+//     .enable_all()
+//     .build()
+//     .vortex_expect("building runtime")
+// });
+
+thread_local! {
+
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    // Using a new_multi_thread runtime since a current local runtime has a deadlock.
-    Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("building runtime")
+//     Using a new_multi_thread runtime since a current local runtime has a deadlock.
+Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .vortex_expect("building runtime")
 });
+}
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);
