@@ -1,5 +1,4 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import java.io.ByteArrayOutputStream
 
 plugins {
     `java-library`
@@ -130,88 +129,6 @@ publishing {
             artifactId = "vortex-jni"
         }
     }
-}
-
-val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
-
-val targetDir = projectDir.parentFile.parentFile.resolve("target")
-
-// These are the native platforms that we want to build for and ship inside of our JAR
-val rustTargets = listOf(
-    "aarch64-apple-darwin",
-    "x86_64-unknown-linux-gnu",
-)
-
-rustTargets.forEach { target ->
-    tasks.register("cargoBuild_$target", Exec::class) {
-        workingDir = vortexJNI
-
-	val output = ByteArrayOutputStream()
-        exec {
-            commandLine("rustc", "--print", "host-tuple")
-            standardOutput = output
-        }
-        val hostTuple = output.toString().trim()
-
-        commandLine(
-            "cargo",
-	    // NOTE(aduffy): when using zigbuild on macOS with target aarch64-apple-darwin,
-	    //  the `ring` crate has link issues.
-            if (hostTuple == target) { "build" } else { "zigbuild" },
-            "--release",
-            "--target",
-            target,
-            "--package",
-            "vortex-jni",
-        )
-
-        val platformSuffix = if (target.contains("darwin")) {
-            "dylib"
-        } else {
-            "so"
-        }
-
-        outputs.files(targetDir.resolve("$target/release/libvortex_jni.$platformSuffix"))
-
-        // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
-        outputs.upToDateWhen { false }
-        outputs.cacheIf { false }
-    }
-}
-
-tasks.named("build").configure {
-    rustTargets.map {
-        val task = tasks.named("cargoBuild_$it")
-        dependsOn(task)
-    }
-}
-
-val copySharedLibrary by tasks.register("copySharedLibrary") {
-    rustTargets.forEach { target ->
-        val platformTask = tasks.named("cargoBuild_$target")
-        dependsOn(platformTask)
-
-        doLast {
-            copy {
-                println("copy task for $target executing")
-                val arch = when (target.split("-")[0]) {
-                    "amd64", "x86_64" -> "amd64"
-                    else -> target.split("-")[0]
-                }
-                val resourceDir = if (target.contains("darwin")) {
-                    "darwin-$arch"
-                } else {
-                    "linux-$arch"
-                }
-                from(platformTask.get().outputs.files)
-                into(projectDir.resolve("src/main/resources/native/$resourceDir"))
-            }
-        }
-    }
-}
-
-tasks.withType<ProcessResources>().configureEach {
-    dependsOn(copySharedLibrary)
 }
 
 // Remove the JAR task, replace it with shadowJar
