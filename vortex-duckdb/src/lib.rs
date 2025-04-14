@@ -9,9 +9,7 @@ pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 mod buffer;
 mod convert;
 
-pub use convert::{
-    ConversionCache, FromDuckDB, FromDuckDBType, ToDuckDB, ToDuckDBType, to_duckdb_chunk,
-};
+pub use convert::*;
 
 // Note: To generate C decls to include in vortex_duckdb_extension.cpp,
 // call `cbindgen` from `vortex/vortex-duckdb`.

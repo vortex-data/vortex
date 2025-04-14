@@ -110,7 +110,7 @@ pub(crate) fn arrow_like(
 ) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
-    debug_assert_eq!(
+    assert_eq!(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",

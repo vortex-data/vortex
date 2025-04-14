@@ -1,9 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use flatbuffers::root;
-use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt, stream};
 use vortex_array::ArrayRegistry;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -18,7 +17,7 @@ use crate::segments::{NoOpSegmentCache, SegmentCache};
 use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub trait FileType: Sized {
-    type Options: Clone;
+    type Options;
 }
 
 /// Open options for a Vortex file reader.
@@ -36,9 +35,9 @@ pub struct VortexOpenOptions<F: FileType> {
     /// An optional, externally provided, file layout.
     // TODO(ngates): add an optional DType so we only read the layout segment.
     footer: Option<Footer>,
-    /// TODO(ngates): rename to initial_segments: HashMap<SegmentId, ByteBuffer>
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
     pub(crate) initial_read_size: u64,
+    pub(crate) initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     pub(crate) metrics: VortexMetrics,
 }
 
@@ -53,6 +52,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             footer: None,
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: 0,
+            initial_read_segments: Default::default(),
             metrics: VortexMetrics::default(),
         }
     }
@@ -201,8 +201,7 @@ impl<F: FileType> VortexOpenOptions<F> {
 
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
-        self.populate_segments(initial_offset, &initial_read, &footer)
-            .await?;
+        self.populate_initial_segments(initial_offset, &initial_read, &footer);
 
         Ok(footer)
     }
@@ -265,30 +264,31 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 
     /// Populate segments in the cache that were covered by the initial read.
-    async fn populate_segments(
+    fn populate_initial_segments(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         footer: &Footer,
-    ) -> VortexResult<()> {
-        stream::iter(
-            footer
-                .segment_map()
-                .iter()
-                .enumerate()
-                .filter(|(_, segment)| segment.offset > initial_offset)
-                .map(|(idx, segment)| async move {
-                    let segment_id = SegmentId::from(u32::try_from(idx)?);
-                    let offset = usize::try_from(segment.offset - initial_offset)?;
-                    let buffer = initial_read
-                        .slice(offset..offset + (segment.length as usize))
-                        .aligned(segment.alignment);
-                    self.segment_cache.put(segment_id, buffer).await
-                }),
-        )
-        .collect::<FuturesUnordered<_>>()
-        .await
-        .try_collect::<()>()
-        .await
+    ) {
+        let first_idx = footer
+            .segment_map()
+            .partition_point(|segment| segment.offset < initial_offset);
+
+        let mut initial_segments = self
+            .initial_read_segments
+            .write()
+            .vortex_expect("poisoned lock");
+
+        for idx in first_idx..footer.segment_map().len() {
+            let segment = &footer.segment_map()[idx];
+            let segment_id =
+                SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
+            let offset =
+                usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
+            let buffer = initial_read
+                .slice(offset..offset + (segment.length as usize))
+                .aligned(segment.alignment);
+            initial_segments.insert(segment_id, buffer);
+        }
     }
 }

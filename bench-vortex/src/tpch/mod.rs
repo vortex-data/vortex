@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
-use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
@@ -27,6 +26,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 use vortex_datafusion::persistent::VortexFormat;
 
+use crate::conversions::csv_to_parquet_file;
 use crate::{Format, get_session_with_cache, make_object_store};
 
 pub mod dbgen;
@@ -206,26 +206,23 @@ async fn register_parquet(
         .await
     {
         info!("File {} doesn't exist because {e}", pq_file);
+
+        if pq_file.scheme() != "file" {
+            anyhow::bail!("Writing to S3 does not seem to work!");
+        }
+
         with_lock(pq_file.path().to_owned(), async || {
-            let df = session
-                .read_csv(
-                    csv_file,
-                    CsvReadOptions::default()
-                        .delimiter(b'|')
-                        .has_header(false)
-                        .file_extension("tbl")
-                        .schema(schema),
-                )
-                .await?;
-
-            if pq_file.scheme() == "file" {
-                df.write_parquet(pq_file.path(), DataFrameWriteOptions::default(), None)
-                    .await?;
-            } else {
-                anyhow::bail!("Writing to S3 does not seem to work!");
-            };
-
-            anyhow::Ok(())
+            csv_to_parquet_file(
+                session,
+                CsvReadOptions::default()
+                    .delimiter(b'|')
+                    .has_header(false)
+                    .file_extension("tbl")
+                    .schema(schema),
+                csv_file,
+                pq_file.path(),
+            )
+            .await
         })
         .await?;
     }

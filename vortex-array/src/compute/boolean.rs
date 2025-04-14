@@ -115,13 +115,13 @@ pub fn binary_boolean(
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
+        assert_eq!(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
             lhs.encoding()
         );
-        debug_assert_eq!(
+        assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
@@ -136,13 +136,13 @@ pub fn binary_boolean(
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
+        assert_eq!(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
             rhs.encoding()
         );
-        debug_assert_eq!(
+        assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",

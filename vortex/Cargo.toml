@@ -41,6 +41,13 @@ vortex-scalar = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
+[dev-dependencies]
+arrow = { workspace = true }
+itertools = { workspace = true }
+parquet = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { path = ".", features = ["parquet", "tokio"] }
+
 [features]
 default = ["files"]
 files = ["dep:vortex-file", "dep:vortex-io"]

@@ -1,3 +1,4 @@
+// TODO(ngates): make this a function on a PrimitiveArray
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;

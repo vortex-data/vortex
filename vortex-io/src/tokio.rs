@@ -5,35 +5,18 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
-pub struct TokioAdapter<IO>(pub IO);
-
-impl<W: AsyncWrite + Unpin> VortexWrite for TokioAdapter<W> {
-    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        self.0.write_all(buffer.as_slice()).await?;
-        Ok(buffer)
-    }
-
-    async fn flush(&mut self) -> io::Result<()> {
-        self.0.flush().await
-    }
-
-    async fn shutdown(&mut self) -> io::Result<()> {
-        self.0.shutdown().await
-    }
-}
-
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
 ///
-/// We use this because the builtin tokio `File` type is not `Clone` and
-/// also does actually implement a `read_exact_at` operation.
+/// We use this because tokio's [`File`](tokio::fs::File) type is not `Clone` and
+/// also does not implement a `read_exact_at` operation.
 #[derive(Debug, Clone)]
 pub struct TokioFile(Arc<File>);
 

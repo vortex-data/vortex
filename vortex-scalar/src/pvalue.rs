@@ -272,12 +272,15 @@ impl TryFrom<PValue> for f64 {
 impl TryFrom<PValue> for f32 {
     type Error = VortexError;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         // We serialize f32 as u32, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
             PValue::U8(u) => Some(Self::from_bits(u as u32)),
             PValue::U16(u) => Some(Self::from_bits(u as u32)),
             PValue::U32(u) => Some(Self::from_bits(u)),
+            // We assume that the value was created from a valid f16 and only changed in serialization
+            PValue::U64(u) => <Self as NumCast>::from(Self::from_bits(u as u32)),
             PValue::F16(f) => <Self as NumCast>::from(f),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
@@ -290,11 +293,15 @@ impl TryFrom<PValue> for f32 {
 impl TryFrom<PValue> for f16 {
     type Error = VortexError;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         // We serialize f16 as u16, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
             PValue::U8(u) => Some(Self::from_bits(u as u16)),
             PValue::U16(u) => Some(Self::from_bits(u)),
+            // We assume that the value was created from a valid f16 and only changed in serialization
+            PValue::U32(u) => Some(Self::from_bits(u as u16)),
+            PValue::U64(u) => Some(Self::from_bits(u as u16)),
             PValue::F16(u) => Some(u),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
@@ -335,17 +342,17 @@ impl From<usize> for PValue {
 impl Display for PValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::U8(v) => write!(f, "{}_u8", v),
-            Self::U16(v) => write!(f, "{}_u16", v),
-            Self::U32(v) => write!(f, "{}_u32", v),
-            Self::U64(v) => write!(f, "{}_u64", v),
-            Self::I8(v) => write!(f, "{}_i8", v),
-            Self::I16(v) => write!(f, "{}_i16", v),
-            Self::I32(v) => write!(f, "{}_i32", v),
-            Self::I64(v) => write!(f, "{}_i64", v),
-            Self::F16(v) => write!(f, "{}_f16", v),
-            Self::F32(v) => write!(f, "{}_f32", v),
-            Self::F64(v) => write!(f, "{}_f64", v),
+            Self::U8(v) => write!(f, "{}u8", v),
+            Self::U16(v) => write!(f, "{}u16", v),
+            Self::U32(v) => write!(f, "{}u32", v),
+            Self::U64(v) => write!(f, "{}u64", v),
+            Self::I8(v) => write!(f, "{}i8", v),
+            Self::I16(v) => write!(f, "{}i16", v),
+            Self::I32(v) => write!(f, "{}i32", v),
+            Self::I64(v) => write!(f, "{}i64", v),
+            Self::F16(v) => write!(f, "{}f16", v),
+            Self::F32(v) => write!(f, "{}f32", v),
+            Self::F64(v) => write!(f, "{}f64", v),
         }
     }
 }

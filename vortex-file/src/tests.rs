@@ -11,7 +11,7 @@ use vortex_array::arrays::{
     ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex_array::compute::scalar_at;
-use vortex_array::stream::ArrayStreamArrayExt;
+use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
@@ -58,7 +58,7 @@ async fn test_read_simple() {
         .unwrap()
         .scan()
         .unwrap()
-        .build()
+        .into_array_stream()
         .unwrap();
     pin_mut!(stream);
 
@@ -144,6 +144,8 @@ async fn test_read_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["strings".into()], ident()))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -177,6 +179,8 @@ async fn test_read_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["numbers".into()], ident()))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -231,7 +235,7 @@ async fn unequal_batches() {
             .unwrap()
             .scan()
             .unwrap()
-            .build()
+            .into_array_stream()
             .unwrap()
     );
 
@@ -295,7 +299,7 @@ async fn write_chunked() {
             .unwrap()
             .scan()
             .unwrap()
-            .build()
+            .into_array_stream()
             .unwrap()
     );
     let mut array_len: usize = 0;
@@ -335,7 +339,7 @@ async fn filter_string() {
         .scan()
         .unwrap()
         .with_filter(eq(get_item("name", ident()), lit("Joseph")))
-        .build()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -401,7 +405,7 @@ async fn filter_or() {
                 lt_eq(get_item("age", ident()), lit(30)),
             ),
         ))
-        .build()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -470,7 +474,7 @@ async fn filter_and() {
             gt(get_item("age", ident()), lit(21)),
             lt_eq(get_item("age", ident()), lit(33)),
         ))
-        .build()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -529,6 +533,8 @@ async fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::<u64>::empty())
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -544,6 +550,8 @@ async fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -568,6 +576,8 @@ async fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices((0u64..500).collect::<Buffer<_>>())
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -613,6 +623,8 @@ async fn test_with_indices_on_two_columns() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -683,6 +695,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices(Buffer::empty())
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -699,6 +713,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -726,6 +742,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -789,6 +807,8 @@ async fn filter_string_chunked() {
         .scan()
         .unwrap()
         .with_filter(eq(get_item("name", ident()), lit("Joseph")))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -882,6 +902,8 @@ async fn test_pruning_with_or() {
             lt_eq(get_item("letter", ident()), lit("J")),
             lt(get_item("number", ident()), lit(25)),
         ))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -966,6 +988,8 @@ async fn test_repeated_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["strings".into(), "strings".into()], ident()))
+        .into_array_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -1000,7 +1024,12 @@ async fn chunked_file() -> VortexResult<VortexFile> {
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file().await?;
-    let result = vxf.scan()?.read_all().await?.to_primitive()?;
+    let result = vxf
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -1043,6 +1072,7 @@ async fn file_take() -> VortexResult<()> {
     let result = vxf
         .scan()?
         .with_row_indices(buffer![0, 1, 8])
+        .into_array_stream()?
         .read_all()
         .await?
         .to_primitive()?;

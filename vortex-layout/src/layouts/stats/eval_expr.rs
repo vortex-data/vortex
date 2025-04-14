@@ -144,7 +144,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::layouts::flat::FlatLayout;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
@@ -164,7 +164,7 @@ mod test {
                 Default::default(),
             )
             .boxed(),
-            ArcRef::new_ref(&FlatLayout),
+            ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             StatsLayoutOptions {
                 block_size: 3,
                 ..Default::default()

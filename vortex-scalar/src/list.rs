@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -14,6 +15,24 @@ pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,
     elements: Option<Arc<[ScalarValue]>>,
+}
+
+impl Display for ListScalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.elements {
+            None => write!(f, "null"),
+            Some(elems) => {
+                write!(
+                    f,
+                    "[{}]",
+                    elems
+                        .iter()
+                        .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
+                        .format(", ")
+                )
+            }
+        }
+    }
 }
 
 impl PartialEq for ListScalar<'_> {

@@ -4,20 +4,25 @@ use std::path::PathBuf;
 
 use bzip2::read::BzDecoder;
 use log::info;
+use tokio::fs::File as TokioFile;
 use vortex::error::VortexError;
+use vortex::io::VortexWrite;
 
-use crate::idempotent;
+use crate::{idempotent, idempotent_async};
 
-pub fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
-    idempotent(&fname, |path| {
+pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
+    idempotent_async(&fname, async |path| {
         info!("Downloading {} from {}", fname.to_str().unwrap(), data_url);
-        let mut file = File::create(path).unwrap();
-        let mut response = reqwest::blocking::get(data_url).unwrap();
+        let mut file = TokioFile::create(path).await?;
+        let response = reqwest::get(data_url).await?;
         if !response.status().is_success() {
-            panic!("Failed to download data from {}", data_url);
+            anyhow::bail!("Failed to download data from {}", data_url);
         }
-        response.copy_to(&mut file)
+        let bytes = response.bytes().await?;
+        file.write_all(bytes).await?;
+        Ok::<_, anyhow::Error>(())
     })
+    .await
     .unwrap()
 }
 

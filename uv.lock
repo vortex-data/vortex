@@ -1549,6 +1549,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+duckdb = [
+    { name = "duckdb" },
+]
 numpy = [
     { name = "numpy" },
 ]
@@ -1570,13 +1573,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.2" },
     { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.26.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.24.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "substrait", specifier = ">=0.23.0" },
 ]
-provides-extras = ["polars", "pandas", "numpy"]
+provides-extras = ["polars", "pandas", "numpy", "duckdb"]
 
 [package.metadata.requires-dev]
 dev = [

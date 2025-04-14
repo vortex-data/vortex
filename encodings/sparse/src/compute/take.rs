@@ -16,6 +16,11 @@ impl TakeFn<&SparseArray> for SparseEncoding {
             return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
         };
 
+        // See `SparseEncoding::slice`.
+        if new_patches.array_len() == new_patches.values().len() {
+            return Ok(new_patches.into_values());
+        }
+
         Ok(
             SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
                 .into_array(),
@@ -63,27 +68,11 @@ mod test {
     #[test]
     fn sparse_take() {
         let sparse = sparse_array();
-        let taken =
-            SparseArray::try_from(take(&sparse, &buffer![0, 47, 47, 0, 99].into_array()).unwrap())
-                .unwrap();
-        assert_eq!(
-            taken
-                .patches()
-                .indices()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
-            [0, 1, 2, 3, 4]
-        );
-        assert_eq!(
-            taken
-                .patches()
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<f64>(),
-            [1.23f64, 9.99, 9.99, 1.23, 3.5]
-        );
+        let prim = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+        assert_eq!(prim.as_slice::<f64>(), [1.23f64, 9.99, 9.99, 1.23, 3.5]);
     }
 
     #[test]

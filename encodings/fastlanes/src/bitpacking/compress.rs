@@ -32,7 +32,7 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
-            array.statistics().compute_min::<Option<$P>>().unwrap_or_default().unwrap_or_default() < 0
+            array.statistics().compute_min::<$P>().unwrap_or_default() < 0
         });
         if has_negative_values {
             vortex_bail!("cannot bitpack_encode array containing negative integers")
@@ -53,6 +53,7 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
     let packed = unsafe { bitpack_unchecked(array, bit_width)? };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(array, bit_width, num_exceptions))
+        .transpose()?
         .flatten();
 
     // SAFETY: values already checked to be non-negative.
@@ -178,27 +179,66 @@ pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
     num_exceptions_hint: usize,
-) -> Option<Patches> {
+) -> VortexResult<Option<Patches>> {
     let patch_validity = match parray.validity() {
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
 
-    match_each_integer_ptype!(parray.ptype(), |$T| {
-        let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
-        let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);
-        for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
-            if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i).vortex_expect("validity") {
-                indices.push(i as u64);
-                values.push(*v);
-            }
+    let array_len = parray.len();
+    let validity_mask = parray.validity_mask()?;
+
+    let patches = if array_len < u8::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u8>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        })
+    } else if array_len < u16::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u16>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        })
+    } else if array_len < u32::MAX as usize {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u32>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        })
+    } else {
+        match_each_integer_ptype!(parray.ptype(), |$T| {
+            gather_patches_impl::<$T, u64>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        })
+    };
+
+    Ok(patches)
+}
+
+fn gather_patches_impl<T, P>(
+    data: &[T],
+    bit_width: u8,
+    num_exceptions_hint: usize,
+    patch_validity: Validity,
+    validity_mask: Mask,
+) -> Option<Patches>
+where
+    T: PrimInt + NativePType,
+    P: NativePType,
+{
+    let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
+    let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
+
+    for (i, v) in data.iter().enumerate() {
+        if (v.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
+            && validity_mask.value(i)
+        {
+            indices.push(P::from(i).vortex_expect("cast index from usize"));
+            values.push(*v);
         }
-        (!indices.is_empty()).then(|| Patches::new(
-            parray.len(),
+    }
+
+    (!indices.is_empty()).then(|| {
+        Patches::new(
+            data.len(),
             0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
-        ))
+        )
     })
 }
 

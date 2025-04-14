@@ -31,6 +31,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

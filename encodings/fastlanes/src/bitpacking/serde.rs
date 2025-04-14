@@ -115,7 +115,10 @@ impl EncodingVTable for BitPackedEncoding {
             None => find_best_bit_width(&parray)?,
         };
 
-        let array = if bit_width as usize == parray.ptype().bit_width() {
+        let array = if bit_width as usize == parray.ptype().bit_width()
+            || parray.ptype().is_signed_int()
+                && parray.statistics().compute_min::<i64>().unwrap_or_default() < 0
+        {
             parray.into_array()
         } else {
             bitpack_encode(&parray, bit_width)?.into_array()

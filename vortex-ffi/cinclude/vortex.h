@@ -128,6 +128,17 @@ typedef struct FileOpenOptions {
 } FileOpenOptions;
 
 /**
+ * Options supplied for opening a file.
+ */
+typedef struct FileCreateOptions {
+  /**
+   * path of the file to be created.
+   * This must be a valid URI, even the files (file:///path/to/file)
+   */
+  const char *path;
+} FileCreateOptions;
+
+/**
  * Whole file statistics.
  */
 typedef struct FileStatistics {
@@ -279,6 +290,16 @@ unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
+struct Array *FFIArray_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
+                                                      const char *const *names,
+                                                      int len);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+struct Array *FFIArray_append_duckdb_chunk(struct Array *array, duckdb_data_chunk chunk);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
 struct FFIConversionCache *ConversionCache_create(unsigned int id);
 #endif
 
@@ -290,6 +311,11 @@ void ConversionCache_free(struct FFIConversionCache *buffer);
  * Open a file at the given path on the file system.
  */
 struct File *File_open(const struct FileOpenOptions *options);
+
+/**
+ * This function creates a new file by writing the ffi array to the path in the options args.
+ */
+void File_create_and_write_array(const struct FileCreateOptions *options, struct Array *ffi_array);
 
 struct FileStatistics *File_statistics(struct File *file);
 

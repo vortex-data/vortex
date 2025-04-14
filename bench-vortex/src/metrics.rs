@@ -78,12 +78,12 @@ fn aggregate_metric(metric: &mut MetricValue, to_aggregate: &MetricValue) {
 
 pub async fn export_plan_spans(
     format: Format,
-    plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
+    plans: &Vec<(usize, Arc<dyn ExecutionPlan>)>,
 ) -> anyhow::Result<()> {
     let mut exporter = OtlpSpanExporter::builder().with_http().build()?;
     for (query_idx, plan) in plans {
         let resource = Resource::builder()
-            .with_attribute(KeyValue::new("query_idx", query_idx as i64))
+            .with_attribute(KeyValue::new("query_idx", *query_idx as i64))
             .with_attribute(KeyValue::new("format", format.name()))
             .with_attribute(KeyValue::new("commit", GIT_COMMIT_ID.as_str()))
             .build();

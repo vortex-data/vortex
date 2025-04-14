@@ -27,6 +27,7 @@ mod select;
 pub mod transform;
 pub mod traversal;
 
+pub use between::*;
 pub use binary::*;
 pub use get_item::*;
 pub use identity::*;
@@ -312,11 +313,11 @@ mod tests {
             "$~{col1, col2}"
         );
 
-        assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");
-        assert_eq!(lit(Scalar::from(0.0_f32)).to_string(), "0_f32");
+        assert_eq!(lit(Scalar::from(0u8)).to_string(), "0u8");
+        assert_eq!(lit(Scalar::from(0.0f32)).to_string(), "0f32");
         assert_eq!(
             lit(Scalar::from(i64::MAX)).to_string(),
-            "9223372036854775807_i64"
+            "9223372036854775807i64"
         );
         assert_eq!(lit(Scalar::from(true)).to_string(), "true");
         assert_eq!(
@@ -339,7 +340,7 @@ mod tests {
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
             .to_string(),
-            "{dog:32_u32,cat:\"rufus\"}"
+            "{dog: 32u32, cat: \"rufus\"}"
         );
     }
 

@@ -13,7 +13,7 @@ use vortex_metrics::{Histogram, Timer, VortexMetrics};
 /// futures may be `!Send` to support thread-per-core implementations.
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
-pub trait VortexReadAt: Clone + 'static {
+pub trait VortexReadAt: 'static {
     /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
