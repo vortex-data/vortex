@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     `java-library`
@@ -6,7 +7,11 @@ plugins {
     `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
-    id("me.champeau.jmh") version "0.7.3"
+}
+
+java {
+    withJavadocJar()
+    withSourcesJar()
 }
 
 dependencies {
@@ -26,17 +31,45 @@ dependencies {
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 }
 
-jmh {
-    warmupIterations = 3
-    iterations = 3
-    fork = 1
-}
-
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
         }
+    }
+}
+
+mavenPublishing {
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = version.toString())
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    signAllPublications()
+
+    pom {
+        name = "vortex-jni"
+        description = project.description
+        url = "https://vortex.dev"
+        inceptionYear = "2025"
+
+        licenses {
+            license {
+                name = "Apache-2.0"
+                url = "https://spdx.org/licenses/Apache-2.0.html"
+            }
+        }
+        developers {
+            developer {
+                id = "spiraldb"
+                name = "Vortex Authors"
+            }
+        }
+        scm {
+            connection = "scm:git:https://github.com/spiraldb/vortex.git"
+            developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
+            url = "https://github.com/spiraldb/vortex"
+        }
+
+        // shadowJar block should be dropped
     }
 }
 
@@ -56,7 +89,6 @@ protobuf {
 
 // shade guava and protobuf dependencies
 tasks.withType<ShadowJar> {
-    archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
@@ -122,17 +154,4 @@ tasks.register("generateJniHeaders") {
     dependsOn("compileJava")
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            artifact(tasks.shadowJar.get())
-            artifactId = "vortex-jni"
-        }
-    }
-}
-
-// Remove the JAR task, replace it with shadowJar
-tasks.named("jar").configure {
-    dependsOn("shadowJar")
-    enabled = false
-}
+description = "JNI bindings for the Vortex format"
