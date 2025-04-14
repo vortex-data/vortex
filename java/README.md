@@ -1,17 +1,6 @@
 # Java Bindings Development
 
-Install a JDK 17 toolchain.
+We provide two interfaces for working with Vortex from Java:
 
-You can run tests like
-
-```
-./gradlew test
-```
-
-You can build a JAR file with
-
-```
-./gradlew jar
-```
-
-The JAR files will contain platform native code from `vortex-ffi` to operate on Vortex data.
+- `vortex-java` - a low-level interface JNI for working with Vortex files and arrays on cloud and local storage
+- `vortex-spark` - A Spark connector for working with datasets of Vortex files
