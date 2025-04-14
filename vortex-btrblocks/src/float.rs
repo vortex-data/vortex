@@ -41,7 +41,7 @@ impl Compressor for FloatCompressor {
             &ConstantScheme,
             &ALPScheme,
             &ALPRDScheme,
-            &DictScheme,
+            // &DictScheme,
         ]
     }
 
