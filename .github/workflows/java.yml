@@ -104,4 +104,3 @@ jobs:
       - name: Publish to Maven Central
         if: github.ref == 'refs/heads/develop'
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
-      
