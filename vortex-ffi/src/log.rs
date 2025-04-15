@@ -13,7 +13,7 @@ pub const LOG_LEVEL_TRACE: u8 = 5;
 /// This function is optional, if it is not called then no runtime
 /// logger will be installed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vortex_init_logging(level: u8) {
+pub unsafe extern "C" fn vx_init_logging(level: u8) {
     let filter = match level {
         LOG_LEVEL_OFF => LevelFilter::Off,
         LOG_LEVEL_ERROR => LevelFilter::Error,

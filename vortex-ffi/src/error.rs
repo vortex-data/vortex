@@ -4,12 +4,12 @@ use std::ptr;
 use vortex::error::VortexResult;
 
 #[repr(C)]
-pub struct FFIError {
+pub struct VXError {
     pub code: c_int,
     pub message: *const c_char,
 }
 
-pub unsafe fn into_c_error<V>(result: VortexResult<V>, default: V, error: *mut *mut FFIError) -> V {
+pub unsafe fn into_c_error<V>(result: VortexResult<V>, default: V, error: *mut *mut VXError) -> V {
     map_into_c_error(result, |r| r, default, error)
 }
 
@@ -17,7 +17,7 @@ pub unsafe fn map_into_c_error<T, V>(
     result: VortexResult<T>,
     to_result: impl Fn(T) -> V,
     default: V,
-    error: *mut *mut FFIError,
+    error: *mut *mut VXError,
 ) -> V {
     match result {
         Ok(file) => {
@@ -30,7 +30,7 @@ pub unsafe fn map_into_c_error<T, V>(
                 std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
             unsafe {
                 error.write(
-                    Box::into_raw(Box::new(FFIError {
+                    Box::into_raw(Box::new(VXError {
                         code: -1,
                         message: c_string.into_raw(),
                     }))
@@ -43,6 +43,6 @@ pub unsafe fn map_into_c_error<T, V>(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIError_free(error: *mut FFIError) {
+pub unsafe extern "C" fn vx_error_free(error: *mut VXError) {
     drop(unsafe { Box::from_raw(error) })
 }

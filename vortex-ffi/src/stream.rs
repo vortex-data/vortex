@@ -6,23 +6,23 @@ use vortex::dtype::DType;
 use vortex::error::{VortexExpect, vortex_bail};
 use vortex::stream::ArrayStream;
 
-use crate::array::{FFIArray, FFIArray_free};
-use crate::error::{FFIError, into_c_error};
+use crate::array::{VXArray, vx_array_free};
+use crate::error::{VXError, into_c_error};
 
 /// FFI-exposed stream interface.
-pub struct FFIArrayStream {
-    pub inner: Option<Box<FFIArrayStreamInner>>,
-    pub current: Option<Box<FFIArray>>,
+pub struct VXArrayStream {
+    pub inner: Option<Box<VXArrayStreamInner>>,
+    pub current: Option<Box<VXArray>>,
 }
 
 /// FFI-compatible interface for dealing with a stream array.
-pub struct FFIArrayStreamInner {
+pub struct VXArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
 }
 
 /// Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> *const DType {
+pub unsafe extern "C" fn vx_array_stream_dtype(stream: *const VXArrayStream) -> *const DType {
     let Some(inner) = unsafe { stream.as_ref() }
         .vortex_expect("null stream")
         .inner
@@ -41,9 +41,9 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
 ///
 /// It is an error to call this function again after the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_next(
-    stream: *mut FFIArrayStream,
-    error: *mut *mut FFIError,
+pub unsafe extern "C" fn vx_array_stream_next(
+    stream: *mut VXArrayStream,
+    error: *mut *mut VXError,
 ) -> bool {
     let result = (|| {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(
 
         if let Some(element) = element {
             let inner = element?;
-            let ffi_array = FFIArray { inner };
+            let ffi_array = VXArray { inner };
             stream.current = Some(Box::new(ffi_array));
 
             Ok(true)
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(
 
 /// Predicate function to check if the array stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) -> bool {
+pub unsafe extern "C" fn vx_array_stream_finished(stream: *const VXArrayStream) -> bool {
     unsafe { stream.as_ref().vortex_expect("null stream") }
         .inner
         .is_none()
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) 
 ///
 /// This function is unsafe because it dereferences the `stream` pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> *mut FFIArray {
+pub unsafe extern "C" fn vx_array_stream_current(stream: *mut VXArrayStream) -> *mut VXArray {
     let stream = unsafe { stream.as_mut().vortex_expect("null stream") };
 
     if let Some(current) = stream.current.take() {
@@ -99,12 +99,12 @@ pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> 
 
 /// Free the array stream and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_free(stream: *mut FFIArrayStream) {
+pub unsafe extern "C" fn vx_array_stream_free(stream: *mut VXArrayStream) {
     assert!(!stream.is_null(), "stream null");
     let mut stream = Box::from_raw(stream);
 
     if let Some(current) = stream.current.take() {
-        FFIArray_free(Box::into_raw(current));
+        vx_array_free(Box::into_raw(current));
     }
 
     drop(stream.inner.take())

@@ -8,7 +8,7 @@ use vortex::error::{VortexExpect, VortexUnwrap};
 /// Pointer to a `DType` value that has been heap-allocated.
 /// Create a new simple dtype.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_new(variant: u8, nullable: bool) -> *mut DType {
+pub unsafe extern "C" fn vx_dtype_new(variant: u8, nullable: bool) -> *mut DType {
     assert!(
         variant < DTYPE_STRUCT,
         "DType_new: invalid variant: {variant}"
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn DType_new(variant: u8, nullable: bool) -> *mut DType {
 /// Upon successful return, this function moves the value out of the provided element pointer,
 /// so it is not safe to reference afterward.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_new_list(element: *mut DType, nullable: bool) -> *mut DType {
+pub unsafe extern "C" fn vx_dtype_new_list(element: *mut DType, nullable: bool) -> *mut DType {
     assert!(!element.is_null(), "DType_new_list: null ptr");
 
     let element_type = *Box::from_raw(element);
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn DType_new_list(element: *mut DType, nullable: bool) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_new_struct(
+pub unsafe extern "C" fn vx_dtype_new_struct(
     names: *const *const c_char,
     dtypes: *const *mut DType,
     len: u32,
@@ -83,13 +83,13 @@ pub unsafe extern "C" fn DType_new_struct(
 
 /// Free an [`DType`] and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_free(dtype: *mut DType) {
+pub unsafe extern "C" fn vx_dtype_free(dtype: *mut DType) {
     drop(Box::from_raw(dtype));
 }
 
 /// Get the dtype variant tag for an [`DType`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
+pub unsafe extern "C" fn vx_dtype_get(dtype: *const DType) -> u8 {
     match dtype.as_ref().vortex_expect("null dtype") {
         DType::Null => DTYPE_NULL,
         DType::Bool(_) => DTYPE_BOOL,
@@ -115,14 +115,14 @@ pub unsafe extern "C" fn DType_get(dtype: *const DType) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_nullable(dtype: *const DType) -> bool {
+pub unsafe extern "C" fn vx_dtype_is_nullable(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
     dtype.is_nullable()
 }
 
 /// For `DTYPE_STRUCT` variant DTypes, get the number of fields.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_field_count(dtype: *const DType) -> u32 {
+pub unsafe extern "C" fn vx_dtype_field_count(dtype: *const DType) -> u32 {
     let DType::Struct(struct_dtype, _) = unsafe { dtype.as_ref() }.vortex_expect("dtype null")
     else {
         panic!("FFIDType_field_count: not a struct dtype")
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn DType_field_count(dtype: *const DType) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_field_name(
+pub unsafe extern "C" fn vx_dtype_field_name(
     dtype: *const DType,
     index: u32,
     dst: *mut c_void,
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn DType_field_name(
 /// This returns a new owned, allocated copy of the DType that must be freed subsequently
 /// by the caller.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> *mut DType {
+pub unsafe extern "C" fn vx_dtype_field_dtype(dtype: *const DType, index: u32) -> *mut DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
     let DType::Struct(struct_dtype, _) = dtype else {
         panic!("DType_field_dtype: not a struct dtype")
@@ -184,7 +184,7 @@ pub unsafe extern "C" fn DType_field_dtype(dtype: *const DType, index: u32) -> *
 /// The pointee's lifetime is tied to the lifetime of the list DType. It should not be
 /// accessed after the list DType has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType {
+pub unsafe extern "C" fn vx_dtype_element_type(dtype: *const DType) -> *const DType {
     assert!(!dtype.is_null(), "DType_element_type: null ptr");
 
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn DType_element_type(dtype: *const DType) -> *const DType
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_is_time(dtype: *const DType) -> bool {
+pub unsafe extern "C" fn vx_dtype_is_time(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn DType_is_time(dtype: *const DType) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_is_date(dtype: *const DType) -> bool {
+pub unsafe extern "C" fn vx_dype_is_date(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn DType_is_date(dtype: *const DType) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_is_timestamp(dtype: *const DType) -> bool {
+pub unsafe extern "C" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn DType_is_timestamp(dtype: *const DType) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_time_unit(dtype: *const DType) -> u8 {
+pub unsafe extern "C" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
@@ -240,7 +240,11 @@ pub unsafe extern "C" fn DType_time_unit(dtype: *const DType) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_time_zone(dtype: *const DType, dst: *mut c_void, len: *mut c_int) {
+pub unsafe extern "C" fn vx_dtype_time_zone(
+    dtype: *const DType,
+    dst: *mut c_void,
+    len: *mut c_int,
+) {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
@@ -289,45 +293,46 @@ mod tests {
     use vortex::dtype::DType;
 
     use crate::dtype::{
-        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, DType_field_count,
-        DType_field_dtype, DType_field_name, DType_free, DType_get, DType_new, DType_new_struct,
+        DTYPE_BOOL, DTYPE_PRIMITIVE_U8, DTYPE_STRUCT, DTYPE_UTF8, vx_dtype_field_count,
+        vx_dtype_field_dtype, vx_dtype_field_name, vx_dtype_free, vx_dtype_get, vx_dtype_new,
+        vx_dtype_new_struct,
     };
 
     #[test]
     fn test_simple() {
         unsafe {
-            let ffi_dtype = DType_new(DTYPE_BOOL, true);
+            let ffi_dtype = vx_dtype_new(DTYPE_BOOL, true);
 
             // functions check
-            assert_eq!(DType_get(ffi_dtype), DTYPE_BOOL);
+            assert_eq!(vx_dtype_get(ffi_dtype), DTYPE_BOOL);
 
             // Field access checks.
             let dtype = &*ffi_dtype;
             assert_eq!(dtype, &DType::Bool(true.into()));
 
             // Free the memory.
-            DType_free(ffi_dtype);
+            vx_dtype_free(ffi_dtype);
         }
     }
 
     #[test]
     fn test_struct() {
         unsafe {
-            let name = DType_new(DTYPE_UTF8, false);
-            let age = DType_new(DTYPE_PRIMITIVE_U8, true);
+            let name = vx_dtype_new(DTYPE_UTF8, false);
+            let age = vx_dtype_new(DTYPE_PRIMITIVE_U8, true);
 
             let names = [c"name".as_ptr(), c"age".as_ptr()];
 
             let dtypes = [name, age];
 
-            let person = DType_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
+            let person = vx_dtype_new_struct(names.as_ptr(), dtypes.as_ptr(), 2, false);
 
-            assert_eq!(DType_get(person), DTYPE_STRUCT);
-            assert_eq!(DType_field_count(person), 2);
+            assert_eq!(vx_dtype_get(person), DTYPE_STRUCT);
+            assert_eq!(vx_dtype_field_count(person), 2);
 
             let mut name_bytes = vec![0u8; 64];
             let mut name_len: c_int = 0;
-            DType_field_name(
+            vx_dtype_field_name(
                 person,
                 0,
                 name_bytes.as_mut_ptr() as *mut c_void,
@@ -337,7 +342,7 @@ mod tests {
             let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);
             assert_eq!(field_name, "name");
 
-            DType_field_name(
+            vx_dtype_field_name(
                 person,
                 1,
                 name_bytes.as_mut_ptr() as *mut c_void,
@@ -347,15 +352,15 @@ mod tests {
             let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);
             assert_eq!(field_name, "age");
 
-            let dtype0 = DType_field_dtype(person, 0);
-            let dtype1 = DType_field_dtype(person, 1);
-            assert_eq!(DType_get(dtype0), DTYPE_UTF8);
-            assert_eq!(DType_get(dtype1), DTYPE_PRIMITIVE_U8);
+            let dtype0 = vx_dtype_field_dtype(person, 0);
+            let dtype1 = vx_dtype_field_dtype(person, 1);
+            assert_eq!(vx_dtype_get(dtype0), DTYPE_UTF8);
+            assert_eq!(vx_dtype_get(dtype1), DTYPE_PRIMITIVE_U8);
 
-            DType_free(dtype0);
-            DType_free(dtype1);
+            vx_dtype_free(dtype0);
+            vx_dtype_free(dtype1);
 
-            DType_free(person);
+            vx_dtype_free(person);
         }
     }
 }

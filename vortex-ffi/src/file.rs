@@ -20,9 +20,9 @@ use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::FFIArray;
-use crate::error::{FFIError, into_c_error};
-use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
+use crate::array::VXArray;
+use crate::error::{VXError, into_c_error};
+use crate::stream::{VXArrayStream, VXArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 pub struct FFIFile {
@@ -70,9 +70,9 @@ pub struct FileScanOptions {
 
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_open(
+pub unsafe extern "C" fn vx_file_open(
     options: *const FileOpenOptions,
-    error: *mut *mut FFIError,
+    error: *mut *mut VXError,
 ) -> *mut FFIFile {
     let result = (|| {
         {
@@ -108,11 +108,12 @@ pub unsafe extern "C" fn File_open(
 }
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
+/// TODO: replace with a create and a write function
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_create_and_write_array(
+pub unsafe extern "C" fn vx_file_create_and_write_array(
     options: *const FileCreateOptions,
-    ffi_array: *mut FFIArray,
-    error: *mut *mut FFIError,
+    ffi_array: *mut VXArray,
+    error: *mut *mut VXError,
 ) {
     let result = {
         let options = options.as_ref().vortex_expect("null options");
@@ -143,7 +144,7 @@ pub struct FileStatistics {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatistics {
+pub unsafe extern "C" fn vx_file_statistics(file: *mut FFIFile) -> *mut FileStatistics {
     Box::into_raw(Box::new(FileStatistics {
         num_rows: file
             .as_ref()
@@ -154,7 +155,7 @@ pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatist
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FileStatistics_free(stat: *mut FileStatistics) {
+pub unsafe extern "C" fn vx_file_statistics_free(stat: *mut FileStatistics) {
     assert!(!stat.is_null());
     drop(Box::from_raw(stat));
 }
@@ -164,17 +165,17 @@ pub unsafe extern "C" fn FileStatistics_free(stat: *mut FileStatistics) {
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
 /// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
+pub unsafe extern "C" fn vx_file_dtype(file: *const FFIFile) -> *const DType {
     file.as_ref().vortex_expect("null file").inner.dtype()
 }
 
 /// Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_scan(
+pub unsafe extern "C" fn vx_file_scan(
     file: *const FFIFile,
     opts: *const FileScanOptions,
-    error: *mut *mut FFIError,
-) -> *mut FFIArrayStream {
+    error: *mut *mut VXError,
+) -> *mut VXArrayStream {
     let stream = (|| {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
@@ -210,10 +211,10 @@ pub unsafe extern "C" fn File_scan(
 
         let stream = stream.into_array_stream()?;
 
-        let inner = Some(Box::new(FFIArrayStreamInner {
+        let inner = Some(Box::new(VXArrayStreamInner {
             stream: Box::pin(stream),
         }));
-        Ok(Box::into_raw(Box::new(FFIArrayStream {
+        Ok(Box::into_raw(Box::new(VXArrayStream {
             inner,
             current: None,
         })))
@@ -227,7 +228,7 @@ pub unsafe extern "C" fn File_scan(
 /// This function will not automatically free any `FFIArrayStream`s that were built from this
 /// file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_free(file: *mut FFIFile) {
+pub unsafe extern "C" fn vx_file_free(file: *mut FFIFile) {
     drop(Box::from_raw(file));
 }
 

@@ -140,13 +140,13 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 
 		DType *field_dtype = DType_field_dtype(file_dtype, idx);
 		FFIError *error = nullptr;
-		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype, &error));
+		auto duckdb_type = DType_to_duckdb_logical_type(field_dtype, &error);
 		HandleError(error);
 
 		column_names.push_back(field_name);
-		column_types.push_back(LogicalType(*duckdb_type));
+		column_types.push_back(LogicalType(*reinterpret_cast<LogicalType *>(duckdb_type)));
 		DType_free(field_dtype);
-		delete duckdb_type;
+		duckdb_destroy_logical_type(&duckdb_type);
 	}
 }
 

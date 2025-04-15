@@ -83,6 +83,8 @@ extern "C" {
  */
 typedef struct DType DType;
 
+typedef struct File File;
+
 /**
  * The FFI interface for an [`Array`].
  *
@@ -90,23 +92,21 @@ typedef struct DType DType;
  * the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
  * one of the various `FFIArray_*` functions.
  */
-typedef struct Array Array;
+typedef struct VXArray VXArray;
 
 /**
  * FFI-exposed stream interface.
  */
-typedef struct ArrayStream ArrayStream;
+typedef struct VXArrayStream VXArrayStream;
 
 #if defined(ENABLE_DUCKDB_FFI)
-typedef struct FFIConversionCache FFIConversionCache;
+typedef struct VXConversionCache VXConversionCache;
 #endif
 
-typedef struct File File;
-
-typedef struct FFIError {
+typedef struct VXError {
   int code;
   const char *message;
-} FFIError;
+} VXError;
 
 /**
  * Options supplied for opening a file.
@@ -178,7 +178,7 @@ typedef struct FileScanOptions {
 /**
  * Get the length of the array.
  */
-uint64_t FFIArray_len(const struct Array *ffi_array);
+uint64_t vx_array_len(const struct VXArray *ffi_array);
 
 /**
  * Get a pointer to the data type for an array.
@@ -186,38 +186,43 @@ uint64_t FFIArray_len(const struct Array *ffi_array);
  * Note that this pointer is tied to the lifetime of the array, and the caller is responsible
  * for ensuring that it is never dereferenced after the array has been freed.
  */
-const struct DType *FFIArray_dtype(const struct Array *ffi_array);
+const struct DType *vx_array_dtype(const struct VXArray *ffi_array);
 
-const struct Array *FFIArray_get_field(const struct Array *ffi_array, uint32_t index);
+const struct VXArray *vx_array_get_field(const struct VXArray *ffi_array,
+                                         uint32_t index,
+                                         struct VXError **error);
 
 /**
  * Free the array and all associated resources.
  */
-int32_t FFIArray_free(struct Array *ffi_array);
+int32_t vx_array_free(struct VXArray *ffi_array);
 
-struct Array *FFIArray_slice(const struct Array *array, uint32_t start, uint32_t stop);
+struct VXArray *vx_array_slice(const struct VXArray *array,
+                               uint32_t start,
+                               uint32_t stop,
+                               struct VXError **error);
 
-bool FFIArray_is_null(const struct Array *array, uint32_t index);
+bool vx_array_is_null(const struct VXArray *array, uint32_t index, struct VXError **error);
 
-uint32_t FFIArray_null_count(const struct Array *array);
-
-/**
- * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
- * the length in `len`.
- */
-void FFIArray_get_utf8(const struct Array *array, uint32_t index, void *dst, int *len);
+uint32_t vx_array_null_count(const struct VXArray *array, struct VXError **error);
 
 /**
  * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
  * the length in `len`.
  */
-void FFIArray_get_binary(const struct Array *array, uint32_t index, void *dst, int *len);
+void vx_array_get_utf8(const struct VXArray *array, uint32_t index, void *dst, int *len);
+
+/**
+ * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
+ * the length in `len`.
+ */
+void vx_array_get_binary(const struct VXArray *array, uint32_t index, void *dst, int *len);
 
 /**
  * Pointer to a `DType` value that has been heap-allocated.
  * Create a new simple dtype.
  */
-struct DType *DType_new(uint8_t variant, bool nullable);
+struct DType *vx_dtype_new(uint8_t variant, bool nullable);
 
 /**
  * Create a new List type with the provided element type.
@@ -225,31 +230,31 @@ struct DType *DType_new(uint8_t variant, bool nullable);
  * Upon successful return, this function moves the value out of the provided element pointer,
  * so it is not safe to reference afterward.
  */
-struct DType *DType_new_list(struct DType *element, bool nullable);
+struct DType *vx_dtype_new_list(struct DType *element, bool nullable);
 
-struct DType *DType_new_struct(const char *const *names,
-                               struct DType *const *dtypes,
-                               uint32_t len,
-                               bool nullable);
+struct DType *vx_dtype_new_struct(const char *const *names,
+                                  struct DType *const *dtypes,
+                                  uint32_t len,
+                                  bool nullable);
 
 /**
  * Free an [`DType`] and all associated resources.
  */
-void DType_free(struct DType *dtype);
+void vx_dtype_free(struct DType *dtype);
 
 /**
  * Get the dtype variant tag for an [`DType`].
  */
-uint8_t DType_get(const struct DType *dtype);
+uint8_t vx_dtype_get(const struct DType *dtype);
 
-bool DType_nullable(const struct DType *dtype);
+bool vx_dtype_is_nullable(const struct DType *dtype);
 
 /**
  * For `DTYPE_STRUCT` variant DTypes, get the number of fields.
  */
-uint32_t DType_field_count(const struct DType *dtype);
+uint32_t vx_dtype_field_count(const struct DType *dtype);
 
-void DType_field_name(const struct DType *dtype, uint32_t index, void *dst, int *len);
+void vx_dtype_field_name(const struct DType *dtype, uint32_t index, void *dst, int *len);
 
 /**
  * Get the dtype of a field in a `DTYPE_STRUCT` variant DType.
@@ -257,7 +262,7 @@ void DType_field_name(const struct DType *dtype, uint32_t index, void *dst, int 
  * This returns a new owned, allocated copy of the DType that must be freed subsequently
  * by the caller.
  */
-struct DType *DType_field_dtype(const struct DType *dtype, uint32_t index);
+struct DType *vx_dtype_field_dtype(const struct DType *dtype, uint32_t index);
 
 /**
  * For a list DType, get the inner element type.
@@ -265,23 +270,23 @@ struct DType *DType_field_dtype(const struct DType *dtype, uint32_t index);
  * The pointee's lifetime is tied to the lifetime of the list DType. It should not be
  * accessed after the list DType has been freed.
  */
-const struct DType *DType_element_type(const struct DType *dtype);
+const struct DType *vx_dtype_element_type(const struct DType *dtype);
 
-bool DType_is_time(const struct DType *dtype);
+bool vx_dtype_is_time(const struct DType *dtype);
 
-bool DType_is_date(const struct DType *dtype);
+bool vx_dype_is_date(const struct DType *dtype);
 
-bool DType_is_timestamp(const struct DType *dtype);
+bool vx_dtype_is_timestamp(const struct DType *dtype);
 
-uint8_t DType_time_unit(const struct DType *dtype);
+uint8_t vx_dtype_time_unit(const struct DType *dtype);
 
-void DType_time_zone(const struct DType *dtype, void *dst, int *len);
+void vx_dtype_time_zone(const struct DType *dtype, void *dst, int *len);
 
 #if defined(ENABLE_DUCKDB_FFI)
 /**
  * Converts a DType into a duckdb
  */
-duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype, struct FFIError **error);
+duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct DType *dtype, struct VXError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -291,49 +296,50 @@ duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype, struct FFI
  * The offset is returned to the caller, which can be used to request the next chunk.
  * 0 is returned when the stream is finished.
  */
-unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
+unsigned int vx_array_to_duckdb_chunk(struct VXArray *stream,
                                       unsigned int offset,
                                       duckdb_data_chunk data_chunk_ptr,
-                                      struct FFIConversionCache *cache,
-                                      struct FFIError **error);
+                                      struct VXConversionCache *cache,
+                                      struct VXError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct Array *FFIArray_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
-                                                      const char *const *names,
-                                                      int len,
-                                                      struct FFIError **error);
+struct VXArray *vx_array_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
+                                                        const char *const *names,
+                                                        int len,
+                                                        struct VXError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct Array *FFIArray_append_duckdb_chunk(struct Array *array, duckdb_data_chunk chunk);
+struct VXArray *vx_array_append_duckdb_chunk(struct VXArray *array, duckdb_data_chunk chunk);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct FFIConversionCache *ConversionCache_create(unsigned int id);
+struct VXConversionCache *vx_conversion_cache_create(unsigned int id);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-void ConversionCache_free(struct FFIConversionCache *buffer);
+void vx_conversion_cache_free(struct VXConversionCache *buffer);
 #endif
 
-void FFIError_free(struct FFIError *error);
+void vx_error_free(struct VXError *error);
 
 /**
  * Open a file at the given path on the file system.
  */
-struct File *File_open(const struct FileOpenOptions *options, struct FFIError **error);
+struct File *vx_file_open(const struct FileOpenOptions *options, struct VXError **error);
 
 /**
  * This function creates a new file by writing the ffi array to the path in the options args.
+ * TODO: replace with a create and a write function
  */
-void File_create_and_write_array(const struct FileCreateOptions *options,
-                                 struct Array *ffi_array,
-                                 struct FFIError **error);
+void vx_file_create_and_write_array(const struct FileCreateOptions *options,
+                                    struct VXArray *ffi_array,
+                                    struct VXError **error);
 
-struct FileStatistics *File_statistics(struct File *file);
+struct FileStatistics *vx_file_statistics(struct File *file);
 
-void FileStatistics_free(struct FileStatistics *stat);
+void vx_file_statistics_free(struct FileStatistics *stat);
 
 /**
  * Get a readonly pointer to the DType of the data inside of the file.
@@ -341,14 +347,14 @@ void FileStatistics_free(struct FileStatistics *stat);
  * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
  * dereferenced after the file has been freed.
  */
-const struct DType *File_dtype(const struct File *file);
+const struct DType *vx_file_dtype(const struct File *file);
 
 /**
  * Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
  */
-struct ArrayStream *File_scan(const struct File *file,
-                              const struct FileScanOptions *opts,
-                              struct FFIError **error);
+struct VXArrayStream *vx_file_scan(const struct File *file,
+                                   const struct FileScanOptions *opts,
+                                   struct VXError **error);
 
 /**
  * Free the file and all associated resources.
@@ -356,7 +362,7 @@ struct ArrayStream *File_scan(const struct File *file,
  * This function will not automatically free any `FFIArrayStream`s that were built from this
  * file.
  */
-void File_free(struct File *file);
+void vx_file_free(struct File *file);
 
 /**
  * Initialize native logging with the specified level.
@@ -364,12 +370,12 @@ void File_free(struct File *file);
  * This function is optional, if it is not called then no runtime
  * logger will be installed.
  */
-void vortex_init_logging(uint8_t level);
+void vx_init_logging(uint8_t level);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
  */
-const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
+const struct DType *vx_array_stream_dtype(const struct VXArrayStream *stream);
 
 /**
  * Attempt to advance the `current` pointer of the stream.
@@ -379,12 +385,12 @@ const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
  *
  * It is an error to call this function again after the stream is finished.
  */
-bool FFIArrayStream_next(struct ArrayStream *stream, struct FFIError **error);
+bool vx_array_stream_next(struct VXArrayStream *stream, struct VXError **error);
 
 /**
  * Predicate function to check if the array stream is finished.
  */
-bool FFIArrayStream_finished(const struct ArrayStream *stream);
+bool vx_array_stream_finished(const struct VXArrayStream *stream);
 
 /**
  * Get the current array batch from the stream. Returns a unique pointer.
@@ -395,12 +401,12 @@ bool FFIArrayStream_finished(const struct ArrayStream *stream);
  *
  * This function is unsafe because it dereferences the `stream` pointer.
  */
-struct Array *FFIArrayStream_current(struct ArrayStream *stream);
+struct VXArray *vx_array_stream_current(struct VXArrayStream *stream);
 
 /**
  * Free the array stream and all associated resources.
  */
-void FFIArrayStream_free(struct ArrayStream *stream);
+void vx_array_stream_free(struct VXArrayStream *stream);
 
 #ifdef __cplusplus
 }

@@ -18,16 +18,16 @@ use vortex_duckdb::{
     ToDuckDBType, to_duckdb_chunk,
 };
 
-use crate::array::FFIArray;
-use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
-use crate::error::{FFIError, into_c_error, map_into_c_error};
+use crate::array::VXArray;
+use crate::duckdb::cache::{VXConversionCache, into_conversion_cache};
+use crate::error::{VXError, into_c_error, map_into_c_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn DType_to_duckdb_logical_type(
+pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
     dtype: *mut DType,
-    error: *mut *mut FFIError,
+    error: *mut *mut VXError,
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
@@ -44,12 +44,12 @@ pub unsafe extern "C-unwind" fn DType_to_duckdb_logical_type(
 /// The offset is returned to the caller, which can be used to request the next chunk.
 /// 0 is returned when the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
-    stream: *mut FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
+    stream: *mut VXArray,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
-    cache: *mut FFIConversionCache,
-    error: *mut *mut FFIError,
+    cache: *mut VXConversionCache,
+    error: *mut *mut VXError,
 ) -> c_uint {
     let result = (|| {
         let offset = offset as usize;
@@ -80,12 +80,12 @@ pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
+pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     type_array: *const duckdb_logical_type,
     names: *const *const c_char,
     len: c_int,
-    error: *mut *mut FFIError,
-) -> *mut FFIArray {
+    error: *mut *mut VXError,
+) -> *mut VXArray {
     let result = (|| {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
@@ -104,7 +104,7 @@ pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
 
         let chunked_array = ChunkedArray::try_new(vec![], file_dtype).vortex_expect("cannot fail");
 
-        let ffi_array = FFIArray {
+        let ffi_array = VXArray {
             inner: chunked_array.to_array(),
         };
 
@@ -115,10 +115,10 @@ pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn FFIArray_append_duckdb_chunk(
-    array: *mut FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
+    array: *mut VXArray,
     chunk: duckdb_data_chunk,
-) -> *mut FFIArray {
+) -> *mut VXArray {
     let array = unsafe { array.as_ref().vortex_expect("null array") };
 
     let struct_type = array
@@ -148,9 +148,9 @@ pub unsafe extern "C-unwind" fn FFIArray_append_duckdb_chunk(
     let chunked_array = ChunkedArray::try_new(chunks, chunked_array.dtype().clone())
         .vortex_expect("appending array");
 
-    Box::leak(Box::new(FFIArray {
+    Box::leak(Box::new(VXArray {
         inner: chunked_array.to_array(),
-    })) as *mut FFIArray
+    })) as *mut VXArray
 }
 
 #[cfg(test)]
@@ -162,40 +162,40 @@ mod tests {
     use vortex::arrays::{PrimitiveArray, StructArray};
     use vortex::error::VortexExpect;
 
-    use crate::array::FFIArray;
-    use crate::duckdb::FFIArray_to_duckdb_chunk;
-    use crate::duckdb::cache::{ConversionCache_create, ConversionCache_free};
-    use crate::error::FFIError;
+    use crate::array::VXArray;
+    use crate::duckdb::cache::{vx_conversion_cache_create, vx_conversion_cache_free};
+    use crate::duckdb::vx_array_to_duckdb_chunk;
+    use crate::error::VXError;
 
     #[test]
     fn test_long_array() {
         let vortex: PrimitiveArray = (0i32..4095).collect();
         let vortex = StructArray::from_fields(&[("a", vortex.to_array())]).vortex_expect("str");
 
-        let ffi_array: *mut FFIArray = Box::into_raw(Box::new(FFIArray {
+        let ffi_array: *mut VXArray = Box::into_raw(Box::new(VXArray {
             inner: vortex.to_array(),
         }));
 
-        let cache = unsafe { ConversionCache_create(0) };
+        let cache = unsafe { vx_conversion_cache_create(0) };
 
-        let mut error: *mut FFIError = null_mut();
+        let mut error: *mut VXError = null_mut();
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
         let offset =
-            unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, &mut error) };
+            unsafe { vx_array_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, &mut error) };
         assert!(error.is_null());
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
 
         let offset = unsafe {
-            FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, &mut error)
+            vx_array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, &mut error)
         };
         assert!(error.is_null());
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
 
         unsafe {
-            ConversionCache_free(cache);
+            vx_conversion_cache_free(cache);
         }
     }
 }
