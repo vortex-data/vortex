@@ -53,12 +53,8 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 ];
 
 // Generate table dataset.
-pub async fn load_datasets(
-    base_dir: &Url,
-    format: Format,
-    emulate_object_store: bool,
-) -> anyhow::Result<SessionContext> {
-    let context = get_session_with_cache(emulate_object_store);
+pub async fn load_datasets(base_dir: &Url, format: Format) -> anyhow::Result<SessionContext> {
+    let context = get_session_with_cache();
 
     let object_store = make_object_store(&context, base_dir)?;
 

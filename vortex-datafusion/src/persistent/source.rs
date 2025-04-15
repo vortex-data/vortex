@@ -3,9 +3,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
 use datafusion_common::{Result as DFResult, Statistics};
+use datafusion_datasource::file_groups::FileGroup;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::ObjectStore;
@@ -168,18 +168,21 @@ impl FileSource for VortexSource {
 }
 
 pub(crate) fn repartition_by_size(
-    file_groups: Vec<Vec<PartitionedFile>>,
+    file_groups: Vec<FileGroup>,
     desired_partitions: usize,
-) -> Vec<Vec<PartitionedFile>> {
-    let all_files = file_groups.iter().flatten().collect::<Vec<_>>();
+) -> Vec<FileGroup> {
+    let all_files = file_groups
+        .iter()
+        .flat_map(|fg| fg.files())
+        .collect::<Vec<_>>();
     let total_file_count = all_files.len();
-    let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
-    let target_partition_size = total_size / desired_partitions;
+    let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<u64>();
+    let target_partition_size = total_size / desired_partitions as u64;
 
     let mut partitions = Vec::with_capacity(desired_partitions);
 
     let mut curr_partition_size = 0;
-    let mut curr_partition = Vec::default();
+    let mut curr_file_group = FileGroup::default();
 
     let mut all_files = VecDeque::from_iter(
         all_files
@@ -189,7 +192,7 @@ pub(crate) fn repartition_by_size(
 
     while !all_files.is_empty() && partitions.len() < desired_partitions {
         // If the current partition is empty, we want to bootstrap it with the biggest file we have leftover.
-        let file = if curr_partition.is_empty() {
+        let file = if curr_file_group.is_empty() {
             all_files.pop_back()
         // If we already have files in the partition, we try and fill it up.
         } else {
@@ -219,21 +222,21 @@ pub(crate) fn repartition_by_size(
         // Add a file to the partition
         if let Some(file) = file {
             curr_partition_size += file.object_meta.size;
-            curr_partition.push(file.clone());
+            curr_file_group.push(file.clone());
         }
 
         // If the partition is full, move on to the next one
         if curr_partition_size >= target_partition_size || file.is_none() {
             curr_partition_size = 0;
-            partitions.push(std::mem::take(&mut curr_partition));
+            partitions.push(std::mem::take(&mut curr_file_group));
         }
     }
 
     // If we we're still missing the last partition
-    if !curr_partition.is_empty() && partitions.len() != desired_partitions {
-        partitions.push(std::mem::take(&mut curr_partition));
-    } else if !curr_partition.is_empty() {
-        for (idx, file) in curr_partition.into_iter().enumerate() {
+    if !curr_file_group.is_empty() && partitions.len() != desired_partitions {
+        partitions.push(std::mem::take(&mut curr_file_group));
+    } else if !curr_file_group.is_empty() {
+        for (idx, file) in curr_file_group.into_inner().into_iter().enumerate() {
             let new_part_idx = idx % partitions.len();
             partitions[new_part_idx].push(file.clone());
         }
@@ -245,24 +248,29 @@ pub(crate) fn repartition_by_size(
     }
 
     // Assert that we have the correct number of partitions and that the total number of files is right
-    assert_eq!(total_file_count, partitions.iter().flatten().count());
+    assert_eq!(
+        total_file_count,
+        partitions.iter().map(|fg| fg.len()).sum::<usize>()
+    );
 
     partitions
 }
 
 #[cfg(test)]
 mod tests {
+    use datafusion_datasource::PartitionedFile;
+
     use super::*;
 
     #[test]
     fn basic_repartition_test() {
-        let file_groups = vec![vec![
+        let file_groups = vec![FileGroup::from(vec![
             PartitionedFile::new("a", 100),
             PartitionedFile::new("b", 25),
             PartitionedFile::new("c", 25),
             PartitionedFile::new("d", 25),
             PartitionedFile::new("e", 50),
-        ]];
+        ])];
 
         repartition_by_size(file_groups, 2);
 

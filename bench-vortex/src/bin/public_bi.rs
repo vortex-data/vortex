@@ -34,8 +34,6 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
-    #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
     #[arg(short, long, value_delimiter = ',')]
     dataset: PBIDataset,
     #[arg(short, long, value_delimiter = ',')]
@@ -109,7 +107,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(dataset.write_as_vortex());
 
     for format in &args.formats {
-        let session = get_session_with_cache(args.emulate_object_store);
+        let session = get_session_with_cache();
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,

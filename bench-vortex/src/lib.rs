@@ -10,7 +10,6 @@ use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatch;
-use blob::SlowObjectStoreRegistry;
 use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
@@ -29,7 +28,6 @@ use url::Url;
 use vortex::error::VortexResult;
 
 pub mod bench_run;
-pub mod blob;
 pub mod clickbench;
 pub mod compress;
 pub mod conversions;
@@ -225,13 +223,7 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .to_string()
 });
 
-pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
-    let registry = if emulate_object_store {
-        Arc::new(SlowObjectStoreRegistry::default()) as _
-    } else {
-        Arc::new(DefaultObjectStoreRegistry::new()) as _
-    };
-
+pub fn get_session_with_cache() -> SessionContext {
     let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
     let list_file_cache = Arc::new(DefaultListFilesCache::default());
 
@@ -241,7 +233,7 @@ pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
 
     let rt = RuntimeEnvBuilder::new()
         .with_cache_manager(cache_config)
-        .with_object_store_registry(registry)
+        .with_object_store_registry(Arc::new(DefaultObjectStoreRegistry::new()))
         .build_arc()
         .expect("could not build runtime environment");
 

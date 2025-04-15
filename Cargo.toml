@@ -78,6 +78,7 @@ crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178", default-features = false }
 datafusion-common = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
+datafusion-datasource = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
 datafusion-execution = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
 datafusion-expr = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
 datafusion-physical-expr = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }

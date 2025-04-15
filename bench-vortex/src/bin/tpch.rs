@@ -47,8 +47,6 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
-    #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
     #[arg(long)]
@@ -166,7 +164,6 @@ fn main() -> ExitCode {
         args.iterations,
         args.formats,
         args.display_format,
-        args.emulate_object_store,
         args.scale_factor,
         url,
         args.all_metrics,
@@ -181,7 +178,6 @@ async fn bench_main(
     iterations: usize,
     formats: Vec<Format>,
     display_format: DisplayFormat,
-    emulate_object_store: bool,
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
@@ -216,9 +212,7 @@ async fn bench_main(
     for format in formats.iter().copied() {
         let mut plans = Vec::new();
         // Load datasets
-        let ctx = load_datasets(&url, format, emulate_object_store)
-            .await
-            .unwrap();
+        let ctx = load_datasets(&url, format).await.unwrap();
 
         for (query_idx, sql_queries) in tpch_queries() {
             if queries
