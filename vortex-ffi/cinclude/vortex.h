@@ -78,7 +78,7 @@ typedef enum VXLogLevel {
  * Vortex arrays preserve a single logical type, while the encodings allow for multiple
  * physical ways to encode that type.
  */
-typedef struct DType DType;
+typedef struct VXDType VXDType;
 
 /**
  * The FFI interface for an [`Array`].
@@ -183,7 +183,7 @@ uint64_t vx_array_len(const struct VXArray *array);
  * Note that this pointer is tied to the lifetime of the array, and the caller is responsible
  * for ensuring that it is never dereferenced after the array has been freed.
  */
-const struct DType *vx_array_dtype(const struct VXArray *array);
+const struct VXDType *vx_array_dtype(const struct VXArray *array);
 
 const struct VXArray *vx_array_get_field(const struct VXArray *ffi_array,
                                          uint32_t index,
@@ -219,7 +219,7 @@ void vx_array_get_binary(const struct VXArray *array, uint32_t index, void *dst,
  * Pointer to a `DType` value that has been heap-allocated.
  * Create a new simple dtype.
  */
-struct DType *vx_dtype_new(uint8_t variant, bool nullable);
+struct VXDType *vx_dtype_new(uint8_t variant, bool nullable);
 
 /**
  * Create a new List type with the provided element type.
@@ -227,31 +227,31 @@ struct DType *vx_dtype_new(uint8_t variant, bool nullable);
  * Upon successful return, this function moves the value out of the provided element pointer,
  * so it is not safe to reference afterward.
  */
-struct DType *vx_dtype_new_list(struct DType *element, bool nullable);
+struct VXDType *vx_dtype_new_list(struct VXDType *element, bool nullable);
 
-struct DType *vx_dtype_new_struct(const char *const *names,
-                                  struct DType *const *dtypes,
-                                  uint32_t len,
-                                  bool nullable);
+struct VXDType *vx_dtype_new_struct(const char *const *names,
+                                    struct VXDType *const *dtypes,
+                                    uint32_t len,
+                                    bool nullable);
 
 /**
  * Free an [`DType`] and all associated resources.
  */
-void vx_dtype_free(struct DType *dtype);
+void vx_dtype_free(struct VXDType *dtype);
 
 /**
  * Get the dtype variant tag for an [`DType`].
  */
-uint8_t vx_dtype_get(const struct DType *dtype);
+uint8_t vx_dtype_get(const struct VXDType *dtype);
 
-bool vx_dtype_is_nullable(const struct DType *dtype);
+bool vx_dtype_is_nullable(const struct VXDType *dtype);
 
 /**
  * For `DTYPE_STRUCT` variant DTypes, get the number of fields.
  */
-uint32_t vx_dtype_field_count(const struct DType *dtype);
+uint32_t vx_dtype_field_count(const struct VXDType *dtype);
 
-void vx_dtype_field_name(const struct DType *dtype, uint32_t index, void *dst, int *len);
+void vx_dtype_field_name(const struct VXDType *dtype, uint32_t index, void *dst, int *len);
 
 /**
  * Get the dtype of a field in a `DTYPE_STRUCT` variant DType.
@@ -259,7 +259,7 @@ void vx_dtype_field_name(const struct DType *dtype, uint32_t index, void *dst, i
  * This returns a new owned, allocated copy of the DType that must be freed subsequently
  * by the caller.
  */
-struct DType *vx_dtype_field_dtype(const struct DType *dtype, uint32_t index);
+struct VXDType *vx_dtype_field_dtype(const struct VXDType *dtype, uint32_t index);
 
 /**
  * For a list DType, get the inner element type.
@@ -267,23 +267,23 @@ struct DType *vx_dtype_field_dtype(const struct DType *dtype, uint32_t index);
  * The pointee's lifetime is tied to the lifetime of the list DType. It should not be
  * accessed after the list DType has been freed.
  */
-const struct DType *vx_dtype_element_type(const struct DType *dtype);
+const struct VXDType *vx_dtype_element_type(const struct VXDType *dtype);
 
-bool vx_dtype_is_time(const struct DType *dtype);
+bool vx_dtype_is_time(const struct VXDType *dtype);
 
-bool vx_dype_is_date(const struct DType *dtype);
+bool vx_dype_is_date(const struct VXDType *dtype);
 
-bool vx_dtype_is_timestamp(const struct DType *dtype);
+bool vx_dtype_is_timestamp(const struct VXDType *dtype);
 
-uint8_t vx_dtype_time_unit(const struct DType *dtype);
+uint8_t vx_dtype_time_unit(const struct VXDType *dtype);
 
-void vx_dtype_time_zone(const struct DType *dtype, void *dst, int *len);
+void vx_dtype_time_zone(const struct VXDType *dtype, void *dst, int *len);
 
 #if defined(ENABLE_DUCKDB_FFI)
 /**
  * Converts a DType into a duckdb
  */
-duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct DType *dtype, struct VXError **error);
+duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct VXDType *dtype, struct VXError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -344,7 +344,7 @@ void vx_file_statistics_free(struct VXFileStatistics *stat);
  * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
  * dereferenced after the file has been freed.
  */
-const struct DType *vx_file_dtype(const struct VXFile *file);
+const struct VXDType *vx_file_dtype(const struct VXFile *file);
 
 /**
  * Build a new `VXArrayStream` that return a series of `VXArray`s scan over a `VXFile`.
@@ -372,7 +372,7 @@ void vx_init_logging(enum VXLogLevel level);
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
  */
-const struct DType *vx_array_stream_dtype(const struct VXArrayStream *stream);
+const struct VXDType *vx_array_stream_dtype(const struct VXArrayStream *stream);
 
 /**
  * Attempt to advance the `current` pointer of the stream.

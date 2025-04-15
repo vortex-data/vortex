@@ -1,8 +1,6 @@
 use log::LevelFilter;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 
-use crate::error::VXError;
-
 #[repr(C)]
 #[allow(non_camel_case_types)]
 pub enum VXLogLevel {
@@ -27,9 +25,6 @@ pub unsafe extern "C-unwind" fn vx_init_logging(level: VXLogLevel) {
         VXLogLevel::LOG_LEVEL_INFO => LevelFilter::Info,
         VXLogLevel::LOG_LEVEL_DEBUG => LevelFilter::Debug,
         VXLogLevel::LOG_LEVEL_TRACE => LevelFilter::Trace,
-        _ => {
-            return;
-        }
     };
 
     TermLogger::init(

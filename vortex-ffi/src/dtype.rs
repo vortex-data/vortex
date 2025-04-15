@@ -1,9 +1,12 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ptr::null;
 use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
-use vortex::error::{VortexExpect, VortexUnwrap};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail};
+
+use crate::error::{VXError, try_or};
 
 /// Pointer to a `DType` value that has been heap-allocated.
 /// Create a new simple dtype.
@@ -190,15 +193,18 @@ pub unsafe extern "C-unwind" fn vx_dtype_field_dtype(
 /// The pointee's lifetime is tied to the lifetime of the list DType. It should not be
 /// accessed after the list DType has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_element_type(dtype: *const DType) -> *const DType {
-    assert!(!dtype.is_null(), "DType_element_type: null ptr");
-
+pub unsafe extern "C-unwind" fn vx_dtype_element_type(
+    dtype: *const DType,
+    error: *mut *mut VXError,
+) -> *const DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-    let DType::List(element_dtype, _) = dtype else {
-        panic!("DType_element_type: not a list dtype")
-    };
 
-    element_dtype.as_ref()
+    try_or(error, null(), || {
+        let DType::List(element_dtype, _) = dtype else {
+            vortex_bail!("vx_dtype_element_type: not a list dtype")
+        };
+        Ok(element_dtype.as_ref())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -254,7 +260,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
-        panic!("DType_time_unit: not a time dtype")
+        panic!("VXDType_time_unit: not a time dtype")
     };
 
     match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {

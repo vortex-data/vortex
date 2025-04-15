@@ -32,7 +32,7 @@ trailer = """
 """
 
 [export.rename]
-"DTpye" = "VXDType"
+"DType" = "VXDType"
 
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
