@@ -127,6 +127,11 @@ typedef struct FileOpenOptions {
   int property_len;
 } FileOpenOptions;
 
+typedef struct FFIError {
+  int code;
+  const char *message;
+} FFIError;
+
 /**
  * Options supplied for opening a file.
  */
@@ -310,12 +315,14 @@ void ConversionCache_free(struct FFIConversionCache *buffer);
 /**
  * Open a file at the given path on the file system.
  */
-struct File *File_open(const struct FileOpenOptions *options);
+struct File *File_open(const struct FileOpenOptions *options, const struct FFIError **error);
 
 /**
  * This function creates a new file by writing the ffi array to the path in the options args.
  */
-void File_create_and_write_array(const struct FileCreateOptions *options, struct Array *ffi_array);
+void File_create_and_write_array(const struct FileCreateOptions *options,
+                                 struct Array *ffi_array,
+                                 const struct FFIError **error);
 
 struct FileStatistics *File_statistics(struct File *file);
 
@@ -350,6 +357,9 @@ void File_free(struct File *file);
  */
 void vortex_init_logging(uint8_t level);
 
+/**
+ * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
+ */
 const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
 
 /**
@@ -360,7 +370,7 @@ const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
  *
  * It is an error to call this function again after the stream is finished.
  */
-bool FFIArrayStream_next(struct ArrayStream *stream);
+bool FFIArrayStream_next(struct ArrayStream *stream, const struct FFIError **error);
 
 /**
  * Predicate function to check if the array stream is finished.
@@ -370,7 +380,7 @@ bool FFIArrayStream_finished(const struct ArrayStream *stream);
 /**
  * Get the current array batch from the stream. Returns a unique pointer.
  *
- * It is an error to call this function if the stream is already finished.
+ * If this is called on an already finished stream the return value will be null.
  *
  * # Safety
  *
@@ -381,7 +391,7 @@ struct Array *FFIArrayStream_current(struct ArrayStream *stream);
 /**
  * Free the array stream and all associated resources.
  */
-int32_t FFIArrayStream_free(struct ArrayStream *stream);
+void FFIArrayStream_free(struct ArrayStream *stream);
 
 #ifdef __cplusplus
 }

@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::FFIError;
+use crate::error::{FFIError, into_return_mut};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -117,58 +117,6 @@ pub unsafe extern "C" fn File_open(
     }
 }
 
-unsafe fn into_return_mut<T, V>(
-    result: VortexResult<T>,
-    to_result: impl Fn(T) -> V,
-    default: V,
-    error: *mut *const FFIError,
-) -> V {
-    match result {
-        Ok(file) => Box::into_raw(Box::new(file)),
-        Err(err) => {
-            let cstr: CStr = err.into();
-            unsafe {
-                error.write(
-                    Box::into_raw(Box::new(FFIError {
-                        code: -1,
-                        message: cstr.as_ptr(),
-                    }))
-                    .cast(),
-                )
-            };
-            ptr::null_mut()
-        }
-    }
-}
-
-// #[unsafe(no_mangle)]
-// pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIFile {
-//     let options = unsafe { options.as_ref().vortex_expect("null options") };
-//
-//     assert!(!options.uri.is_null(), "File_open: null uri");
-//     let uri = CStr::from_ptr(options.uri).to_string_lossy();
-//     let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
-//
-//     let prop_keys = to_string_vec(options.property_keys, options.property_len);
-//     let prop_vals = to_string_vec(options.property_vals, options.property_len);
-//
-//     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
-//         .vortex_expect("File_open: make_object_store");
-//
-//     // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
-//     // tokio dep
-//     let result = RUNTIME.block_on(async move {
-//         VortexOpenOptions::file()
-//             .open_object_store(&object_store, uri.path())
-//             .await
-//     });
-//
-//     let file = result.vortex_expect("open");
-//     let ffi_file = FFIFile { inner: file };
-//
-//     Box::into_raw(Box::new(ffi_file))
-// }
-
 /// This function creates a new file by writing the ffi array to the path in the options args.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_create_and_write_array(
@@ -177,12 +125,8 @@ pub unsafe extern "C" fn File_create_and_write_array(
     error: *mut *const FFIError,
 ) {
     let result = (|| {
-        let Some(options) = (unsafe { options.as_ref() }) else {
-            vortex_bail!("null options")
-        };
-        if options.path.is_null() {
-            vortex_bail!("null uri")
-        }
+        let Some(options) = options.as_ref().vortex_expect("null options");
+        assert!(!options.path.is_null(), "null path");
 
         let path = CStr::from_ptr(options.path).to_string_lossy();
         let array = unsafe { ffi_array.as_ref()? };
@@ -211,12 +155,17 @@ pub struct FileStatistics {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_statistics(file: *mut FFIFile) -> *mut FileStatistics {
     Box::into_raw(Box::new(FileStatistics {
-        num_rows: (*file).inner.row_count(),
+        num_rows: file
+            .as_ref()
+            .vortex_expect("null file ptr")
+            .inner
+            .row_count(),
     }))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FileStatistics_free(stat: *mut FileStatistics) {
+    assert!(!stat.is_null());
     drop(Box::from_raw(stat));
 }
 
@@ -235,42 +184,45 @@ pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
     opts: *const FileScanOptions,
 ) -> *mut FFIArrayStream {
-    let file = unsafe { &*file };
-    let mut stream = file.inner.scan().vortex_expect("create scan");
+    let stream = (|| {
+        let file = unsafe { file.as_ref().vortex_expect("null file") };
+        let mut stream = file.inner.scan().vortex_expect("create scan");
 
-    if !opts.is_null() {
-        let opts = &*opts;
-        let mut field_names = Vec::new();
-        for i in 0..opts.projection_len {
-            let col_name = unsafe { *opts.projection.offset(i as isize) };
-            let col_name: Arc<str> = to_string(col_name).into();
-            field_names.push(col_name);
+        if let Some(opts) = opts.as_ref() {
+            let mut field_names = Vec::new();
+            for i in 0..opts.projection_len {
+                let col_name = unsafe { *opts.projection.offset(i as isize) };
+                let col_name: Arc<str> = to_string(col_name).into();
+                field_names.push(col_name);
+            }
+            let expr_str = opts.filter_expression;
+            if !expr_str.is_null() && opts.filter_expression_len > 0 {
+                let bytes = unsafe {
+                    slice::from_raw_parts(
+                        expr_str as *const u8,
+                        opts.filter_expression_len as usize,
+                    )
+                };
+
+                // Decode the protobuf message
+                let expr_proto = Expr::decode(bytes)?;
+                let expr = deserialize_expr(&expr_proto)
+                    .map_err(|e| e.with_context("deserializing expr"))?;
+                stream = stream.with_filter(expr)
+            }
+            if opts.split_by_row_count > 0 {
+                stream = stream.with_split_by(SplitBy::RowCount(opts.split_by_row_count as usize));
+            }
+
+            stream = stream.with_projection(select(field_names, Identity::new_expr()));
         }
-        let expr_str = opts.filter_expression;
-        if !expr_str.is_null() && opts.filter_expression_len > 0 {
-            let bytes = unsafe {
-                slice::from_raw_parts(expr_str as *const u8, opts.filter_expression_len as usize)
-            };
 
-            // Decode the protobuf message
-            let expr_proto = Expr::decode(bytes).vortex_expect("decode filter expression");
-            let expr = deserialize_expr(&expr_proto).vortex_expect("deserialize filter expression");
-            stream = stream.with_filter(expr)
-        }
-        if opts.split_by_row_count > 0 {
-            stream = stream.with_split_by(SplitBy::RowCount(opts.split_by_row_count as usize));
-        }
+        let stream = stream.into_array_stream()?;
 
-        stream = stream.with_projection(select(field_names, Identity::new_expr()));
-    }
-
-    let stream = stream
-        .into_array_stream()
-        .vortex_expect("into_array_stream");
-
-    let inner = Some(Box::new(FFIArrayStreamInner {
-        stream: Box::pin(stream),
-    }));
+        Ok(Some(Box::new(FFIArrayStreamInner {
+            stream: Box::pin(stream),
+        })))
+    })();
 
     Box::into_raw(Box::new(FFIArrayStream {
         inner,
