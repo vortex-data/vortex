@@ -9,9 +9,9 @@ pub struct FFIError {
     pub message: *const c_char,
 }
 
-pub fn try_or<F, T, ValueT>(error: *mut *mut FFIError, default_value: ValueT, function: F) -> ValueT
+pub fn try_or<F, ValueT>(error: *mut *mut FFIError, default_value: ValueT, function: F) -> ValueT
 where
-    F: Fn() -> VortexResult<T>,
+    F: Fn() -> VortexResult<ValueT>,
 {
     match function() {
         Ok(value) => {
