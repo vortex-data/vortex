@@ -39,8 +39,8 @@ impl Compressor for IntCompressor {
             &FORScheme,
             &ZigZagScheme,
             &BitPackingScheme,
-            &SparseScheme,
-            &DictScheme,
+            // &SparseScheme,
+            // &DictScheme,
             &RunEndScheme,
         ]
     }

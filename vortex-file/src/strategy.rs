@@ -13,9 +13,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::dict::writer::{
-    DictLayoutOptions, DictLayoutWriter, dict_layout_supported,
-};
+use vortex_layout::layouts::dict::writer::{DictLayoutWriter, dict_layout_supported};
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{
     RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
@@ -69,9 +67,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
                     child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
                 })),
-                DictLayoutOptions {
-                    max_dict_size_bytes: 1024 * 1024,
-                },
+                Default::default(),
             )?
             .boxed()
         } else {

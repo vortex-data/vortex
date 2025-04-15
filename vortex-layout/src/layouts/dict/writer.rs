@@ -14,12 +14,14 @@ use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterE
 pub struct DictLayoutOptions {
     /// max dictionary size in bytes, uncompressed
     pub max_dict_size_bytes: usize,
+    pub max_dict_len: usize,
 }
 
 impl Default for DictLayoutOptions {
     fn default() -> Self {
         Self {
             max_dict_size_bytes: 1024 * 1024,
+            max_dict_len: u16::MAX as usize,
         }
     }
 }

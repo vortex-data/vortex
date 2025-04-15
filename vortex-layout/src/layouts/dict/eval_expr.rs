@@ -5,7 +5,7 @@ use futures::join;
 use vortex_array::arrays::StructArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dict::DictArray;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_err};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
@@ -75,8 +75,18 @@ impl MaskEvaluation for DictMaskEvaluation {
             return Ok(mask);
         }
 
-        // TODO(os): if mask density is low, we should run take on codes first?
         let values_result = self.values_eval.clone().await?;
+        match values_result
+            .as_bool_typed()
+            .ok_or_else(|| vortex_err!("expr must return bool"))?
+            .true_count()?
+        {
+            0 => return Ok(Mask::AllFalse(mask.len())),
+            count if count == values_result.len() => return Ok(Mask::AllTrue(mask.len())),
+            _ => (),
+        }
+
+        // TODO(os): if mask density is low, we should run take on codes first?
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
 
         // Creating a mask from the dict array would canonicalise it,
