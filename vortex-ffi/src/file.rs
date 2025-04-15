@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char, c_int};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ptr, result, slice};
+use std::{ptr, slice};
 
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -79,8 +79,8 @@ pub unsafe extern "C" fn File_open(
             let options = unsafe {
                 options
                     .as_ref()
-                    .ok_or_else(|| Err(vortex_err!("null options")))
-            }?;
+                    .ok_or_else(|| vortex_err!("null options"))?
+            };
 
             if options.uri.is_null() {
                 vortex_bail!("null uri")
@@ -125,11 +125,11 @@ pub unsafe extern "C" fn File_create_and_write_array(
     error: *mut *const FFIError,
 ) {
     let result = (|| {
-        let Some(options) = options.as_ref().vortex_expect("null options");
+        let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
         let path = CStr::from_ptr(options.path).to_string_lossy();
-        let array = unsafe { ffi_array.as_ref()? };
+        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
 
         RUNTIME.block_on(async move {
             let file = tokio::fs::File::create(path.to_string()).await?;
@@ -183,6 +183,7 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
 pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
     opts: *const FileScanOptions,
+    error: *mut *const FFIError,
 ) -> *mut FFIArrayStream {
     let stream = (|| {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
@@ -224,10 +225,17 @@ pub unsafe extern "C" fn File_scan(
         })))
     })();
 
-    Box::into_raw(Box::new(FFIArrayStream {
-        inner,
-        current: None,
-    }))
+    into_return_mut(
+        stream,
+        |inner| {
+            Box::into_raw(Box::new(FFIArrayStream {
+                inner,
+                current: None,
+            }))
+        },
+        ptr::null_mut(),
+        error,
+    )
 }
 
 /// Free the file and all associated resources.

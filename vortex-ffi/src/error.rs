@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{c_char, c_int};
 use std::ptr;
 
 use vortex::error::VortexResult;
@@ -16,19 +16,23 @@ pub unsafe fn into_return_mut<T, V>(
     error: *mut *const FFIError,
 ) -> V {
     match result {
-        Ok(file) => Box::into_raw(Box::new(file)),
+        Ok(file) => {
+            error.write(ptr::null());
+            to_result(file)
+        }
         Err(err) => {
-            let cstr: CStr = err.into();
+            let c_string =
+                std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
             unsafe {
                 error.write(
                     Box::into_raw(Box::new(FFIError {
                         code: -1,
-                        message: cstr.as_ptr(),
+                        message: c_string.into_raw(),
                     }))
                     .cast(),
                 )
             };
-            ptr::null_mut()
+            default
         }
     }
 }

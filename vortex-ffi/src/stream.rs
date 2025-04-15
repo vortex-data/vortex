@@ -28,7 +28,7 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
         .inner
         .as_ref()
     else {
-        ptr::null()
+        return ptr::null();
     };
 
     inner.stream.dtype()

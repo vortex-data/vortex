@@ -8,6 +8,12 @@
 
 #include "vortex.h"
 
+inline void HandleError(const FFIError *error) {
+	if (error != nullptr && error->code != 0) {
+		throw duckdb::InvalidInputException(error->message);
+	}
+}
+
 struct VortexConversionCache {
 	explicit VortexConversionCache(const unsigned long cache_id) : cache(ConversionCache_create(cache_id)) {
 	}
@@ -28,7 +34,10 @@ struct VortexFile {
 	}
 
 	static duckdb::unique_ptr<VortexFile> Open(const FileOpenOptions *options) {
-		return duckdb::make_uniq<VortexFile>(File_open(options));
+		const FFIError *error;
+		auto vx_file = duckdb::make_uniq<VortexFile>(File_open(options, &error));
+		HandleError(error);
+		return vx_file;
 	}
 
 	File *file;
@@ -58,11 +67,19 @@ struct VortexArrayStream {
 	}
 
 	duckdb::unique_ptr<VortexArray> CurrentArray() const {
-		return duckdb::make_uniq<VortexArray>(FFIArrayStream_current(array_stream));
+		auto stream = FFIArrayStream_current(array_stream);
+		if (stream) {
+			return duckdb::make_uniq<VortexArray>(stream);
+		} else {
+			throw duckdb::InternalException("No more arrays in stream");
+		}
 	}
 
 	bool NextArray() const {
-		return FFIArrayStream_next(array_stream);
+		const FFIError *error;
+		auto stream = FFIArrayStream_next(array_stream, &error);
+		HandleError(error);
+		return stream;
 	}
 
 	ArrayStream *array_stream;

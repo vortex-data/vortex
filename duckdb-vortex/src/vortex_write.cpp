@@ -79,7 +79,9 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
 		auto opts = FileCreateOptions();
 		opts.path = global_state.file_name.c_str();
-		File_create_and_write_array(&opts, global_state.array->array);
+		const FFIError *error;
+		File_create_and_write_array(&opts, global_state.array->array, &error);
+		HandleError(error);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {
