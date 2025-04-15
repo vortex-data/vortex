@@ -24,7 +24,7 @@ struct VortexFile {
 	}
 
 	static duckdb::unique_ptr<VortexFile> Open(const FileOpenOptions *options) {
-		const FFIError *error;
+		FFIError *error;
 		auto vx_file = duckdb::make_uniq<VortexFile>(File_open(options, &error));
 		HandleError(error);
 		return vx_file;
@@ -42,7 +42,10 @@ struct VortexArray {
 	}
 
 	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const VortexConversionCache *cache) const {
-		return FFIArray_to_duckdb_chunk(array, current_row, output, cache->cache);
+		FFIError *error;
+		auto idx = FFIArray_to_duckdb_chunk(array, current_row, output, cache->cache, &error);
+		HandleError(error);
+		return idx;
 	}
 
 	Array *array;
@@ -66,7 +69,7 @@ struct VortexArrayStream {
 	}
 
 	bool NextArray() const {
-		const FFIError *error;
+		FFIError *error;
 		auto stream = FFIArrayStream_next(array_stream, &error);
 		HandleError(error);
 		return stream;

@@ -7,7 +7,7 @@ use vortex::error::{VortexExpect, vortex_bail};
 use vortex::stream::ArrayStream;
 
 use crate::array::{FFIArray, FFIArray_free};
-use crate::error::{FFIError, into_return_mut};
+use crate::error::{FFIError, into_return};
 
 /// FFI-exposed stream interface.
 pub struct FFIArrayStream {
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_next(
     stream: *mut FFIArrayStream,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> bool {
     let result = (|| {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(
         }
     })();
 
-    unsafe { into_return_mut(result, |r| r, false, error) }
+    unsafe { into_return(result, |r| r, false, error) }
 }
 
 /// Predicate function to check if the array stream is finished.

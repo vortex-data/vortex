@@ -133,7 +133,9 @@ static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &co
 		std::string field_name(name_buffer, name_len);
 
 		DType *field_dtype = DType_field_dtype(file_dtype, idx);
-		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype));
+		FFIError *error = nullptr;
+		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype, &error));
+		HandleError(error);
 
 		column_names.push_back(field_name);
 		column_types.push_back(LogicalType(*duckdb_type));
@@ -229,7 +231,11 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    .split_by_row_count = 2048 * 32,
 	};
 
-	return make_uniq<VortexArrayStream>(File_scan(file->file, &options));
+	FFIError *error = nullptr;
+	auto scan = File_scan(file->file, &options, &error);
+	HandleError(error);
+
+	return make_uniq<VortexArrayStream>(scan);
 }
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {

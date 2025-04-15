@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::{FFIError, into_return_mut};
+use crate::error::{FFIError, into_return};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -72,7 +72,7 @@ pub struct FileScanOptions {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_open(
     options: *const FileOpenOptions,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> *mut FFIFile {
     let result = (|| {
         {
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn File_open(
     })();
 
     unsafe {
-        into_return_mut(
+        into_return(
             result,
             |file| Box::into_raw(Box::new(file)),
             ptr::null_mut(),
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn File_open(
 pub unsafe extern "C" fn File_create_and_write_array(
     options: *const FileCreateOptions,
     ffi_array: *mut FFIArray,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) {
     let result = {
         let options = options.as_ref().vortex_expect("null options");
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
         })
     };
 
-    unsafe { into_return_mut(result, |_| (), (), error) }
+    unsafe { into_return(result, |_| (), (), error) }
 }
 
 /// Whole file statistics.
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
 pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
     opts: *const FileScanOptions,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> *mut FFIArrayStream {
     let stream = (|| {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn File_scan(
         })))
     })();
 
-    into_return_mut(
+    into_return(
         stream,
         |inner| {
             Box::into_raw(Box::new(FFIArrayStream {

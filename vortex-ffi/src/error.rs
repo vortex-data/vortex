@@ -9,15 +9,23 @@ pub struct FFIError {
     pub message: *const c_char,
 }
 
-pub unsafe fn into_return_mut<T, V>(
+pub unsafe fn into_return_id<V>(
+    result: VortexResult<V>,
+    default: V,
+    error: *mut *mut FFIError,
+) -> V {
+    into_return(result, |r| r, default, error)
+}
+
+pub unsafe fn into_return<T, V>(
     result: VortexResult<T>,
     to_result: impl Fn(T) -> V,
     default: V,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> V {
     match result {
         Ok(file) => {
-            error.write(ptr::null());
+            error.write(ptr::null_mut());
             to_result(file)
         }
         Err(err) => {
@@ -39,6 +47,6 @@ pub unsafe fn into_return_mut<T, V>(
 }
 
 #[unsafe(no_mangle)]
-pub fn free_error(error: *mut FFIError) {
+pub unsafe extern "C" fn FFIError_free(error: *mut FFIError) {
     drop(unsafe { Box::from_raw(error) })
 }
