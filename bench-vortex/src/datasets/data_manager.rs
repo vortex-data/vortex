@@ -160,6 +160,7 @@ pub async fn register_vortex_files(
 
                         // Convert to Vortex.
                         use std::pin::Pin;
+
                         use futures::StreamExt;
                         use vortex::TryIntoArray;
                         use vortex::dtype::arrow::FromArrowType;
