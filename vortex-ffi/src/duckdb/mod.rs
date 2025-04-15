@@ -67,11 +67,7 @@ pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
         let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
         let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
 
-        to_duckdb_chunk(
-            &slice.to_struct().vortex_expect("must be a struct"),
-            &mut data_chunk_handle,
-            cache,
-        )?;
+        to_duckdb_chunk(&slice.to_struct()?, &mut data_chunk_handle, cache)?;
 
         if is_end {
             Ok(0)
@@ -80,7 +76,7 @@ pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
         }
     })();
 
-    into_c_error(result, |r| r, 0, error)
+    unsafe { into_c_error(result, |r| r, 0, error) }
 }
 
 #[unsafe(no_mangle)]
@@ -169,6 +165,7 @@ mod tests {
     use crate::array::FFIArray;
     use crate::duckdb::FFIArray_to_duckdb_chunk;
     use crate::duckdb::cache::{ConversionCache_create, ConversionCache_free};
+    use crate::error::FFIError;
 
     #[test]
     fn test_long_array() {
@@ -181,17 +178,19 @@ mod tests {
 
         let cache = unsafe { ConversionCache_create(0) };
 
-        let error = null_mut();
+        let mut error: *mut FFIError = null_mut();
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
         let offset =
-            unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, error) };
-        assert_eq!(error, null_mut());
+            unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, &mut error) };
+        assert!(error.is_null());
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
-        let offset =
-            unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, error) };
-        assert_eq!(error, null_mut());
+
+        let offset = unsafe {
+            FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, &mut error)
+        };
+        assert!(error.is_null());
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
 
