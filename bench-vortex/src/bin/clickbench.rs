@@ -63,6 +63,10 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(long, default_value_t = false)]
     single_file: bool,
+    #[arg(long, default_value_t = false)]
+    hide_progress_bar: bool,
+    #[arg(long, default_value_t = false)]
+    hide_metrics: bool,
 }
 
 struct DataFusionCtx {
@@ -166,8 +170,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     let base_url = data_source_base_url(&args.use_remote_data_dir, args.flavor)?;
-    let progress_bar =
-        ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64);
+
+    let progress_bar = if args.hide_progress_bar {
+        ProgressBar::hidden()
+    } else {
+        ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64)
+    };
 
     let mut query_measurements = Vec::new();
 
@@ -215,7 +223,9 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                print_metrics(&ctx.metrics);
+                if !args.hide_metrics {
+                    print_metrics(&ctx.metrics);
+                }
             }
 
             query_measurements.extend(bench_measurements);
@@ -240,9 +250,9 @@ fn print_metrics(
     )>,
 ) {
     for (query_idx, file_format, metric_sets) in metrics {
-        println!("metrics for query={query_idx}, {file_format}:");
+        eprintln!("metrics for query={query_idx}, {file_format}:");
         for (query_idx, metrics_set) in metric_sets.iter().enumerate() {
-            println!("scan[{query_idx}]:");
+            eprintln!("scan[{query_idx}]:");
             for metric in metrics_set
                 .clone()
                 .timestamps_removed()
@@ -250,7 +260,7 @@ fn print_metrics(
                 .sorted_for_display()
                 .iter()
             {
-                println!("{metric}");
+                eprintln!("{metric}");
             }
         }
     }
