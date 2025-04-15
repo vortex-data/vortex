@@ -3,16 +3,15 @@
 //! The FFIArray provides both type-erased and type-aware access behind an `ArrayRef`.
 
 use std::ffi::{c_int, c_void};
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 
-use log::error;
 use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
-use crate::error::{FFIError, into_return, into_return_id};
+use crate::error::{FFIError, into_c_error_id};
 
 /// The FFI interface for an [`Array`].
 ///
@@ -55,15 +54,14 @@ pub unsafe extern "C" fn FFIArray_get_field(
             .inner
             .as_struct_typed()
             .ok_or_else(|| vortex_err!("FFIArray_get_field: expected struct-typed array"))?
-            .maybe_null_field_by_idx(index as usize)
-            .ok_or_else(|| vortex_err!("FFIArray_get_field: field by index"))?;
+            .maybe_null_field_by_idx(index as usize)?;
 
         let ffi_array = Box::new(FFIArray { inner: field_array });
 
-        Ok(Box::into_raw(ffi_array))
+        Ok(Box::into_raw(ffi_array).cast_const())
     })();
 
-    into_return_id(result, null_mut(), error)
+    into_c_error_id(result, null(), error)
 }
 
 // Get a pointer to the child array reference here instead...we have no concept of references
@@ -91,7 +89,7 @@ pub unsafe extern "C" fn FFIArray_slice(
         Ok(Box::into_raw(Box::new(FFIArray { inner: sliced })))
     })();
 
-    into_return_id(result, null_mut(), error)
+    into_c_error_id(result, null_mut(), error)
 }
 
 #[unsafe(no_mangle)]
@@ -103,7 +101,7 @@ pub unsafe extern "C" fn FFIArray_is_null(
     let array = array.as_ref().vortex_expect("array null");
     let result = array.inner.is_invalid(index as usize);
 
-    into_return_id(result, true, error)
+    into_c_error_id(result, true, error)
 }
 
 #[unsafe(no_mangle)]
@@ -112,9 +110,9 @@ pub unsafe extern "C" fn FFIArray_null_count(
     error: *mut *mut FFIError,
 ) -> u32 {
     let array = array.as_ref().vortex_expect("array null");
-    let result = (|| array.inner.as_ref().invalid_count()?.try_into())();
+    let result = (|| Ok(array.inner.as_ref().invalid_count()?.try_into()?))();
 
-    into_return_id(result, 0, error)
+    into_c_error_id(result, 0, error)
 }
 
 macro_rules! ffiarray_get_ptype {

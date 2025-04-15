@@ -20,7 +20,7 @@ use vortex_duckdb::{
 
 use crate::array::FFIArray;
 use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
-use crate::error::{FFIError, into_return};
+use crate::error::{FFIError, into_c_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn DType_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    into_return(
+    into_c_error(
         dtype.to_duckdb_type(),
         |t| t.into_owning_ptr(),
         LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
         }
     })();
 
-    into_return(result, |r| r, 0, error)
+    into_c_error(result, |r| r, 0, error)
 }
 
 #[unsafe(no_mangle)]
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn FFIArray_create_empty_from_duckdb_table(
         Ok(Box::leak(Box::new(ffi_array)))
     })();
 
-    into_return(result, |array| array, ptr::null_mut(), error)
+    into_c_error(result, |array| array, ptr::null_mut(), error)
 }
 
 #[unsafe(no_mangle)]

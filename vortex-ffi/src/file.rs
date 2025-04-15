@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::{FFIError, into_return};
+use crate::error::{FFIError, into_c_error};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn File_open(
     })();
 
     unsafe {
-        into_return(
+        into_c_error(
             result,
             |file| Box::into_raw(Box::new(file)),
             ptr::null_mut(),
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
         })
     };
 
-    unsafe { into_return(result, |_| (), (), error) }
+    unsafe { into_c_error(result, |_| (), (), error) }
 }
 
 /// Whole file statistics.
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn File_scan(
         })))
     })();
 
-    into_return(
+    into_c_error(
         stream,
         |inner| {
             Box::into_raw(Box::new(FFIArrayStream {

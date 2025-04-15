@@ -9,15 +9,15 @@ pub struct FFIError {
     pub message: *const c_char,
 }
 
-pub unsafe fn into_return_id<V>(
+pub unsafe fn into_c_error_id<V>(
     result: VortexResult<V>,
     default: V,
     error: *mut *mut FFIError,
 ) -> V {
-    into_return(result, |r| r, default, error)
+    into_c_error(result, |r| r, default, error)
 }
 
-pub unsafe fn into_return<T, V>(
+pub unsafe fn into_c_error<T, V>(
     result: VortexResult<T>,
     to_result: impl Fn(T) -> V,
     default: V,
