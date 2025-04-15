@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use itertools::Itertools;
+use lending_iterator::LendingIterator;
 use num_traits::AsPrimitive;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
@@ -60,7 +61,8 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     }
 
     let mut first_chunk_value = None;
-    for chunk in bit_unpack_iterator.full_chunks() {
+    let mut chunks_iter = bit_unpack_iterator.full_chunks();
+    while let Some(chunk) = chunks_iter.next() {
         if let Some((indices, patches, offset)) = &patches {
             let chunk_len = chunk.len();
             apply_patches(

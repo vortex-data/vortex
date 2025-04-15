@@ -2,11 +2,14 @@ use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
+use lending_iterator::gat;
+use lending_iterator::prelude::Item;
+#[gat(Item)]
+use lending_iterator::prelude::LendingIterator;
 use vortex_array::Array;
 use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 
 use crate::BitPackedArray;
 
@@ -177,29 +180,29 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
     }
 }
 
-impl<'a, T: BitPacked + 'a> Iterator for BitUnpackIterator<'a, T> {
-    type Item = &'a mut [T; CHUNK_SIZE];
+#[gat]
+impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
+    type Item<'next>
+    where
+        Self: 'next,
+    = &'next mut [T; CHUNK_SIZE];
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&'_ mut self) -> Option<Item<'_, Self>> {
         if self.idx >= self.num_chunks {
             return None;
         }
 
         let chunk = &self.packed[self.idx * self.elems_per_chunk..][..self.elems_per_chunk];
 
+        let dst: &mut [MaybeUninit<T>] = self.buffer;
         unsafe {
-            let dst: &mut [MaybeUninit<T>] = self.buffer;
             let dst: &mut [T::UnsignedT] = mem::transmute(dst);
 
             BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
         }
         self.idx += 1;
         // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
-        Some(unsafe {
-            mem::transmute::<&mut MaybeUninit<T>, &mut [T; 1024]>(
-                self.buffer.as_mut_ptr().as_mut().vortex_expect("nonnull"),
-            )
-        })
+        Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
     }
 }
 
