@@ -19,7 +19,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  RUSTFLAGS_aarch64_apple_darwin: "-C linker=cc"
 
 jobs:
   lint-toml:
