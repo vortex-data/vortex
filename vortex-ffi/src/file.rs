@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char, c_int};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ptr, slice};
+use std::{ptr, result, slice};
 
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -68,7 +68,9 @@ pub struct FileScanOptions {
     pub split_by_row_count: c_int,
 }
 
-pub unsafe extern "C" fn File_open2(
+/// Open a file at the given path on the file system.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn File_open(
     options: *const FileOpenOptions,
     error: *mut *const FFIError,
 ) -> *mut FFIFile {
@@ -105,75 +107,98 @@ pub unsafe extern "C" fn File_open2(
         }
     })();
 
+    unsafe {
+        into_return_mut(
+            result,
+            |file| Box::into_raw(Box::new(file)),
+            ptr::null_mut(),
+            error,
+        )
+    }
+}
+
+unsafe fn into_return_mut<T, V>(
+    result: VortexResult<T>,
+    to_result: impl Fn(T) -> V,
+    default: V,
+    error: *mut *const FFIError,
+) -> V {
     match result {
         Ok(file) => Box::into_raw(Box::new(file)),
         Err(err) => {
             let cstr: CStr = err.into();
-            error.write(
-                Box::into_raw(Box::new(FFIError {
-                    code: -1,
-                    message: cstr.as_ptr(),
-                }))
-                .cast(),
-            );
+            unsafe {
+                error.write(
+                    Box::into_raw(Box::new(FFIError {
+                        code: -1,
+                        message: cstr.as_ptr(),
+                    }))
+                    .cast(),
+                )
+            };
             ptr::null_mut()
         }
     }
 }
 
-/// Open a file at the given path on the file system.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIFile {
-    let options = unsafe { options.as_ref().vortex_expect("null options") };
-
-    assert!(!options.uri.is_null(), "File_open: null uri");
-    let uri = CStr::from_ptr(options.uri).to_string_lossy();
-    let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
-
-    let prop_keys = to_string_vec(options.property_keys, options.property_len);
-    let prop_vals = to_string_vec(options.property_vals, options.property_len);
-
-    let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
-        .vortex_expect("File_open: make_object_store");
-
-    // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
-    // tokio dep
-    let result = RUNTIME.block_on(async move {
-        VortexOpenOptions::file()
-            .open_object_store(&object_store, uri.path())
-            .await
-    });
-
-    let file = result.vortex_expect("open");
-    let ffi_file = FFIFile { inner: file };
-
-    Box::into_raw(Box::new(ffi_file))
-}
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn File_open(options: *const FileOpenOptions) -> *mut FFIFile {
+//     let options = unsafe { options.as_ref().vortex_expect("null options") };
+//
+//     assert!(!options.uri.is_null(), "File_open: null uri");
+//     let uri = CStr::from_ptr(options.uri).to_string_lossy();
+//     let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+//
+//     let prop_keys = to_string_vec(options.property_keys, options.property_len);
+//     let prop_vals = to_string_vec(options.property_vals, options.property_len);
+//
+//     let object_store = make_object_store(&uri, &prop_keys, &prop_vals)
+//         .vortex_expect("File_open: make_object_store");
+//
+//     // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
+//     // tokio dep
+//     let result = RUNTIME.block_on(async move {
+//         VortexOpenOptions::file()
+//             .open_object_store(&object_store, uri.path())
+//             .await
+//     });
+//
+//     let file = result.vortex_expect("open");
+//     let ffi_file = FFIFile { inner: file };
+//
+//     Box::into_raw(Box::new(ffi_file))
+// }
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_create_and_write_array(
     options: *const FileCreateOptions,
     ffi_array: *mut FFIArray,
+    error: *mut *const FFIError,
 ) {
-    let options = unsafe { options.as_ref().vortex_expect("null options") };
+    let result = (|| {
+        let Some(options) = (unsafe { options.as_ref() }) else {
+            vortex_bail!("null options")
+        };
+        if options.path.is_null() {
+            vortex_bail!("null uri")
+        }
 
-    assert!(!options.path.is_null(), "File_open: null uri");
-    let path = CStr::from_ptr(options.path).to_string_lossy();
+        let path = CStr::from_ptr(options.path).to_string_lossy();
+        let array = unsafe { ffi_array.as_ref()? };
 
-    let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
+        RUNTIME.block_on(async move {
+            let file = tokio::fs::File::create(path.to_string()).await?;
+            let file = VortexWriteOptions::default()
+                .write(file, array.inner.to_array_stream())
+                .await?;
 
-    RUNTIME.block_on(async move {
-        let file = tokio::fs::File::create(path.to_string())
-            .await
-            .vortex_expect("creating file");
-        let file = VortexWriteOptions::default()
-            .write(file, array.inner.to_array_stream())
-            .await
-            .vortex_expect("writing file: complete");
+            file.sync_all().await?;
+            Ok(())
+        })
+    })();
 
-        file.sync_all().await.vortex_expect("sync file")
-    })
+    unsafe { into_return_mut(result, |_| (), (), error) }
 }
 
 /// Whole file statistics.
