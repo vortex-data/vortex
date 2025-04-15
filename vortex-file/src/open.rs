@@ -34,7 +34,7 @@ pub struct VortexOpenOptions<F: FileType> {
     pub(crate) dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     // TODO(ngates): add an optional DType so we only read the layout segment.
-    footer: Option<Footer>,
+    pub(crate) footer: Option<Footer>,
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
     pub(crate) initial_read_size: u64,
     pub(crate) initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
@@ -122,28 +122,25 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 }
 
+pub(crate) enum ParseResult<T> {
+    /// The initial read was successful.
+    Ok(T),
+    /// Parsing the value requires more bytes, specifically starting from
+    /// the given offset from the start of the file.
+    // TODO(ngates): we could measure this in usize from EOF if PostscriptSegments were defined
+    //  in negative offsets.
+    NeedFrom(u64),
+}
+
 impl<F: FileType> VortexOpenOptions<F> {
-    /// Read the [`Footer`] from the file.
-    pub(crate) async fn read_footer<R: VortexReadAt>(&self, read: &R) -> VortexResult<Footer> {
-        if let Some(footer) = self.footer.as_ref() {
-            return Ok(footer.clone());
-        }
-
-        // Fetch the file size and perform the initial read.
-        let file_size = match self.file_size {
-            None => read.size().await?,
-            Some(file_size) => file_size,
-        };
-        let initial_read_size = self
-            .initial_read_size
-            // Make sure we read enough to cover the postscript
-            .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
-            .min(file_size);
-        let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read: ByteBuffer = read
-            .read_byte_range(initial_offset..file_size, Alignment::none())
-            .await?;
-
+    /// Parse the [`Footer`] out of the provided initial read buffer. The buffer must contain
+    /// the last N bytes of the file, where N is the size of the buffer itself. i.e. the buffer
+    /// must end with the `EOF` bytes.
+    ///
+    /// The function will ask for more bytes if necessary in order to fully read the footer.
+    ///
+    /// The alignment of the initial read buffer is not important.
+    pub(crate) fn parse_footer(&self, initial_read: &[u8]) -> VortexResult<ParseResult<Footer>> {
         // We know the initial read _must_ contain at least the Postscript.
         let postscript = self.parse_postscript(&initial_read)?;
 
@@ -209,7 +206,13 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 
     /// Parse the postscript from the initial read.
-    fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
+    pub(crate) fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
+        if initial_read.len() < EOF_SIZE {
+            vortex_bail!(
+                "Initial read must be at least EOF_SIZE ({}) bytes",
+                EOF_SIZE
+            );
+        }
         let eof_loc = initial_read.len() - EOF_SIZE;
         let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
 
@@ -232,6 +235,13 @@ impl<F: FileType> VortexOpenOptions<F> {
                 .try_into()
                 .map_err(|e| vortex_err!("Postscript size was not a u16 {e}"))?,
         ) as usize;
+
+        if initial_read.len() < eof_loc + ps_size {
+            vortex_bail!(
+                "Initial read must be at least {} bytes to include the Postscript",
+                eof_loc + ps_size
+            );
+        }
 
         Postscript::read_flatbuffer_bytes(&initial_read[eof_loc - ps_size..eof_loc])
     }

@@ -1,17 +1,23 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures::{StreamExt, pin_mut};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
 use crate::driver::CoalescedDriver;
+use crate::open::ParseResult;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
+use crate::{
+    EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, SegmentSourceFactory, SegmentSpec, VortexFile,
+    VortexOpenOptions,
+};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -42,7 +48,12 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send + Sync>(self, read: R) -> VortexResult<VortexFile> {
         let read = Arc::new(read);
-        let footer = self.read_footer(&read).await?;
+
+        let footer = if let Some(footer) = self.footer {
+            footer
+        } else {
+            self.read_footer(&read).await?
+        };
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
             InitialReadSegmentCache {
@@ -64,6 +75,71 @@ impl VortexOpenOptions<GenericVortexFile> {
             segment_source_factory,
             metrics: self.metrics,
         })
+    }
+
+    async fn read_footer<R: VortexReadAt + Send + Sync>(&self, read: &R) -> VortexResult<Footer> {
+        // Fetch the file size and perform the initial read.
+        let file_size = match self.file_size {
+            None => self.dispatched_size(read).await?,
+            Some(file_size) => file_size,
+        };
+        let initial_read_size = self
+            .initial_read_size
+            // Make sure we read enough to cover the postscript
+            .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
+            .min(file_size);
+        let mut initial_offset = file_size - initial_read_size;
+        let mut initial_read: ByteBuffer = self
+            .dispatched_read(read, initial_offset..file_size)
+            .await?;
+
+        let postscript = self.parse_postscript(&initial_read)?;
+
+        loop {
+            match self.parse_footer(&initial_read).await? {
+                ParseResult::Ok(footer) => return Ok(footer),
+                ParseResult::NeedFrom(need_more_offset) => {
+                    // Do another range read.
+                    assert!(
+                        initial_offset > need_more_offset,
+                        "Requested fewer bytes than we passed?"
+                    );
+                    let mut need_more_buffer =
+                        ByteBufferMut::with_capacity((file_size - need_more_offset).try_into()?);
+                    need_more_buffer.extend_from_slice(
+                        &self
+                            .dispatched_read(read, need_more_offset..initial_offset)
+                            .await?,
+                    );
+                    need_more_buffer.extend_from_slice(&initial_read);
+
+                    initial_read = need_more_buffer.into();
+                    initial_offset = need_more_offset;
+                }
+            }
+        }
+    }
+
+    /// Dispatch a [`VortexReadAt::size`] request onto the configured I/O dispatcher.
+    async fn dispatched_size<R: VortexReadAt + Send>(&self, read: &R) -> VortexResult<u64> {
+        Ok(self
+            .options
+            .io_dispatcher
+            .dispatch(|| async move { read.size().await })?
+            .await??)
+    }
+
+    /// Dispatch a read onto the configured I/O dispatcher.
+    async fn dispatched_read<R: VortexReadAt + Send>(
+        &self,
+        read: &R,
+        range: Range<u64>,
+    ) -> VortexResult<ByteBuffer> {
+        Ok(self
+            .options
+            .io_dispatcher
+            .dispatch(|| async move { read.read_byte_range(range, Alignment::none()).await })?
+            .await??)
     }
 }
 

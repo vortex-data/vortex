@@ -28,7 +28,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     /// Open an in-memory file contained in the provided buffer.
     pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
-        let footer = self.read_footer(&buffer).await?;
+        let footer = self.parse_footer(&buffer).await?;
         let segment_source_factory = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),
