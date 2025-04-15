@@ -55,15 +55,15 @@ version = "0.28.0"
 anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arrayref = "0.3.7"
-arrow = "54.3.1"
-arrow-arith = "54.3.1"
-arrow-array = "54.3.1"
-arrow-buffer = "54.3.1"
-arrow-cast = "54.3.1"
-arrow-ord = "54.3.1"
-arrow-schema = "54.3.1"
-arrow-select = "54.3.1"
-arrow-string = "54.3.1"
+arrow = "55"
+arrow-arith = "55"
+arrow-array = "55"
+arrow-buffer = "55"
+arrow-cast = "55"
+arrow-ord = "55"
+arrow-schema = "55"
+arrow-select = "55"
+arrow-string = "55"
 async-once-cell = "0.5.4"
 async-trait = "0.1.86"
 backtrace = "0.3.74"
@@ -76,12 +76,12 @@ clap = "4"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
 dashmap = "6.1.0"
-datafusion = { version = "46", default-features = false }
-datafusion-common = { version = "46" }
-datafusion-execution = { version = "46" }
-datafusion-expr = { version = "46" }
-datafusion-physical-expr = { version = "46" }
-datafusion-physical-plan = { version = "46" }
+datafusion = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178", default-features = false }
+datafusion-common = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
+datafusion-execution = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
+datafusion-expr = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
+datafusion-physical-expr = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
+datafusion-physical-plan = { version = "46", git = "https://github.com/apache/datafusion.git", rev = "1f0711e6f33903226d835808e6b178032f38e178" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
     "vtab-full",
@@ -113,20 +113,19 @@ mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 num-traits = "0.2.19"
 num_enum = "0.7.2"
-object_store = "0.11.0"
+object_store = "0.12.0"
 opentelemetry = "0.29.0"
 opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"
 parking_lot = "0.12.3"
-parquet = "54.3.1"
+parquet = "55"
 paste = "1.0.15"
 pin-project = "1.1.5"
 pin-project-lite = "0.2.15"
 prost = "0.13.4"
 prost-build = "0.13.4"
 prost-types = "0.13.4"
-# bump pyo3 to >0.24 on next arrow release, for RUSTSEC-2025-0020
-pyo3 = { version = "0.23.4", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py310"] }
 pyo3-log = "0.12.1"
 rancor = "0.1.0"
 rand = "0.9.0"

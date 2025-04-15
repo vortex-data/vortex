@@ -89,7 +89,20 @@ impl TryFrom<DFOperator> for Operator {
             | DFOperator::Minus
             | DFOperator::Multiply
             | DFOperator::Divide
-            | DFOperator::Modulo => Err(vortex_err!("Unsupported datafusion operator {value}")),
+            | DFOperator::Modulo
+            | DFOperator::Arrow
+            | DFOperator::LongArrow
+            | DFOperator::HashArrow
+            | DFOperator::HashLongArrow
+            | DFOperator::AtAt
+            | DFOperator::IntegerDivide
+            | DFOperator::HashMinus
+            | DFOperator::AtQuestion
+            | DFOperator::Question
+            | DFOperator::QuestionAnd
+            | DFOperator::QuestionPipe => {
+                Err(vortex_err!("Unsupported datafusion operator {value}"))
+            }
         }
     }
 }
