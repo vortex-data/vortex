@@ -9,6 +9,7 @@ use crate::{Array, ArrayRef, IntoArray};
 ///
 /// SAFETY: the fill value is guaranteed to be non-null.
 pub trait FillNullFn<A> {
+    // TODO(ngates): take &Scalar
     fn fill_null(&self, array: A, fill_value: Scalar) -> VortexResult<ArrayRef>;
 }
 

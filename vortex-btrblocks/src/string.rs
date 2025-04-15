@@ -84,7 +84,11 @@ impl Compressor for StringCompressor {
     type StatsType = StringStats;
 
     fn schemes() -> &'static [&'static Self::SchemeType] {
-        &[&UncompressedScheme, &DictScheme, &FSSTScheme]
+        &[
+            &UncompressedScheme,
+            //&DictScheme,
+            &FSSTScheme,
+        ]
     }
 
     fn default_scheme() -> &'static Self::SchemeType {

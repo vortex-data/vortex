@@ -148,7 +148,10 @@ impl FilterExpr {
     #[allow(clippy::cast_possible_truncation)]
     fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
-            vortex_panic!("selectivity must be in the range [0.0, 1.0]");
+            vortex_panic!(
+                "selectivity {} must be in the range [0.0, 1.0]",
+                selectivity
+            );
         }
 
         {

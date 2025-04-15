@@ -180,11 +180,6 @@ fn derive_take_stats(arr: &dyn Array) -> StatsSet {
 
 fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // First look for a TakeFrom specialized on the indices.
-    log::info!(
-        "take array: {}, indices: {}",
-        array.encoding(),
-        indices.encoding()
-    );
     if let Some(take_from_fn) = indices.vtable().take_from_fn() {
         if let Some(arr) = take_from_fn.take_from(indices, array)? {
             return Ok(arr);

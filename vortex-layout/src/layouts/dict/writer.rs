@@ -30,7 +30,7 @@ pub struct DictLayoutWriter {
     ctx: ArrayContext,
     options: DictLayoutOptions,
     child_strategy: ArcRef<dyn LayoutStrategy>,
-    dict_strategy: ArcRef<dyn LayoutStrategy>,
+    values_strategy: ArcRef<dyn LayoutStrategy>,
     dtype: DType,
     state: State,
 }
@@ -47,14 +47,14 @@ impl DictLayoutWriter {
         ctx: ArrayContext,
         dtype: &DType,
         child_strategy: ArcRef<dyn LayoutStrategy>,
-        dict_strategy: ArcRef<dyn LayoutStrategy>,
+        values_strategy: ArcRef<dyn LayoutStrategy>,
         options: DictLayoutOptions,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx: ctx.clone(),
             options,
             child_strategy: child_strategy.clone(),
-            dict_strategy,
+            values_strategy,
             dtype: dtype.clone(),
             state: State::default(),
         })
@@ -182,7 +182,7 @@ impl LayoutWriter for DictLayoutWriter {
     }
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        let mut dict_writer = self.dict_strategy.new_writer(&self.ctx, &self.dtype)?;
+        let mut dict_writer = self.values_strategy.new_writer(&self.ctx, &self.dtype)?;
         let values_layout = dict_writer.push_one(segments, self.state.dict_values()?)?;
 
         match std::mem::take(&mut self.state) {
