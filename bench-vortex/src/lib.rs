@@ -22,6 +22,7 @@ use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
+use tracing::debug;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -119,6 +120,7 @@ pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
         f(temp_path.as_path())?;
         std::fs::rename(temp_path, &data_path).unwrap();
     }
+    debug!("data path is {}", data_path.to_str().unwrap());
     Ok(data_path)
 }
 
@@ -136,6 +138,7 @@ where
         f(temp_path.clone()).await?;
         std::fs::rename(temp_path, &data_path).unwrap();
     }
+    debug!("data path is {}", data_path.to_str().unwrap());
     Ok(data_path)
 }
 
