@@ -54,7 +54,8 @@ impl Commands {
         match self {
             Commands::Tree { file }
             | Commands::Convert { file, .. }
-            | Commands::Browse { file } => file,
+            | Commands::Browse { file }
+            | Commands::Segments { file } => file,
         }
     }
 }
