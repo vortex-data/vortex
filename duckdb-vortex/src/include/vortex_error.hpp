@@ -2,8 +2,10 @@
 
 #include "vortex.hpp"
 
-inline void HandleError(const FFIError *error) {
+inline void HandleError(FFIError *error) {
 	if (error != nullptr && error->code != 0) {
-		throw duckdb::InvalidInputException(error->message);
+		auto msg = std::string(error->message);
+		FFIError_free(error);
+		throw duckdb::InvalidInputException(msg);
 	}
 }

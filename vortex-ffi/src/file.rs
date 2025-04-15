@@ -72,7 +72,7 @@ pub struct FileScanOptions {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn File_open(
     options: *const FileOpenOptions,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> *mut FFIFile {
     let result = (|| {
         {
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn File_open(
 pub unsafe extern "C" fn File_create_and_write_array(
     options: *const FileCreateOptions,
     ffi_array: *mut FFIArray,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) {
     let result = (|| {
         let options = options.as_ref().vortex_expect("null options");
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn File_dtype(file: *const FFIFile) -> *const DType {
 pub unsafe extern "C" fn File_scan(
     file: *const FFIFile,
     opts: *const FileScanOptions,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> *mut FFIArrayStream {
     let stream = (|| {
         let file = unsafe { file.as_ref().vortex_expect("null file") };

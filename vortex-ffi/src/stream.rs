@@ -43,7 +43,7 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FFIArrayStream_next(
     stream: *mut FFIArrayStream,
-    error: *mut *const FFIError,
+    error: *mut *mut FFIError,
 ) -> bool {
     let result = (|| {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
