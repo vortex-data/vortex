@@ -20,7 +20,7 @@ use vortex_duckdb::{
 
 use crate::array::FFIArray;
 use crate::duckdb::cache::{FFIConversionCache, into_conversion_cache};
-use crate::error::{FFIError, into_c_error};
+use crate::error::{FFIError, try_or};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -31,11 +31,10 @@ pub unsafe extern "C-unwind" fn DType_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    into_c_error(
-        dtype.to_duckdb_type(),
-        |t| t.into_owning_ptr(),
-        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+    try_or(
         error,
+        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+        || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
     )
 }
 
@@ -51,7 +50,7 @@ pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
     cache: *mut FFIConversionCache,
     error: *mut *mut FFIError,
 ) -> c_uint {
-    let result = (|| {
+    try_or(error, 0, || {
         let offset = offset as usize;
 
         let array = &unsafe { stream.as_ref() }
@@ -78,9 +77,7 @@ pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
         } else {
             Ok(u32::try_from(end)?)
         }
-    })();
-
-    into_c_error(result, |r| r, 0, error)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -90,7 +87,7 @@ pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
     len: c_int,
     error: *mut *mut FFIError,
 ) -> *mut FFIArray {
-    let result = (|| {
+    try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)
@@ -113,9 +110,7 @@ pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
         };
 
         Ok(Box::leak(Box::new(ffi_array)))
-    })();
-
-    into_c_error(result, |array| array, ptr::null_mut(), error)
+    })
 }
 
 #[unsafe(no_mangle)]

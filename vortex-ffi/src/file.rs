@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::{FFIError, into_c_error};
+use crate::error::{FFIError, into_c_error, try_or};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn File_open(
     options: *const FileOpenOptions,
     error: *mut *mut FFIError,
 ) -> *mut FFIFile {
-    let result = (|| {
+    try_or(error, ptr::null_mut(), || {
         {
             let options = unsafe {
                 options
@@ -103,18 +103,9 @@ pub unsafe extern "C" fn File_open(
 
             let file = result?;
             let ffi_file = FFIFile { inner: file };
-            VortexResult::Ok(ffi_file)
+            Ok(Box::into_raw(Box::new(ffi_file)))
         }
-    })();
-
-    unsafe {
-        into_c_error(
-            result,
-            |file| Box::into_raw(Box::new(file)),
-            ptr::null_mut(),
-            error,
-        )
-    }
+    })
 }
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
@@ -124,7 +115,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
     ffi_array: *mut FFIArray,
     error: *mut *mut FFIError,
 ) {
-    let result = {
+    try_or(error, (), || {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
@@ -140,9 +131,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
             file.sync_all().await?;
             Ok(())
         })
-    };
-
-    unsafe { into_c_error(result, |_| (), (), error) }
+    });
 }
 
 /// Whole file statistics.
@@ -185,7 +174,7 @@ pub unsafe extern "C" fn File_scan(
     opts: *const FileScanOptions,
     error: *mut *mut FFIError,
 ) -> *mut FFIArrayStream {
-    let stream = (|| {
+    try_or(error, ptr::null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
@@ -220,22 +209,15 @@ pub unsafe extern "C" fn File_scan(
 
         let stream = stream.into_array_stream()?;
 
-        Ok(Some(Box::new(FFIArrayStreamInner {
+        let inner = Some(Box::new(FFIArrayStreamInner {
             stream: Box::pin(stream),
-        })))
-    })();
+        }));
 
-    into_c_error(
-        stream,
-        |inner| {
-            Box::into_raw(Box::new(FFIArrayStream {
-                inner,
-                current: None,
-            }))
-        },
-        ptr::null_mut(),
-        error,
-    )
+        Ok(Box::into_raw(Box::new(FFIArrayStream {
+            inner,
+            current: None,
+        })))
+    })
 }
 
 /// Free the file and all associated resources.

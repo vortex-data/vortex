@@ -3,7 +3,7 @@
 //! The FFIArray provides both type-erased and type-aware access behind an `ArrayRef`.
 
 use std::ffi::{c_int, c_void};
-use std::ptr::{null, null_mut};
+use std::ptr;
 
 use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
@@ -11,7 +11,7 @@ use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
-use crate::error::{FFIError, into_c_error_id};
+use crate::error::{FFIError, try_or};
 
 /// The FFI interface for an [`Array`].
 ///
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
     index: u32,
     error: *mut *mut FFIError,
 ) -> *const FFIArray {
-    let result = (|| {
+    try_or(error, ptr::null(), || {
         let array = ffi_array.as_ref().vortex_expect("array null");
 
         let field_array = array
@@ -59,9 +59,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
         let ffi_array = Box::new(FFIArray { inner: field_array });
 
         Ok(Box::into_raw(ffi_array).cast_const())
-    })();
-
-    into_c_error_id(result, null(), error)
+    })
 }
 
 // Get a pointer to the child array reference here instead...we have no concept of references
@@ -83,13 +81,11 @@ pub unsafe extern "C" fn FFIArray_slice(
     stop: u32,
     error: *mut *mut FFIError,
 ) -> *mut FFIArray {
-    let result = (|| {
+    try_or(error, ptr::null_mut(), || {
         let array = array.as_ref().vortex_expect("array null");
         let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)?;
         Ok(Box::into_raw(Box::new(FFIArray { inner: sliced })))
-    })();
-
-    into_c_error_id(result, null_mut(), error)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -99,9 +95,8 @@ pub unsafe extern "C" fn FFIArray_is_null(
     error: *mut *mut FFIError,
 ) -> bool {
     let array = array.as_ref().vortex_expect("array null");
-    let result = array.inner.is_invalid(index as usize);
 
-    into_c_error_id(result, true, error)
+    try_or(error, false, || array.inner.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
@@ -110,9 +105,9 @@ pub unsafe extern "C" fn FFIArray_null_count(
     error: *mut *mut FFIError,
 ) -> u32 {
     let array = array.as_ref().vortex_expect("array null");
-    let result = (|| Ok(array.inner.as_ref().invalid_count()?.try_into()?))();
-
-    into_c_error_id(result, 0, error)
+    try_or(error, 0, || {
+        Ok(array.inner.as_ref().invalid_count()?.try_into()?)
+    })
 }
 
 macro_rules! ffiarray_get_ptype {
