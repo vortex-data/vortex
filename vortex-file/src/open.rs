@@ -5,14 +5,14 @@ use vortex_array::ArrayRegistry;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::footer::{Footer, Postscript, SegmentSpec};
+use crate::footer::{FileStatistics, Footer, Postscript, PostscriptSegment};
 use crate::segments::{NoOpSegmentCache, SegmentCache};
 use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
@@ -150,19 +150,16 @@ impl<F: FileType> VortexOpenOptions<F> {
         // If we haven't been provided a DType, we must read one from the file.
         let dtype_segment = self.dtype.is_none().then(|| postscript.dtype.ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))).transpose()?;
 
-        // Check if we need to read more bytes for the DType or Footer.
+        // The other postscript segments are required, so now we figure out our the offset that
+        // contains all the required segments.
         let mut read_more_offset = initial_offset;
-
-        // We always need to read the footer.
-        if postscript.footer.offset < read_more_offset {
-            read_more_offset = postscript.footer.offset;
+        if let Some(dtype_segment) = &dtype_segment {
+            read_more_offset = read_more_offset.min(dtype_segment.offset);
         }
-        // We sometimes need to read the DType.
-        if let Some(dtype) = &dtype_segment {
-            if dtype.offset < read_more_offset {
-                read_more_offset = dtype.offset;
-            }
+        if let Some(stats_segment) = &postscript.statistics {
+            read_more_offset = read_more_offset.min(stats_segment.offset);
         }
+        read_more_offset = read_more_offset.min(postscript.layout.offset);
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
@@ -185,19 +182,24 @@ impl<F: FileType> VortexOpenOptions<F> {
             initial_read = new_initial_read.freeze();
         }
 
-        // Now we try to read the DType and Footer segments.
+        // Now we read our initial segments.
         let dtype = dtype_segment
-            .map(|segment| self.parse_dtype(initial_offset, &initial_read, segment))
+            .map(|segment| self.parse_dtype(initial_offset, &initial_read, &segment))
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
-        let footer = self.footer.clone().map(Ok).unwrap_or_else(|| {
-            self.parse_footer(
-                initial_offset,
-                &initial_read,
-                postscript.footer,
-                dtype.clone(),
-            )
-        })?;
+        let file_stats = postscript
+            .statistics
+            .map(|segment| {
+                self.parse_flatbuffer::<FileStatistics>(initial_offset, &initial_read, &segment)
+            })
+            .transpose()?;
+        let footer = self.parse_file_layout(
+            initial_offset,
+            &initial_read,
+            &postscript.layout,
+            dtype,
+            file_stats,
+        )?;
 
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
@@ -239,28 +241,49 @@ impl<F: FileType> VortexOpenOptions<F> {
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
-        dtype: SegmentSpec,
+        segment: &PostscriptSegment,
     ) -> VortexResult<DType> {
-        let offset = usize::try_from(dtype.offset - initial_offset)?;
+        let offset = usize::try_from(segment.offset - initial_offset)?;
         let sliced_buffer =
-            FlatBuffer::align_from(initial_read.slice(offset..offset + (dtype.length as usize)));
+            FlatBuffer::align_from(initial_read.slice(offset..offset + (segment.length as usize)));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())
     }
 
-    /// Parse the Footer from the initial read.
-    fn parse_footer(
+    /// Parse a [`ReadFlatBuffer`] from the initial read buffer.
+    fn parse_flatbuffer<T: ReadFlatBuffer<Error = VortexError>>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
-        segment: SegmentSpec,
-        dtype: DType,
-    ) -> VortexResult<Footer> {
+        segment: &PostscriptSegment,
+    ) -> VortexResult<T> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
-        let bytes =
+        let sliced_buffer =
             FlatBuffer::align_from(initial_read.slice(offset..offset + (segment.length as usize)));
-        Footer::read_flatbuffer(bytes, dtype, &self.registry, &self.layout_registry)
+        T::read_flatbuffer_bytes(&sliced_buffer)
+    }
+
+    /// Parse the rest of the footer from the initial read.
+    fn parse_file_layout(
+        &self,
+        initial_offset: u64,
+        initial_read: &ByteBuffer,
+        layout_segment: &PostscriptSegment,
+        dtype: DType,
+        file_stats: Option<FileStatistics>,
+    ) -> VortexResult<Footer> {
+        let offset = usize::try_from(layout_segment.offset - initial_offset)?;
+        let bytes = FlatBuffer::align_from(
+            initial_read.slice(offset..offset + (layout_segment.length as usize)),
+        );
+        Footer::from_flatbuffer(
+            bytes,
+            dtype,
+            file_stats,
+            &self.registry,
+            &self.layout_registry,
+        )
     }
 
     /// Populate segments in the cache that were covered by the initial read.

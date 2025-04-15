@@ -95,7 +95,6 @@ pub unsafe extern "C" fn FFIArray_is_null(
     error: *mut *mut FFIError,
 ) -> bool {
     let array = array.as_ref().vortex_expect("array null");
-
     try_or(error, false, || array.inner.is_invalid(index as usize))
 }
 

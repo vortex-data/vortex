@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::{FFIError, into_c_error, try_or};
+use crate::error::{FFIError, try_or};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 

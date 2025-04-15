@@ -19,6 +19,12 @@ namespace duckdb {
 // file slots size for each running.
 constexpr uint32_t MAX_THREAD_COUNT = 192;
 
+// This is a multiple of the 2048 duckdb vector size, it needs tuning
+// This has a few factor effecting it:
+//  1. A smaller value means for work for the vortex file reader.
+//  2. A larger value reduces the parallelism available to the scanner
+constexpr uint32_t ROW_SPLIT_COUNT = 2048 * 32;
+
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
 /// happens during the query planning phase.
@@ -224,11 +230,7 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
 	    .filter_expression = global_state.filter_str.data(),
 	    .filter_expression_len = static_cast<int>(global_state.filter_str.length()),
-	    // This is a multiple of the 2048 duckdb vector size, it needs tuning
-	    // This has a few factor effecting it:
-	    //  1. A smaller value means for work for the vortex file reader.
-	    //  2. A larger value reduces the parallelism available to the scanner
-	    .split_by_row_count = 2048 * 32,
+	    .split_by_row_count = ROW_SPLIT_COUNT,
 	};
 
 	FFIError *error = nullptr;
@@ -337,16 +339,10 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 
 	bind.conjuncts.reserve(filters.size());
 
-	for (auto iter = filters.begin(); iter != filters.end();) {
-		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
+	for (auto &filter : filters) {
+		auto expr = expression_into_vortex_expr(*bind.arena, *filter);
 		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);
-		}
-
-		if (expr != nullptr) {
-			iter = filters.erase(iter);
-		} else {
-			++iter;
 		}
 	}
 }

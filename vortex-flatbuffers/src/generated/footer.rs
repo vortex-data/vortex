@@ -13,6 +13,99 @@ use core::cmp::Ordering;
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_COMPRESSION_SCHEME: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_COMPRESSION_SCHEME: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_COMPRESSION_SCHEME: [CompressionScheme; 4] = [
+  CompressionScheme::None,
+  CompressionScheme::LZ4,
+  CompressionScheme::ZLib,
+  CompressionScheme::ZStd,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct CompressionScheme(pub u8);
+#[allow(non_upper_case_globals)]
+impl CompressionScheme {
+  pub const None: Self = Self(0);
+  pub const LZ4: Self = Self(1);
+  pub const ZLib: Self = Self(2);
+  pub const ZStd: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
+    Self::LZ4,
+    Self::ZLib,
+    Self::ZStd,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::None => Some("None"),
+      Self::LZ4 => Some("LZ4"),
+      Self::ZLib => Some("ZLib"),
+      Self::ZStd => Some("ZStd"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for CompressionScheme {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for CompressionScheme {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for CompressionScheme {
+    type Output = CompressionScheme;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for CompressionScheme {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for CompressionScheme {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for CompressionScheme {}
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
 // struct SegmentSpec, aligned to 8
 #[repr(transparent)]
@@ -238,384 +331,24 @@ impl<'a> SegmentSpec {
 
 }
 
-pub enum FooterOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-/// The `Footer` stores the root `Layout` as well as location information for each referenced segment.
-pub struct Footer<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Footer<'a> {
-  type Inner = Footer<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Footer<'a> {
-  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
-  pub const VT_SEGMENTS: flatbuffers::VOffsetT = 6;
-  pub const VT_STATISTICS: flatbuffers::VOffsetT = 8;
-  pub const VT_ARRAY_ENCODINGS: flatbuffers::VOffsetT = 10;
-  pub const VT_LAYOUT_ENCODINGS: flatbuffers::VOffsetT = 12;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Footer { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args FooterArgs<'args>
-  ) -> flatbuffers::WIPOffset<Footer<'bldr>> {
-    let mut builder = FooterBuilder::new(_fbb);
-    if let Some(x) = args.layout_encodings { builder.add_layout_encodings(x); }
-    if let Some(x) = args.array_encodings { builder.add_array_encodings(x); }
-    if let Some(x) = args.statistics { builder.add_statistics(x); }
-    if let Some(x) = args.segments { builder.add_segments(x); }
-    if let Some(x) = args.layout { builder.add_layout(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn layout(&self) -> Option<Layout<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(Footer::VT_LAYOUT, None)}
-  }
-  #[inline]
-  pub fn segments(&self) -> Option<flatbuffers::Vector<'a, SegmentSpec>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(Footer::VT_SEGMENTS, None)}
-  }
-  #[inline]
-  pub fn statistics(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats>>>>(Footer::VT_STATISTICS, None)}
-  }
-  #[inline]
-  pub fn array_encodings(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding>>>>(Footer::VT_ARRAY_ENCODINGS, None)}
-  }
-  #[inline]
-  pub fn layout_encodings(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding>>>>(Footer::VT_LAYOUT_ENCODINGS, None)}
-  }
-}
-
-impl flatbuffers::Verifiable for Footer<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segments", Self::VT_SEGMENTS, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("statistics", Self::VT_STATISTICS, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayEncoding>>>>("array_encodings", Self::VT_ARRAY_ENCODINGS, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutEncoding>>>>("layout_encodings", Self::VT_LAYOUT_ENCODINGS, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct FooterArgs<'a> {
-    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
-    pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, SegmentSpec>>>,
-    pub statistics: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
-    pub array_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayEncoding<'a>>>>>,
-    pub layout_encodings: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutEncoding<'a>>>>>,
-}
-impl<'a> Default for FooterArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    FooterArgs {
-      layout: None,
-      segments: None,
-      statistics: None,
-      array_encodings: None,
-      layout_encodings: None,
-    }
-  }
-}
-
-pub struct FooterBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(Footer::VT_LAYOUT, layout);
-  }
-  #[inline]
-  pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , SegmentSpec>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_SEGMENTS, segments);
-  }
-  #[inline]
-  pub fn add_statistics(&mut self, statistics: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayStats<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_STATISTICS, statistics);
-  }
-  #[inline]
-  pub fn add_array_encodings(&mut self, array_encodings: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayEncoding<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_ARRAY_ENCODINGS, array_encodings);
-  }
-  #[inline]
-  pub fn add_layout_encodings(&mut self, layout_encodings: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<LayoutEncoding<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_LAYOUT_ENCODINGS, layout_encodings);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    FooterBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Footer<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Footer<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Footer");
-      ds.field("layout", &self.layout());
-      ds.field("segments", &self.segments());
-      ds.field("statistics", &self.statistics());
-      ds.field("array_encodings", &self.array_encodings());
-      ds.field("layout_encodings", &self.layout_encodings());
-      ds.finish()
-  }
-}
-pub enum ArrayEncodingOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-/// An `ArrayEncoding` describes the type of a particular array.
-///
-/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
-/// at read-time.
-pub struct ArrayEncoding<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for ArrayEncoding<'a> {
-  type Inner = ArrayEncoding<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> ArrayEncoding<'a> {
-  pub const VT_ID: flatbuffers::VOffsetT = 4;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    ArrayEncoding { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args ArrayEncodingArgs<'args>
-  ) -> flatbuffers::WIPOffset<ArrayEncoding<'bldr>> {
-    let mut builder = ArrayEncodingBuilder::new(_fbb);
-    if let Some(x) = args.id { builder.add_id(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn id(&self) -> &'a str {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ArrayEncoding::VT_ID, None).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for ArrayEncoding<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct ArrayEncodingArgs<'a> {
-    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
-}
-impl<'a> Default for ArrayEncodingArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    ArrayEncodingArgs {
-      id: None, // required field
-    }
-  }
-}
-
-pub struct ArrayEncodingBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayEncodingBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayEncoding::VT_ID, id);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayEncodingBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    ArrayEncodingBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<ArrayEncoding<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, ArrayEncoding::VT_ID,"id");
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for ArrayEncoding<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("ArrayEncoding");
-      ds.field("id", &self.id());
-      ds.finish()
-  }
-}
-pub enum LayoutEncodingOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-/// A `LayoutEncoding` describes the type of a particular layout.
-///
-/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
-/// at read-time.
-pub struct LayoutEncoding<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for LayoutEncoding<'a> {
-  type Inner = LayoutEncoding<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> LayoutEncoding<'a> {
-  pub const VT_ID: flatbuffers::VOffsetT = 4;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    LayoutEncoding { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args LayoutEncodingArgs<'args>
-  ) -> flatbuffers::WIPOffset<LayoutEncoding<'bldr>> {
-    let mut builder = LayoutEncodingBuilder::new(_fbb);
-    if let Some(x) = args.id { builder.add_id(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn id(&self) -> &'a str {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(LayoutEncoding::VT_ID, None).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for LayoutEncoding<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct LayoutEncodingArgs<'a> {
-    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
-}
-impl<'a> Default for LayoutEncodingArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    LayoutEncodingArgs {
-      id: None, // required field
-    }
-  }
-}
-
-pub struct LayoutEncodingBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutEncodingBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(LayoutEncoding::VT_ID, id);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> LayoutEncodingBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    LayoutEncodingBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<LayoutEncoding<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, LayoutEncoding::VT_ID,"id");
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for LayoutEncoding<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("LayoutEncoding");
-      ds.field("id", &self.id());
-      ds.finish()
-  }
-}
 pub enum PostscriptOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// The `Postscript` is guaranteed by the file format to never exceed
 /// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
 /// followed by an 8-byte `EndOfFile` struct.
-/// The initial read of a Vortex file is always at least 64KB (u16::MAX bytes) and therefore
+///
+/// An initial read of a Vortex file defaults to at least 64KB (u16::MAX bytes) and therefore
 /// is guaranteed to cover at least the Postscript.
+///
+/// The reason for a postscript at all is to ensure minimal but all necessary footer information
+/// can be read in two round trips. Since the DType is optional and possibly large, it lives in
+/// its own segment. If the footer were arbitrary size, with a pointer to the DType segment, then
+/// in the worst case we would need one round trip to read the footer length, one to read the full
+/// footer and parse the DType offset, and a third to fetch the DType segment.
+///
+/// The segments pointed to by the postscript have inline compression and encryption specs to avoid
+/// the need to fetch encryption schemes up-front.
 pub struct Postscript<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -630,7 +363,8 @@ impl<'a> flatbuffers::Follow<'a> for Postscript<'a> {
 
 impl<'a> Postscript<'a> {
   pub const VT_DTYPE: flatbuffers::VOffsetT = 4;
-  pub const VT_FOOTER: flatbuffers::VOffsetT = 6;
+  pub const VT_STATISTICS: flatbuffers::VOffsetT = 6;
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -642,25 +376,36 @@ impl<'a> Postscript<'a> {
     args: &'args PostscriptArgs<'args>
   ) -> flatbuffers::WIPOffset<Postscript<'bldr>> {
     let mut builder = PostscriptBuilder::new(_fbb);
-    if let Some(x) = args.footer { builder.add_footer(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
+    if let Some(x) = args.statistics { builder.add_statistics(x); }
     if let Some(x) = args.dtype { builder.add_dtype(x); }
     builder.finish()
   }
 
 
+  /// Segment containing the root `DType` flatbuffer.
   #[inline]
-  pub fn dtype(&self) -> Option<&'a SegmentSpec> {
+  pub fn dtype(&self) -> Option<PostscriptSegment<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<SegmentSpec>(Postscript::VT_DTYPE, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_DTYPE, None)}
   }
+  /// Segment containing the file-level `Statistics` flatbuffer.
   #[inline]
-  pub fn footer(&self) -> Option<&'a SegmentSpec> {
+  pub fn statistics(&self) -> Option<PostscriptSegment<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<SegmentSpec>(Postscript::VT_FOOTER, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_STATISTICS, None)}
+  }
+  /// Segment containing the `FileLayout` flatbuffer (required).
+  #[inline]
+  pub fn layout(&self) -> Option<PostscriptSegment<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, None)}
   }
 }
 
@@ -671,22 +416,25 @@ impl flatbuffers::Verifiable for Postscript<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<SegmentSpec>("dtype", Self::VT_DTYPE, false)?
-     .visit_field::<SegmentSpec>("footer", Self::VT_FOOTER, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("dtype", Self::VT_DTYPE, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("layout", Self::VT_LAYOUT, false)?
      .finish();
     Ok(())
   }
 }
 pub struct PostscriptArgs<'a> {
-    pub dtype: Option<&'a SegmentSpec>,
-    pub footer: Option<&'a SegmentSpec>,
+    pub dtype: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+    pub statistics: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+    pub layout: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
   fn default() -> Self {
     PostscriptArgs {
       dtype: None,
-      footer: None,
+      statistics: None,
+      layout: None,
     }
   }
 }
@@ -697,12 +445,16 @@ pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_dtype(&mut self, dtype: &SegmentSpec) {
-    self.fbb_.push_slot_always::<&SegmentSpec>(Postscript::VT_DTYPE, dtype);
+  pub fn add_dtype(&mut self, dtype: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_DTYPE, dtype);
   }
   #[inline]
-  pub fn add_footer(&mut self, footer: &SegmentSpec) {
-    self.fbb_.push_slot_always::<&SegmentSpec>(Postscript::VT_FOOTER, footer);
+  pub fn add_statistics(&mut self, statistics: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_STATISTICS, statistics);
+  }
+  #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, layout);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
@@ -723,7 +475,840 @@ impl core::fmt::Debug for Postscript<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Postscript");
       ds.field("dtype", &self.dtype());
-      ds.field("footer", &self.footer());
+      ds.field("statistics", &self.statistics());
+      ds.field("layout", &self.layout());
+      ds.finish()
+  }
+}
+pub enum PostscriptSegmentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A `PostscriptSegment` describes the location of a segment in the file without referencing any
+/// specification objects. That is, encryption and compression are defined inline.
+pub struct PostscriptSegment<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PostscriptSegment<'a> {
+  type Inner = PostscriptSegment<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> PostscriptSegment<'a> {
+  pub const VT_OFFSET: flatbuffers::VOffsetT = 4;
+  pub const VT_LENGTH: flatbuffers::VOffsetT = 6;
+  pub const VT_ALIGNMENT_EXPONENT: flatbuffers::VOffsetT = 8;
+  pub const VT__COMPRESSION: flatbuffers::VOffsetT = 10;
+  pub const VT__ENCRYPTION: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PostscriptSegment { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PostscriptSegmentArgs<'args>
+  ) -> flatbuffers::WIPOffset<PostscriptSegment<'bldr>> {
+    let mut builder = PostscriptSegmentBuilder::new(_fbb);
+    builder.add_offset(args.offset);
+    if let Some(x) = args._encryption { builder.add__encryption(x); }
+    if let Some(x) = args._compression { builder.add__compression(x); }
+    builder.add_length(args.length);
+    builder.add_alignment_exponent(args.alignment_exponent);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn offset(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PostscriptSegment::VT_OFFSET, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn length(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(PostscriptSegment::VT_LENGTH, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn alignment_exponent(&self) -> u8 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(PostscriptSegment::VT_ALIGNMENT_EXPONENT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn _compression(&self) -> Option<CompressionSpec<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<CompressionSpec>>(PostscriptSegment::VT__COMPRESSION, None)}
+  }
+  #[inline]
+  pub fn _encryption(&self) -> Option<EncryptionSpec<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<EncryptionSpec>>(PostscriptSegment::VT__ENCRYPTION, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for PostscriptSegment<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("offset", Self::VT_OFFSET, false)?
+     .visit_field::<u32>("length", Self::VT_LENGTH, false)?
+     .visit_field::<u8>("alignment_exponent", Self::VT_ALIGNMENT_EXPONENT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<CompressionSpec>>("_compression", Self::VT__COMPRESSION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<EncryptionSpec>>("_encryption", Self::VT__ENCRYPTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PostscriptSegmentArgs<'a> {
+    pub offset: u64,
+    pub length: u32,
+    pub alignment_exponent: u8,
+    pub _compression: Option<flatbuffers::WIPOffset<CompressionSpec<'a>>>,
+    pub _encryption: Option<flatbuffers::WIPOffset<EncryptionSpec<'a>>>,
+}
+impl<'a> Default for PostscriptSegmentArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PostscriptSegmentArgs {
+      offset: 0,
+      length: 0,
+      alignment_exponent: 0,
+      _compression: None,
+      _encryption: None,
+    }
+  }
+}
+
+pub struct PostscriptSegmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptSegmentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_offset(&mut self, offset: u64) {
+    self.fbb_.push_slot::<u64>(PostscriptSegment::VT_OFFSET, offset, 0);
+  }
+  #[inline]
+  pub fn add_length(&mut self, length: u32) {
+    self.fbb_.push_slot::<u32>(PostscriptSegment::VT_LENGTH, length, 0);
+  }
+  #[inline]
+  pub fn add_alignment_exponent(&mut self, alignment_exponent: u8) {
+    self.fbb_.push_slot::<u8>(PostscriptSegment::VT_ALIGNMENT_EXPONENT, alignment_exponent, 0);
+  }
+  #[inline]
+  pub fn add__compression(&mut self, _compression: flatbuffers::WIPOffset<CompressionSpec<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<CompressionSpec>>(PostscriptSegment::VT__COMPRESSION, _compression);
+  }
+  #[inline]
+  pub fn add__encryption(&mut self, _encryption: flatbuffers::WIPOffset<EncryptionSpec<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<EncryptionSpec>>(PostscriptSegment::VT__ENCRYPTION, _encryption);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptSegmentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PostscriptSegmentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PostscriptSegment<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PostscriptSegment<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PostscriptSegment");
+      ds.field("offset", &self.offset());
+      ds.field("length", &self.length());
+      ds.field("alignment_exponent", &self.alignment_exponent());
+      ds.field("_compression", &self._compression());
+      ds.field("_encryption", &self._encryption());
+      ds.finish()
+  }
+}
+pub enum FileStatisticsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// The `FileStatistics` object contains file-level statistics for the Vortex file.
+pub struct FileStatistics<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FileStatistics<'a> {
+  type Inner = FileStatistics<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> FileStatistics<'a> {
+  pub const VT_FIELD_STATS: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    FileStatistics { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args FileStatisticsArgs<'args>
+  ) -> flatbuffers::WIPOffset<FileStatistics<'bldr>> {
+    let mut builder = FileStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.field_stats { builder.add_field_stats(x); }
+    builder.finish()
+  }
+
+
+  /// Statistics for each field in the root schema. If the root schema is not a struct, there will
+  /// be a single entry in this array.
+  #[inline]
+  pub fn field_stats(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats>>>>(FileStatistics::VT_FIELD_STATS, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for FileStatistics<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("field_stats", Self::VT_FIELD_STATS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct FileStatisticsArgs<'a> {
+    pub field_stats: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
+}
+impl<'a> Default for FileStatisticsArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    FileStatisticsArgs {
+      field_stats: None,
+    }
+  }
+}
+
+pub struct FileStatisticsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_field_stats(&mut self, field_stats: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayStats<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileStatistics::VT_FIELD_STATS, field_stats);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    FileStatisticsBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<FileStatistics<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for FileStatistics<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("FileStatistics");
+      ds.field("field_stats", &self.field_stats());
+      ds.finish()
+  }
+}
+pub enum FileLayoutOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// The `Registry` object stores dictionary-encoded configuration for segments,
+/// compression schemes, encryption schemes, etc.
+pub struct FileLayout<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FileLayout<'a> {
+  type Inner = FileLayout<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> FileLayout<'a> {
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
+  pub const VT_ARRAY_SPECS: flatbuffers::VOffsetT = 6;
+  pub const VT_LAYOUT_SPECS: flatbuffers::VOffsetT = 8;
+  pub const VT_SEGMENT_SPECS: flatbuffers::VOffsetT = 10;
+  pub const VT_COMPRESSION_SPECS: flatbuffers::VOffsetT = 12;
+  pub const VT_ENCRYPTION_SPECS: flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    FileLayout { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args FileLayoutArgs<'args>
+  ) -> flatbuffers::WIPOffset<FileLayout<'bldr>> {
+    let mut builder = FileLayoutBuilder::new(_fbb);
+    if let Some(x) = args.encryption_specs { builder.add_encryption_specs(x); }
+    if let Some(x) = args.compression_specs { builder.add_compression_specs(x); }
+    if let Some(x) = args.segment_specs { builder.add_segment_specs(x); }
+    if let Some(x) = args.layout_specs { builder.add_layout_specs(x); }
+    if let Some(x) = args.array_specs { builder.add_array_specs(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn layout(&self) -> Option<Layout<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FileLayout::VT_LAYOUT, None)}
+  }
+  #[inline]
+  pub fn array_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec>>>>(FileLayout::VT_ARRAY_SPECS, None)}
+  }
+  #[inline]
+  pub fn layout_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec>>>>(FileLayout::VT_LAYOUT_SPECS, None)}
+  }
+  #[inline]
+  pub fn segment_specs(&self) -> Option<flatbuffers::Vector<'a, SegmentSpec>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(FileLayout::VT_SEGMENT_SPECS, None)}
+  }
+  #[inline]
+  pub fn compression_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec>>>>(FileLayout::VT_COMPRESSION_SPECS, None)}
+  }
+  #[inline]
+  pub fn encryption_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec>>>>(FileLayout::VT_ENCRYPTION_SPECS, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for FileLayout<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArraySpec>>>>("array_specs", Self::VT_ARRAY_SPECS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutSpec>>>>("layout_specs", Self::VT_LAYOUT_SPECS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segment_specs", Self::VT_SEGMENT_SPECS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<CompressionSpec>>>>("compression_specs", Self::VT_COMPRESSION_SPECS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<EncryptionSpec>>>>("encryption_specs", Self::VT_ENCRYPTION_SPECS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct FileLayoutArgs<'a> {
+    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
+    pub array_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>>>,
+    pub layout_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec<'a>>>>>,
+    pub segment_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, SegmentSpec>>>,
+    pub compression_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>>>,
+    pub encryption_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>>>,
+}
+impl<'a> Default for FileLayoutArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    FileLayoutArgs {
+      layout: None,
+      array_specs: None,
+      layout_specs: None,
+      segment_specs: None,
+      compression_specs: None,
+      encryption_specs: None,
+    }
+  }
+}
+
+pub struct FileLayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileLayoutBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(FileLayout::VT_LAYOUT, layout);
+  }
+  #[inline]
+  pub fn add_array_specs(&mut self, array_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArraySpec<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_ARRAY_SPECS, array_specs);
+  }
+  #[inline]
+  pub fn add_layout_specs(&mut self, layout_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<LayoutSpec<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_LAYOUT_SPECS, layout_specs);
+  }
+  #[inline]
+  pub fn add_segment_specs(&mut self, segment_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , SegmentSpec>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_SEGMENT_SPECS, segment_specs);
+  }
+  #[inline]
+  pub fn add_compression_specs(&mut self, compression_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<CompressionSpec<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_COMPRESSION_SPECS, compression_specs);
+  }
+  #[inline]
+  pub fn add_encryption_specs(&mut self, encryption_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<EncryptionSpec<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_ENCRYPTION_SPECS, encryption_specs);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FileLayoutBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    FileLayoutBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<FileLayout<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for FileLayout<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("FileLayout");
+      ds.field("layout", &self.layout());
+      ds.field("array_specs", &self.array_specs());
+      ds.field("layout_specs", &self.layout_specs());
+      ds.field("segment_specs", &self.segment_specs());
+      ds.field("compression_specs", &self.compression_specs());
+      ds.field("encryption_specs", &self.encryption_specs());
+      ds.finish()
+  }
+}
+pub enum ArraySpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// An `ArraySpec` describes the type of a particular array.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+pub struct ArraySpec<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ArraySpec<'a> {
+  type Inner = ArraySpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> ArraySpec<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ArraySpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ArraySpecArgs<'args>
+  ) -> flatbuffers::WIPOffset<ArraySpec<'bldr>> {
+    let mut builder = ArraySpecBuilder::new(_fbb);
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ArraySpec::VT_ID, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for ArraySpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ArraySpecArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ArraySpecArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ArraySpecArgs {
+      id: None, // required field
+    }
+  }
+}
+
+pub struct ArraySpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArraySpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArraySpec::VT_ID, id);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArraySpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ArraySpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ArraySpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ArraySpec::VT_ID,"id");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ArraySpec<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ArraySpec");
+      ds.field("id", &self.id());
+      ds.finish()
+  }
+}
+pub enum LayoutSpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A `LayoutSpec` describes the type of a particular layout.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+pub struct LayoutSpec<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LayoutSpec<'a> {
+  type Inner = LayoutSpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> LayoutSpec<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    LayoutSpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args LayoutSpecArgs<'args>
+  ) -> flatbuffers::WIPOffset<LayoutSpec<'bldr>> {
+    let mut builder = LayoutSpecBuilder::new(_fbb);
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(LayoutSpec::VT_ID, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for LayoutSpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct LayoutSpecArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for LayoutSpecArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    LayoutSpecArgs {
+      id: None, // required field
+    }
+  }
+}
+
+pub struct LayoutSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(LayoutSpec::VT_ID, id);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> LayoutSpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    LayoutSpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<LayoutSpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, LayoutSpec::VT_ID,"id");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for LayoutSpec<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("LayoutSpec");
+      ds.field("id", &self.id());
+      ds.finish()
+  }
+}
+pub enum CompressionSpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// Definition of a compression scheme.
+pub struct CompressionSpec<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for CompressionSpec<'a> {
+  type Inner = CompressionSpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> CompressionSpec<'a> {
+  pub const VT_SCHEME: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    CompressionSpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CompressionSpecArgs
+  ) -> flatbuffers::WIPOffset<CompressionSpec<'bldr>> {
+    let mut builder = CompressionSpecBuilder::new(_fbb);
+    builder.add_scheme(args.scheme);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn scheme(&self) -> CompressionScheme {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<CompressionScheme>(CompressionSpec::VT_SCHEME, Some(CompressionScheme::None)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for CompressionSpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<CompressionScheme>("scheme", Self::VT_SCHEME, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CompressionSpecArgs {
+    pub scheme: CompressionScheme,
+}
+impl<'a> Default for CompressionSpecArgs {
+  #[inline]
+  fn default() -> Self {
+    CompressionSpecArgs {
+      scheme: CompressionScheme::None,
+    }
+  }
+}
+
+pub struct CompressionSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> CompressionSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_scheme(&mut self, scheme: CompressionScheme) {
+    self.fbb_.push_slot::<CompressionScheme>(CompressionSpec::VT_SCHEME, scheme, CompressionScheme::None);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> CompressionSpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CompressionSpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<CompressionSpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for CompressionSpec<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("CompressionSpec");
+      ds.field("scheme", &self.scheme());
+      ds.finish()
+  }
+}
+pub enum EncryptionSpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct EncryptionSpec<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for EncryptionSpec<'a> {
+  type Inner = EncryptionSpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> EncryptionSpec<'a> {
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    EncryptionSpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    _args: &'args EncryptionSpecArgs
+  ) -> flatbuffers::WIPOffset<EncryptionSpec<'bldr>> {
+    let mut builder = EncryptionSpecBuilder::new(_fbb);
+    builder.finish()
+  }
+
+}
+
+impl flatbuffers::Verifiable for EncryptionSpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct EncryptionSpecArgs {
+}
+impl<'a> Default for EncryptionSpecArgs {
+  #[inline]
+  fn default() -> Self {
+    EncryptionSpecArgs {
+    }
+  }
+}
+
+pub struct EncryptionSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EncryptionSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> EncryptionSpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    EncryptionSpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<EncryptionSpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for EncryptionSpec<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("EncryptionSpec");
       ds.finish()
   }
 }

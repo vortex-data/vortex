@@ -1,14 +1,82 @@
 include "vortex-array/array.fbs";
 include "vortex-layout/layout.fbs";
 
+// [postscript]
+/// The `Postscript` is guaranteed by the file format to never exceed
+/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+/// followed by an 8-byte `EndOfFile` struct.
+///
+/// An initial read of a Vortex file defaults to at least 64KB (u16::MAX bytes) and therefore
+/// is guaranteed to cover at least the Postscript.
+///
+/// The reason for a postscript at all is to ensure minimal but all necessary footer information
+/// can be read in two round trips. Since the DType is optional and possibly large, it lives in
+/// its own segment. If the footer were arbitrary size, with a pointer to the DType segment, then
+/// in the worst case we would need one round trip to read the footer length, one to read the full
+/// footer and parse the DType offset, and a third to fetch the DType segment.
+///
+/// The segments pointed to by the postscript have inline compression and encryption specs to avoid
+/// the need to fetch encryption schemes up-front.
+table Postscript {
+    /// Segment containing the root `DType` flatbuffer.
+    dtype: PostscriptSegment;
+    /// Segment containing the file-level `Statistics` flatbuffer.
+    statistics: PostscriptSegment;
+    /// Segment containing the `FileLayout` flatbuffer (required).
+    layout: PostscriptSegment;
+}
+
+/// A `PostscriptSegment` describes the location of a segment in the file without referencing any
+/// specification objects. That is, encryption and compression are defined inline.
+table PostscriptSegment {
+    offset: uint64;
+    length: uint32;
+    alignment_exponent: uint8;
+    _compression: CompressionSpec;
+    _encryption: EncryptionSpec;
+}
+// [postscript]
+
 // [footer]
-/// The `Footer` stores the root `Layout` as well as location information for each referenced segment.
-table Footer {
+/// The `FileStatistics` object contains file-level statistics for the Vortex file.
+table FileStatistics {
+    /// Statistics for each field in the root schema. If the root schema is not a struct, there will
+    /// be a single entry in this array.
+    field_stats: [ArrayStats];
+}
+
+/// The `Registry` object stores dictionary-encoded configuration for segments,
+/// compression schemes, encryption schemes, etc.
+table FileLayout {
+    // The root [`Layout`] of the file.
     layout: Layout;
-    segments: [SegmentSpec];
-    statistics: [ArrayStats];
-    array_encodings: [ArrayEncoding];
-    layout_encodings: [LayoutEncoding];
+
+    // Dictionary-encoded array specs, up to u16::MAX.
+    array_specs: [ArraySpec];
+    // Dictionary-encoded layout specs, up to u16::MAX.
+    layout_specs: [LayoutSpec];
+    // Dictionary-encoded segment specs, up to u32::MAX.
+    segment_specs: [SegmentSpec];
+    // Dictionary-encoded compress specs, up to u3::MAX (8).
+    compression_specs: [CompressionSpec];
+    // Dictionary-encoded encryption specs, up to u16::MAX.
+    encryption_specs: [EncryptionSpec];
+}
+
+/// An `ArraySpec` describes the type of a particular array.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+table ArraySpec {
+    id: string (required);
+}
+
+/// A `LayoutSpec` describes the type of a particular layout.
+///
+/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
+/// at read-time.
+table LayoutSpec {
+    id: string (required);
 }
 
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
@@ -23,44 +91,22 @@ struct SegmentSpec {
     _encryption: uint16;
 }
 
-/// An `ArrayEncoding` describes the type of a particular array.
-///
-/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
-/// at read-time.
-table ArrayEncoding {
-    id: string (required);
+enum CompressionScheme: uint8 {
+    None = 0,
+    LZ4 = 1,
+    ZLib = 2,
+    ZStd = 3,
 }
 
-/// A `LayoutEncoding` describes the type of a particular layout.
-///
-/// These are identified by a globally unique string identifier, and looked up in the Vortex registry
-/// at read-time.
-table LayoutEncoding {
-    id: string (required);
+/// Definition of a compression scheme.
+table CompressionSpec {
+    scheme: CompressionScheme;
 }
 
+table EncryptionSpec {
+}
 // [footer]
 
-// [postscript]
-/// The `Postscript` is guaranteed by the file format to never exceed
-/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
-/// followed by an 8-byte `EndOfFile` struct.
-/// The initial read of a Vortex file is always at least 64KB (u16::MAX bytes) and therefore
-/// is guaranteed to cover at least the Postscript.
-table Postscript {
-    dtype: SegmentSpec;
-    footer: SegmentSpec;
-}
-// [postscript]
-
-/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
-/// using flatbuffers, but the equivalent flatbuffer definition would be:
-///
-// struct EndOfFile {
-//     version: uint16;
-//     footer_length: uint16;
-//     magic: [uint8; 4]; // "VTXF"
-// }
-
-root_type Footer;
+root_type FileStatistics;
+root_type FileLayout;
 root_type Postscript;

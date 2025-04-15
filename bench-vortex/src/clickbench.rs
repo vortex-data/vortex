@@ -15,7 +15,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
@@ -149,7 +149,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
 
     let parquet_inputs = std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
 
-    info!(
+    debug!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
         parquet_path.to_str().unwrap()

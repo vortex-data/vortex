@@ -16,7 +16,7 @@
 package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
-import dev.vortex.api.ArrayStream;
+import dev.vortex.api.ArrayIterator;
 import dev.vortex.api.DType;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
@@ -37,7 +37,7 @@ public final class JNIFile implements File {
     }
 
     @Override
-    public ArrayStream newScan(ScanOptions options) {
+    public ArrayIterator newScan(ScanOptions options) {
         byte[] predicateProto = null;
 
         if (options.predicate().isPresent()) {
@@ -48,7 +48,7 @@ public final class JNIFile implements File {
 
         long[] rowIndices = options.rowIndices().orElse(null);
 
-        return new JNIArrayStream(
+        return new JNIArrayIterator(
                 NativeFileMethods.scan(pointer.getAsLong(), options.columns(), predicateProto, rowIndices));
     }
 
