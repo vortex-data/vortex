@@ -32,9 +32,7 @@ trailer = """
 """
 
 [export.rename]
-"FFIArray" = "Array"
-"FFIArrayStream" = "ArrayStream"
-"FFIFile" = "File"
+"DTpye" = "VXDType"
 
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"

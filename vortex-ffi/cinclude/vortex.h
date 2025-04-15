@@ -63,17 +63,14 @@ extern "C" {
 
 #define DTYPE_EXTENSION 17
 
-#define LOG_LEVEL_OFF 0
-
-#define LOG_LEVEL_ERROR 1
-
-#define LOG_LEVEL_WARN 2
-
-#define LOG_LEVEL_INFO 3
-
-#define LOG_LEVEL_DEBUG 4
-
-#define LOG_LEVEL_TRACE 5
+typedef enum VXLogLevel {
+  LOG_LEVEL_OFF = 0,
+  LOG_LEVEL_ERROR = 1,
+  LOG_LEVEL_WARN = 2,
+  LOG_LEVEL_INFO = 3,
+  LOG_LEVEL_DEBUG = 4,
+  LOG_LEVEL_TRACE = 5,
+} VXLogLevel;
 
 /**
  * The logical types of elements in Vortex arrays.
@@ -83,14 +80,12 @@ extern "C" {
  */
 typedef struct DType DType;
 
-typedef struct File File;
-
 /**
  * The FFI interface for an [`Array`].
  *
  * Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
  * the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
- * one of the various `FFIArray_*` functions.
+ * one of the various `VXArray_*` functions.
  */
 typedef struct VXArray VXArray;
 
@@ -103,6 +98,8 @@ typedef struct VXArrayStream VXArrayStream;
 typedef struct VXConversionCache VXConversionCache;
 #endif
 
+typedef struct VXFile VXFile;
+
 typedef struct VXError {
   int code;
   const char *message;
@@ -111,7 +108,7 @@ typedef struct VXError {
 /**
  * Options supplied for opening a file.
  */
-typedef struct FileOpenOptions {
+typedef struct VXFileOpenOptions {
   /**
    * URI for opening the file.
    * This must be a valid URI, even the files (file:///path/to/file)
@@ -130,33 +127,33 @@ typedef struct FileOpenOptions {
    * Number of properties in `property_keys` and `property_vals`.
    */
   int property_len;
-} FileOpenOptions;
+} VXFileOpenOptions;
 
 /**
  * Options supplied for opening a file.
  */
-typedef struct FileCreateOptions {
+typedef struct VXFileCreateOptions {
   /**
    * path of the file to be created.
    * This must be a valid URI, even the files (file:///path/to/file)
    */
   const char *path;
-} FileCreateOptions;
+} VXFileCreateOptions;
 
 /**
  * Whole file statistics.
  */
-typedef struct FileStatistics {
+typedef struct VXFileStatistics {
   /**
    * The exact number of rows in the file.
    */
   uint64_t num_rows;
-} FileStatistics;
+} VXFileStatistics;
 
 /**
- * Scan options provided by an FFI client calling the `File_scan` function.
+ * Scan options provided by an FFI client calling the `vx_file_scan` function.
  */
-typedef struct FileScanOptions {
+typedef struct VXFileScanOptions {
   /**
    * Column names to project out in the scan. These must be null-terminated C strings.
    */
@@ -171,14 +168,14 @@ typedef struct FileScanOptions {
    * Splits the file into chunks of this size, if zero then we use the write layout.
    */
   int split_by_row_count;
-} FileScanOptions;
+} VXFileScanOptions;
 
 
 
 /**
  * Get the length of the array.
  */
-uint64_t vx_array_len(const struct VXArray *ffi_array);
+uint64_t vx_array_len(const struct VXArray *array);
 
 /**
  * Get a pointer to the data type for an array.
@@ -186,7 +183,7 @@ uint64_t vx_array_len(const struct VXArray *ffi_array);
  * Note that this pointer is tied to the lifetime of the array, and the caller is responsible
  * for ensuring that it is never dereferenced after the array has been freed.
  */
-const struct DType *vx_array_dtype(const struct VXArray *ffi_array);
+const struct DType *vx_array_dtype(const struct VXArray *array);
 
 const struct VXArray *vx_array_get_field(const struct VXArray *ffi_array,
                                          uint32_t index,
@@ -195,7 +192,7 @@ const struct VXArray *vx_array_get_field(const struct VXArray *ffi_array,
 /**
  * Free the array and all associated resources.
  */
-int32_t vx_array_free(struct VXArray *ffi_array);
+void vx_array_free(struct VXArray *ffi_array);
 
 struct VXArray *vx_array_slice(const struct VXArray *array,
                                uint32_t start,
@@ -327,19 +324,19 @@ void vx_error_free(struct VXError *error);
 /**
  * Open a file at the given path on the file system.
  */
-struct File *vx_file_open(const struct FileOpenOptions *options, struct VXError **error);
+struct VXFile *vx_file_open(const struct VXFileOpenOptions *options, struct VXError **error);
 
 /**
  * This function creates a new file by writing the ffi array to the path in the options args.
  * TODO: replace with a create and a write function
  */
-void vx_file_create_and_write_array(const struct FileCreateOptions *options,
+void vx_file_create_and_write_array(const struct VXFileCreateOptions *options,
                                     struct VXArray *ffi_array,
                                     struct VXError **error);
 
-struct FileStatistics *vx_file_statistics(struct File *file);
+struct VXFileStatistics *vx_file_statistics(struct VXFile *file);
 
-void vx_file_statistics_free(struct FileStatistics *stat);
+void vx_file_statistics_free(struct VXFileStatistics *stat);
 
 /**
  * Get a readonly pointer to the DType of the data inside of the file.
@@ -347,22 +344,22 @@ void vx_file_statistics_free(struct FileStatistics *stat);
  * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
  * dereferenced after the file has been freed.
  */
-const struct DType *vx_file_dtype(const struct File *file);
+const struct DType *vx_file_dtype(const struct VXFile *file);
 
 /**
- * Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
+ * Build a new `VXArrayStream` that return a series of `VXArray`s scan over a `VXFile`.
  */
-struct VXArrayStream *vx_file_scan(const struct File *file,
-                                   const struct FileScanOptions *opts,
+struct VXArrayStream *vx_file_scan(const struct VXFile *file,
+                                   const struct VXFileScanOptions *opts,
                                    struct VXError **error);
 
 /**
  * Free the file and all associated resources.
  *
- * This function will not automatically free any `FFIArrayStream`s that were built from this
+ * This function will not automatically free any `VXArrayStream`s that were built from this
  * file.
  */
-void vx_file_free(struct File *file);
+void vx_file_free(struct VXFile *file);
 
 /**
  * Initialize native logging with the specified level.
@@ -370,7 +367,7 @@ void vx_file_free(struct File *file);
  * This function is optional, if it is not called then no runtime
  * logger will be installed.
  */
-void vx_init_logging(uint8_t level);
+void vx_init_logging(enum VXLogLevel level);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

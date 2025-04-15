@@ -25,13 +25,13 @@ use crate::error::{VXError, try_or};
 use crate::stream::{VXArrayStream, VXArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
-pub struct FFIFile {
+pub struct VXFile {
     pub(crate) inner: VortexFile,
 }
 
 /// Options supplied for opening a file.
 #[repr(C)]
-pub struct FileCreateOptions {
+pub struct VXFileCreateOptions {
     /// path of the file to be created.
     /// This must be a valid URI, even the files (file:///path/to/file)
     pub path: *const c_char,
@@ -39,7 +39,7 @@ pub struct FileCreateOptions {
 
 /// Options supplied for opening a file.
 #[repr(C)]
-pub struct FileOpenOptions {
+pub struct VXFileOpenOptions {
     /// URI for opening the file.
     /// This must be a valid URI, even the files (file:///path/to/file)
     pub uri: *const c_char,
@@ -52,9 +52,9 @@ pub struct FileOpenOptions {
     pub property_len: c_int,
 }
 
-/// Scan options provided by an FFI client calling the `File_scan` function.
+/// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
-pub struct FileScanOptions {
+pub struct VXFileScanOptions {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
     /// Number of columns in `projection`.
@@ -70,10 +70,10 @@ pub struct FileScanOptions {
 
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_open(
-    options: *const FileOpenOptions,
+pub unsafe extern "C-unwind" fn vx_file_open(
+    options: *const VXFileOpenOptions,
     error: *mut *mut VXError,
-) -> *mut FFIFile {
+) -> *mut VXFile {
     try_or(error, ptr::null_mut(), || {
         {
             let options = unsafe {
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn vx_file_open(
             });
 
             let file = result?;
-            let ffi_file = FFIFile { inner: file };
+            let ffi_file = VXFile { inner: file };
             Ok(Box::into_raw(Box::new(ffi_file)))
         }
     })
@@ -111,8 +111,8 @@ pub unsafe extern "C" fn vx_file_open(
 /// This function creates a new file by writing the ffi array to the path in the options args.
 /// TODO: replace with a create and a write function
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_create_and_write_array(
-    options: *const FileCreateOptions,
+pub unsafe extern "C-unwind" fn vx_file_create_and_write_array(
+    options: *const VXFileCreateOptions,
     ffi_array: *mut VXArray,
     error: *mut *mut VXError,
 ) {
@@ -137,14 +137,14 @@ pub unsafe extern "C" fn vx_file_create_and_write_array(
 
 /// Whole file statistics.
 #[repr(C)]
-pub struct FileStatistics {
+pub struct VXFileStatistics {
     /// The exact number of rows in the file.
     pub num_rows: u64,
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_statistics(file: *mut FFIFile) -> *mut FileStatistics {
-    Box::into_raw(Box::new(FileStatistics {
+pub unsafe extern "C-unwind" fn vx_file_statistics(file: *mut VXFile) -> *mut VXFileStatistics {
+    Box::into_raw(Box::new(VXFileStatistics {
         num_rows: file
             .as_ref()
             .vortex_expect("null file ptr")
@@ -154,7 +154,7 @@ pub unsafe extern "C" fn vx_file_statistics(file: *mut FFIFile) -> *mut FileStat
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_statistics_free(stat: *mut FileStatistics) {
+pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut VXFileStatistics) {
     assert!(!stat.is_null());
     drop(Box::from_raw(stat));
 }
@@ -164,15 +164,15 @@ pub unsafe extern "C" fn vx_file_statistics_free(stat: *mut FileStatistics) {
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
 /// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_dtype(file: *const FFIFile) -> *const DType {
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const VXFile) -> *const DType {
     file.as_ref().vortex_expect("null file").inner.dtype()
 }
 
-/// Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
+/// Build a new `VXArrayStream` that return a series of `VXArray`s scan over a `VXFile`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_scan(
-    file: *const FFIFile,
-    opts: *const FileScanOptions,
+pub unsafe extern "C-unwind" fn vx_file_scan(
+    file: *const VXFile,
+    opts: *const VXFileScanOptions,
     error: *mut *mut VXError,
 ) -> *mut VXArrayStream {
     try_or(error, ptr::null_mut(), || {
@@ -223,10 +223,10 @@ pub unsafe extern "C" fn vx_file_scan(
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any `FFIArrayStream`s that were built from this
+/// This function will not automatically free any `VXArrayStream`s that were built from this
 /// file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_file_free(file: *mut FFIFile) {
+pub unsafe extern "C-unwind" fn vx_file_free(file: *mut VXFile) {
     drop(Box::from_raw(file));
 }
 

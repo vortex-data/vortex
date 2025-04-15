@@ -9,10 +9,11 @@ pub struct VXError {
     pub message: *const c_char,
 }
 
-pub fn try_or<F, ValueT>(error: *mut *mut VXError, default_value: ValueT, function: F) -> ValueT
-where
-    F: Fn() -> VortexResult<ValueT>,
-{
+pub fn try_or<T>(
+    error: *mut *mut VXError,
+    default_value: T,
+    function: impl Fn() -> VortexResult<T>,
+) -> T {
     match function() {
         Ok(value) => {
             unsafe { error.write(ptr::null_mut()) };
@@ -37,6 +38,6 @@ where
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_error_free(error: *mut VXError) {
+pub unsafe extern "C-unwind" fn vx_error_free(error: *mut VXError) {
     drop(unsafe { Box::from_raw(error) })
 }

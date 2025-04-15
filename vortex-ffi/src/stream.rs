@@ -22,7 +22,9 @@ pub struct VXArrayStreamInner {
 
 /// Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_array_stream_dtype(stream: *const VXArrayStream) -> *const DType {
+pub unsafe extern "C-unwind" fn vx_array_stream_dtype(
+    stream: *const VXArrayStream,
+) -> *const DType {
     let Some(inner) = unsafe { stream.as_ref() }
         .vortex_expect("null stream")
         .inner
@@ -41,22 +43,21 @@ pub unsafe extern "C" fn vx_array_stream_dtype(stream: *const VXArrayStream) -> 
 ///
 /// It is an error to call this function again after the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_array_stream_next(
+pub unsafe extern "C-unwind" fn vx_array_stream_next(
     stream: *mut VXArrayStream,
     error: *mut *mut VXError,
 ) -> bool {
     try_or(error, false, || {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
         let Some(inner) = stream.inner.as_mut() else {
-            vortex_bail!("FFIArrayStream_next called after finish")
+            vortex_bail!("vx_array_stream_next called after finish")
         };
 
         let element = futures::executor::block_on(inner.stream.next());
 
         if let Some(element) = element {
             let inner = element?;
-            let ffi_array = VXArray { inner };
-            stream.current = Some(Box::new(ffi_array));
+            stream.current = Some(Box::new(VXArray { inner }));
 
             Ok(true)
         } else {
@@ -71,7 +72,7 @@ pub unsafe extern "C" fn vx_array_stream_next(
 
 /// Predicate function to check if the array stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_array_stream_finished(stream: *const VXArrayStream) -> bool {
+pub unsafe extern "C-unwind" fn vx_array_stream_finished(stream: *const VXArrayStream) -> bool {
     unsafe { stream.as_ref().vortex_expect("null stream") }
         .inner
         .is_none()
@@ -85,7 +86,9 @@ pub unsafe extern "C" fn vx_array_stream_finished(stream: *const VXArrayStream) 
 ///
 /// This function is unsafe because it dereferences the `stream` pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_array_stream_current(stream: *mut VXArrayStream) -> *mut VXArray {
+pub unsafe extern "C-unwind" fn vx_array_stream_current(
+    stream: *mut VXArrayStream,
+) -> *mut VXArray {
     let stream = unsafe { stream.as_mut().vortex_expect("null stream") };
 
     if let Some(current) = stream.current.take() {
@@ -97,7 +100,7 @@ pub unsafe extern "C" fn vx_array_stream_current(stream: *mut VXArrayStream) -> 
 
 /// Free the array stream and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_array_stream_free(stream: *mut VXArrayStream) {
+pub unsafe extern "C-unwind" fn vx_array_stream_free(stream: *mut VXArrayStream) {
     assert!(!stream.is_null(), "stream null");
     let mut stream = Box::from_raw(stream);
 
