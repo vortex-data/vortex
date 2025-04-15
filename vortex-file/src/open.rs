@@ -277,7 +277,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         let bytes = FlatBuffer::align_from(
             initial_read.slice(offset..offset + (layout_segment.length as usize)),
         );
-        Footer::read_flatbuffer(
+        Footer::from_flatbuffer(
             bytes,
             dtype,
             file_stats,

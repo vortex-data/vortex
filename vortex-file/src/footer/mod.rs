@@ -30,7 +30,7 @@ pub struct Footer {
 
 impl Footer {
     /// Read the [`Footer`] from a flatbuffer.
-    pub(crate) fn read_flatbuffer(
+    pub(crate) fn from_flatbuffer(
         flatbuffer: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
@@ -88,11 +88,7 @@ impl Footer {
             .try_collect()?;
 
         // Note this assertion is `<=` since we allow zero-length segments
-        if !segments
-            .iter()
-            .tuple_windows()
-            .all(|(a, b)| a.offset <= b.offset)
-        {
+        if !segments.is_sorted_by_key(|segment| segment.offset) {
             vortex_bail!("Segment offsets are not ordered");
         }
 
