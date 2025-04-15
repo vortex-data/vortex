@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::VXArray;
-use crate::error::{VXError, into_c_error};
+use crate::error::{VXError, try_or};
 use crate::stream::{VXArrayStream, VXArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn vx_file_open(
     options: *const FileOpenOptions,
     error: *mut *mut VXError,
 ) -> *mut FFIFile {
-    let result = (|| {
+    try_or(error, ptr::null_mut(), || {
         {
             let options = unsafe {
                 options
@@ -95,16 +95,17 @@ pub unsafe extern "C" fn vx_file_open(
 
             // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
             // tokio dep
-            let file = RUNTIME.block_on(async move {
+            let result = RUNTIME.block_on(async move {
                 VortexOpenOptions::file()
                     .open_object_store(&object_store, uri.path())
                     .await
-            })?;
-            VortexResult::Ok(Box::into_raw(Box::new(FFIFile { inner: file })))
-        }
-    })();
+            });
 
-    unsafe { into_c_error(result, ptr::null_mut(), error) }
+            let file = result?;
+            let ffi_file = FFIFile { inner: file };
+            Ok(Box::into_raw(Box::new(ffi_file)))
+        }
+    })
 }
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
@@ -115,7 +116,7 @@ pub unsafe extern "C" fn vx_file_create_and_write_array(
     ffi_array: *mut VXArray,
     error: *mut *mut VXError,
 ) {
-    let result = {
+    try_or(error, (), || {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
@@ -131,9 +132,7 @@ pub unsafe extern "C" fn vx_file_create_and_write_array(
             file.sync_all().await?;
             Ok(())
         })
-    };
-
-    unsafe { into_c_error(result, (), error) }
+    });
 }
 
 /// Whole file statistics.
@@ -176,7 +175,7 @@ pub unsafe extern "C" fn vx_file_scan(
     opts: *const FileScanOptions,
     error: *mut *mut VXError,
 ) -> *mut VXArrayStream {
-    let stream = (|| {
+    try_or(error, ptr::null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
@@ -214,13 +213,12 @@ pub unsafe extern "C" fn vx_file_scan(
         let inner = Some(Box::new(VXArrayStreamInner {
             stream: Box::pin(stream),
         }));
+
         Ok(Box::into_raw(Box::new(VXArrayStream {
             inner,
             current: None,
         })))
-    })();
-
-    into_c_error(stream, ptr::null_mut(), error)
+    })
 }
 
 /// Free the file and all associated resources.

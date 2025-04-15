@@ -20,7 +20,7 @@ use vortex_duckdb::{
 
 use crate::array::VXArray;
 use crate::duckdb::cache::{VXConversionCache, into_conversion_cache};
-use crate::error::{VXError, into_c_error, map_into_c_error};
+use crate::error::{VXError, try_or};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -31,11 +31,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    map_into_c_error(
-        dtype.to_duckdb_type(),
-        |t| t.into_owning_ptr(),
-        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+    try_or(
         error,
+        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+        || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
     )
 }
 
@@ -51,7 +50,7 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
     cache: *mut VXConversionCache,
     error: *mut *mut VXError,
 ) -> c_uint {
-    let result = (|| {
+    try_or(error, 0, || {
         let offset = offset as usize;
 
         let array = &unsafe { stream.as_ref() }
@@ -67,16 +66,18 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
         let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
         let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
 
-        to_duckdb_chunk(&slice.to_struct()?, &mut data_chunk_handle, cache)?;
+        to_duckdb_chunk(
+            &slice.to_struct().vortex_expect("must be a struct"),
+            &mut data_chunk_handle,
+            cache,
+        )?;
 
         if is_end {
             Ok(0)
         } else {
             Ok(u32::try_from(end)?)
         }
-    })();
-
-    unsafe { into_c_error(result, 0, error) }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -86,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     len: c_int,
     error: *mut *mut VXError,
 ) -> *mut VXArray {
-    let result = (|| {
+    try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)
@@ -108,10 +109,8 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
             inner: chunked_array.to_array(),
         };
 
-        Ok(Box::leak(Box::new(ffi_array)) as *mut _)
-    })();
-
-    into_c_error(result, ptr::null_mut(), error)
+        Ok(Box::leak(Box::new(ffi_array)))
+    })
 }
 
 #[unsafe(no_mangle)]

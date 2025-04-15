@@ -9,20 +9,14 @@ pub struct VXError {
     pub message: *const c_char,
 }
 
-pub unsafe fn into_c_error<V>(result: VortexResult<V>, default: V, error: *mut *mut VXError) -> V {
-    map_into_c_error(result, |r| r, default, error)
-}
-
-pub unsafe fn map_into_c_error<T, V>(
-    result: VortexResult<T>,
-    to_result: impl Fn(T) -> V,
-    default: V,
-    error: *mut *mut VXError,
-) -> V {
-    match result {
-        Ok(file) => {
-            error.write(ptr::null_mut());
-            to_result(file)
+pub fn try_or<F, ValueT>(error: *mut *mut VXError, default_value: ValueT, function: F) -> ValueT
+where
+    F: Fn() -> VortexResult<ValueT>,
+{
+    match function() {
+        Ok(value) => {
+            unsafe { error.write(ptr::null_mut()) };
+            value
         }
         Err(err) => {
             #[allow(clippy::expect_used)]
@@ -37,7 +31,7 @@ pub unsafe fn map_into_c_error<T, V>(
                     .cast(),
                 )
             };
-            default
+            default_value
         }
     }
 }
