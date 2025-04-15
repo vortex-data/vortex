@@ -264,9 +264,9 @@ pub(crate) fn unpack_into<T: BitPacked>(
     builder.append_mask(array.validity_mask()?);
 
     let mut uninit = builder.uninit_range(array.len());
-    let mut bit_packed_iter = array.bitpacked_chunks();
+    let mut bit_packed_iter = array.unpacked_chunks();
 
-    if let Some(header) = bit_packed_iter.header() {
+    if let Some(header) = bit_packed_iter.initial() {
         uninit.copy_from_init(0, header.len(), header);
     }
 

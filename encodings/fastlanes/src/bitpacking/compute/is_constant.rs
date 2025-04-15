@@ -29,7 +29,7 @@ impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
-    let mut bit_unpack_iterator = array.bitpacked_chunks::<T>();
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
     let patches = array
         .patches()
         .map(|p| {
@@ -42,7 +42,7 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
 
     let mut header_constant_value = None;
     let mut current_idx = 0;
-    if let Some(header) = bit_unpack_iterator.header() {
+    if let Some(header) = bit_unpack_iterator.initial() {
         if let Some((indices, patches, offset)) = &patches {
             apply_patches(
                 header,

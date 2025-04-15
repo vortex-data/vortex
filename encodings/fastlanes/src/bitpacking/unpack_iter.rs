@@ -15,6 +15,35 @@ use crate::BitPackedArray;
 
 const CHUNK_SIZE: usize = 1024;
 
+/// Accessor to unpacked chunks of bitpacked arrays
+///
+/// The usual pattern of usage should follow
+/// ```
+/// use lending_iterator::gat;
+/// use lending_iterator::prelude::Item;
+/// #[gat(Item)]
+/// use lending_iterator::prelude::LendingIterator;
+/// use vortex_array::IntoArray;
+/// use vortex_buffer::buffer;
+/// use vortex_fastlanes::BitPackedArray;
+///
+/// let array = BitPackedArray::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
+/// let mut unpacked_chunks = array.unpacked_chunks();
+///
+/// if let Some(header) = unpacked_chunks.initial() {
+///    // handle partial initial chunk
+/// }
+///
+/// let mut chunks_iter = unpacked_chunks.full_chunks();
+/// while let Some(chunk) = chunks_iter.next() {
+///     // handle full bitpacked chunks of 1024 elements
+/// }
+///
+/// if let Some(trailer) = unpacked_chunks.trailer() {
+///     // handle partial trailing chunk
+/// }
+/// ```
+///
 pub struct BitUnpackedChunks<T: BitPacked> {
     bit_width: usize,
     offset: usize,
@@ -59,7 +88,8 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         128 * self.bit_width / size_of::<T>()
     }
 
-    pub fn header(&mut self) -> Option<&mut [T]> {
+    /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
+    pub fn initial(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
@@ -80,6 +110,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         })
     }
 
+    /// Iterator over complete chunks of this array
     pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
         let elems_per_chunk = self.elems_per_chunk();
         let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
@@ -94,6 +125,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
+    /// Unpack full chunks into output range and return the last index that was written to
     pub fn decode_full_chunks_into(&mut self, output: &mut UninitRange<T>) -> usize {
         let first_chunk_is_sliced = self.first_chunk_is_sliced();
         // If there's only one chunk and that chunk is sliced it has been handled already by `header` method
@@ -126,6 +158,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         out_idx
     }
 
+    /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn trailer(&mut self) -> Option<&mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)
@@ -151,6 +184,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     }
 }
 
+/// Iterator over full chunks of bitpacked array that yields unpacked chunks one at a time
 pub struct BitUnpackIterator<'a, T: BitPacked + 'a> {
     packed: &'a [T::UnsignedT],
     buffer: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
