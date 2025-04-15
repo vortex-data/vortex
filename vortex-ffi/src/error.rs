@@ -9,7 +9,15 @@ pub struct FFIError {
     pub message: *const c_char,
 }
 
-pub unsafe fn into_return_mut<T, V>(
+pub unsafe fn into_return_id<V>(
+    result: VortexResult<V>,
+    default: V,
+    error: *mut *mut FFIError,
+) -> V {
+    into_return(result, |r| r, default, error)
+}
+
+pub unsafe fn into_return<T, V>(
     result: VortexResult<T>,
     to_result: impl Fn(T) -> V,
     default: V,
@@ -21,6 +29,7 @@ pub unsafe fn into_return_mut<T, V>(
             to_result(file)
         }
         Err(err) => {
+            #[allow(clippy::expect_used)]
             let c_string =
                 std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
             unsafe {
