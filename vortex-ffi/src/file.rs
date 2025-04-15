@@ -124,7 +124,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
     ffi_array: *mut FFIArray,
     error: *mut *const FFIError,
 ) {
-    let result = (|| {
+    let result = {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
@@ -140,7 +140,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
             file.sync_all().await?;
             Ok(())
         })
-    })();
+    };
 
     unsafe { into_return_mut(result, |_| (), (), error) }
 }

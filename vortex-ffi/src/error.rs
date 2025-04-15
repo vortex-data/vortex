@@ -21,6 +21,7 @@ pub unsafe fn into_return_mut<T, V>(
             to_result(file)
         }
         Err(err) => {
+            #[allow(clippy::expect_used)]
             let c_string =
                 std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
             unsafe {
