@@ -1,18 +1,8 @@
 #pragma once
 
 #include "duckdb.hpp"
-
-#ifndef ENABLE_DUCKDB_FFI
-#define ENABLE_DUCKDB_FFI
-#endif
-
-#include "vortex.h"
-
-inline void HandleError(const FFIError *error) {
-	if (error != nullptr && error->code != 0) {
-		throw duckdb::InvalidInputException(error->message);
-	}
-}
+#include "vortex.hpp"
+#include "vortex_error.hpp"
 
 struct VortexConversionCache {
 	explicit VortexConversionCache(const unsigned long cache_id) : cache(ConversionCache_create(cache_id)) {
