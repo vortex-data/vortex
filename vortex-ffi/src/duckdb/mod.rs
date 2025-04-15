@@ -119,7 +119,7 @@ pub unsafe extern "C" fn FFIArray_create_empty_from_duckdb_table(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_append_duckdb_chunk(
+pub unsafe extern "C-unwind" fn FFIArray_append_duckdb_chunk(
     array: *mut FFIArray,
     chunk: duckdb_data_chunk,
 ) -> *mut FFIArray {
@@ -159,6 +159,8 @@ pub unsafe extern "C" fn FFIArray_append_duckdb_chunk(
 
 #[cfg(test)]
 mod tests {
+    use std::ptr::null_mut;
+
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use vortex::Array;
     use vortex::arrays::{PrimitiveArray, StructArray};
@@ -167,6 +169,7 @@ mod tests {
     use crate::array::FFIArray;
     use crate::duckdb::FFIArray_to_duckdb_chunk;
     use crate::duckdb::cache::{ConversionCache_create, ConversionCache_free};
+
     #[test]
     fn test_long_array() {
         let vortex: PrimitiveArray = (0i32..4095).collect();
@@ -178,12 +181,17 @@ mod tests {
 
         let cache = unsafe { ConversionCache_create(0) };
 
+        let error = null_mut();
+
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let offset = unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache) };
+        let offset =
+            unsafe { FFIArray_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, error) };
+        assert_eq!(error, null_mut());
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
         let offset =
-            unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache) };
+            unsafe { FFIArray_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, error) };
+        assert_eq!(error, null_mut());
         assert_eq!(offset, 0);
         assert_eq!(handle.len(), 2047);
 
