@@ -68,7 +68,7 @@ pub unsafe extern "C" fn FFIArrayStream_next(
         }
     })();
 
-    unsafe { into_c_error(result, |r| r, false, error) }
+    unsafe { into_c_error(result, false, error) }
 }
 
 /// Predicate function to check if the array stream is finished.

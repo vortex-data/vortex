@@ -11,7 +11,7 @@ use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
-use crate::error::{FFIError, into_c_error_id};
+use crate::error::{FFIError, into_c_error};
 
 /// The FFI interface for an [`Array`].
 ///
@@ -61,7 +61,7 @@ pub unsafe extern "C" fn FFIArray_get_field(
         Ok(Box::into_raw(ffi_array).cast_const())
     })();
 
-    into_c_error_id(result, null(), error)
+    into_c_error(result, null(), error)
 }
 
 // Get a pointer to the child array reference here instead...we have no concept of references
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn FFIArray_slice(
         Ok(Box::into_raw(Box::new(FFIArray { inner: sliced })))
     })();
 
-    into_c_error_id(result, null_mut(), error)
+    into_c_error(result, null_mut(), error)
 }
 
 #[unsafe(no_mangle)]
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn FFIArray_is_null(
     let array = array.as_ref().vortex_expect("array null");
     let result = array.inner.is_invalid(index as usize);
 
-    into_c_error_id(result, true, error)
+    into_c_error(result, true, error)
 }
 
 #[unsafe(no_mangle)]
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn FFIArray_null_count(
     let array = array.as_ref().vortex_expect("array null");
     let result = (|| Ok(array.inner.as_ref().invalid_count()?.try_into()?))();
 
-    into_c_error_id(result, 0, error)
+    into_c_error(result, 0, error)
 }
 
 macro_rules! ffiarray_get_ptype {

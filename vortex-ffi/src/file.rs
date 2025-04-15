@@ -21,7 +21,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::FFIArray;
-use crate::error::{FFIError, into_c_error};
+use crate::error::{FFIError, into_c_error, map_into_c_error};
 use crate::stream::{FFIArrayStream, FFIArrayStreamInner};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -95,26 +95,16 @@ pub unsafe extern "C" fn File_open(
 
             // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
             // tokio dep
-            let result = RUNTIME.block_on(async move {
+            let file = RUNTIME.block_on(async move {
                 VortexOpenOptions::file()
                     .open_object_store(&object_store, uri.path())
                     .await
-            });
-
-            let file = result?;
-            let ffi_file = FFIFile { inner: file };
-            VortexResult::Ok(ffi_file)
+            })?;
+            VortexResult::Ok(Box::into_raw(Box::new(FFIFile { inner: file })))
         }
     })();
 
-    unsafe {
-        into_c_error(
-            result,
-            |file| Box::into_raw(Box::new(file)),
-            ptr::null_mut(),
-            error,
-        )
-    }
+    unsafe { into_c_error(result, ptr::null_mut(), error) }
 }
 
 /// This function creates a new file by writing the ffi array to the path in the options args.
@@ -142,7 +132,7 @@ pub unsafe extern "C" fn File_create_and_write_array(
         })
     };
 
-    unsafe { into_c_error(result, |_| (), (), error) }
+    unsafe { into_c_error(result, (), error) }
 }
 
 /// Whole file statistics.
@@ -220,22 +210,16 @@ pub unsafe extern "C" fn File_scan(
 
         let stream = stream.into_array_stream()?;
 
-        Ok(Some(Box::new(FFIArrayStreamInner {
+        let inner = Some(Box::new(FFIArrayStreamInner {
             stream: Box::pin(stream),
+        }));
+        Ok(Box::into_raw(Box::new(FFIArrayStream {
+            inner,
+            current: None,
         })))
     })();
 
-    into_c_error(
-        stream,
-        |inner| {
-            Box::into_raw(Box::new(FFIArrayStream {
-                inner,
-                current: None,
-            }))
-        },
-        ptr::null_mut(),
-        error,
-    )
+    into_c_error(stream, ptr::null_mut(), error)
 }
 
 /// Free the file and all associated resources.
