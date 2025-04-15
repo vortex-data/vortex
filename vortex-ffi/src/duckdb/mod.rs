@@ -25,7 +25,7 @@ use crate::to_string;
 
 /// Converts a DType into a duckdb
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DType_to_duckdb_logical_type(
+pub unsafe extern "C-unwind" fn DType_to_duckdb_logical_type(
     dtype: *mut DType,
     error: *mut *mut FFIError,
 ) -> duckdb_logical_type {
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn DType_to_duckdb_logical_type(
 /// The offset is returned to the caller, which can be used to request the next chunk.
 /// 0 is returned when the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
+pub unsafe extern "C-unwind" fn FFIArray_to_duckdb_chunk(
     stream: *mut FFIArray,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn FFIArray_to_duckdb_chunk(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_create_empty_from_duckdb_table(
+pub unsafe extern "C-unwind" fn FFIArray_create_empty_from_duckdb_table(
     type_array: *const duckdb_logical_type,
     names: *const *const c_char,
     len: c_int,
