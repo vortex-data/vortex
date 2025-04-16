@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use anyhow::Result;
+use url::Url;
 use xshell::Shell;
 
-use crate::IdempotentPath;
+use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 pub struct DuckdbTpchOptions {
     /// Scale factor of the data in GB.
@@ -84,4 +86,20 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
     sh.write_file(success_file, vec![])?;
 
     Ok(output_dir)
+}
+
+/// Convenience wrapper for TPC-H benchmarks
+pub fn execute_duckdb_tpch_query(
+    queries: &[String],
+    base_url: &Url,
+    file_format: Format,
+    duckdb_path: &std::path::Path,
+) -> anyhow::Result<Duration> {
+    crate::engines::ddb::execute_query(
+        queries,
+        base_url,
+        file_format,
+        BenchmarkDataset::TpcH,
+        duckdb_path,
+    )
 }

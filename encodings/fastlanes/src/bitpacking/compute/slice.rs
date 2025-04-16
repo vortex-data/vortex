@@ -17,8 +17,8 @@ impl SliceFn<&BitPackedArray> for BitPackedEncoding {
 
         let encoded_start = (block_start / 8) * array.bit_width() as usize;
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
-        // slice the buffer using the encoded start/stop values
 
+        // slice the buffer using the encoded start/stop values
         // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
         unsafe {
             BitPackedArray::new_unchecked_with_offset(

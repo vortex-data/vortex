@@ -1,33 +1,20 @@
 use std::fs;
-use std::fs::create_dir_all;
 use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
-use futures::StreamExt;
-use log::info;
-use named_locks::with_lock;
+use datafusion::prelude::{CsvReadOptions, SessionContext};
 use object_store::ObjectStore;
-use object_store::path::Path as ObjectStorePath;
-use tokio::fs::OpenOptions;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
-use vortex::error::VortexExpect as _;
-use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
-use vortex_datafusion::persistent::VortexFormat;
 
-use crate::conversions::csv_to_parquet_file;
-use crate::{Format, get_session_with_cache, make_object_store};
+use crate::Format;
+use crate::engines::df::{get_session_with_cache, make_object_store};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -35,9 +22,6 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
-use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
-use vortex::stream::ArrayStreamAdapter;
 
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
 pub const EXPECTED_ROW_COUNTS_SF1: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
@@ -115,7 +99,7 @@ pub async fn load_datasets(
     Ok(context)
 }
 
-mod named_locks {
+pub mod named_locks {
     use std::future::Future;
     use std::sync::{Arc, LazyLock};
 
@@ -197,41 +181,15 @@ async fn register_parquet(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let csv_file = file.as_str();
-    let mut pq_file = file.clone();
-    pq_file.set_path(&pq_file.path().to_owned().replace(".tbl", ".parquet"));
-
-    if let Err(e) = object_store
-        .head(&ObjectStorePath::parse(pq_file.path())?)
-        .await
-    {
-        info!("File {} doesn't exist because {e}", pq_file);
-
-        if pq_file.scheme() != "file" {
-            anyhow::bail!("Writing to S3 does not seem to work!");
-        }
-
-        with_lock(pq_file.path().to_owned(), async || {
-            csv_to_parquet_file(
-                session,
-                CsvReadOptions::default()
-                    .delimiter(b'|')
-                    .has_header(false)
-                    .file_extension("tbl")
-                    .schema(schema),
-                csv_file,
-                pq_file.path(),
-            )
-            .await
-        })
-        .await?;
-    }
-
-    session
-        .register_parquet(name, pq_file.as_str(), ParquetReadOptions::default())
-        .await?;
-
-    Ok(())
+    crate::datasets::file::register_parquet_files(
+        session,
+        object_store,
+        name,
+        file,
+        schema,
+        crate::BenchmarkDataset::TpcH,
+    )
+    .await
 }
 
 async fn register_vortex_file(
@@ -241,90 +199,15 @@ async fn register_vortex_file(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let csv_basename = file
-        .path_segments()
-        .vortex_expect("url path not empty")
-        .next_back();
-    let vortex_basename = csv_basename
-        .unwrap()
-        .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref());
-
-    let csv_path_split = file
-        .path_segments()
-        .vortex_expect("url path not empty")
-        .map(|x| x.to_string())
-        .collect::<Vec<_>>();
-    let n_path_segments = csv_path_split.len();
-    let vortex_dir_path =
-        csv_path_split[0..(n_path_segments - 1)].join("/") + "/vortex_compressed/";
-
-    let mut vortex_dir = file.clone();
-    vortex_dir.set_path(&vortex_dir_path);
-    if vortex_dir.scheme() == "file" {
-        create_dir_all(vortex_dir.path())?;
-    }
-
-    let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
-
-    if let Err(e) = object_store
-        .head(&ObjectStorePath::parse(vtx_file.path())?)
-        .await
-    {
-        info!("File {} doesn't exist because {e}", vtx_file);
-        with_lock(vtx_file.path().to_owned(), async || {
-            let record_batches = session
-                .read_csv(
-                    file.as_str(),
-                    CsvReadOptions::default()
-                        .delimiter(b'|')
-                        .has_header(false)
-                        .file_extension("tbl")
-                        .schema(schema),
-                )
-                .await?
-                .execute_stream()
-                .await?;
-
-            // Convert the arrow schema to a Vortex DType
-            let array_stream = ArrayStreamAdapter::new(
-                // TODO(ngates): or should we use the provided schema?
-                DType::from_arrow(record_batches.schema()),
-                record_batches.map(|batch| {
-                    batch
-                        .map_err(VortexError::from)
-                        .and_then(|b| b.try_into_array())
-                }),
-            );
-
-            if vtx_file.scheme() == "file" {
-                let f = OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .create(true)
-                    .open(vtx_file.path())
-                    .await?;
-                VortexWriteOptions::default().write(f, array_stream).await?;
-            } else {
-                anyhow::bail!("Writing to S3 does not seem to work!");
-            };
-
-            anyhow::Ok(())
-        })
-        .await?;
-    }
-
-    let format = Arc::new(VortexFormat::default());
-    let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
-        .infer_schema(&session.state())
-        .await?;
-
-    let listing_table = Arc::new(ListingTable::try_new(config)?);
-
-    session.register_table(table_name, listing_table as _)?;
-
-    Ok(())
+    crate::datasets::file::register_vortex_files(
+        session,
+        object_store,
+        table_name,
+        file,
+        schema,
+        crate::BenchmarkDataset::TpcH,
+    )
+    .await
 }
 
 async fn register_vortex(

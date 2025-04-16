@@ -21,7 +21,7 @@ use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::{idempotent, idempotent_async};
+use crate::utils::file_utils::{idempotent, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;

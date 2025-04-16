@@ -258,27 +258,6 @@ macro_rules! match_each_integer_ptype {
     })
 }
 
-/// Macro to match over each integer PType, binding the corresponding native type (from
-/// `NativePType`) and the corresponding unsigned type (also a `NativePType`).
-#[macro_export]
-macro_rules! match_each_integer_ptype_with_unsigned_type {
-    ($self:expr, | $_:tt $enc:ident, $_2:tt $unsigned:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident, $_2 $unsigned:ident ) => ( $($body)* )}
-        use $crate::PType;
-        match $self {
-            PType::I8 => __with__! { i8, u8 },
-            PType::I16 => __with__! { i16, u16 },
-            PType::I32 => __with__! { i32, u32 },
-            PType::I64 => __with__! { i64, u64 },
-            PType::U8 => __with__! { u8, u8 },
-            PType::U16 => __with__! { u16, u16 },
-            PType::U32 => __with__! { u32, u32 },
-            PType::U64 => __with__! { u64, u64 },
-            other => panic!("Unsupported ptype {other}")
-        }
-    })
-}
-
 /// Macro to match over each unsigned integer type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_unsigned_integer_ptype {

@@ -1,5 +1,5 @@
 use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
-use bench_vortex::datasets::BenchmarkDataset;
+use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
@@ -75,8 +75,8 @@ fn compress(
         StructListOfInts::new(100, 1000, 50),
         StructListOfInts::new(1000, 1000, 50),
     ];
-    let datasets: Vec<&dyn BenchmarkDataset> = [
-        &TaxiData as &dyn BenchmarkDataset,
+    let datasets: Vec<&dyn Dataset> = [
+        &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
         PBI_DATASETS.get(CMSprovider),
@@ -92,7 +92,7 @@ fn compress(
         &TPCHLCommentCanonical,
     ]
     .into_iter()
-    .chain(structlistofints.iter().map(|d| d as &dyn BenchmarkDataset))
+    .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .filter(|d| {
         datasets_filter.is_none()
             || datasets_filter

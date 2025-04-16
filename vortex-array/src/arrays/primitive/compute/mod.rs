@@ -24,16 +24,18 @@ mod take;
 mod to_arrow;
 mod uncompressed_size;
 
+pub use is_constant::*;
+
 impl ArrayComputeImpl for PrimitiveArray {
     const FILTER: Option<KernelRef> = FilterKernelAdapter(PrimitiveEncoding).some();
 }
 
 impl ComputeVTable for PrimitiveEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         Some(self)
     }
 
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
@@ -54,6 +56,10 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 
@@ -82,10 +88,6 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 

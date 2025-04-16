@@ -4,10 +4,7 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
-use bench_vortex::{
-    Engine, Format, default_env_filter, execute_query, feature_flagged_allocator,
-    get_session_with_cache,
-};
+use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools as _;
@@ -109,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(dataset.write_as_vortex());
 
     for format in &args.formats {
-        let session = get_session_with_cache(args.emulate_object_store);
+        let session = df::get_session_with_cache(args.emulate_object_store);
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,
@@ -130,10 +127,11 @@ fn main() -> anyhow::Result<()> {
                     let context = session.clone();
                     let query = query.clone();
                     last_plan = tokio::task::spawn(async move {
-                        let (_, plan) = execute_query(&context, &query)
+                        let plan = df::execute_query(&context, &query)
                             .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"))
+                            .1;
                         Some(plan.clone())
                     })
                     .await

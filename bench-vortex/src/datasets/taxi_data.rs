@@ -11,14 +11,14 @@ use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::BenchmarkDataset;
+use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
 
 #[async_trait]
-impl BenchmarkDataset for TaxiData {
+impl Dataset for TaxiData {
     fn name(&self) -> &str {
         "taxi"
     }

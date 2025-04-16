@@ -1,19 +1,15 @@
 use std::cell::OnceCell;
-use std::fs::{self};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use bench_vortex::clickbench::{self, Flavor, HITS_SCHEMA, clickbench_queries};
+use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::{
-    Engine, Format, IdempotentPath, default_env_filter, execute_query, feature_flagged_allocator,
-    get_session_with_cache, make_object_store,
+    Engine, Format, IdempotentPath, ddb, default_env_filter, df, feature_flagged_allocator,
 };
 use clap::Parser;
-use datafusion_physical_plan::display::DisplayableExecutionPlan;
-use datafusion_physical_plan::execution_plan;
+use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
 use log::warn;
 use tokio::runtime::Builder;
@@ -74,10 +70,10 @@ struct DataFusionCtx {
     metrics: Vec<(
         usize,
         Format,
-        Vec<datafusion_physical_plan::metrics::MetricsSet>,
+        Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
 
-    session: datafusion::execution::context::SessionContext,
+    session: datafusion::prelude::SessionContext,
     emit_execution_plan: bool,
 }
 
@@ -92,7 +88,7 @@ enum EngineCtx {
 
 impl EngineCtx {
     fn new_with_datafusion(
-        session_ctx: datafusion::execution::context::SessionContext,
+        session_ctx: datafusion::prelude::SessionContext,
         emit_execution_plan: bool,
     ) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
@@ -181,10 +177,10 @@ fn main() -> anyhow::Result<()> {
 
     for engine in &args.engines {
         for file_format in &args.formats {
-            let session_ctx = get_session_with_cache(args.emulate_object_store);
+            let session_ctx = df::get_session_with_cache(args.emulate_object_store);
 
             // Register object store to the session.
-            make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
+            df::make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
 
             let mut engine_ctx = match engine {
                 Engine::DataFusion => EngineCtx::new_with_datafusion(session_ctx, args.emit_plan),
@@ -329,38 +325,36 @@ fn init_data_source(
 ) -> anyhow::Result<()> {
     match file_format {
         Format::Parquet => match engine_ctx {
-            EngineCtx::DataFusion(ctx) => clickbench::register_parquet_files(
-                &ctx.session,
-                "hits",
-                base_url,
-                &HITS_SCHEMA,
-                single_file,
-            )?,
+            EngineCtx::DataFusion(ctx) => {
+                let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
+                dataset.register_tables(&ctx.session, base_url, file_format)?
+            }
             EngineCtx::DuckDB(_) => { /* nothing to do */ }
         },
         Format::OnDiskVortex => {
             tokio_runtime.block_on(async {
                 if base_url.scheme() == "file" {
-                    clickbench::convert_parquet_to_vortex(&base_url.to_file_path().unwrap())
-                        .await
-                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                    // Use the dataset to register tables.
+                    let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
+                    let file_path = base_url
+                        .to_file_path()
+                        .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
+
+                    bench_vortex::file::convert_parquet_to_vortex(&file_path, dataset).await?;
                 }
 
                 match engine_ctx {
                     EngineCtx::DataFusion(ctx) => {
-                        clickbench::register_vortex_files(
-                            ctx.session.clone(),
-                            "hits",
-                            base_url,
-                            &HITS_SCHEMA,
-                            single_file,
-                        )
-                        .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                        // Use the dataset to register tables.
+                        let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
+                        dataset.register_tables(&ctx.session, base_url, file_format)?;
                     }
 
                     EngineCtx::DuckDB(_) => { /* nothing to do */ }
                 }
-            });
+
+                Ok::<(), anyhow::Error>(())
+            })?;
         }
         _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
     }
@@ -408,7 +402,12 @@ fn execute_queries(
                     .push((*query_idx, execution_plan.clone()));
 
                 if ctx.emit_execution_plan {
-                    write_execution_plan(*query_idx, file_format, &execution_plan);
+                    df::write_execution_plan(
+                        *query_idx,
+                        file_format,
+                        "clickbench",
+                        &execution_plan,
+                    );
                 }
 
                 ctx.metrics.push((
@@ -428,7 +427,7 @@ fn execute_queries(
             }
 
             EngineCtx::DuckDB(args) => {
-                let duckdb_path = duckdb_executable_path(&args.duckdb_path);
+                let duckdb_path = ddb::executable_path(&args.duckdb_path);
 
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
@@ -467,7 +466,7 @@ fn benchmark_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    context: &datafusion::execution::context::SessionContext,
+    context: &datafusion::prelude::SessionContext,
     tokio_runtime: &tokio::runtime::Runtime,
 ) -> (Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>) {
     let execution_plan = OnceCell::new();
@@ -502,13 +501,13 @@ async fn execute_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iteration: usize,
-    session_context: datafusion::execution::context::SessionContext,
+    session_context: datafusion::prelude::SessionContext,
 ) -> anyhow::Result<(Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>)> {
     let query_string = query_string.to_owned();
 
     let (duration, execution_plan) = tokio::task::spawn(async move {
         let time_instant = Instant::now();
-        let (_, execution_plan) = execute_query(&session_context, &query_string)
+        let (_, execution_plan) = df::execute_query(&session_context, &query_string)
             .instrument(info_span!("execute_query", query_idx, iteration))
             .await
             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
@@ -536,7 +535,7 @@ fn benchmark_duckdb_query(
     duckdb_path: &std::path::Path,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = execute_duckdb_query(
+        let duration = ddb::execute_clickbench_query(
             query_string,
             base_url,
             file_format,
@@ -549,122 +548,4 @@ fn benchmark_duckdb_query(
     });
 
     fastest_run
-}
-
-fn execute_duckdb_query(
-    query_string: &str,
-    base_url: &Url,
-    file_format: Format,
-    single_file: bool,
-    duckdb_path: &std::path::Path,
-) -> anyhow::Result<Duration> {
-    let extension = match file_format {
-        Format::Parquet => "parquet",
-        Format::OnDiskVortex => "vortex",
-        other => vortex_panic!("Format {other} isn't supported on ClickBench"),
-    };
-
-    // Base path contains trailing /.
-    let file_glob = if single_file {
-        format!("{base_url}{extension}/hits.{extension}")
-    } else {
-        format!("{base_url}{extension}/*.{extension}")
-    };
-
-    let file_glob = file_glob.strip_prefix("file://").unwrap_or(&file_glob);
-    let time_instant = Instant::now();
-    let register_tables =
-        format!("CREATE VIEW hits AS SELECT * FROM read_{extension}('{file_glob}')",);
-
-    let output = std::process::Command::new(duckdb_path)
-        .arg("-c")
-        .arg(register_tables)
-        .arg("-c")
-        .arg(query_string)
-        .output()?;
-
-    // DuckDB does not return non-zero exit codes in case of failures.
-    // Therefore, we need to additionally check whether stderr is set.
-    if !output.status.success() || !output.stderr.is_empty() {
-        anyhow::bail!(
-            "DuckDB query failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    Ok(time_instant.elapsed())
-}
-
-fn duckdb_executable_path(
-    user_supplied_path_flag: &Option<std::path::PathBuf>,
-) -> std::path::PathBuf {
-    let validate_path = |duckdb_path: &std::path::PathBuf| {
-        if !duckdb_path.as_path().exists() {
-            panic!(
-                "failed to find duckdb executable at: {}",
-                duckdb_path.display()
-            );
-        }
-    };
-
-    // User supplied path takes priority.
-    if let Some(duckdb_path) = user_supplied_path_flag {
-        validate_path(duckdb_path);
-        return duckdb_path.to_owned();
-    }
-
-    // Try to find the 'vortex' top-level directory. This is preferred over logic along
-    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
-    let mut repo_root = None;
-    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
-
-    while current_dir.file_name().is_some() {
-        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
-            repo_root = Some(current_dir.to_string_lossy().into_owned());
-            break;
-        }
-
-        if !current_dir.pop() {
-            break;
-        }
-    }
-
-    let duckdb_path = std::path::PathBuf::from_str(&format!(
-        "{}/duckdb-vortex/build/release/duckdb",
-        repo_root.unwrap_or_default()
-    ))
-    .expect("failed to create DuckDB executable path");
-
-    validate_path(&duckdb_path);
-
-    duckdb_path
-}
-
-/// Writes execution plan details to files.
-///
-/// Creates 2 plan files for each query execution:
-/// - A detailed plan with full structure
-/// - A condensed plan with metrics and schema
-fn write_execution_plan(
-    query_idx: usize,
-    format: Format,
-    execution_plan: &std::sync::Arc<dyn execution_plan::ExecutionPlan>,
-) {
-    fs::write(
-        format!("clickbench_{format}_q{query_idx:02}.plan"),
-        format!("{:#?}", execution_plan),
-    )
-    .expect("Unable to write file");
-
-    fs::write(
-        format!("clickbench_{format}_q{query_idx:02}.short.plan"),
-        format!(
-            "{}",
-            DisplayableExecutionPlan::with_full_metrics(execution_plan.as_ref())
-                .set_show_schema(true)
-                .set_show_statistics(true)
-                .indent(true)
-        ),
-    )
-    .expect("Unable to write file");
 }
