@@ -184,34 +184,40 @@ fn verify_row_counts(
     exclude_queries: &Option<Vec<usize>>,
 ) -> bool {
     let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
+
     for &(idx, format, row_count) in row_counts {
         format_row_counts
             .entry(format)
             .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
     }
 
+    let is_query_included = |idx: &usize| {
+        queries.as_ref().map_or(true, |q| q.contains(idx))
+            && exclude_queries
+                .as_ref()
+                .map_or(true, |excluded| !excluded.contains(idx))
+    };
+
     let mut mismatched = false;
     for (format, row_counts) in format_row_counts {
         row_counts
             .into_iter()
             .enumerate()
-            .filter(|(idx, _)| queries.as_ref().map(|q| q.contains(idx)).unwrap_or(true))
-            .filter(|(idx, _)| exclude_queries.as_ref().map(|excluded| !excluded.contains(idx)).unwrap_or(true))
+            .filter(|(idx, _)| is_query_included(idx))
             .for_each(|(idx, actual_row_count)| {
-                let expected_row_count = expected_row_counts[idx];
-                if actual_row_count != expected_row_count {
+                if actual_row_count != expected_row_counts[idx] {
                     if idx == 15 && actual_row_count == 0 {
                         warn!(
                             "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/spiraldb/vortex/issues/2395",
                             actual_row_count,
-                            expected_row_count,
+                            expected_row_counts[idx],
                             format,
                         );
                     } else  {
                         warn!(
                             "Mismatched row count {} instead of {} in query {} for format {:?}",
                             actual_row_count,
-                            expected_row_count,
+                            expected_row_counts[idx],
                             idx,
                             format,
                         );
