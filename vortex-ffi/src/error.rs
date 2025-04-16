@@ -1,3 +1,4 @@
+use std::backtrace::Backtrace;
 use std::ffi::{c_char, c_int};
 use std::ptr;
 

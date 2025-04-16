@@ -27,9 +27,11 @@ struct VortexFile {
 
 	static duckdb::unique_ptr<VortexFile> Open(const vx_file_open_options *options) {
 		vx_error *error;
-		auto vx_file = duckdb::make_uniq<VortexFile>(vx_file_open(options, &error));
-		HandleError(error);
-		return vx_file;
+		auto file = vx_file_open(options, &error);
+		if (file == nullptr) {
+			HandleError(error);
+		}
+		return duckdb::make_uniq<VortexFile>(file);
 	}
 
 	vx_file *file;

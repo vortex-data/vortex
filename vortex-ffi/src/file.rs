@@ -96,17 +96,14 @@ pub unsafe extern "C-unwind" fn vx_file_open(
 
             // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
             // tokio dep
-            let result = RUNTIME.with(|r| {
+            let inner = RUNTIME.with(|r| {
                 r.block_on(async move {
                     VortexOpenOptions::file()
                         .open_object_store(&object_store, uri.path())
                         .await
                 })
-            });
-
-            let file = result?;
-            let ffi_file = vx_file { inner: file };
-            Ok(Box::into_raw(Box::new(ffi_file)))
+            })?;
+            Ok(Box::into_raw(Box::new(vx_file { inner })))
         }
     })
 }
