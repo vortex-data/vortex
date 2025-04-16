@@ -79,7 +79,7 @@ impl IdempotentPath for PathBuf {
 /// - Or `ExitCode::FAILURE` if the scheme is unknown
 pub fn url_scheme_to_storage(url: &Url) -> Result<String, ExitCode> {
     use super::constants::{STORAGE_GCS, STORAGE_NVME, STORAGE_S3};
-    
+
     match url.scheme() {
         "s3" => Ok(STORAGE_S3.to_owned()),
         "gcs" => Ok(STORAGE_GCS.to_owned()),

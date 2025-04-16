@@ -10,6 +10,8 @@ use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
 };
+use bench_vortex::utils::constants::TPCH_DATASET;
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, ddb, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
@@ -20,8 +22,6 @@ use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
-use bench_vortex::utils::constants::TPCH_DATASET;
-use bench_vortex::utils::new_tokio_runtime;
 
 feature_flagged_allocator!();
 

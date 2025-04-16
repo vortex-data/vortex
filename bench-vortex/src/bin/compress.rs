@@ -6,8 +6,8 @@ use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLComment
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
-use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use bench_vortex::utils::new_tokio_runtime;
+use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
