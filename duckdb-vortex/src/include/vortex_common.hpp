@@ -17,24 +17,24 @@ struct VortexConversionCache {
 	vx_conversion_cache *cache;
 };
 
-struct VortexFile {
-	explicit VortexFile(vx_file *file) : file(file) {
+struct VortexFileReader {
+	explicit VortexFileReader(vx_file_reader *file) : file(file) {
 	}
 
-	~VortexFile() {
-		vx_file_free(file);
+	~VortexFileReader() {
+		vx_file_reader_free(file);
 	}
 
-	static duckdb::unique_ptr<VortexFile> Open(const vx_file_open_options *options) {
+	static duckdb::unique_ptr<VortexFileReader> Open(const vx_file_open_options *options) {
 		vx_error *error;
-		auto file = vx_file_open(options, &error);
+		auto file = vx_file_open_reader(options, &error);
 		if (file == nullptr) {
 			HandleError(error);
 		}
-		return duckdb::make_uniq<VortexFile>(file);
+		return duckdb::make_uniq<VortexFileReader>(file);
 	}
 
-	vx_file *file;
+	vx_file_reader *file;
 };
 
 struct VortexArray {

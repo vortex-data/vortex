@@ -17,7 +17,7 @@ struct VortexWriteBindData : public TableFunctionData {
 
 struct VortexWriteGlobalData : public GlobalFunctionData {
 	std::string file_name;
-	std::unique_ptr<VortexFile> file;
+	std::unique_ptr<VortexFileReader> file;
 	unique_ptr<VortexArray> array;
 };
 
@@ -82,7 +82,11 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		auto opts = vx_file_create_options();
 		opts.path = global_state.file_name.c_str();
 		vx_error *error;
-		vx_file_create_and_write_array(&opts, global_state.array->array, &error);
+		auto file = vx_file_create(&opts, &error);
+		if (file == nullptr) {
+			HandleError(error);
+		}
+		vx_file_write_array(file, global_state.array->array, &error);
 		HandleError(error);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,

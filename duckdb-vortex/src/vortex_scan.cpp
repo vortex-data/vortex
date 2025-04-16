@@ -32,7 +32,7 @@ struct VortexBindData : public TableFunctionData {
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
 	uint64_t num_columns;
-	unique_ptr<VortexFile> initial_file;
+	unique_ptr<VortexFileReader> initial_file;
 
 	shared_ptr<MultiFileList> file_list;
 
@@ -170,12 +170,12 @@ std::string EnsureFileProtocol(const std::string &path) {
 	return prefix + absolute_path;
 }
 
-static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
-                                       vector<string> &column_names) {
+static unique_ptr<VortexFileReader> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
+                                             vector<string> &column_names) {
 	vx_file_open_options options {
 	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
-	auto file = VortexFile::Open(&options);
+	auto file = VortexFileReader::Open(&options);
 	if (!file) {
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
@@ -183,7 +183,7 @@ static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<Logic
 	// This Ptr is owned by the file
 	const vx_dtype *file_dtype = vx_file_dtype(file->file);
 	if (vx_dtype_get(file_dtype) != DTYPE_STRUCT) {
-		vx_file_free(file->file);
+		vx_file_reader_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
@@ -209,7 +209,7 @@ static void VerifyNewFile(const VortexBindData &bind_data, vector<LogicalType> &
 	}
 }
 
-static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
+static unique_ptr<VortexFileReader> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
 	auto new_column_types = vector<LogicalType>();
@@ -221,7 +221,7 @@ static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, con
 }
 
 static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_data,
-                                                     VortexScanGlobalState &global_state, VortexFile *file) {
+                                                     VortexScanGlobalState &global_state, VortexFileReader *file) {
 	auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),

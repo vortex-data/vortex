@@ -98,7 +98,9 @@ typedef struct vx_array_stream vx_array_stream;
 typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
 
-typedef struct vx_file vx_file;
+typedef struct vx_file_reader vx_file_reader;
+
+typedef struct vx_file_writer vx_file_writer;
 
 typedef struct vx_error {
   int code;
@@ -111,7 +113,7 @@ typedef struct vx_error {
 typedef struct vx_file_open_options {
   /**
    * URI for opening the file.
-   * This must be a valid URI, even the files (file:///path/to/file)
+   * This must be a valid URI, even for files (file:///path/to/file)
    */
   const char *uri;
   /**
@@ -135,7 +137,6 @@ typedef struct vx_file_open_options {
 typedef struct vx_file_create_options {
   /**
    * path of the file to be created.
-   * This must be a valid URI, even the files (file:///path/to/file)
    */
   const char *path;
 } vx_file_create_options;
@@ -325,17 +326,17 @@ void vx_error_free(struct vx_error *error);
 /**
  * Open a file at the given path on the file system.
  */
-struct vx_file *vx_file_open(const struct vx_file_open_options *options, struct vx_error **error);
+struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
+                                           struct vx_error **error);
 
-/**
- * This function creates a new file by writing the ffi array to the path in the options args.
- * TODO: replace with a create and a write function
- */
-void vx_file_create_and_write_array(const struct vx_file_create_options *options,
-                                    struct vx_array *ffi_array,
-                                    struct vx_error **error);
+struct vx_file_writer *vx_file_create(const struct vx_file_create_options *options,
+                                      struct vx_error **error);
 
-struct vx_file_statistics *vx_file_extract_statistics(struct vx_file *file);
+void vx_file_write_array(struct vx_file_writer *file,
+                         struct vx_array *ffi_array,
+                         struct vx_error **error);
+
+struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
 void vx_file_statistics_free(struct vx_file_statistics *stat);
 
@@ -345,12 +346,12 @@ void vx_file_statistics_free(struct vx_file_statistics *stat);
  * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
  * dereferenced after the file has been freed.
  */
-const struct vx_dtype *vx_file_dtype(const struct vx_file *file);
+const struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
  * Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
  */
-struct vx_array_stream *vx_file_scan(const struct vx_file *file,
+struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
                                      const struct vx_file_scan_options *opts,
                                      struct vx_error **error);
 
@@ -360,7 +361,9 @@ struct vx_array_stream *vx_file_scan(const struct vx_file *file,
  * This function will not automatically free any `vx_array_stream`s that were built from this
  * file.
  */
-void vx_file_free(struct vx_file *file);
+void vx_file_reader_free(struct vx_file_reader *file);
+
+void vx_file_wrtier_free(struct vx_file_writer *file);
 
 /**
  * Initialize native logging with the specified level.

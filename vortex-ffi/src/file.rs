@@ -1,9 +1,10 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
+use std::ptr::null_mut;
+use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ptr, slice};
 
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -11,12 +12,14 @@ use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
+use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::io::VortexWrite;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
@@ -26,7 +29,12 @@ use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 #[allow(non_camel_case_types)]
-pub struct vx_file {
+pub struct vx_file_writer {
+    inner: File,
+}
+
+#[allow(non_camel_case_types)]
+pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
 }
 
@@ -34,7 +42,6 @@ pub struct vx_file {
 #[repr(C)]
 pub struct vx_file_create_options {
     /// path of the file to be created.
-    /// This must be a valid URI, even the files (file:///path/to/file)
     pub path: *const c_char,
 }
 
@@ -42,7 +49,7 @@ pub struct vx_file_create_options {
 #[repr(C)]
 pub struct vx_file_open_options {
     /// URI for opening the file.
-    /// This must be a valid URI, even the files (file:///path/to/file)
+    /// This must be a valid URI, even for files (file:///path/to/file)
     pub uri: *const c_char,
     /// Additional configuration for the file source (e.g. "s3.accessKey").
     /// This may be null, in which case it is treated as empty.
@@ -71,11 +78,11 @@ pub struct vx_file_scan_options {
 
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_open(
+pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     error: *mut *mut vx_error,
-) -> *mut vx_file {
-    try_or(error, ptr::null_mut(), || {
+) -> *mut vx_file_reader {
+    try_or(error, null_mut(), || {
         {
             let options = unsafe {
                 options
@@ -103,34 +110,45 @@ pub unsafe extern "C-unwind" fn vx_file_open(
                         .await
                 })
             })?;
-            Ok(Box::into_raw(Box::new(vx_file { inner })))
+            Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
         }
     })
 }
 
-/// This function creates a new file by writing the ffi array to the path in the options args.
-/// TODO: replace with a create and a write function
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_create_and_write_array(
+pub unsafe extern "C-unwind" fn vx_file_create(
     options: *const vx_file_create_options,
-    ffi_array: *mut vx_array,
     error: *mut *mut vx_error,
-) {
-    try_or(error, (), || {
+) -> *mut vx_file_writer {
+    try_or(error, null_mut(), || {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
         let path = CStr::from_ptr(options.path).to_string_lossy();
+
+        let inner =
+            RUNTIME.with(|r| r.block_on(async move { File::create(path.to_string()).await }))?;
+        Ok(Box::into_raw(Box::new(vx_file_writer { inner })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_file_write_array(
+    file: *mut vx_file_writer,
+    ffi_array: *mut vx_array,
+    error: *mut *mut vx_error,
+) {
+    try_or(error, (), || {
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
+        let file = unsafe { file.as_mut().vortex_expect("null file") };
 
         RUNTIME.with(|r| {
             r.block_on(async move {
-                let file = tokio::fs::File::create(path.to_string()).await?;
                 let file = VortexWriteOptions::default()
-                    .write(file, array.inner.to_array_stream())
+                    .write(&mut file.inner, array.inner.to_array_stream())
                     .await?;
 
-                file.sync_all().await?;
+                file.flush().await?;
                 Ok(())
             })
         })
@@ -146,7 +164,7 @@ pub struct vx_file_statistics {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
-    file: *mut vx_file,
+    file: *mut vx_file_reader,
 ) -> *mut vx_file_statistics {
     Box::into_raw(Box::new(vx_file_statistics {
         num_rows: file
@@ -168,18 +186,18 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
 /// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const DType {
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *const DType {
     file.as_ref().vortex_expect("null file").inner.dtype()
 }
 
 /// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_scan(
-    file: *const vx_file,
+    file: *const vx_file_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
-    try_or(error, ptr::null_mut(), || {
+    try_or(error, null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
@@ -227,7 +245,12 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 /// This function will not automatically free any `vx_array_stream`s that were built from this
 /// file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_free(file: *mut vx_file) {
+pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
+    drop(Box::from_raw(file));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_file_wrtier_free(file: *mut vx_file_writer) {
     drop(Box::from_raw(file));
 }
 
