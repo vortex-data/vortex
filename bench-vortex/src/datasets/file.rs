@@ -63,7 +63,6 @@ pub async fn register_parquet_files(
                     anyhow::bail!("Writing to S3 does not seem to work!");
                 }
 
-                let csv_file = file_url.as_str();
                 with_lock(parquet_url_path.clone(), async move || {
                     crate::conversions::csv_to_parquet_file(
                         session,
@@ -72,7 +71,7 @@ pub async fn register_parquet_files(
                             .has_header(false)
                             .file_extension("tbl")
                             .schema(schema),
-                        csv_file,
+                        file_url.as_str(),
                         &parquet_url_path,
                     )
                     .await
