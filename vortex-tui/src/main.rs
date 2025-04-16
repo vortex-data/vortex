@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use browse::exec_tui;
-use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use tokio::runtime::Runtime;
 use tree::exec_tree;
@@ -67,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     if !std::fs::exists(path)? {
         Cli::command()
             .error(
-                ErrorKind::Io,
+                clap::error::ErrorKind::Io,
                 format!(
                     "File '{}' does not exist.",
                     path.to_str().vortex_expect("file path")
