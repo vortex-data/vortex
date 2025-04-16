@@ -7,7 +7,7 @@ plugins {
     id("net.ltgt.errorprone") version "4.1.0" apply false
     id("org.inferred.processors") version "3.7.0" apply false
     id("com.google.protobuf") version "0.9.5" apply false
-    id("com.vanniktech.maven.publish") version "0.31.0-rc2" apply false
+    id("com.vanniktech.maven.publish") version "0.31.0" apply false
 }
 
 subprojects {
