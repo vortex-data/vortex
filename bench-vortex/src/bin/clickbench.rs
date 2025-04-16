@@ -107,6 +107,7 @@ impl EngineCtx {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    validate_args(&args);
 
     // Capture `RUST_LOG` configuration
     let filter = default_env_filter(args.verbose);
@@ -224,6 +225,20 @@ fn main() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+fn validate_args(args: &Args) {
+    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
+        panic!("--duckdb-path is only valid when DuckDB engine is used");
+    }
+
+    if (args.emit_plan || args.export_spans || !args.hide_metrics || args.threads.is_some())
+        && !args.engines.contains(&Engine::DataFusion)
+    {
+        panic!(
+            "--emit-plan, --export-spans, --hide-metrics, --threads are only valid if DataFusion is used"
+        );
+    }
 }
 
 fn print_metrics(

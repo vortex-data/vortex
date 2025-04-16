@@ -64,7 +64,7 @@ struct Args {
     emit_plan: bool,
 }
 
-#[derive(ValueEnum, Default, Clone, Debug)]
+#[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
 pub enum DataGenerator {
     #[default]
     Dbgen,
@@ -73,6 +73,7 @@ pub enum DataGenerator {
 
 fn main() -> ExitCode {
     let args = Args::parse();
+    validate_args(&args);
 
     let filter = default_env_filter(args.verbose);
     #[cfg(not(feature = "tracing"))]
@@ -443,5 +444,19 @@ async fn bench_main(
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+fn validate_args(args: &Args) {
+    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
+        panic!("--duckdb-path is only valid if DuckDB is used");
+    }
+
+    if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
+        && !args.engines.contains(&Engine::DataFusion)
+    {
+        panic!(
+            "--all-metrics, --emit-plan, --threads, --export-spans are only valid if DataFusion is used"
+        );
     }
 }
