@@ -1,6 +1,6 @@
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, FilterKernelAdapter, KernelRef, ScalarAtFn, SearchSortedFn, SliceFn,
-    TakeFn, between,
+    BetweenFn, BetweenOptions, FilterKernelAdapter, IsConstantFn, KernelRef, ScalarAtFn,
+    SearchSortedFn, SliceFn, TakeFn, between,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef, IntoArray};
@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 mod filter;
+mod is_constant;
 mod scalar_at;
 mod search_sorted;
 mod slice;
@@ -20,6 +21,10 @@ impl ArrayComputeImpl for BitPackedArray {
 
 impl ComputeVTable for BitPackedEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 

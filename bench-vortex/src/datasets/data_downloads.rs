@@ -8,7 +8,7 @@ use tokio::fs::File as TokioFile;
 use vortex::error::VortexError;
 use vortex::io::VortexWrite;
 
-use crate::{idempotent, idempotent_async};
+use crate::utils::file_utils::{idempotent, idempotent_async};
 
 pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
     idempotent_async(&fname, async |path| {

@@ -4,16 +4,14 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
-use bench_vortex::{
-    Engine, Format, default_env_filter, execute_query, feature_flagged_allocator,
-    get_session_with_cache,
-};
+use bench_vortex::utils::constants::STORAGE_NVME;
+use bench_vortex::utils::new_tokio_runtime;
+use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
 use clap::Parser;
 use indicatif::ProgressBar;
-use itertools::Itertools as _;
-use tokio::runtime::Builder;
+use itertools::Itertools;
 use tracing::info_span;
-use tracing_futures::Instrument as _;
+use tracing_futures::Instrument;
 use vortex::error::vortex_panic;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
@@ -76,16 +74,7 @@ fn main() -> anyhow::Result<()> {
         _guard
     };
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
@@ -107,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(dataset.write_as_vortex());
 
     for format in &args.formats {
-        let session = get_session_with_cache();
+        let session = df::get_session_with_cache();
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,
@@ -120,7 +109,7 @@ fn main() -> anyhow::Result<()> {
             .expect("failed to register");
 
         for (query_idx, query) in queries.clone().into_iter() {
-            let mut fastest_result = Duration::from_millis(u64::MAX);
+            let mut fastest_run = Duration::from_millis(u64::MAX);
             let mut last_plan = None;
             for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
@@ -128,10 +117,11 @@ fn main() -> anyhow::Result<()> {
                     let context = session.clone();
                     let query = query.clone();
                     last_plan = tokio::task::spawn(async move {
-                        let (_, plan) = execute_query(&context, &query)
+                        let plan = df::execute_query(&context, &query)
                             .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"))
+                            .1;
                         Some(plan.clone())
                     })
                     .await
@@ -139,7 +129,7 @@ fn main() -> anyhow::Result<()> {
 
                     start.elapsed()
                 });
-                fastest_result = fastest_result.min(exec_duration);
+                fastest_run = fastest_run.min(exec_duration);
             }
 
             let plan = last_plan.expect("must have at least one iteration");
@@ -153,8 +143,8 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 engine: Engine::DataFusion,
-                storage: "nvme".to_owned(),
-                time: fastest_result,
+                storage: STORAGE_NVME.to_owned(),
+                fastest_run,
                 format: *format,
                 dataset: pbi_dataset.name.to_owned(),
             });

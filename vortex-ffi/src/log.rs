@@ -1,29 +1,30 @@
 use log::LevelFilter;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 
-pub const LOG_LEVEL_OFF: u8 = 0;
-pub const LOG_LEVEL_ERROR: u8 = 1;
-pub const LOG_LEVEL_WARN: u8 = 2;
-pub const LOG_LEVEL_INFO: u8 = 3;
-pub const LOG_LEVEL_DEBUG: u8 = 4;
-pub const LOG_LEVEL_TRACE: u8 = 5;
+#[repr(C)]
+#[allow(non_camel_case_types)]
+pub enum vx_log_level {
+    LOG_LEVEL_OFF = 0,
+    LOG_LEVEL_ERROR = 1,
+    LOG_LEVEL_WARN = 2,
+    LOG_LEVEL_INFO = 3,
+    LOG_LEVEL_DEBUG = 4,
+    LOG_LEVEL_TRACE = 5,
+}
 
 /// Initialize native logging with the specified level.
 ///
 /// This function is optional, if it is not called then no runtime
 /// logger will be installed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vortex_init_logging(level: u8) {
+pub unsafe extern "C-unwind" fn vx_init_logging(level: vx_log_level) {
     let filter = match level {
-        LOG_LEVEL_OFF => LevelFilter::Off,
-        LOG_LEVEL_ERROR => LevelFilter::Error,
-        LOG_LEVEL_WARN => LevelFilter::Warn,
-        LOG_LEVEL_INFO => LevelFilter::Info,
-        LOG_LEVEL_DEBUG => LevelFilter::Debug,
-        LOG_LEVEL_TRACE => LevelFilter::Trace,
-        _ => {
-            return;
-        }
+        vx_log_level::LOG_LEVEL_OFF => LevelFilter::Off,
+        vx_log_level::LOG_LEVEL_ERROR => LevelFilter::Error,
+        vx_log_level::LOG_LEVEL_WARN => LevelFilter::Warn,
+        vx_log_level::LOG_LEVEL_INFO => LevelFilter::Info,
+        vx_log_level::LOG_LEVEL_DEBUG => LevelFilter::Debug,
+        vx_log_level::LOG_LEVEL_TRACE => LevelFilter::Trace,
     };
 
     TermLogger::init(

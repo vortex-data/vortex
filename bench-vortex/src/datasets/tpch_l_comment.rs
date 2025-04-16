@@ -3,14 +3,14 @@ use vortex::arrays::ChunkedArray;
 use vortex::dtype::FieldName;
 use vortex::{Array, ArrayExt, ArrayRef, ToCanonical};
 
-use crate::datasets::BenchmarkDataset;
+use crate::datasets::Dataset;
 use crate::tpch;
 use crate::tpch::dbgen::{DBGen, DBGenOptions};
 
 pub struct TPCHLCommentChunked;
 
 #[async_trait]
-impl BenchmarkDataset for TPCHLCommentChunked {
+impl Dataset for TPCHLCommentChunked {
     fn name(&self) -> &str {
         "TPC-H l_comment chunked"
     }
@@ -34,7 +34,7 @@ impl BenchmarkDataset for TPCHLCommentChunked {
 pub struct TPCHLCommentCanonical;
 
 #[async_trait]
-impl BenchmarkDataset for TPCHLCommentCanonical {
+impl Dataset for TPCHLCommentCanonical {
     fn name(&self) -> &str {
         "TPC-H l_comment canonical"
     }

@@ -1,7 +1,10 @@
+import com.vanniktech.maven.publish.SonatypeHost
+
+apply(plugin = "com.vanniktech.maven.publish")
+
 plugins {
     `java-library`
     `jvm-test-suite`
-    `maven-publish`
 }
 
 dependencies {
@@ -23,12 +26,41 @@ testing {
     }
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            from(components["java"]) // Publishes the compiled JAR
-            artifactId = "vortex-spark"
+mavenPublishing {
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-spark", version = version.toString())
+
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    signAllPublications()
+
+    pom {
+        name = "vortex-spark"
+        description = project.description
+        url = "https://vortex.dev"
+        inceptionYear = "2025"
+
+        licenses {
+            license {
+                name = "Apache-2.0"
+                url = "https://spdx.org/licenses/Apache-2.0.html"
+            }
         }
+        developers {
+            developer {
+                id = "spiraldb"
+                name = "Vortex Authors"
+            }
+        }
+        scm {
+            connection = "scm:git:https://github.com/spiraldb/vortex.git"
+            developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
+            url = "https://github.com/spiraldb/vortex"
+        }
+    }
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
     }
 }
 
@@ -45,3 +77,5 @@ tasks.withType<Test>().all {
         "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
     )
 }
+
+description = "Apache Spark bindings for reading Vortex file datasets"

@@ -21,7 +21,7 @@ use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::{idempotent, idempotent_async};
+use crate::utils::file_utils::{idempotent, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -213,7 +213,7 @@ pub fn register_vortex_files(
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
@@ -239,7 +239,7 @@ pub fn register_parquet_files(
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
@@ -249,10 +249,8 @@ pub fn register_parquet_files(
     Ok(())
 }
 
-pub fn clickbench_queries() -> Vec<(usize, String)> {
-    let queries_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql");
-
-    std::fs::read_to_string(queries_file)
+pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
+    std::fs::read_to_string(queries_file_path)
         .unwrap()
         .split(';')
         .map(|s| s.trim())

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
-use std::os::unix::fs::MetadataExt as _;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
@@ -16,7 +16,7 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use datafusion_common::{Result, TableReference};
 use futures::future::join_all;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
+use futures::{StreamExt, TryStreamExt, stream};
 use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
@@ -29,11 +29,11 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
-use vortex::{Array as _, ArrayRef};
+use vortex::{Array, ArrayRef};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::BenchmarkDataset;
+use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
 use crate::{IdempotentPath, idempotent_async};
 
@@ -380,18 +380,18 @@ impl PBIData {
             let path = self.get_file_path(&table.name, file_type);
             let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(df_format as _))
+                .with_listing_options(ListingOptions::new(df_format))
                 .with_schema(df_table.schema().clone().into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
-            session.register_table(table_ref, listing_table as _)?;
+            session.register_table(table_ref, listing_table)?;
         }
         Ok(())
     }
 }
 
 #[async_trait]
-impl BenchmarkDataset for PBIBenchmark {
+impl Dataset for PBIBenchmark {
     fn name(&self) -> &str {
         &self.name
     }
