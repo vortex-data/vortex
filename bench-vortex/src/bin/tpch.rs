@@ -348,7 +348,7 @@ async fn bench_main(
                         let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await.0;
                         row_counts.push((query_idx, format, first_row_count));
 
-                        // gather metrics
+                        // Gather metrics.
                         for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
                             .into_iter()
                             .enumerate()

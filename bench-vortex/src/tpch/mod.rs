@@ -181,7 +181,7 @@ async fn register_parquet(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    crate::datasets::data_manager::register_parquet_files(
+    crate::datasets::file::register_parquet_files(
         session,
         object_store,
         name,
@@ -199,7 +199,7 @@ async fn register_vortex_file(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    crate::datasets::data_manager::register_vortex_files(
+    crate::datasets::file::register_vortex_files(
         session,
         object_store,
         table_name,

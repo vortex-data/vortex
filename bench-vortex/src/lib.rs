@@ -20,7 +20,7 @@ pub mod random_access;
 pub mod tpch;
 pub mod utils;
 
-pub use datasets::{BenchmarkDataset, data_manager};
+pub use datasets::{BenchmarkDataset, file};
 pub use engines::{ddb, df};
 pub use vortex::error::vortex_panic;
 
