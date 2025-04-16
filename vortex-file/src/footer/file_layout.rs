@@ -1,9 +1,9 @@
-/// This module defines the file layout component of the Vortex file footer.
-///
-/// The file layout describes the structure of the data in the file, including:
-/// - The root layout of the file
-/// - Specifications for all segments in the file
-/// - Specifications for array and layout encodings used in the file
+//! This module defines the file layout component of the Vortex file footer.
+//!
+//! The file layout describes the structure of the data in the file, including:
+//! - The root layout of the file
+//! - Specifications for all segments in the file
+//! - Specifications for array and layout encodings used in the file
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, WIPOffset};

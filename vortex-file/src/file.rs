@@ -1,7 +1,7 @@
-/// This module defines the `VortexFile` struct, which represents a Vortex file on disk or in memory.
-///
-/// The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
-/// data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
+//! This module defines the [`VortexFile`] struct, which represents a Vortex file on disk or in memory.
+//!
+//! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
+//! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
@@ -25,7 +25,7 @@ pub struct VortexFile {
     pub(crate) footer: Footer,
     /// A factory for creating segment sources that read data from the file.
     pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
-    /// Metrics tied to the file for performance monitoring.
+    /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
 
@@ -52,7 +52,7 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    /// Returns a reference to the file's metrics for performance monitoring.
+    /// Returns a reference to the file's metrics.
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
     }
