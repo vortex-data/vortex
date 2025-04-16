@@ -7,10 +7,10 @@ use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
 use clap::Parser;
 use indicatif::ProgressBar;
-use itertools::Itertools as _;
+use itertools::Itertools;
 use tokio::runtime::Builder;
 use tracing::info_span;
-use tracing_futures::Instrument as _;
+use tracing_futures::Instrument;
 use vortex::error::vortex_panic;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 

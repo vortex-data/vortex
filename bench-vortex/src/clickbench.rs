@@ -213,7 +213,7 @@ pub fn register_vortex_files(
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
@@ -239,7 +239,7 @@ pub fn register_parquet_files(
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);

@@ -97,7 +97,7 @@ pub async fn register_parquet_files(
             let table_url = ListingTableUrl::parse(parquet_path)?;
 
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format as _))
+                .with_listing_options(ListingOptions::new(format))
                 .with_schema(schema.clone().into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
@@ -198,12 +198,12 @@ pub async fn register_vortex_files(
             let format = Arc::new(VortexFormat::default());
             let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format as _))
+                .with_listing_options(ListingOptions::new(format))
                 .infer_schema(&session.state())
                 .await?;
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
-            session.register_table(table_name, listing_table as _)?;
+            session.register_table(table_name, listing_table)?;
         }
         BenchmarkDataset::ClickBench { single_file } => {
             crate::clickbench::register_vortex_files(
