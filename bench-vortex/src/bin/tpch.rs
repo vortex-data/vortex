@@ -16,12 +16,12 @@ use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
-use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 use bench_vortex::utils::constants::TPCH_DATASET;
+use bench_vortex::utils::new_tokio_runtime;
 
 feature_flagged_allocator!();
 
@@ -109,16 +109,7 @@ fn main() -> ExitCode {
         panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
     }
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     let url = match args.use_remote_data_dir {
         None => {

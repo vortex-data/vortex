@@ -7,9 +7,10 @@ use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::utils::new_tokio_runtime;
 use clap::Parser;
 use indicatif::ProgressBar;
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
 
 feature_flagged_allocator!();
@@ -31,16 +32,7 @@ struct Args {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
     random_access(

@@ -3,13 +3,13 @@ use std::time::{Duration, Instant};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::utils::constants::STORAGE_NVME;
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
 use vortex::error::vortex_panic;
@@ -76,16 +76,7 @@ fn main() -> anyhow::Result<()> {
         _guard
     };
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
