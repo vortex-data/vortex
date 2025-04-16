@@ -3,6 +3,7 @@ use std::ops::{BitAnd, Range};
 use async_trait::async_trait;
 use futures::join;
 use vortex_array::arrays::StructArray;
+use vortex_array::compute::filter;
 use vortex_array::{Array, ArrayRef};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, vortex_err};
@@ -86,19 +87,28 @@ impl MaskEvaluation for DictMaskEvaluation {
             _ => (),
         }
 
-        // TODO(os): if mask density is low, we should run take on codes first?
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-
-        // Creating a mask from the dict array would canonicalise it,
-        // it should be fine for now as long as values is already canonical,
-        // so different row ranges do not canonicalise the same array
-        // multiple times.
-        let dict_mask = &Mask::try_from(
-            DictArray::try_new(codes, values_result)?
-                .to_array()
-                .as_ref(),
-        )?;
-        Ok(mask.bitand(dict_mask))
+        // TODO(os): remove the low density code path, does not really improve perf
+        if mask.density() < 0.1 {
+            let codes = filter(&codes, &mask)?;
+            let dict_mask = &Mask::try_from(
+                DictArray::try_new(codes, values_result)?
+                    .to_array()
+                    .as_ref(),
+            )?;
+            Ok(mask.intersect_by_rank(&dict_mask))
+        } else {
+            // Creating a mask from the dict array would canonicalise it,
+            // it should be fine for now as long as values is already canonical,
+            // so different row ranges do not canonicalise the same array
+            // multiple times.
+            let dict_mask = &Mask::try_from(
+                DictArray::try_new(codes, values_result)?
+                    .to_array()
+                    .as_ref(),
+            )?;
+            Ok(mask.bitand(dict_mask))
+        }
     }
 }
 

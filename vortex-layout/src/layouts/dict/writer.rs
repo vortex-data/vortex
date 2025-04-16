@@ -2,7 +2,7 @@ use bytes::Bytes;
 use vortex_array::arcref::ArcRef;
 use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayContext, ArrayRef, RkyvMetadata, SerializeMetadata};
-use vortex_dict::builders::{DictEncoder, dict_encoder};
+use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -12,16 +12,16 @@ use crate::segments::SegmentWriter;
 use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
 
 pub struct DictLayoutOptions {
-    /// max dictionary size in bytes, uncompressed
-    pub max_dict_size_bytes: usize,
-    pub max_dict_len: usize,
+    pub constraints: DictConstraints,
 }
 
 impl Default for DictLayoutOptions {
     fn default() -> Self {
         Self {
-            max_dict_size_bytes: 1024 * 1024,
-            max_dict_len: u16::MAX as usize,
+            constraints: DictConstraints {
+                max_bytes: 1024 * 1024,
+                max_len: u16::MAX as usize,
+            },
         }
     }
 }
@@ -127,7 +127,7 @@ impl LayoutWriter for DictLayoutWriter {
     ) -> VortexResult<()> {
         self.state = match std::mem::take(&mut self.state) {
             State::Uninit => {
-                let mut encoder = dict_encoder(&chunk, self.options.max_dict_size_bytes)?;
+                let mut encoder = dict_encoder(&chunk, &self.options.constraints)?;
                 let codes = encoder.encode(&chunk)?;
                 let codes_len = codes.len();
 
