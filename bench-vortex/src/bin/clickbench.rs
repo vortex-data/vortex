@@ -1,4 +1,5 @@
 use std::cell::OnceCell;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
@@ -14,7 +15,7 @@ use clap::Parser;
 use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
 use log::warn;
-use tracing::info_span;
+use tracing::{debug, info_span};
 use tracing_futures::Instrument;
 use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
@@ -50,6 +51,8 @@ struct Args {
     emit_plan: bool,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(long)]
+    queries_file: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
     #[arg(long)]
@@ -145,9 +148,15 @@ fn main() -> anyhow::Result<()> {
         panic!("use `--formats vortex` instead of `--only-vortex`");
     }
 
+    let queries_filepath = args
+        .queries_file
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"));
+
+    debug!(file = ?queries_filepath, "Reading queries from file");
+
     let queries = match &args.queries {
-        None => clickbench_queries(),
-        Some(queries) => clickbench_queries()
+        None => clickbench_queries(queries_filepath),
+        Some(queries) => clickbench_queries(queries_filepath)
             .into_iter()
             .filter(|(q_idx, _)| queries.contains(q_idx))
             .collect(),

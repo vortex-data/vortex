@@ -249,10 +249,8 @@ pub fn register_parquet_files(
     Ok(())
 }
 
-pub fn clickbench_queries() -> Vec<(usize, String)> {
-    let queries_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql");
-
-    std::fs::read_to_string(queries_file)
+pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
+    std::fs::read_to_string(queries_file_path)
         .unwrap()
         .split(';')
         .map(|s| s.trim())
