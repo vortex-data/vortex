@@ -36,7 +36,7 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	}
 
 	auto new_array =
-	    FFIArray_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
+	    vx_array_append_duckdb_chunk(global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input));
 	global_state.array = make_uniq<VortexArray>(new_array);
 }
 
@@ -64,8 +64,8 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		for (auto &col_type : bind.sql_types) {
 			column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
 		}
-		FFIError *error = nullptr;
-		auto array = FFIArray_create_empty_from_duckdb_table(column_types.data(), column_names.data(),
+		VXError *error = nullptr;
+		auto array = vx_array_create_empty_from_duckdb_table(column_types.data(), column_names.data(),
 		                                                     column_names.size(), &error);
 		HandleError(error);
 
@@ -79,10 +79,10 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		auto opts = FileCreateOptions();
+		auto opts = VXFileCreateOptions();
 		opts.path = global_state.file_name.c_str();
-		FFIError *error;
-		File_create_and_write_array(&opts, global_state.array->array, &error);
+		VXError *error;
+		vx_file_create_and_write_array(&opts, global_state.array->array, &error);
 		HandleError(error);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,

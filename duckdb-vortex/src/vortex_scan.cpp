@@ -128,24 +128,24 @@ void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> 
 }
 
 /// Extracts schema information from a Vortex file's data type.
-static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &column_types,
+static void ExtractVortexSchema(const VXDType *file_dtype, vector<LogicalType> &column_types,
                                 vector<string> &column_names) {
-	uint32_t field_count = DType_field_count(file_dtype);
+	uint32_t field_count = vx_dtype_field_count(file_dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
 		char name_buffer[512];
 		int name_len = 0;
 
-		DType_field_name(file_dtype, idx, name_buffer, &name_len);
+		vx_dtype_field_name(file_dtype, idx, name_buffer, &name_len);
 		std::string field_name(name_buffer, name_len);
 
-		DType *field_dtype = DType_field_dtype(file_dtype, idx);
-		FFIError *error = nullptr;
-		auto duckdb_type = DType_to_duckdb_logical_type(field_dtype, &error);
+		VXDType *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
+		VXError *error = nullptr;
+		auto duckdb_type = vx_dtype_to_duckdb_logical_type(field_dtype, &error);
 		HandleError(error);
 
 		column_names.push_back(field_name);
 		column_types.push_back(LogicalType(*reinterpret_cast<LogicalType *>(duckdb_type)));
-		DType_free(field_dtype);
+		vx_dtype_free(field_dtype);
 		duckdb_destroy_logical_type(&duckdb_type);
 	}
 }
@@ -172,11 +172,8 @@ std::string EnsureFileProtocol(const std::string &path) {
 
 static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
                                        vector<string> &column_names) {
-	FileOpenOptions options;
-	options.uri = filename.c_str();
-	options.property_keys = nullptr;
-	options.property_vals = nullptr;
-	options.property_len = 0;
+	VXFileOpenOptions options {
+	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
 	auto file = VortexFile::Open(&options);
 	if (!file) {
@@ -184,9 +181,9 @@ static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<Logic
 	}
 
 	// This Ptr is owned by the file
-	const DType *file_dtype = File_dtype(file->file);
-	if (DType_get(file_dtype) != DTYPE_STRUCT) {
-		File_free(file->file);
+	const VXDType *file_dtype = vx_file_dtype(file->file);
+	if (vx_dtype_get(file_dtype) != DTYPE_STRUCT) {
+		vx_file_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
@@ -225,7 +222,7 @@ static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, con
 
 static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_data,
                                                      VortexScanGlobalState &global_state, VortexFile *file) {
-	auto options = FileScanOptions {
+	auto options = VXFileScanOptions {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
 	    .filter_expression = global_state.filter_str.data(),
@@ -233,8 +230,8 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    .split_by_row_count = ROW_SPLIT_COUNT,
 	};
 
-	FFIError *error = nullptr;
-	auto scan = File_scan(file->file, &options, &error);
+	VXError *error = nullptr;
+	auto scan = vx_file_scan(file->file, &options, &error);
 	HandleError(error);
 
 	return make_uniq<VortexArrayStream>(scan);
