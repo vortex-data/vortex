@@ -8,9 +8,11 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use browse::exec_tui;
-use clap::Parser;
+use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser};
 use tokio::runtime::Runtime;
 use tree::exec_tree;
+use vortex::error::VortexExpect;
 
 use crate::convert::{Flags, exec_convert};
 
@@ -47,8 +49,33 @@ enum Commands {
     },
 }
 
+impl Commands {
+    fn file_path(&self) -> &PathBuf {
+        match self {
+            Commands::Tree { file }
+            | Commands::Convert { file, .. }
+            | Commands::Browse { file }
+            | Commands::Segments { file } => file,
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    let path = cli.command.file_path();
+    if !std::fs::exists(path)? {
+        Cli::command()
+            .error(
+                ErrorKind::Io,
+                format!(
+                    "File '{}' does not exist.",
+                    path.to_str().vortex_expect("file path")
+                ),
+            )
+            .exit()
+    }
+
     match cli.command {
         Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file))?,
         Commands::Convert { file, quiet } => {

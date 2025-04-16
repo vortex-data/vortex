@@ -103,6 +103,11 @@ typedef struct FFIConversionCache FFIConversionCache;
 
 typedef struct File File;
 
+typedef struct FFIError {
+  int code;
+  const char *message;
+} FFIError;
+
 /**
  * Options supplied for opening a file.
  */
@@ -273,7 +278,10 @@ uint8_t DType_time_unit(const struct DType *dtype);
 void DType_time_zone(const struct DType *dtype, void *dst, int *len);
 
 #if defined(ENABLE_DUCKDB_FFI)
-duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype);
+/**
+ * Converts a DType into a duckdb
+ */
+duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype, struct FFIError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -286,13 +294,15 @@ duckdb_logical_type DType_to_duckdb_logical_type(struct DType *dtype);
 unsigned int FFIArray_to_duckdb_chunk(struct Array *stream,
                                       unsigned int offset,
                                       duckdb_data_chunk data_chunk_ptr,
-                                      struct FFIConversionCache *cache);
+                                      struct FFIConversionCache *cache,
+                                      struct FFIError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
 struct Array *FFIArray_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
                                                       const char *const *names,
-                                                      int len);
+                                                      int len,
+                                                      struct FFIError **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -307,15 +317,19 @@ struct FFIConversionCache *ConversionCache_create(unsigned int id);
 void ConversionCache_free(struct FFIConversionCache *buffer);
 #endif
 
+void FFIError_free(struct FFIError *error);
+
 /**
  * Open a file at the given path on the file system.
  */
-struct File *File_open(const struct FileOpenOptions *options);
+struct File *File_open(const struct FileOpenOptions *options, struct FFIError **error);
 
 /**
  * This function creates a new file by writing the ffi array to the path in the options args.
  */
-void File_create_and_write_array(const struct FileCreateOptions *options, struct Array *ffi_array);
+void File_create_and_write_array(const struct FileCreateOptions *options,
+                                 struct Array *ffi_array,
+                                 struct FFIError **error);
 
 struct FileStatistics *File_statistics(struct File *file);
 
@@ -332,7 +346,9 @@ const struct DType *File_dtype(const struct File *file);
 /**
  * Build a new `FFIArrayStream` that return a series of `FFIArray`s scan over a `FFIFile`.
  */
-struct ArrayStream *File_scan(const struct File *file, const struct FileScanOptions *opts);
+struct ArrayStream *File_scan(const struct File *file,
+                              const struct FileScanOptions *opts,
+                              struct FFIError **error);
 
 /**
  * Free the file and all associated resources.
@@ -350,6 +366,9 @@ void File_free(struct File *file);
  */
 void vortex_init_logging(uint8_t level);
 
+/**
+ * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
+ */
 const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
 
 /**
@@ -360,7 +379,7 @@ const struct DType *FFIArrayStream_dtype(const struct ArrayStream *stream);
  *
  * It is an error to call this function again after the stream is finished.
  */
-bool FFIArrayStream_next(struct ArrayStream *stream);
+bool FFIArrayStream_next(struct ArrayStream *stream, struct FFIError **error);
 
 /**
  * Predicate function to check if the array stream is finished.
@@ -370,7 +389,7 @@ bool FFIArrayStream_finished(const struct ArrayStream *stream);
 /**
  * Get the current array batch from the stream. Returns a unique pointer.
  *
- * It is an error to call this function if the stream is already finished.
+ * If this is called on an already finished stream the return value will be null.
  *
  * # Safety
  *
@@ -381,7 +400,7 @@ struct Array *FFIArrayStream_current(struct ArrayStream *stream);
 /**
  * Free the array stream and all associated resources.
  */
-int32_t FFIArrayStream_free(struct ArrayStream *stream);
+void FFIArrayStream_free(struct ArrayStream *stream);
 
 #ifdef __cplusplus
 }

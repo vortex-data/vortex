@@ -16,7 +16,7 @@
 package dev.vortex.spark.read;
 
 import dev.vortex.api.Array;
-import dev.vortex.api.ArrayStream;
+import dev.vortex.api.ArrayIterator;
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import java.util.Iterator;
@@ -25,13 +25,13 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 public final class VortexColumnarBatchIterator implements Iterator<ColumnarBatch>, AutoCloseable {
     public static final long MAX_BUFFER_BYTES = 16 * 1024 * 1024; // 16MB
-    private final ArrayStream backing;
+    private final ArrayIterator backing;
     private final PrefetchingIterator<Array> prefetching;
 
     // Reusable root
     private VectorSchemaRoot root = null;
 
-    public VortexColumnarBatchIterator(ArrayStream backing) {
+    public VortexColumnarBatchIterator(ArrayIterator backing) {
         this.backing = backing;
         this.prefetching = new PrefetchingIterator<>(backing, MAX_BUFFER_BYTES, Array::nbytes);
     }

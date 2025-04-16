@@ -1,12 +1,8 @@
 #pragma once
 
 #include "duckdb.hpp"
-
-#ifndef ENABLE_DUCKDB_FFI
-#define ENABLE_DUCKDB_FFI
-#endif
-
-#include "vortex.h"
+#include "vortex.hpp"
+#include "vortex_error.hpp"
 
 struct VortexConversionCache {
 	explicit VortexConversionCache(const unsigned long cache_id) : cache(ConversionCache_create(cache_id)) {
@@ -28,7 +24,10 @@ struct VortexFile {
 	}
 
 	static duckdb::unique_ptr<VortexFile> Open(const FileOpenOptions *options) {
-		return duckdb::make_uniq<VortexFile>(File_open(options));
+		FFIError *error;
+		auto vx_file = duckdb::make_uniq<VortexFile>(File_open(options, &error));
+		HandleError(error);
+		return vx_file;
 	}
 
 	File *file;
@@ -43,7 +42,10 @@ struct VortexArray {
 	}
 
 	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const VortexConversionCache *cache) const {
-		return FFIArray_to_duckdb_chunk(array, current_row, output, cache->cache);
+		FFIError *error;
+		auto idx = FFIArray_to_duckdb_chunk(array, current_row, output, cache->cache, &error);
+		HandleError(error);
+		return idx;
 	}
 
 	Array *array;
@@ -58,11 +60,19 @@ struct VortexArrayStream {
 	}
 
 	duckdb::unique_ptr<VortexArray> CurrentArray() const {
-		return duckdb::make_uniq<VortexArray>(FFIArrayStream_current(array_stream));
+		auto stream = FFIArrayStream_current(array_stream);
+		if (stream) {
+			return duckdb::make_uniq<VortexArray>(stream);
+		} else {
+			throw duckdb::InternalException("No more arrays in stream");
+		}
 	}
 
 	bool NextArray() const {
-		return FFIArrayStream_next(array_stream);
+		FFIError *error;
+		auto stream = FFIArrayStream_next(array_stream, &error);
+		HandleError(error);
+		return stream;
 	}
 
 	ArrayStream *array_stream;

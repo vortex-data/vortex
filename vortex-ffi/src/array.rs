@@ -3,12 +3,15 @@
 //! The FFIArray provides both type-erased and type-aware access behind an `ArrayRef`.
 
 use std::ffi::{c_int, c_void};
+use std::ptr;
 
 use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ArrayRef, ArrayVariants};
+
+use crate::error::{FFIError, try_or};
 
 /// The FFI interface for an [`Array`].
 ///
@@ -42,19 +45,21 @@ pub unsafe extern "C" fn FFIArray_dtype(ffi_array: *const FFIArray) -> *const DT
 pub unsafe extern "C" fn FFIArray_get_field(
     ffi_array: *const FFIArray,
     index: u32,
+    error: *mut *mut FFIError,
 ) -> *const FFIArray {
-    let array = ffi_array.as_ref().vortex_expect("array null");
+    try_or(error, ptr::null(), || {
+        let array = ffi_array.as_ref().vortex_expect("array null");
 
-    let field_array = array
-        .inner
-        .as_struct_typed()
-        .vortex_expect("FFIArray_get_field: expected struct-typed array")
-        .maybe_null_field_by_idx(index as usize)
-        .vortex_expect("FFIArray_get_field: field by index");
+        let field_array = array
+            .inner
+            .as_struct_typed()
+            .ok_or_else(|| vortex_err!("FFIArray_get_field: expected struct-typed array"))?
+            .maybe_null_field_by_idx(index as usize)?;
 
-    let ffi_array = Box::new(FFIArray { inner: field_array });
+        let ffi_array = Box::new(FFIArray { inner: field_array });
 
-    Box::into_raw(ffi_array)
+        Ok(Box::into_raw(ffi_array).cast_const())
+    })
 }
 
 // Get a pointer to the child array reference here instead...we have no concept of references
@@ -74,32 +79,34 @@ pub unsafe extern "C" fn FFIArray_slice(
     array: *const FFIArray,
     start: u32,
     stop: u32,
+    error: *mut *mut FFIError,
 ) -> *mut FFIArray {
-    let array = array.as_ref().vortex_expect("array null");
-    let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)
-        .vortex_expect("FFIArray_slice: slice");
-    Box::into_raw(Box::new(FFIArray { inner: sliced }))
+    try_or(error, ptr::null_mut(), || {
+        let array = array.as_ref().vortex_expect("array null");
+        let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)?;
+        Ok(Box::into_raw(Box::new(FFIArray { inner: sliced })))
+    })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_is_null(array: *const FFIArray, index: u32) -> bool {
+pub unsafe extern "C" fn FFIArray_is_null(
+    array: *const FFIArray,
+    index: u32,
+    error: *mut *mut FFIError,
+) -> bool {
     let array = array.as_ref().vortex_expect("array null");
-    array
-        .inner
-        .is_invalid(index as usize)
-        .vortex_expect("FFIArray_is_null: is_invalid")
+    try_or(error, false, || array.inner.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_null_count(array: *const FFIArray) -> u32 {
+pub unsafe extern "C" fn FFIArray_null_count(
+    array: *const FFIArray,
+    error: *mut *mut FFIError,
+) -> u32 {
     let array = array.as_ref().vortex_expect("array null");
-    array
-        .inner
-        .as_ref()
-        .invalid_count()
-        .vortex_expect("FFIArray_null_count: invalid count")
-        .try_into()
-        .vortex_expect("FFIArray_null_count: invalid count to u32")
+    try_or(error, 0, || {
+        Ok(array.inner.as_ref().invalid_count()?.try_into()?)
+    })
 }
 
 macro_rules! ffiarray_get_ptype {

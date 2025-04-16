@@ -10,7 +10,7 @@ macro_rules! throw_runtime {
 }
 
 mod array;
-mod array_stream;
+mod array_iter;
 mod dtype;
 mod errors;
 mod file;
