@@ -72,7 +72,7 @@ bytes = "1.10"
 bzip2 = "0.5.0"
 cfg-if = "1"
 chrono = "0.4.40"
-clap = "4"
+clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
 dashmap = "6.1.0"
