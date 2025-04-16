@@ -18,16 +18,16 @@ use vortex_duckdb::{
     ToDuckDBType, to_duckdb_chunk,
 };
 
-use crate::array::VXArray;
-use crate::duckdb::cache::{VXConversionCache, into_conversion_cache};
-use crate::error::{VXError, try_or};
+use crate::array::vx_array;
+use crate::duckdb::cache::{into_conversion_cache, vx_conversion_cache};
+use crate::error::{try_or, vx_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
     dtype: *mut DType,
-    error: *mut *mut VXError,
+    error: *mut *mut vx_error,
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
@@ -44,11 +44,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 /// 0 is returned when the stream is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
-    stream: *mut VXArray,
+    stream: *mut vx_array,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
-    cache: *mut VXConversionCache,
-    error: *mut *mut VXError,
+    cache: *mut vx_conversion_cache,
+    error: *mut *mut vx_error,
 ) -> c_uint {
     try_or(error, 0, || {
         let offset = offset as usize;
@@ -85,8 +85,8 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     type_array: *const duckdb_logical_type,
     names: *const *const c_char,
     len: c_int,
-    error: *mut *mut VXError,
-) -> *mut VXArray {
+    error: *mut *mut vx_error,
+) -> *mut vx_array {
     try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
@@ -105,7 +105,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
 
         let chunked_array = ChunkedArray::try_new(vec![], file_dtype).vortex_expect("cannot fail");
 
-        let ffi_array = VXArray {
+        let ffi_array = vx_array {
             inner: chunked_array.to_array(),
         };
 
@@ -115,9 +115,9 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
-    array: *mut VXArray,
+    array: *mut vx_array,
     chunk: duckdb_data_chunk,
-) -> *mut VXArray {
+) -> *mut vx_array {
     let array = unsafe { array.as_ref().vortex_expect("null array") };
 
     let struct_type = array
@@ -147,9 +147,9 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     let chunked_array = ChunkedArray::try_new(chunks, chunked_array.dtype().clone())
         .vortex_expect("appending array");
 
-    Box::leak(Box::new(VXArray {
+    Box::leak(Box::new(vx_array {
         inner: chunked_array.to_array(),
-    })) as *mut VXArray
+    })) as *mut vx_array
 }
 
 #[cfg(test)]
@@ -161,23 +161,23 @@ mod tests {
     use vortex::arrays::{PrimitiveArray, StructArray};
     use vortex::error::VortexExpect;
 
-    use crate::array::VXArray;
+    use crate::array::vx_array;
     use crate::duckdb::cache::{vx_conversion_cache_create, vx_conversion_cache_free};
     use crate::duckdb::vx_array_to_duckdb_chunk;
-    use crate::error::VXError;
+    use crate::error::vx_error;
 
     #[test]
     fn test_long_array() {
         let vortex: PrimitiveArray = (0i32..4095).collect();
         let vortex = StructArray::from_fields(&[("a", vortex.to_array())]).vortex_expect("str");
 
-        let ffi_array: *mut VXArray = Box::into_raw(Box::new(VXArray {
+        let ffi_array: *mut vx_array = Box::into_raw(Box::new(vx_array {
             inner: vortex.to_array(),
         }));
 
         let cache = unsafe { vx_conversion_cache_create(0) };
 
-        let mut error: *mut VXError = null_mut();
+        let mut error: *mut vx_error = null_mut();
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
         let offset =

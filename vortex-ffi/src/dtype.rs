@@ -6,7 +6,7 @@ use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail};
 
-use crate::error::{VXError, try_or};
+use crate::error::{try_or, vx_error};
 
 /// Pointer to a `DType` value that has been heap-allocated.
 /// Create a new simple dtype.
@@ -195,7 +195,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_field_dtype(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_element_type(
     dtype: *const DType,
-    error: *mut *mut VXError,
+    error: *mut *mut vx_error,
 ) -> *const DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
@@ -260,7 +260,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
-        panic!("VXDType_time_unit: not a time dtype")
+        panic!("vx_dtype_time_unit: not a time dtype")
     };
 
     match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {

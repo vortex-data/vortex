@@ -17,7 +17,7 @@ namespace duckdb {
 // A value large enough that most systems can use all their threads.
 // This is used to allocate `file_slots`, we could remove this later by having the init_local method increase the
 // file slots size for each running.
-constexpr uint32_t MAX_THREAD_COUNT = 192;
+constexpr uint32_t MAX_THREAD_COUNT = 1;
 
 // This is a multiple of the 2048 duckdb vector size, it needs tuning
 // This has a few factor effecting it:
@@ -128,7 +128,7 @@ void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> 
 }
 
 /// Extracts schema information from a Vortex file's data type.
-static void ExtractVortexSchema(const VXDType *file_dtype, vector<LogicalType> &column_types,
+static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> &column_types,
                                 vector<string> &column_names) {
 	uint32_t field_count = vx_dtype_field_count(file_dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
@@ -138,8 +138,8 @@ static void ExtractVortexSchema(const VXDType *file_dtype, vector<LogicalType> &
 		vx_dtype_field_name(file_dtype, idx, name_buffer, &name_len);
 		std::string field_name(name_buffer, name_len);
 
-		VXDType *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
-		VXError *error = nullptr;
+		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
+		vx_error *error = nullptr;
 		auto duckdb_type = vx_dtype_to_duckdb_logical_type(field_dtype, &error);
 		HandleError(error);
 
@@ -172,7 +172,7 @@ std::string EnsureFileProtocol(const std::string &path) {
 
 static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
                                        vector<string> &column_names) {
-	VXFileOpenOptions options {
+	vx_file_open_options options {
 	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
 	auto file = VortexFile::Open(&options);
@@ -181,7 +181,7 @@ static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<Logic
 	}
 
 	// This Ptr is owned by the file
-	const VXDType *file_dtype = vx_file_dtype(file->file);
+	const vx_dtype *file_dtype = vx_file_dtype(file->file);
 	if (vx_dtype_get(file_dtype) != DTYPE_STRUCT) {
 		vx_file_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
@@ -222,7 +222,7 @@ static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, con
 
 static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_data,
                                                      VortexScanGlobalState &global_state, VortexFile *file) {
-	auto options = VXFileScanOptions {
+	auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
 	    .filter_expression = global_state.filter_str.data(),
@@ -230,7 +230,7 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    .split_by_row_count = ROW_SPLIT_COUNT,
 	};
 
-	VXError *error = nullptr;
+	vx_error *error = nullptr;
 	auto scan = vx_file_scan(file->file, &options, &error);
 	HandleError(error);
 
@@ -256,28 +256,28 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		// todo: 3. check if we can work steal from another thread
 		// 4. we are done
 
-		auto next = slot.array_stream != nullptr ? slot.array_stream->NextArray() : false;
-		while (!next) {
-			if (slot.array_stream != nullptr) {
+		while (local_state.array == nullptr) {
+			if (slot.array_stream == nullptr) {
+				auto file_idx = global_state.next_file.fetch_add(1);
+
+				if (file_idx >= global_state.expanded_files.size()) {
+					local_state.finished = true;
+					global_state.finished = true;
+					output.Reset();
+					return;
+				}
+
+				auto file_name = global_state.expanded_files[file_idx];
+				auto file = OpenFileAndVerify(file_name, bind_data);
+
+				slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
+			}
+
+			local_state.array = slot.array_stream->NextArray();
+			if (local_state.array == nullptr) {
 				slot.array_stream = nullptr;
 			}
-
-			auto file_idx = global_state.next_file.fetch_add(1);
-
-			if (file_idx >= global_state.expanded_files.size()) {
-				local_state.finished = true;
-				global_state.finished = true;
-				output.Reset();
-				return;
-			}
-
-			auto file_name = global_state.expanded_files[file_idx];
-			auto file = OpenFileAndVerify(file_name, bind_data);
-
-			slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
-			next = slot.array_stream->NextArray();
 		}
-		local_state.array = slot.array_stream->CurrentArray();
 		local_state.current_row = 0;
 	}
 

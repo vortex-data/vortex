@@ -20,18 +20,19 @@ use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::VXArray;
-use crate::error::{VXError, try_or};
-use crate::stream::{VXArrayStream, VXArrayStreamInner};
+use crate::array::vx_array;
+use crate::error::{try_or, vx_error};
+use crate::stream::{VXArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
-pub struct VXFile {
+#[allow(non_camel_case_types)]
+pub struct vx_file {
     pub(crate) inner: VortexFile,
 }
 
 /// Options supplied for opening a file.
 #[repr(C)]
-pub struct VXFileCreateOptions {
+pub struct vx_file_create_options {
     /// path of the file to be created.
     /// This must be a valid URI, even the files (file:///path/to/file)
     pub path: *const c_char,
@@ -39,7 +40,7 @@ pub struct VXFileCreateOptions {
 
 /// Options supplied for opening a file.
 #[repr(C)]
-pub struct VXFileOpenOptions {
+pub struct vx_file_open_options {
     /// URI for opening the file.
     /// This must be a valid URI, even the files (file:///path/to/file)
     pub uri: *const c_char,
@@ -54,7 +55,7 @@ pub struct VXFileOpenOptions {
 
 /// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
-pub struct VXFileScanOptions {
+pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
     /// Number of columns in `projection`.
@@ -71,9 +72,9 @@ pub struct VXFileScanOptions {
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open(
-    options: *const VXFileOpenOptions,
-    error: *mut *mut VXError,
-) -> *mut VXFile {
+    options: *const vx_file_open_options,
+    error: *mut *mut vx_error,
+) -> *mut vx_file {
     try_or(error, ptr::null_mut(), || {
         {
             let options = unsafe {
@@ -95,14 +96,16 @@ pub unsafe extern "C-unwind" fn vx_file_open(
 
             // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
             // tokio dep
-            let result = RUNTIME.block_on(async move {
-                VortexOpenOptions::file()
-                    .open_object_store(&object_store, uri.path())
-                    .await
+            let result = RUNTIME.with(|r| {
+                r.block_on(async move {
+                    VortexOpenOptions::file()
+                        .open_object_store(&object_store, uri.path())
+                        .await
+                })
             });
 
             let file = result?;
-            let ffi_file = VXFile { inner: file };
+            let ffi_file = vx_file { inner: file };
             Ok(Box::into_raw(Box::new(ffi_file)))
         }
     })
@@ -112,9 +115,9 @@ pub unsafe extern "C-unwind" fn vx_file_open(
 /// TODO: replace with a create and a write function
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_create_and_write_array(
-    options: *const VXFileCreateOptions,
-    ffi_array: *mut VXArray,
-    error: *mut *mut VXError,
+    options: *const vx_file_create_options,
+    ffi_array: *mut vx_array,
+    error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
         let options = options.as_ref().vortex_expect("null options");
@@ -123,28 +126,32 @@ pub unsafe extern "C-unwind" fn vx_file_create_and_write_array(
         let path = CStr::from_ptr(options.path).to_string_lossy();
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
 
-        RUNTIME.block_on(async move {
-            let file = tokio::fs::File::create(path.to_string()).await?;
-            let file = VortexWriteOptions::default()
-                .write(file, array.inner.to_array_stream())
-                .await?;
+        RUNTIME.with(|r| {
+            r.block_on(async move {
+                let file = tokio::fs::File::create(path.to_string()).await?;
+                let file = VortexWriteOptions::default()
+                    .write(file, array.inner.to_array_stream())
+                    .await?;
 
-            file.sync_all().await?;
-            Ok(())
+                file.sync_all().await?;
+                Ok(())
+            })
         })
     });
 }
 
 /// Whole file statistics.
 #[repr(C)]
-pub struct VXFileStatistics {
+pub struct vx_file_statistics {
     /// The exact number of rows in the file.
     pub num_rows: u64,
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_statistics(file: *mut VXFile) -> *mut VXFileStatistics {
-    Box::into_raw(Box::new(VXFileStatistics {
+pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
+    file: *mut vx_file,
+) -> *mut vx_file_statistics {
+    Box::into_raw(Box::new(vx_file_statistics {
         num_rows: file
             .as_ref()
             .vortex_expect("null file ptr")
@@ -154,7 +161,7 @@ pub unsafe extern "C-unwind" fn vx_file_statistics(file: *mut VXFile) -> *mut VX
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut VXFileStatistics) {
+pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_statistics) {
     assert!(!stat.is_null());
     drop(Box::from_raw(stat));
 }
@@ -164,17 +171,17 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut VXFileStatist
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
 /// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const VXFile) -> *const DType {
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const DType {
     file.as_ref().vortex_expect("null file").inner.dtype()
 }
 
-/// Build a new `VXArrayStream` that return a series of `VXArray`s scan over a `VXFile`.
+/// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_scan(
-    file: *const VXFile,
-    opts: *const VXFileScanOptions,
-    error: *mut *mut VXError,
-) -> *mut VXArrayStream {
+    file: *const vx_file,
+    opts: *const vx_file_scan_options,
+    error: *mut *mut vx_error,
+) -> *mut vx_array_stream {
     try_or(error, ptr::null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
@@ -214,19 +221,16 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             stream: Box::pin(stream),
         }));
 
-        Ok(Box::into_raw(Box::new(VXArrayStream {
-            inner,
-            current: None,
-        })))
+        Ok(Box::into_raw(Box::new(vx_array_stream { inner })))
     })
 }
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any `VXArrayStream`s that were built from this
+/// This function will not automatically free any `vx_array_stream`s that were built from this
 /// file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_free(file: *mut VXFile) {
+pub unsafe extern "C-unwind" fn vx_file_free(file: *mut vx_file) {
     drop(Box::from_raw(file));
 }
 

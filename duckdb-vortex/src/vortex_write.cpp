@@ -64,7 +64,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		for (auto &col_type : bind.sql_types) {
 			column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
 		}
-		VXError *error = nullptr;
+		vx_error *error = nullptr;
 		auto array = vx_array_create_empty_from_duckdb_table(column_types.data(), column_names.data(),
 		                                                     column_names.size(), &error);
 		HandleError(error);
@@ -79,9 +79,9 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		auto opts = VXFileCreateOptions();
+		auto opts = vx_file_create_options();
 		opts.path = global_state.file_name.c_str();
-		VXError *error;
+		vx_error *error;
 		vx_file_create_and_write_array(&opts, global_state.array->array, &error);
 		HandleError(error);
 	};
