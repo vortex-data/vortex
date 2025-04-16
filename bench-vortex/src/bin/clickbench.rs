@@ -9,7 +9,7 @@ use bench_vortex::{
     Engine, Format, IdempotentPath, ddb, default_env_filter, df, feature_flagged_allocator,
 };
 use clap::Parser;
-use datafusion_physical_plan::execution_plan;
+use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
 use log::warn;
 use tokio::runtime::Builder;
@@ -70,7 +70,7 @@ struct DataFusionCtx {
     metrics: Vec<(
         usize,
         Format,
-        Vec<datafusion_physical_plan::metrics::MetricsSet>,
+        Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
 
     session: datafusion::prelude::SessionContext,
@@ -242,7 +242,7 @@ fn print_metrics(
     metrics: &Vec<(
         usize,
         Format,
-        Vec<datafusion_physical_plan::metrics::MetricsSet>,
+        Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
 ) {
     for (query_idx, file_format, metric_sets) in metrics {

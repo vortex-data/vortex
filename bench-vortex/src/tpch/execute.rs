@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::ExecutionPlan;
+use datafusion::physical_plan::ExecutionPlan;
 
 use crate::engines::df::execute_query;
 

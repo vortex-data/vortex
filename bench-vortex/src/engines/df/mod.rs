@@ -8,7 +8,7 @@ use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, Defau
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_physical_plan::{ExecutionPlan, collect};
+use datafusion::physical_plan::{ExecutionPlan, collect};
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
@@ -109,9 +109,9 @@ pub fn write_execution_plan(
     query_idx: usize,
     format: crate::Format,
     dataset_name: &str,
-    execution_plan: &std::sync::Arc<dyn datafusion_physical_plan::execution_plan::ExecutionPlan>,
+    execution_plan: &std::sync::Arc<dyn datafusion::physical_plan::execution_plan::ExecutionPlan>,
 ) {
-    use datafusion_physical_plan::display::DisplayableExecutionPlan;
+    use datafusion::physical_plan::display::DisplayableExecutionPlan;
 
     fs::write(
         format!("{dataset_name}_{format}_q{query_idx:02}.plan"),

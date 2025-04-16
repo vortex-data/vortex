@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
-use datafusion_physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
+use datafusion::physical_plan::metrics::{Label, MetricValue, MetricsSet};
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
 use itertools::Itertools;
 use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};

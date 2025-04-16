@@ -12,7 +12,7 @@ use bench_vortex::tpch::{
 };
 use bench_vortex::{Engine, Format, ddb, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
-use datafusion_physical_plan::metrics::{Label, MetricsSet};
+use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
@@ -255,7 +255,7 @@ async fn benchmark_datafusion_query(
     context: &datafusion::execution::context::SessionContext,
 ) -> (
     Duration,
-    std::sync::Arc<dyn datafusion_physical_plan::execution_plan::ExecutionPlan>,
+    std::sync::Arc<dyn datafusion::physical_plan::execution_plan::ExecutionPlan>,
 ) {
     let mut fastest_run = Duration::from_millis(u64::MAX);
     let mut plan_result = None;
