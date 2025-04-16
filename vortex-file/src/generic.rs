@@ -281,16 +281,23 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
     }
 }
 
+#[cfg(feature = "tokio")]
+const TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
+    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
+
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open_object_store(
-        self,
+        mut self,
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
         use vortex_io::{ObjectStoreReadAt, TokioFile};
+
+        // Object store _must_ use tokio for I/O.
+        self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
 
         // If the file is local, we much prefer to use TokioFile since object store re-opens the
         // file on every read. This check is a little naive... but we hope that ObjectStore will
