@@ -22,7 +22,15 @@ pub fn primitive_dict_builder<T: NativePType>(
 where
     NativeValue<T>: Hash + Eq,
 {
-    match constraints.max_len as u64 {
+    // bound constraints with the cardinality of the primitive type
+    let max_possible_len = (constraints.max_len as u64).min(match T::PTYPE.bit_width() {
+        8 => u8::MAX as u64,
+        16 => u16::MAX as u64,
+        32 => u32::MAX as u64,
+        64 => u64::MAX as u64,
+        width => vortex_panic!("invalid bit_width: {width}"),
+    });
+    match max_possible_len {
         max if max <= u8::MAX as u64 => {
             Box::new(PrimitiveDictBuilder::<T, u8>::new(nullability, constraints))
         }

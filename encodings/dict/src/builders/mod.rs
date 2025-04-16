@@ -43,7 +43,8 @@ pub fn dict_encoder(
     } else {
         vortex_bail!("Can only encode primitive or varbin/view arrays")
     };
-    let codes = downscale_integer_array(dict_builder.encode(array)?)?;
+    Ok(dict_builder)
+}
 
 pub fn dict_encode_with_constraints(
     array: &dyn Array,
