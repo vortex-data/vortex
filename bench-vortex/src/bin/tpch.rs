@@ -183,13 +183,14 @@ fn verify_row_counts(
     queries: &Option<Vec<usize>>,
     exclude_queries: &Option<Vec<usize>>,
 ) -> bool {
-    let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
 
-    for &(idx, format, row_count) in row_counts {
-        format_row_counts
-            .entry(format)
-            .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
-    }
+    let format_row_counts: HashMap<Format, Vec<usize>> = row_counts
+        .iter()
+        .fold(HashMap::new(), |mut acc, &(idx, format, row_count)| {
+            acc.entry(format)
+                .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
+            acc
+        });
 
     let is_query_included = |idx: &usize| {
         queries.as_ref().map_or(true, |q| q.contains(idx))
