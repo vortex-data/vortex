@@ -22,7 +22,7 @@ use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
-use crate::stream::{VXArrayStreamInner, vx_array_stream};
+use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 #[allow(non_camel_case_types)]
@@ -214,7 +214,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 
         let stream = stream.into_array_stream()?;
 
-        let inner = Some(Box::new(VXArrayStreamInner {
+        let inner = Some(Box::new(ArrayStreamInner {
             stream: Box::pin(stream),
         }));
 

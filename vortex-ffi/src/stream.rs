@@ -13,11 +13,11 @@ use crate::error::{try_or, vx_error};
 /// FFI-exposed stream interface.
 #[allow(non_camel_case_types)]
 pub struct vx_array_stream {
-    pub inner: Option<Box<VXArrayStreamInner>>,
+    pub inner: Option<Box<ArrayStreamInner>>,
 }
 
 /// FFI-compatible interface for dealing with a stream array.
-pub struct VXArrayStreamInner {
+pub struct ArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
 }
 
