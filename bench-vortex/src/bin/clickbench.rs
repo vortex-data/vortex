@@ -336,28 +336,28 @@ fn init_data_source(
                 if base_url.scheme() == "file" {
                     // Use the dataset to register tables.
                     let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
-                    bench_vortex::data_manager::convert_parquet_to_vortex(
-                        &base_url.to_file_path().unwrap(),
-                        dataset,
-                    )
-                    .await
-                    .unwrap_or_else(|err| panic!("init of {file_format} failed with: {err}"));
+                    // We need to keep this map_err since () doesn't implement into anyhow::Error
+                    let file_path = base_url
+                        .to_file_path()
+                        .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
+
+                    bench_vortex::data_manager::convert_parquet_to_vortex(&file_path, dataset)
+                        .await?;
                 }
 
                 match engine_ctx {
                     EngineCtx::DataFusion(ctx) => {
                         // Use the dataset to register tables.
                         let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
-                        dataset
-                            .register_tables(&ctx.session, base_url, file_format)
-                            .unwrap_or_else(|err| {
-                                panic!("init of {file_format} failed with: {err}")
-                            });
+                        // Using anyhow's ? operator will automatically capture the error
+                        dataset.register_tables(&ctx.session, base_url, file_format)?;
                     }
 
                     EngineCtx::DuckDB(_) => { /* nothing to do */ }
                 }
-            });
+
+                Ok::<(), anyhow::Error>(())
+            })?;
         }
         _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
     }
