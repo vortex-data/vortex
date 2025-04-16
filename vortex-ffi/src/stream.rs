@@ -79,11 +79,5 @@ pub unsafe extern "C-unwind" fn vx_array_stream_finished(stream: *const vx_array
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_stream_free(stream: *mut vx_array_stream) {
     assert!(!stream.is_null(), "stream null");
-    let mut stream = Box::from_raw(stream);
-
-    // if let Some(current) = stream.current.take() {
-    //     vx_array_free(Box::into_raw(current));
-    // }
-
-    drop(stream.inner.take())
+    drop(unsafe { Box::from_raw(stream) });
 }
