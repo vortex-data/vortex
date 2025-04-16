@@ -4,6 +4,7 @@ use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
+use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
@@ -73,7 +74,7 @@ fn random_access(
     let taxi_parquet = runtime.block_on(taxi_data_parquet());
     measurements.push(TimingMeasurement {
         name: "random-access/vortex-tokio-local-disk".to_string(),
-        storage: "nvme".to_string(),
+        storage: STORAGE_NVME.to_owned(),
         format: Format::OnDiskVortex,
         time: run_with_setup(
             &runtime,
@@ -88,7 +89,7 @@ fn random_access(
     if formats.contains(&Format::Parquet) {
         measurements.push(TimingMeasurement {
             name: "random-access/parquet-tokio-local-disk".to_string(),
-            storage: "nvme".to_string(),
+            storage: STORAGE_NVME.to_owned(),
             format: Format::Parquet,
             time: run_with_setup(
                 &runtime,

@@ -1,13 +1,11 @@
 use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
-const CLICKBENCH_DATASET: &str = "clickbench";
-const STORAGE_NVME: &str = "nvme";
-
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
+use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::{
     Engine, Format, IdempotentPath, ddb, default_env_filter, df, feature_flagged_allocator,
 };
@@ -445,7 +443,7 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
                     engine: Engine::DuckDB,
-                    storage: STORAGE_NVME.to_string(),
+                    storage: STORAGE_NVME.to_owned(),
                     fastest_run,
                     format: file_format,
                     dataset: CLICKBENCH_DATASET.to_owned(),

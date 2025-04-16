@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
+use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
@@ -153,7 +154,7 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 engine: Engine::DataFusion,
-                storage: "nvme".to_owned(),
+                storage: STORAGE_NVME.to_owned(),
                 fastest_run,
                 format: *format,
                 dataset: pbi_dataset.name.to_owned(),

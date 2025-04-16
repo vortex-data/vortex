@@ -21,10 +21,9 @@ use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
+use bench_vortex::utils::constants::TPCH_DATASET;
 
 feature_flagged_allocator!();
-
-const TPCH_DATASET_NAME: &str = "tpch";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -376,7 +375,7 @@ async fn bench_main(
                             storage,
                             fastest_run,
                             format,
-                            dataset: TPCH_DATASET_NAME.to_owned(),
+                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -412,7 +411,7 @@ async fn bench_main(
                             storage,
                             fastest_run,
                             format,
-                            dataset: TPCH_DATASET_NAME.to_owned(),
+                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
