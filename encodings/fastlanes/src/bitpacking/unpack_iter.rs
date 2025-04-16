@@ -175,10 +175,12 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         })
     }
 
+    #[inline]
     fn last_chunk_is_sliced(&self) -> bool {
         self.last_chunk_length != 0
     }
 
+    #[inline]
     fn first_chunk_is_sliced(&self) -> bool {
         self.offset != 0
     }
