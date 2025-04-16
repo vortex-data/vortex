@@ -127,10 +127,11 @@ fn main() -> anyhow::Result<()> {
                     let context = session.clone();
                     let query = query.clone();
                     last_plan = tokio::task::spawn(async move {
-                        let (_, plan) = df::execute_query(&context, &query)
+                        let plan = df::execute_query(&context, &query)
                             .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"))
+                            .1;
                         Some(plan.clone())
                     })
                     .await
