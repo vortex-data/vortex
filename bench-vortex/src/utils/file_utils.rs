@@ -71,7 +71,7 @@ impl IdempotentPath for PathBuf {
 
 /// Convert a URL scheme to a storage type string
 ///
-/// Maps common URL schemes (s3, gcs, file) to storage type identifiers
+/// Maps URL schemes (s3, gcs, file) to storage type identifiers
 /// for benchmark reporting.
 ///
 /// # Returns

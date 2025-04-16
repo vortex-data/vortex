@@ -141,13 +141,9 @@ pub async fn register_vortex_files(
                             .execute_stream()
                             .await?;
 
-                        // Convert to Vortex.
-                        use std::pin::Pin;
-
                         use futures::StreamExt;
                         use vortex::TryIntoArray;
                         use vortex::dtype::arrow::FromArrowType;
-                        use vortex::stream::ArrayStream;
 
                         let adapter = vortex::stream::ArrayStreamAdapter::new(
                             vortex::dtype::DType::from_arrow(record_batches.schema()),
@@ -158,7 +154,8 @@ pub async fn register_vortex_files(
                             }),
                         );
 
-                        let array_stream: Pin<Box<dyn ArrayStream + Send>> = Box::pin(adapter);
+                        let array_stream = Box::pin(adapter)
+                            as std::pin::Pin<Box<dyn vortex::stream::ArrayStream + Send>>;
 
                         // Write to file
                         let f = OpenOptions::new()
