@@ -83,7 +83,9 @@ impl MaskEvaluation for DictMaskEvaluation {
             .true_count()?
         {
             0 => return Ok(Mask::AllFalse(mask.len())),
-            count if count == values_result.len() => return Ok(Mask::AllTrue(mask.len())),
+            count if count == values_result.len() => {
+                return Ok(mask);
+            }
             _ => (),
         }
 

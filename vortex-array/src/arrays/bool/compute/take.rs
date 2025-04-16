@@ -1,4 +1,5 @@
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -48,15 +49,14 @@ fn take_valid_indices<I: AsPrimitive<usize>>(
 ) -> BooleanBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
     // the overhead to convert to a Vec<bool>.
-    // if bools.len() <= 4096 {
-    //     let bools = bools.into_iter().collect_vec();
-    //     take_byte_bool(bools, indices)
-    // } else {
-    take_bool(bools, indices)
-    // }
+    if bools.len() <= 4096 {
+        let bools = bools.into_iter().collect_vec();
+        take_byte_bool(bools, indices)
+    } else {
+        take_bool(bools, indices)
+    }
 }
 
-#[allow(dead_code)]
 fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BooleanBuffer {
     BooleanBuffer::collect_bool(indices.len(), |idx| {
         bools[unsafe { indices.get_unchecked(idx).as_() }]
