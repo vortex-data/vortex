@@ -66,6 +66,7 @@ workspace = true
 
 [features]
 object_store = [
+    "tokio",
     "dep:object_store",
     "vortex-error/object_store",
     "vortex-io/object_store",
