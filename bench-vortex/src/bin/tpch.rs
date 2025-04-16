@@ -363,16 +363,10 @@ async fn bench_main(
                         }
                         plans.push((query_idx, plan.clone()));
 
-                        let storage = match url.scheme() {
-                            "s3" => "s3",
-                            "gcs" => "gcs",
-                            "file" => "nvme",
-                            otherwise => {
-                                warn!("unknown URL scheme: {}", otherwise);
-                                return ExitCode::FAILURE;
-                            }
-                        }
-                        .to_owned();
+                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
+                            Ok(storage) => storage,
+                            Err(exit_code) => return exit_code,
+                        };
 
                         measurements.push(QueryMeasurement {
                             query_idx,
@@ -405,16 +399,10 @@ async fn bench_main(
                             &duckdb_executable,
                         );
 
-                        let storage = match url.scheme() {
-                            "s3" => "s3",
-                            "gcs" => "gcs",
-                            "file" => "nvme",
-                            otherwise => {
-                                warn!("unknown URL scheme: {}", otherwise);
-                                return ExitCode::FAILURE;
-                            }
-                        }
-                        .to_owned();
+                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
+                            Ok(storage) => storage,
+                            Err(exit_code) => return exit_code,
+                        };
 
                         measurements.push(QueryMeasurement {
                             query_idx,

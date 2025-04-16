@@ -1,6 +1,9 @@
 use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use log::warn;
+use url::Url;
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
@@ -62,5 +65,25 @@ impl IdempotentPath for PathBuf {
             create_dir_all(self.parent().unwrap()).unwrap();
         }
         self.to_path_buf()
+    }
+}
+
+/// Convert a URL scheme to a storage type string
+/// 
+/// Maps common URL schemes (s3, gcs, file) to storage type identifiers
+/// for benchmark reporting.
+/// 
+/// # Returns
+/// - A storage type string ("s3", "gcs", "nvme")
+/// - Or `ExitCode::FAILURE` if the scheme is unknown
+pub fn url_scheme_to_storage(url: &Url) -> Result<String, ExitCode> {
+    match url.scheme() {
+        "s3" => Ok("s3".to_owned()),
+        "gcs" => Ok("gcs".to_owned()),
+        "file" => Ok("nvme".to_owned()),
+        otherwise => {
+            warn!("unknown URL scheme: {}", otherwise);
+            Err(ExitCode::FAILURE)
+        }
     }
 }
