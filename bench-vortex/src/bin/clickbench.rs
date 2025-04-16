@@ -1,6 +1,9 @@
 use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
+const CLICKBENCH_DATASET: &str = "clickbench";
+const STORAGE_NVME: &str = "nvme";
+
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
@@ -405,7 +408,7 @@ fn execute_queries(
                     df::write_execution_plan(
                         *query_idx,
                         file_format,
-                        "clickbench",
+                        CLICKBENCH_DATASET,
                         &execution_plan,
                     );
                 }
@@ -419,10 +422,10 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
                     engine: Engine::DataFusion,
-                    storage: "nvme".to_owned(),
+                    storage: STORAGE_NVME.to_owned(),
                     time: fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_owned(),
+                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
 
@@ -442,10 +445,10 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
                     engine: Engine::DuckDB,
-                    storage: "nvme".to_string(),
+                    storage: STORAGE_NVME.to_string(),
                     time: fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_owned(),
+                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
         };
