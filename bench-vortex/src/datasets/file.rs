@@ -50,37 +50,21 @@ pub async fn register_parquet_files(
                 parquet_url.set_path(&parquet_path);
             }
 
-            let parquet_url_path = parquet_url.path().to_owned();
-            let parquet_url_str = parquet_url.as_str().to_owned();
-
-            if let Err(e) = object_store
-                .head(&ObjectStorePath::parse(&parquet_url_path)?)
-                .await
-            {
-                info!("File {} doesn't exist because {e}", parquet_url_str);
-
-                if parquet_url.scheme() != "file" {
-                    anyhow::bail!("Writing to S3 does not seem to work!");
-                }
-
-                with_lock(parquet_url_path.clone(), async move || {
-                    crate::conversions::csv_to_parquet_file(
-                        session,
-                        datafusion::prelude::CsvReadOptions::default()
-                            .delimiter(b'|')
-                            .has_header(false)
-                            .file_extension("tbl")
-                            .schema(schema),
-                        file_url.as_str(),
-                        &parquet_url_path,
-                    )
-                    .await
-                })
-                .await?;
-            }
+            ensure_parquet_file_exists(
+                session,
+                object_store.as_ref(),
+                file_url,
+                &parquet_url,
+                schema,
+            )
+            .await?;
 
             session
-                .register_parquet(table_name, &parquet_url_str, ParquetReadOptions::default())
+                .register_parquet(
+                    table_name,
+                    parquet_url.as_str(),
+                    ParquetReadOptions::default(),
+                )
                 .await?;
         }
         BenchmarkDataset::ClickBench { single_file } => {
@@ -213,6 +197,44 @@ pub async fn register_vortex_files(
                 single_file,
             )?;
         }
+    }
+
+    Ok(())
+}
+
+async fn ensure_parquet_file_exists(
+    session: &SessionContext,
+    object_store: &dyn ObjectStore,
+    file_url: &Url,
+    parquet_url: &Url,
+    schema: &Schema,
+) -> Result<()> {
+    let parquet_path = parquet_url.path();
+
+    if let Err(e) = object_store
+        .head(&ObjectStorePath::parse(parquet_path)?)
+        .await
+    {
+        info!("File {} doesn't exist because {e}", parquet_url.as_str());
+
+        if parquet_url.scheme() != "file" {
+            anyhow::bail!("Writing to S3 does not seem to work!");
+        }
+
+        with_lock(parquet_path.to_owned(), async move || {
+            crate::conversions::csv_to_parquet_file(
+                session,
+                datafusion::prelude::CsvReadOptions::default()
+                    .delimiter(b'|')
+                    .has_header(false)
+                    .file_extension("tbl")
+                    .schema(schema),
+                file_url.as_str(),
+                parquet_path,
+            )
+            .await
+        })
+        .await?;
     }
 
     Ok(())
