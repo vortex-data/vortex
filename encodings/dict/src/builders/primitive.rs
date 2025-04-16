@@ -27,7 +27,7 @@ where
         8 => u8::MAX as u64,
         16 => u16::MAX as u64,
         32 => u32::MAX as u64,
-        64 => u64::MAX as u64,
+        64 => u64::MAX,
         width => vortex_panic!("invalid bit_width: {width}"),
     });
     match max_possible_len {
