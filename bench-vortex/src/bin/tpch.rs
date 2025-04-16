@@ -24,6 +24,8 @@ use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 feature_flagged_allocator!();
 
+const TPCH_DATASET_NAME: &str = "tpch";
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -340,7 +342,7 @@ async fn bench_main(
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
                         // Run benchmark as an async function
-                        let (fastest_result, plan) =
+                        let (fastest_run, plan) =
                             benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx)
                                 .await;
 
@@ -372,9 +374,9 @@ async fn bench_main(
                             query_idx,
                             engine: Engine::DataFusion,
                             storage,
-                            time: fastest_result,
+                            fastest_run,
                             format,
-                            dataset: "tpch".to_owned(),
+                            dataset: TPCH_DATASET_NAME.to_owned(),
                         });
 
                         progress.inc(1);
@@ -408,9 +410,9 @@ async fn bench_main(
                             query_idx,
                             engine: Engine::DuckDB,
                             storage,
-                            time: fastest_run,
+                            fastest_run,
                             format,
-                            dataset: "tpch".to_owned(),
+                            dataset: TPCH_DATASET_NAME.to_owned(),
                         });
 
                         progress.inc(1);

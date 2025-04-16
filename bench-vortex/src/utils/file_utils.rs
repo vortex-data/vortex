@@ -2,6 +2,7 @@ use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
 use log::warn;
 use url::Url;
 
@@ -69,10 +70,10 @@ impl IdempotentPath for PathBuf {
 }
 
 /// Convert a URL scheme to a storage type string
-/// 
+///
 /// Maps common URL schemes (s3, gcs, file) to storage type identifiers
 /// for benchmark reporting.
-/// 
+///
 /// # Returns
 /// - A storage type string ("s3", "gcs", "nvme")
 /// - Or `ExitCode::FAILURE` if the scheme is unknown

@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
             .expect("failed to register");
 
         for (query_idx, query) in queries.clone().into_iter() {
-            let mut fastest_result = Duration::from_millis(u64::MAX);
+            let mut fastest_run = Duration::from_millis(u64::MAX);
             let mut last_plan = None;
             for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
@@ -139,7 +139,7 @@ fn main() -> anyhow::Result<()> {
 
                     start.elapsed()
                 });
-                fastest_result = fastest_result.min(exec_duration);
+                fastest_run = fastest_run.min(exec_duration);
             }
 
             let plan = last_plan.expect("must have at least one iteration");
@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
                 query_idx,
                 engine: Engine::DataFusion,
                 storage: "nvme".to_owned(),
-                time: fastest_result,
+                fastest_run,
                 format: *format,
                 dataset: pbi_dataset.name.to_owned(),
             });

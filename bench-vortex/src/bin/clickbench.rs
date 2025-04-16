@@ -423,7 +423,7 @@ fn execute_queries(
                     query_idx: *query_idx,
                     engine: Engine::DataFusion,
                     storage: STORAGE_NVME.to_owned(),
-                    time: fastest_run,
+                    fastest_run,
                     format: file_format,
                     dataset: CLICKBENCH_DATASET.to_owned(),
                 });
@@ -446,7 +446,7 @@ fn execute_queries(
                     query_idx: *query_idx,
                     engine: Engine::DuckDB,
                     storage: STORAGE_NVME.to_string(),
-                    time: fastest_run,
+                    fastest_run,
                     format: file_format,
                     dataset: CLICKBENCH_DATASET.to_owned(),
                 });

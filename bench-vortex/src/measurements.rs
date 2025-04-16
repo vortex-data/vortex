@@ -194,7 +194,7 @@ pub struct QueryMeasurement {
     pub engine: Engine,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
-    pub time: Duration,
+    pub fastest_run: Duration,
     pub format: Format,
     pub dataset: String,
 }
@@ -212,7 +212,7 @@ impl ToJson for QueryMeasurement {
             name,
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
-            value: MeasurementValue::Int(self.time.as_nanos()),
+            value: MeasurementValue::Int(self.fastest_run.as_nanos()),
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
@@ -228,7 +228,7 @@ impl ToTable for QueryMeasurement {
             format: self.format,
             engine: self.engine,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.time.as_micros()),
+            value: MeasurementValue::Int(self.fastest_run.as_micros()),
         }
     }
 }
