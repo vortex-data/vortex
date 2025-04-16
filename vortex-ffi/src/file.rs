@@ -250,7 +250,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_wrtier_free(file: *mut vx_file_writer) {
+pub unsafe extern "C-unwind" fn vx_file_writer_free(file: *mut vx_file_writer) {
     drop(Box::from_raw(file));
 }
 

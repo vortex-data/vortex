@@ -88,6 +88,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		}
 		vx_file_write_array(file, global_state.array->array, &error);
 		HandleError(error);
+		vx_file_writer_free(file);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {

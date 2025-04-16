@@ -363,7 +363,7 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
  */
 void vx_file_reader_free(struct vx_file_reader *file);
 
-void vx_file_wrtier_free(struct vx_file_writer *file);
+void vx_file_writer_free(struct vx_file_writer *file);
 
 /**
  * Initialize native logging with the specified level.
