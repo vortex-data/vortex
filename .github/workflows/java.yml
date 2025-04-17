@@ -7,7 +7,6 @@ concurrency:
 on:
   push:
     branches: [ "develop" ]
-    tags: [ "*" ]
   pull_request: {}
   workflow_dispatch: {}
 
@@ -103,5 +102,5 @@ jobs:
       - name: Build Java
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
-        if: startsWith(github.ref, 'refs/tags/')
+        if: "startsWith(github.event.head_commit.message, 'chore: release')"
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache

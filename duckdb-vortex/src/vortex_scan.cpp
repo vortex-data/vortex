@@ -17,7 +17,7 @@ namespace duckdb {
 // A value large enough that most systems can use all their threads.
 // This is used to allocate `file_slots`, we could remove this later by having the init_local method increase the
 // file slots size for each running.
-constexpr uint32_t MAX_THREAD_COUNT = 1;
+constexpr uint32_t MAX_THREAD_COUNT = 192;
 
 // This is a multiple of the 2048 duckdb vector size, it needs tuning
 // This has a few factor effecting it:

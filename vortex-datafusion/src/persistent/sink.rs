@@ -144,7 +144,7 @@ mod tests {
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex 
-                LOCATION '{}/*';",
+                LOCATION '{}/';",
                 dir.path().to_str().unwrap()
             ))
             .await
