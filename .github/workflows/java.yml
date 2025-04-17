@@ -14,6 +14,12 @@ permissions:
   actions: read
   contents: read
 
+env:
+  ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
+  ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
+  ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
+  ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
+
 jobs:
   build-macos:
     name: Build on macOS Apple Silicon
@@ -72,7 +78,7 @@ jobs:
   package-java:
     name: Package Java artifact
     runs-on: ubuntu-latest
-    needs: [build-macos, build-linux-amd, build-linux-aarch64]
+    needs: [ build-macos, build-linux-amd, build-linux-aarch64 ]
     defaults:
       run:
         working-directory: ./java
