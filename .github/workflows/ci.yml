@@ -433,6 +433,7 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           cp -R flatbuffers flatbuffers.HEAD
+          git fetch origin develop --depth 1
           git checkout origin/develop -- flatbuffers
       - name: "Verify flatbuffer back-compat"
         working-directory: vortex-flatbuffers/
