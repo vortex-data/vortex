@@ -14,15 +14,17 @@ use vortex_array::{
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype_with_unsigned_type};
+use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::bitpacking::serde::BitPackedMetadata;
+use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
 mod compress;
 mod compute;
 mod serde;
+pub mod unpack_iter;
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
@@ -145,6 +147,7 @@ impl BitPackedArray {
         })
     }
 
+    /// Underlying bit packed values as byte array
     #[inline]
     pub fn packed(&self) -> &ByteBuffer {
         &self.packed
@@ -164,6 +167,17 @@ impl BitPackedArray {
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
     }
 
+    /// Accessor for bit unpacked chunks
+    pub fn unpacked_chunks<T: BitPacked>(&self) -> BitUnpackedChunks<T> {
+        assert_eq!(
+            T::PTYPE,
+            self.ptype(),
+            "Requested type doesn't match the array ptype"
+        );
+        BitUnpackedChunks::new(self)
+    }
+
+    /// Bit width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width
@@ -267,19 +281,13 @@ impl ArrayCanonicalImpl for BitPackedArray {
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        match_each_integer_ptype_with_unsigned_type!(self.ptype(), |$T, $UnsignedT| {
-            unpack_into::<$T, $UnsignedT, _, _>(
+        match_each_integer_ptype!(self.ptype(), |$T| {
+            unpack_into::<$T>(
                 self,
                 builder
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
-                // SAFETY: UnsignedT is the unsigned version of T, reinterpreting &[UnsignedT] to
-                // &[T] is therefore safe.
-                |x| unsafe { std::mem::transmute(x) },
-                // SAFETY: UnsignedT is the unsigned version of T, reinterpreting &mut [T] to
-                // &mut [UnsignedT] is therefore safe.
-                |x| unsafe { std::mem::transmute(x) },
             )
         })
     }

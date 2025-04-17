@@ -21,6 +21,7 @@ arrayref = { workspace = true }
 arrow-buffer = { workspace = true }
 fastlanes = { workspace = true }
 itertools = { workspace = true }
+lending-iterator = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true, optional = true }
 rkyv = { workspace = true }

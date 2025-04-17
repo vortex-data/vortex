@@ -7,7 +7,6 @@ use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
@@ -15,13 +14,6 @@ use crate::writer::{LayoutWriter, LayoutWriterExt};
 /// A trait for creating new layout writers given a DType.
 pub trait LayoutStrategy: 'static + Send + Sync {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
-}
-
-/// Implement the [`LayoutStrategy`] trait for the [`FlatLayout`] for easy use.
-impl LayoutStrategy for FlatLayout {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), Default::default()).boxed())
-    }
 }
 
 /// A layout strategy that preserves struct arrays and writes everything else as flat.

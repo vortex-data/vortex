@@ -1,7 +1,9 @@
 use std::fmt::{Display, Formatter};
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::LazyLock;
 
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashMap};
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -9,6 +11,9 @@ use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
 use crate::{ExprRef, GetItem, Identity, get_item, ident, pack};
+
+static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
+    LazyLock::new(DefaultHashBuilder::default);
 
 /// Partition an expression over the fields of the scope.
 ///
@@ -87,7 +92,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
     }
 
     pub(crate) fn field_idx_name(field: &FieldName, idx: usize) -> FieldName {
-        format!("__e__{}.{}", field, idx).into()
+        let mut hasher = SPLITTER_RANDOM_STATE.build_hasher();
+        field.hash(&mut hasher);
+        idx.hash(&mut hasher);
+        hasher.finish().to_string().into()
     }
 
     fn split(expr: ExprRef, dtype: &DType) -> VortexResult<PartitionedExpr> {

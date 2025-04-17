@@ -1,6 +1,6 @@
 use std::os::raw::c_void;
 
-use duckdb::ffi::duckdb_vector;
+use duckdb::ffi::{duckdb_vector_buffer, duckdb_wrap_external_vector_buffer, external_buffer};
 use vortex_buffer::ByteBuffer;
 
 #[derive(Clone)]
@@ -33,28 +33,13 @@ impl From<ExternalBuffer> for FFIDuckDBBufferInternal {
 // This will free a single FFIDuckDBBuffer, however due to cloning there might be more
 // references to the underlying ByteBuffer that will not be freed in this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ExternalBuffer_free(buffer: *mut ExternalBuffer) {
+unsafe extern "C" fn ExternalBuffer_free(buffer: external_buffer) {
     let internal: Box<FFIDuckDBBufferInternal> = unsafe { Box::from_raw(buffer.cast()) };
     drop(internal)
 }
 
-#[repr(C)]
-pub struct CppVectorBuffer {
-    pub ptr: *mut c_void,
-}
-
-#[allow(dead_code)]
-unsafe extern "C" {
-    pub fn NewCppVectorBuffer(
-        buffer: *mut ExternalBuffer,
-        free: unsafe extern "C" fn(*mut ExternalBuffer),
-    ) -> *mut CppVectorBuffer;
-
-    pub fn AssignBufferToVec(vector: duckdb_vector, buffer: *mut CppVectorBuffer);
-}
-
-pub unsafe fn new_cpp_vector_buffer(buffer: *mut ExternalBuffer) -> *mut CppVectorBuffer {
-    unsafe { NewCppVectorBuffer(buffer, ExternalBuffer_free) }
+pub unsafe fn new_cpp_vector_buffer(buffer: *mut ExternalBuffer) -> duckdb_vector_buffer {
+    unsafe { duckdb_wrap_external_vector_buffer(buffer.cast(), Some(ExternalBuffer_free)) }
 }
 
 #[cfg(test)]

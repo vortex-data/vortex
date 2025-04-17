@@ -8,9 +8,9 @@ use crate::variants::PrimitiveArrayTrait;
 
 cfg_if::cfg_if! {
     if #[cfg(target_feature = "avx2")] {
-        const IS_CONST_LANE_WIDTH: usize = 32;
+        pub const IS_CONST_LANE_WIDTH: usize = 32;
     } else {
-        const IS_CONST_LANE_WIDTH: usize = 16;
+        pub const IS_CONST_LANE_WIDTH: usize = 16;
     }
 }
 
@@ -32,7 +32,7 @@ impl IsConstantFn<&PrimitiveArray> for PrimitiveEncoding {
 
 // Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
 // Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.
-fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> bool {
+pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> bool {
     let first_value = values[0];
     let first_vec = &[first_value; WIDTH];
 

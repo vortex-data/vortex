@@ -2,36 +2,49 @@ use std::hash::BuildHasher;
 
 use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
+use num_traits::sign::Unsigned;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, RandomState};
+use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayExt, ArrayRef};
+use vortex_array::{Array, ArrayExt as _, ArrayRef};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_dtype::{DType, NativePType};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
+use super::DictConstraints;
 use crate::builders::DictEncoder;
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
-pub struct BytesDictBuilder {
-    lookup: Option<HashTable<u64>>,
+pub struct BytesDictBuilder<Codes> {
+    lookup: Option<HashTable<Codes>>,
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
     hasher: RandomState,
     dtype: DType,
     max_dict_bytes: usize,
+    max_dict_len: usize,
 }
 
-impl BytesDictBuilder {
-    pub fn new(dtype: DType, max_dict_bytes: usize) -> Self {
+pub fn bytes_dict_builder(dtype: DType, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
+    match constraints.max_len as u64 {
+        max if max <= u8::MAX as u64 => Box::new(BytesDictBuilder::<u8>::new(dtype, constraints)),
+        max if max <= u16::MAX as u64 => Box::new(BytesDictBuilder::<u16>::new(dtype, constraints)),
+        max if max <= u32::MAX as u64 => Box::new(BytesDictBuilder::<u32>::new(dtype, constraints)),
+        _ => Box::new(BytesDictBuilder::<u64>::new(dtype, constraints)),
+    }
+}
+
+impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
+    pub fn new(dtype: DType, constraints: &DictConstraints) -> Self {
         Self {
             lookup: Some(HashTable::new()),
             views: BufferMut::<BinaryView>::empty(),
             values: BufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
-            max_dict_bytes,
+            max_dict_bytes: constraints.max_bytes,
+            max_dict_len: constraints.max_len,
         }
     }
 
@@ -50,26 +63,41 @@ impl BytesDictBuilder {
     }
 
     #[inline]
-    fn encode_value(&mut self, lookup: &mut HashTable<u64>, val: &[u8]) -> u64 {
-        *lookup
-            .entry(
-                self.hasher.hash_one(val),
-                |idx| val == self.lookup_bytes(idx.as_()),
-                |idx| self.hasher.hash_one(self.lookup_bytes(idx.as_())),
-            )
-            .or_insert_with(|| {
-                let next_code = self.views.len() as u64;
-                self.views.push(BinaryView::make_view(
-                    val,
-                    0,
-                    u32::try_from(self.values.len()).vortex_unwrap(),
-                ));
-                if val.len() > BinaryView::MAX_INLINED_SIZE {
+    fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
+        match lookup.entry(
+            self.hasher.hash_one(val),
+            |idx| val == self.lookup_bytes(idx.as_()),
+            |idx| self.hasher.hash_one(self.lookup_bytes(idx.as_())),
+        ) {
+            HashTableEntry::Occupied(occupied) => Some(*occupied.get()),
+            HashTableEntry::Vacant(vacant) => {
+                if self.views.len() >= self.max_dict_len {
+                    return None;
+                }
+
+                let next_code = self.views.len();
+                let view =
+                    BinaryView::make_view(val, 0, u32::try_from(self.values.len()).vortex_unwrap());
+                let additional_bytes = if view.is_inlined() {
+                    size_of::<BinaryView>()
+                } else {
+                    size_of::<BinaryView>() + val.len()
+                };
+
+                if self.dict_bytes() + additional_bytes > self.max_dict_bytes {
+                    return None;
+                }
+
+                self.views.push(view);
+                if !view.is_inlined() {
                     self.values.extend_from_slice(val);
                 }
-                next_code
-            })
-            .get()
+                let next_code = Code::from_usize(next_code).unwrap_or_else(|| {
+                    vortex_panic!("{next_code} has to fit into {}", Code::PTYPE)
+                });
+                Some(*vacant.insert(next_code).get())
+            }
+        }
     }
 
     fn encode_bytes<A: ArrayAccessor<[u8]>>(
@@ -78,21 +106,22 @@ impl BytesDictBuilder {
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
-        let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
+        let mut codes: BufferMut<Code> = BufferMut::with_capacity(len);
 
         let (codes, validity) = if self.dtype.is_nullable() {
             let mut null_buf = NullBufferBuilder::new(len);
 
             accessor.with_iterator(|it| {
                 for value in it {
-                    let (code, validity) = value
-                        .map(|v| (self.encode_value(&mut local_lookup, v), true))
-                        .unwrap_or((0, false));
+                    let (code, validity) = match value {
+                        Some(v) => match self.encode_value(&mut local_lookup, v) {
+                            Some(code) => (code, true),
+                            None => break,
+                        },
+                        None => (Code::zero(), false),
+                    };
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
-                    if self.dict_bytes() >= self.max_dict_bytes {
-                        break;
-                    }
                 }
             })?;
             (
@@ -105,14 +134,13 @@ impl BytesDictBuilder {
         } else {
             accessor.with_iterator(|it| {
                 for value in it {
-                    let code = self.encode_value(
+                    let Some(code) = self.encode_value(
                         &mut local_lookup,
                         value.vortex_expect("Dict encode null value in non-nullable array"),
-                    );
-                    unsafe { codes.push_unchecked(code) }
-                    if self.dict_bytes() >= self.max_dict_bytes {
+                    ) else {
                         break;
-                    }
+                    };
+                    unsafe { codes.push_unchecked(code) }
                 }
             })?;
             (codes, Validity::NonNullable)
@@ -124,7 +152,7 @@ impl BytesDictBuilder {
     }
 }
 
-impl DictEncoder for BytesDictBuilder {
+impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDictBuilder<Code> {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if &self.dtype != array.dtype() {
             vortex_bail!(

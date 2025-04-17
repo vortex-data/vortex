@@ -1,13 +1,11 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import java.io.ByteArrayOutputStream
+import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     `java-library`
     `jvm-test-suite`
-    `maven-publish`
     id("com.google.protobuf")
     id("com.gradleup.shadow") version "8.3.6"
-    id("me.champeau.jmh") version "0.7.3"
 }
 
 dependencies {
@@ -27,17 +25,48 @@ dependencies {
     compileOnly("com.jakewharton.nopen:nopen-annotations")
 }
 
-jmh {
-    warmupIterations = 3
-    iterations = 3
-    fork = 1
-}
-
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
         }
+    }
+}
+
+mavenPublishing {
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = version.toString())
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    signAllPublications()
+
+    pom {
+        name = "vortex-jni"
+        description = project.description
+        url = "https://vortex.dev"
+        inceptionYear = "2025"
+
+        licenses {
+            license {
+                name = "Apache-2.0"
+                url = "https://spdx.org/licenses/Apache-2.0.html"
+            }
+        }
+        developers {
+            developer {
+                id = "spiraldb"
+                name = "Vortex Authors"
+            }
+        }
+        scm {
+            connection = "scm:git:https://github.com/spiraldb/vortex.git"
+            developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
+            url = "https://github.com/spiraldb/vortex"
+        }
+    }
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
     }
 }
 
@@ -57,7 +86,6 @@ protobuf {
 
 // shade guava and protobuf dependencies
 tasks.withType<ShadowJar> {
-    archiveClassifier.set("")
     relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
@@ -123,114 +151,4 @@ tasks.register("generateJniHeaders") {
     dependsOn("compileJava")
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            artifact(tasks.shadowJar.get())
-            artifactId = "vortex-jni"
-        }
-    }
-}
-
-val vortexJNI = projectDir.parentFile.parentFile.resolve("vortex-jni")
-
-val platformLibSuffix =
-    if (System.getProperty("os.name").contains("Mac")) {
-        "dylib"
-    } else {
-        "so"
-    }
-
-val targetDir = projectDir.parentFile.parentFile.resolve("target")
-
-val cargoCheck by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-    commandLine("cargo", "check")
-}
-
-val cargoBuild by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-
-    val buildWithAsan = project.findProperty("buildWithAsan")?.toString()?.toBoolean() ?: false
-    println("buildWithAsan: $buildWithAsan")
-    if (buildWithAsan) {
-        // Force a rebuild
-        outputs.upToDateWhen { false }
-
-        // Get the target triple for the current platform. We need it
-        // so we can tell cargo to recompile the std crate for this target with ASAN enabled.
-        val output = ByteArrayOutputStream()
-        exec {
-            commandLine("rustc", "--print", "host-tuple")
-            standardOutput = output
-        }
-        val targetTriple = output.toString().trim()
-
-        // Build with ASAN to detect memory leaks and out of bounds accesses from Java.
-        environment("RUSTFLAGS", "-Zsanitizer=address")
-        commandLine(
-            "cargo",
-            "build",
-            "-Zbuild-std",
-            "--target",
-            targetTriple,
-            "--release",
-        )
-        // cargo puts the built artifact in a target-dependent directory when you specify the triple
-        outputs.files(targetDir.resolve("$targetTriple/release/libvortex_jni.$platformLibSuffix"))
-    } else {
-        commandLine(
-            "cargo",
-            "build",
-            "--release",
-        )
-        outputs.files(targetDir.resolve("release/libvortex_jni.$platformLibSuffix"))
-    }
-
-    // Always force rebuilds, rely on cargo's builtin caching and incremental compile to avoid spurious rebuilds.
-    outputs.upToDateWhen { false }
-    outputs.cacheIf { false }
-}
-
-val cargoClean by tasks.registering(Exec::class) {
-    workingDir = vortexJNI
-    commandLine("cargo", "clean")
-}
-
-tasks.named("check").configure {
-    dependsOn.add(cargoCheck)
-}
-
-tasks.named("build").configure {
-    dependsOn.add(cargoBuild)
-}
-
-val osName = System.getProperty("os.name")
-val osArch =
-    when (System.getProperty("os.arch")) {
-        "amd64", "x86_64" -> "amd64"
-        else -> System.getProperty("os.arch")
-    }
-val resourceDir =
-    if (osName.startsWith("Mac")) {
-        "darwin-$osArch"
-    } else {
-        "linux-$osArch"
-    }
-
-val copySharedLibrary by tasks.registering(Copy::class) {
-    dependsOn(cargoBuild)
-
-    from(cargoBuild.get().outputs.files)
-    into(projectDir.resolve("src/main/resources/native/$resourceDir"))
-}
-
-tasks.withType<ProcessResources>().configureEach {
-    dependsOn(copySharedLibrary)
-}
-
-// Remove the JAR task, replace it with shadowJar
-tasks.named("jar").configure {
-    dependsOn("shadowJar")
-    enabled = false
-}
+description = "JNI bindings for the Vortex format"

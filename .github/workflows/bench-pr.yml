@@ -48,7 +48,7 @@ jobs:
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.11
+        uses: opt-nc/setup-duckdb-action@v1.0.12
         with:
           version: v1.2.1
 
@@ -78,7 +78,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.7.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
         with:
           sync: false
 

@@ -1,0 +1,63 @@
+# name: test/sql/timestamp.test
+# description: test timestamp vortex duckdb
+# group: [vortex]
+
+require vortex
+
+statement ok
+CREATE TABLE generated_data_table (
+    id BIGINT,
+    timmestamp_s_col TIMESTAMP_S,
+    timmestamp_ms_col TIMESTAMP_MS,
+    timmestamp_us_col TIMESTAMP,
+    timmestamp_ns_col TIMESTAMP_NS,
+);
+
+statement ok
+INSERT INTO generated_data_table
+SELECT
+    seq AS id,
+    TIMESTAMP_S '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_s_col,
+    TIMESTAMP_MS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ms_col,
+    TIMESTAMP '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_us_col,
+    TIMESTAMP_NS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ns_col,
+FROM generate_series(1, 100) AS t(seq);
+
+statement ok
+COPY generated_data_table TO '__TEST_DIR__/timestamp_test.vortex' (FORMAT VORTEX)
+
+
+# Verify that all timestamp columns have the same type after round trip
+query III
+SELECT
+  sum(timmestamp_s_col = timmestamp_ms_col) = count(id),
+  sum(timmestamp_s_col = timmestamp_us_col) = count(id),
+  sum(timmestamp_s_col = timmestamp_ns_col) = count(id)
+FROM
+  read_vortex('__TEST_DIR__/timestamp_test.vortex');
+----
+1
+1
+1
+
+# Verify that filtering works for ms
+query I
+SELECT
+  count(id)
+FROM
+  read_vortex('__TEST_DIR__/timestamp_test.vortex')
+WHERE
+ timmestamp_ms_col > TIMESTAMP '2025-01-01 00:00:50'
+----
+50
+
+# Verify that filtering works for ns
+query I
+SELECT
+  count(id)
+FROM
+  read_vortex('__TEST_DIR__/timestamp_test.vortex')
+WHERE
+ timmestamp_ns_col > TIMESTAMP '2025-01-01 00:00:50'
+----
+50

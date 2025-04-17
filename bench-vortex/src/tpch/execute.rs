@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::ExecutionPlan;
 
-use crate::execute_query;
+use crate::engines::df::execute_query;
 
 pub async fn run_tpch_query(
     ctx: &SessionContext,

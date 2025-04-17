@@ -30,7 +30,7 @@ pub struct SlowObjectStoreRegistry {
 impl Default for SlowObjectStoreRegistry {
     fn default() -> Self {
         Self {
-            inner: Arc::new(DefaultObjectStoreRegistry::default()) as _,
+            inner: Arc::new(DefaultObjectStoreRegistry::default()),
         }
     }
 }

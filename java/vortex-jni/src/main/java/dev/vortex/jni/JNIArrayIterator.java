@@ -17,16 +17,16 @@ package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
 import dev.vortex.api.Array;
-import dev.vortex.api.ArrayStream;
+import dev.vortex.api.ArrayIterator;
 import dev.vortex.api.DType;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-public final class JNIArrayStream implements ArrayStream {
+public final class JNIArrayIterator implements ArrayIterator {
     private OptionalLong pointer;
     private Optional<Array> next;
 
-    public JNIArrayStream(long pointer) {
+    public JNIArrayIterator(long pointer) {
         Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
         this.pointer = OptionalLong.of(pointer);
         advance();
@@ -46,18 +46,18 @@ public final class JNIArrayStream implements ArrayStream {
 
     @Override
     public DType getDataType() {
-        return new JNIDType(NativeArrayStreamMethods.getDType(pointer.getAsLong()), false);
+        return new JNIDType(NativeArrayIteratorMethods.getDType(pointer.getAsLong()), false);
     }
 
     @Override
     public void close() {
-        NativeArrayStreamMethods.free(pointer.getAsLong());
+        NativeArrayIteratorMethods.free(pointer.getAsLong());
         pointer = OptionalLong.empty();
         next = Optional.empty();
     }
 
     private void advance() {
-        long next = NativeArrayStreamMethods.take(pointer.getAsLong());
+        long next = NativeArrayIteratorMethods.take(pointer.getAsLong());
         if (next <= 0) {
             this.next = Optional.empty();
         } else {

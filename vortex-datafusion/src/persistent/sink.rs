@@ -106,7 +106,6 @@ impl FileSink for VortexSink {
                 .write(writer, stream_adapter)
                 .await?;
 
-            writer.flush().await?;
             writer.shutdown().await?;
         }
 

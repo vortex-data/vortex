@@ -7,7 +7,8 @@ use std::time::Duration;
 use serde::{Serialize, Serializer};
 use vortex::error::vortex_panic;
 
-use crate::{Format, GIT_COMMIT_ID};
+use crate::engines::df::GIT_COMMIT_ID;
+use crate::{Engine, Format};
 
 pub trait ToJson {
     fn to_json(&self) -> JsonValue;
@@ -129,6 +130,7 @@ pub struct TableValue {
     pub id: Option<usize>,
     pub name: String,
     pub format: Format,
+    pub engine: Engine,
     pub unit: Cow<'static, str>,
     pub value: MeasurementValue,
 }
@@ -153,6 +155,7 @@ impl Ord for TableValue {
 pub struct TimingMeasurement {
     pub name: String,
     pub format: Format,
+    pub engine: Engine,
     pub storage: String,
     pub time: Duration,
 }
@@ -163,6 +166,7 @@ impl ToTable for TimingMeasurement {
             id: None,
             name: self.name.clone(),
             format: self.format,
+            engine: self.engine,
             unit: Cow::from("μs"),
             value: MeasurementValue::Int(self.time.as_micros()),
         }
@@ -186,9 +190,11 @@ impl ToJson for TimingMeasurement {
 #[derive(Clone, Debug)]
 pub struct QueryMeasurement {
     pub query_idx: usize,
+    // Database engine: Datafusion or DuckDB
+    pub engine: Engine,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
-    pub time: Duration,
+    pub fastest_run: Duration,
     pub format: Format,
     pub dataset: String,
 }
@@ -206,7 +212,7 @@ impl ToJson for QueryMeasurement {
             name,
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
-            value: MeasurementValue::Int(self.time.as_nanos()),
+            value: MeasurementValue::Int(self.fastest_run.as_nanos()),
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
@@ -220,8 +226,9 @@ impl ToTable for QueryMeasurement {
             id: Some(self.query_idx),
             name: self.query_idx.to_string(),
             format: self.format,
+            engine: self.engine,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.time.as_micros()),
+            value: MeasurementValue::Int(self.fastest_run.as_micros()),
         }
     }
 }
@@ -260,6 +267,7 @@ impl ToTable for ThroughputMeasurement {
             id: None,
             name: self.name.clone(),
             format: self.format,
+            engine: Engine::default(),
             unit: Cow::from("bytes / μs"),
             value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
         }
@@ -295,6 +303,7 @@ impl ToTable for CustomUnitMeasurement {
             id: None,
             name: self.name.clone(),
             format: self.format,
+            engine: Engine::default(),
             unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
         }

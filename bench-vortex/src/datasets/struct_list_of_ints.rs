@@ -6,7 +6,7 @@ use vortex::error::VortexResult;
 use vortex::validity::Validity;
 use vortex::{Array, ArrayRef};
 
-use crate::datasets::BenchmarkDataset;
+use crate::datasets::Dataset;
 
 /// Creates a randomly generated struct array, where each field is a list of
 /// i64 of size one.
@@ -29,7 +29,7 @@ impl StructListOfInts {
 }
 
 #[async_trait]
-impl BenchmarkDataset for StructListOfInts {
+impl Dataset for StructListOfInts {
     fn name(&self) -> &str {
         &self.name
     }

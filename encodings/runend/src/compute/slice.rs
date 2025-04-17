@@ -1,4 +1,5 @@
-use vortex_array::compute::{SliceFn, slice};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::compute::{SliceFn, scalar_at, slice};
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -18,6 +19,11 @@ impl SliceFn<&RunEndArray> for RunEndEncoding {
             (physical_start, physical_stop + 1)
         };
 
+        if slice_begin + 1 == slice_end {
+            let value = scalar_at(array.values(), slice_begin)?;
+            return Ok(ConstantArray::new(value, new_length).into_array());
+        }
+
         Ok(RunEndArray::with_offset_and_length(
             slice(array.ends(), slice_begin, slice_end)?,
             slice(array.values(), slice_begin, slice_end)?,
@@ -35,7 +41,7 @@ impl SliceFn<&RunEndArray> for RunEndEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::{SliceFn, slice};
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayStatistics, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -129,5 +135,20 @@ mod tests {
         let re_slice = RunEndArray::try_from(sliced_array).unwrap();
         assert!(re_slice.ends().is_empty());
         assert!(re_slice.values().is_empty())
+    }
+
+    #[test]
+    fn slice_single_end() {
+        let re_array = RunEndArray::try_new(
+            buffer![7_u64, 10].into_array(),
+            buffer![2_u64, 3].into_array(),
+        )
+        .unwrap();
+
+        assert_eq!(re_array.len(), 10);
+
+        let sliced_array = RunEndEncoding.slice(&re_array, 2, 5).unwrap();
+
+        assert!(sliced_array.is_constant())
     }
 }

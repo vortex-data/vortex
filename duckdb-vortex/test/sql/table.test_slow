@@ -1,0 +1,53 @@
+# name: test/sql/table.test_slow
+# description: test creating tables and round tripping vortex with them, generate a lot of value to test many batch round trip
+# group: [vortex]
+
+require vortex
+
+statement ok
+CREATE TABLE generated_data_table (
+    id BIGINT,
+    bool_col BOOLEAN,
+    tinyint_col TINYINT,
+    smallint_col SMALLINT,
+    int_col INTEGER,
+    bigint_col BIGINT,
+    ubigint_col UBIGINT,
+--    hugeint_col HUGEINT, all commented values are not supported yet.
+    float_col FLOAT,
+    double_col DOUBLE,
+--    decimal_col DECIMAL(10, 2),
+    varchar_col VARCHAR,
+    date_col DATE,
+    timmestamp_s_col TIMESTAMP_S,
+    timmestamp_ms_col TIMESTAMP_MS,
+    timmestamp_us_col TIMESTAMP,
+    timmestamp_ns_col TIMESTAMP_NS,
+    blob_col BLOB,
+);
+
+statement ok
+INSERT INTO generated_data_table
+SELECT
+    seq AS id,
+    (seq % 2 = 0) AS bool_col,
+    CAST((seq % 256) - 128 AS TINYINT) AS tinyint_col,
+    CAST((seq % 65536) - 32768 AS SMALLINT) AS smallint_col,
+    CAST(seq AS INTEGER) AS int_col,
+    seq * 10 AS bigint_col,
+    CAST(seq as UBIGINT) * 10 AS bigint_col,
+--    CAST(seq * 1000 AS HUGEINT) AS hugeint_col,
+    CAST(seq AS FLOAT) / 100.0 AS float_col,
+    CAST(seq AS DOUBLE) / 1000.0 AS double_col,
+--    CAST(seq AS DECIMAL(10, 2)) / 10.0 AS decimal_col,
+    'Value ' || seq AS varchar_col,
+    DATE '1992-03-22' + to_days(cast(seq AS INTEGER)) AS date_col,
+    TIMESTAMP_S '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_s_col,
+    TIMESTAMP_MS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ms_col,
+    TIMESTAMP '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_us_col,
+    TIMESTAMP_NS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ns_col,
+    CAST(md5(CAST(seq AS VARCHAR)) AS BLOB) AS blob_col,
+FROM generate_series(1, 40000) AS t(seq);
+
+statement ok
+COPY generated_data_table TO '__TEST_DIR__/table_test.vortex' (FORMAT VORTEX);

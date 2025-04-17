@@ -6,23 +6,26 @@ mod array;
 mod dtype;
 #[cfg(feature = "duckdb")]
 mod duckdb;
+mod error;
 mod file;
 mod log;
 mod stream;
 
-use std::cell::LazyCell;
 use std::ffi::{CStr, c_char, c_int};
+use std::sync::LazyLock;
 
+pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
 thread_local! {
-    static RUNTIME: LazyCell<Runtime> = LazyCell::new(|| {
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .vortex_expect("building runtime")
-    });
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    // Using a new_multi_thread runtime since a current local runtime has a deadlock.
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .vortex_expect("building runtime")
+});
 }
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {

@@ -47,9 +47,9 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
         array.encoding()
     );
     assert_eq!(
-        filled.dtype(),
-        &array.dtype().with_nullability(fill_value_nullability),
-        "FillNull dtype mismatch {}",
+        filled.dtype().nullability(),
+        fill_value_nullability,
+        "FillNull nullability mismatch {}",
         array.encoding()
     );
 

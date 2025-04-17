@@ -1,0 +1,21 @@
+# name: test/sql/sequence.test
+# description: test simple tables with the vortex extension
+# group: [vortex]
+
+# Before we load the extension, this will fail
+
+require vortex
+
+# copy vortex
+statement ok
+COPY (SELECT * from generate_series(0, 4)) TO '__TEST_DIR__/test.vortex' (FORMAT VORTEX)
+
+# read vortex
+query I
+SELECT * FROM read_vortex('__TEST_DIR__/test.vortex');
+----
+0
+1
+2
+3
+4

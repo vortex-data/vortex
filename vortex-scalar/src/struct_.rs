@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
@@ -13,6 +14,30 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
+}
+
+impl Display for StructScalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.fields {
+            None => write!(f, "null"),
+            Some(fields) => {
+                write!(f, "{{")?;
+                let formatted_fields = self
+                    .struct_dtype()
+                    .names()
+                    .iter()
+                    .zip_eq(self.struct_dtype().fields())
+                    .zip_eq(fields.iter())
+                    .map(|((name, dtype), value)| {
+                        let val = Scalar::new(dtype, value.clone());
+                        format!("{name}: {val}")
+                    })
+                    .format(", ");
+                write!(f, "{}", formatted_fields)?;
+                write!(f, "}}")
+            }
+        }
+    }
 }
 
 impl PartialEq for StructScalar<'_> {

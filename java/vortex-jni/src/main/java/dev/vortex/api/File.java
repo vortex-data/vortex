@@ -18,7 +18,7 @@ package dev.vortex.api;
 public interface File extends AutoCloseable {
     DType getDType();
 
-    ArrayStream newScan(ScanOptions options);
+    ArrayIterator newScan(ScanOptions options);
 
     @Override
     void close();

@@ -29,7 +29,7 @@ use vortex::error::{VortexError, VortexExpect as _};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
         .map_err(VortexError::IOError)
         .vortex_expect("tokio runtime must not fail to start")

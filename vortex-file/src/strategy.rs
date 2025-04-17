@@ -13,7 +13,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
@@ -68,7 +68,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype,
             writer,
             ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
-                child: ArcRef::new_ref(&FlatLayout),
+                child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             })),
             StatsLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
@@ -139,12 +139,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
             let canonical_chunk = chunk.to_canonical()?;
+            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
 
             if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.clone().into_array(), prev_chunk)?
+                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
             {
-                let ratio =
-                    canonical_chunk.as_ref().nbytes() as f64 / encoded_chunk.nbytes() as f64;
+                let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
                 // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
                 if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
