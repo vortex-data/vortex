@@ -1060,8 +1060,8 @@ async fn file_excluding_dtype() -> VortexResult<()> {
         .with_dtype(dtype.clone())
         .open(buffer)
         .await?;
-    assert_eq!(vxf.dtype(), &dtype);
-    assert_eq!(vxf.row_count(), 9);
+    assert_eq!(vxf.dtype()?, &dtype);
+    assert_eq!(vxf.row_count()?, 9);
 
     Ok(())
 }

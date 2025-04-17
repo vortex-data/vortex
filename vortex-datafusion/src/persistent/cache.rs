@@ -11,7 +11,7 @@ use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
 use vortex_file::segments::SegmentCache;
 use vortex_file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRegistry;
@@ -149,18 +149,11 @@ impl SegmentCache for VortexFileSegmentCache {
 
 /// Approximate the in-memory size of a layout
 fn estimate_layout_size(footer: &Footer) -> usize {
-    let segments_size = footer.segment_map().len() * size_of::<SegmentSpec>();
-    let stats_size = footer
-        .statistics()
-        .iter()
-        .map(|v| {
-            v.iter()
-                .map(|_| size_of::<Stat>() + size_of::<Precision<ScalarValue>>())
-                .sum::<usize>()
-        })
-        .sum::<usize>();
+    let segments_size = footer.segment_map().vortex_unwrap().len() * size_of::<SegmentSpec>();
+    let stats_size = footer.statistics().iter().map(|v| v.len()).sum::<usize>()
+        * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>());
 
-    let root_layout = footer.layout();
+    let root_layout = footer.layout().vortex_unwrap();
     let layout_size = size_of::<DType>()
         + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
         + root_layout.nsegments() * size_of::<SegmentId>();

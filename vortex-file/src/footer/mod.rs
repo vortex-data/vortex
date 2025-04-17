@@ -11,11 +11,12 @@ mod file_statistics;
 mod postscript;
 mod segment;
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 pub(crate) use file_layout::*;
 pub(crate) use file_statistics::*;
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
@@ -29,11 +30,17 @@ use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
-    array_ctx: ArrayContext,
-    layout_ctx: LayoutContext,
-    root_layout: Layout,
-    segments: Arc<[SegmentSpec]>,
+    array_ctx: OnceLock<ArrayContext>,
+    layout_ctx: OnceLock<LayoutContext>,
+    root_layout: OnceLock<Layout>,
+    segments: OnceLock<Arc<[SegmentSpec]>>,
     statistics: Option<FileStatistics>,
+
+    flatbuffer: FlatBuffer,
+    dtype: DType,
+    array_registry: Arc<ArrayRegistry>,
+    layout_registry: Arc<LayoutRegistry>,
+    validated: Arc<AtomicBool>,
 }
 
 impl Footer {
@@ -42,91 +49,107 @@ impl Footer {
         flatbuffer: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        array_registry: &ArrayRegistry,
-        layout_registry: &LayoutRegistry,
-    ) -> VortexResult<Self> {
-        let fb = root::<fb::FileLayout>(&flatbuffer)?;
-        let fb_root_layout = fb
-            .layout()
-            .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
-
-        // Create a LayoutContext from the registry.
-        let layout_specs = fb.layout_specs();
-        let layout_ids = layout_specs
-            .iter()
-            .flat_map(|e| e.iter())
-            .map(|encoding| encoding.id());
-        let layout_ctx = layout_registry.new_context(layout_ids)?;
-
-        // Create an ArrayContext from the registry.
-        let array_specs = fb.array_specs();
-        let array_ids = array_specs
-            .iter()
-            .flat_map(|e| e.iter())
-            .map(|encoding| encoding.id());
-        let array_ctx = array_registry.new_context(array_ids)?;
-
-        let root_encoding = layout_ctx
-            .lookup_encoding(fb_root_layout.encoding())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Footer root layout encoding {} not found",
-                    fb_root_layout.encoding()
-                )
-            })?
-            .clone();
-
-        // SAFETY: We have validated the fb_root_layout at the beginning of this function
-        let root_layout = unsafe {
-            Layout::new_viewed_unchecked(
-                "".into(),
-                root_encoding,
-                dtype,
-                flatbuffer.clone(),
-                fb_root_layout._tab.loc(),
-                layout_ctx.clone(),
-            )
-        };
-
-        let segments: Arc<[SegmentSpec]> = fb
-            .segment_specs()
-            .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
-            .iter()
-            .map(SegmentSpec::try_from)
-            .try_collect()?;
-
-        // Note this assertion is `<=` since we allow zero-length segments
-        if !segments.is_sorted_by_key(|segment| segment.offset) {
-            vortex_bail!("Segment offsets are not ordered");
-        }
-
-        Ok(Self {
-            array_ctx,
-            layout_ctx,
-            root_layout,
-            segments,
+        array_registry: Arc<ArrayRegistry>,
+        layout_registry: Arc<LayoutRegistry>,
+    ) -> Self {
+        Self {
+            array_ctx: OnceLock::new(),
+            layout_ctx: OnceLock::new(),
+            root_layout: OnceLock::new(),
+            segments: OnceLock::new(),
             statistics,
-        })
+            flatbuffer,
+            dtype,
+            array_registry,
+            layout_registry,
+            validated: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn fb(&self) -> VortexResult<fb::FileLayout> {
+        match self
+            .validated
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => Ok(root::<fb::FileLayout>(&self.flatbuffer)?),
+            Err(_) => Ok(unsafe { root_unchecked::<fb::FileLayout>(&self.flatbuffer) }),
+        }
     }
 
     /// Returns the array [`ArrayContext`] of the file.
-    pub fn ctx(&self) -> &ArrayContext {
-        &self.array_ctx
+    pub fn ctx(&self) -> VortexResult<&ArrayContext> {
+        self.array_ctx.get_or_try_init(|| {
+            let array_specs = self.fb()?.array_specs();
+            let array_ids = array_specs
+                .iter()
+                .flat_map(|e| e.iter())
+                .map(|encoding| encoding.id());
+            self.array_registry.new_context(array_ids)
+        })
     }
 
     /// Returns the [`LayoutContext`] of the file.
-    pub fn layout_ctx(&self) -> &LayoutContext {
-        &self.layout_ctx
+    pub fn layout_ctx(&self) -> VortexResult<&LayoutContext> {
+        self.layout_ctx.get_or_try_init(|| {
+            let layout_specs = self.fb()?.layout_specs();
+            let layout_ids = layout_specs
+                .iter()
+                .flat_map(|e| e.iter())
+                .map(|encoding| encoding.id());
+            self.layout_registry.new_context(layout_ids)
+        })
     }
 
     /// Returns the root [`Layout`] of the file.
-    pub fn layout(&self) -> &Layout {
-        &self.root_layout
+    pub fn layout(&self) -> VortexResult<&Layout> {
+        self.root_layout.get_or_try_init(|| {
+            let fb_root_layout = self
+                .fb()?
+                .layout()
+                .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
+
+            let root_encoding = self
+                .layout_ctx()?
+                .lookup_encoding(fb_root_layout.encoding())
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Footer root layout encoding {} not found",
+                        fb_root_layout.encoding()
+                    )
+                })?
+                .clone();
+
+            // SAFETY: We have validated the fb_root_layout at the beginning of this function
+            Ok(unsafe {
+                Layout::new_viewed_unchecked(
+                    "".into(),
+                    root_encoding,
+                    self.dtype.clone(),
+                    self.flatbuffer.clone(),
+                    fb_root_layout._tab.loc(),
+                    self.layout_ctx()?.clone(),
+                )
+            })
+        })
     }
 
     /// Returns the segment map of the file.
-    pub fn segment_map(&self) -> &Arc<[SegmentSpec]> {
-        &self.segments
+    pub fn segment_map(&self) -> VortexResult<&Arc<[SegmentSpec]>> {
+        self.segments.get_or_try_init(|| {
+            let segments: Arc<[SegmentSpec]> = self
+                .fb()?
+                .segment_specs()
+                .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
+                .iter()
+                .map(SegmentSpec::try_from)
+                .try_collect()?;
+
+            // Note this assertion is `<=` since we allow zero-length segments
+            if !segments.is_sorted_by_key(|segment| segment.offset) {
+                vortex_bail!("Segment offsets are not ordered");
+            }
+            Ok(segments)
+        })
     }
 
     /// Returns the statistics of the file.
@@ -135,12 +158,12 @@ impl Footer {
     }
 
     /// Returns the [`DType`] of the file.
-    pub fn dtype(&self) -> &DType {
-        self.root_layout.dtype()
+    pub fn dtype(&self) -> VortexResult<&DType> {
+        Ok(self.layout()?.dtype())
     }
 
     /// Returns the number of rows in the file.
-    pub fn row_count(&self) -> u64 {
-        self.root_layout.row_count()
+    pub fn row_count(&self) -> VortexResult<u64> {
+        Ok(self.layout()?.row_count())
     }
 }

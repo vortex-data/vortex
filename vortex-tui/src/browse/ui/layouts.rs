@@ -7,7 +7,7 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
 use vortex::compute::scalar_at;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexUnwrap};
 use vortex::expr::Identity;
 use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
 use vortex::mask::Mask;
@@ -101,7 +101,10 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .reader(&app.vxf.segment_source(), app.vxf.footer().ctx())
+        .reader(
+            &app.vxf.segment_source(),
+            app.vxf.footer().ctx().vortex_unwrap(),
+        )
         .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME

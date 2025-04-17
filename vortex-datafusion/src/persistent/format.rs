@@ -204,7 +204,7 @@ impl FileFormat for VortexFormat {
                 let cache = self.file_cache.clone();
                 async move {
                     let vxf = cache.try_get(&o, store).await?;
-                    let inferred_schema = vxf.dtype().to_arrow_schema()?;
+                    let inferred_schema = vxf.dtype()?.to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })
@@ -235,7 +235,7 @@ impl FileFormat for VortexFormat {
         let vxf = self.file_cache.try_get(object, store.clone()).await?;
 
         let struct_dtype = vxf
-            .dtype()
+            .dtype()?
             .as_struct()
             .vortex_expect("dtype is not a struct");
 
@@ -244,7 +244,7 @@ impl FileFormat for VortexFormat {
             // If the file has no column stats, the best we can do is return a row count.
             return Ok(Statistics {
                 num_rows: Precision::Exact(
-                    usize::try_from(vxf.row_count())
+                    usize::try_from(vxf.row_count()?)
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),
@@ -310,7 +310,7 @@ impl FileFormat for VortexFormat {
 
         Ok(Statistics {
             num_rows: Precision::Exact(
-                usize::try_from(vxf.row_count())
+                usize::try_from(vxf.row_count()?)
                     .map_err(|_| vortex_err!("Row count overflow"))
                     .vortex_expect("Row count overflow"),
             ),

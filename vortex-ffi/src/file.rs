@@ -15,7 +15,9 @@ use prost::Message;
 use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
+};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
@@ -172,7 +174,8 @@ pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
             .as_ref()
             .vortex_expect("null file ptr")
             .inner
-            .row_count(),
+            .row_count()
+            .vortex_expect("get row count"),
     }))
 }
 
@@ -188,7 +191,11 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
 /// dereferenced after the file has been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *const DType {
-    file.as_ref().vortex_expect("null file").inner.dtype()
+    file.as_ref()
+        .vortex_expect("null file")
+        .inner
+        .dtype()
+        .vortex_unwrap()
 }
 
 /// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.

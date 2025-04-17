@@ -56,13 +56,13 @@ pub struct PyVortexFile {
 #[pymethods]
 impl PyVortexFile {
     fn __len__(slf: PyRef<Self>) -> PyResult<usize> {
-        Ok(usize::try_from(slf.vxf.row_count())?)
+        Ok(usize::try_from(slf.vxf.row_count()?)?)
     }
 
     /// The dtype of the file.
     #[getter]
     fn dtype(slf: Bound<Self>) -> PyResult<Bound<PyDType>> {
-        PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
+        PyDType::init(slf.py(), slf.get().vxf.dtype()?.clone())
     }
 
     /// Scan the Vortex file returning a :class:`vortex.ArrayIterator`.

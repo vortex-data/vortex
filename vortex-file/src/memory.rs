@@ -60,10 +60,11 @@ impl SegmentSource for InMemorySegmentReader {
         id: SegmentId,
         _for_whom: &Arc<str>,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let segment_map = self.footer.segment_map().clone();
+        let segment_map = self.footer.segment_map().cloned();
         let buffer = self.buffer.clone();
 
         async move {
+            let segment_map = segment_map?;
             let segment: &SegmentSpec = segment_map
                 .get(*id as usize)
                 .ok_or_else(|| vortex_err!("segment not found"))?;

@@ -43,15 +43,15 @@ impl LayoutCursor {
     pub fn new(footer: Footer) -> Self {
         Self {
             path: Vec::new(),
-            layout: footer.layout().clone(),
-            segment_map: Arc::clone(footer.segment_map()),
+            layout: footer.layout().vortex_unwrap().clone(),
+            segment_map: Arc::clone(footer.segment_map().vortex_unwrap()),
             footer,
         }
     }
 
     pub fn new_with_path(footer: Footer, path: Vec<usize>) -> Self {
-        let mut layout = footer.layout().clone();
-        let mut dtype = footer.dtype().clone();
+        let mut layout = footer.layout().vortex_unwrap().clone();
+        let mut dtype = footer.dtype().vortex_unwrap().clone();
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
             // Find the DType of the child based on the DType of the current node.
@@ -97,7 +97,7 @@ impl LayoutCursor {
         }
 
         Self {
-            segment_map: Arc::clone(footer.segment_map()),
+            segment_map: Arc::clone(footer.segment_map().vortex_unwrap()),
             path,
             footer,
             layout,

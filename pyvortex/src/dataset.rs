@@ -97,7 +97,7 @@ pub struct PyVortexDataset {
 
 impl PyVortexDataset {
     pub fn try_new(vxf: VortexFile) -> VortexResult<Self> {
-        let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
+        let schema = Arc::new(vxf.dtype()?.to_arrow_schema()?);
         Ok(Self { vxf, schema })
     }
 

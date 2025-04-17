@@ -36,12 +36,12 @@ impl VortexFile {
     }
 
     /// Returns the number of rows in the file.
-    pub fn row_count(&self) -> u64 {
+    pub fn row_count(&self) -> VortexResult<u64> {
         self.footer.row_count()
     }
 
     /// Returns the data type of the file's contents.
-    pub fn dtype(&self) -> &DType {
+    pub fn dtype(&self) -> VortexResult<&DType> {
         self.footer.dtype()
     }
 
@@ -70,8 +70,8 @@ impl VortexFile {
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
         let segment_source = self.segment_source();
         self.footer
-            .layout()
-            .reader(&segment_source, self.footer().ctx())
+            .layout()?
+            .reader(&segment_source, self.footer().ctx()?)
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

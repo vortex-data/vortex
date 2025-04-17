@@ -10,7 +10,7 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let opened = TokioFile::open(file)?;
     let vxf = VortexOpenOptions::file().open(opened).await?;
 
-    let segment_map = vxf.footer().segment_map();
+    let segment_map = vxf.footer().segment_map()?;
 
     let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
 

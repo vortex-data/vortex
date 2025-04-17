@@ -1,3 +1,4 @@
+#![feature(once_cell_try)]
 #![allow(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
@@ -94,6 +95,7 @@ mod driver;
 mod file;
 mod footer;
 mod generic;
+mod initial_read;
 mod memory;
 mod open;
 pub mod segments;
@@ -108,6 +110,7 @@ pub use file::*;
 pub use footer::{Footer, SegmentSpec};
 pub use forever_constant::*;
 pub use generic::*;
+pub use initial_read::*;
 pub use memory::*;
 pub use open::*;
 pub use strategy::*;

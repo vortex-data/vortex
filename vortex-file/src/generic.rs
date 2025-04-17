@@ -54,7 +54,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         let segment_source_factory = Arc::new(GenericVortexFileIo {
             read,
-            segment_map: footer.segment_map().clone(),
+            segment_map: footer.segment_map()?.clone(),
             segment_cache,
             options: self.options,
         });
