@@ -73,6 +73,10 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
         with:
           sync: false
+      - name: Install LLVM and Clang # For C API generation
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17.0"
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - PyVortex
