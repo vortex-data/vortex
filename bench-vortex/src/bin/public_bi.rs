@@ -145,6 +145,7 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 engine: Engine::DataFusion,
+                for
                 storage: STORAGE_NVME.to_owned(),
                 fastest_run,
                 format: *format,

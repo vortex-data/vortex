@@ -8,7 +8,7 @@ use serde::{Serialize, Serializer};
 use vortex::error::vortex_panic;
 
 use crate::engines::df::GIT_COMMIT_ID;
-use crate::{Engine, Format};
+use crate::{Engine, Format, Target};
 
 pub trait ToJson {
     fn to_json(&self) -> JsonValue;
@@ -129,8 +129,7 @@ pub struct JsonValue {
 pub struct TableValue {
     pub id: Option<usize>,
     pub name: String,
-    pub format: Format,
-    pub engine: Engine,
+    pub target: Target,
     pub unit: Cow<'static, str>,
     pub value: MeasurementValue,
 }
@@ -154,8 +153,7 @@ impl Ord for TableValue {
 
 pub struct TimingMeasurement {
     pub name: String,
-    pub format: Format,
-    pub engine: Engine,
+    pub target: Target,
     pub storage: String,
     pub time: Duration,
 }
@@ -165,8 +163,7 @@ impl ToTable for TimingMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: self.engine,
+            target: self.target,
             unit: Cow::from("μs"),
             value: MeasurementValue::Int(self.time.as_micros()),
         }
@@ -190,12 +187,10 @@ impl ToJson for TimingMeasurement {
 #[derive(Clone, Debug)]
 pub struct QueryMeasurement {
     pub query_idx: usize,
-    // Database engine: Datafusion or DuckDB
-    pub engine: Engine,
+    pub target: Target,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub fastest_run: Duration,
-    pub format: Format,
     pub dataset: String,
 }
 
@@ -204,7 +199,7 @@ impl ToJson for QueryMeasurement {
         let name = format!(
             "{dataset}_q{query_idx:02}/{format}",
             dataset = self.dataset,
-            format = self.format.name(),
+            format = self.target.format.name(),
             query_idx = self.query_idx
         );
 
@@ -225,8 +220,7 @@ impl ToTable for QueryMeasurement {
         TableValue {
             id: Some(self.query_idx),
             name: self.query_idx.to_string(),
-            format: self.format,
-            engine: self.engine,
+            target: self.target,
             unit: Cow::from("μs"),
             value: MeasurementValue::Int(self.fastest_run.as_micros()),
         }
@@ -266,8 +260,7 @@ impl ToTable for ThroughputMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: Engine::default(),
+            target: Target::new(Engine::default(), self.format),
             unit: Cow::from("bytes / μs"),
             value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
         }
@@ -302,8 +295,7 @@ impl ToTable for CustomUnitMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: Engine::default(),
+            target: Target::new(Engine::default(), self.format),
             unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
         }

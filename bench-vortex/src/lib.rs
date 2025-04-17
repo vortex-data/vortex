@@ -4,6 +4,7 @@ use std::clone::Clone;
 use std::fmt::Display;
 
 use clap::ValueEnum;
+use itertools::Itertools;
 
 pub mod bench_run;
 pub mod blob;
@@ -37,6 +38,43 @@ macro_rules! feature_flagged_allocator {
             }
         }
     };
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Target {
+    engine: Engine,
+    format: Format,
+}
+
+impl Target {
+    pub fn new(engine: Engine, format: Format) -> Self {
+        Self { engine, format }
+    }
+    pub fn from_target_string(target_string: &str) -> Self {
+        let split = target_string.split(":").collect_vec();
+        let [engine_str, format_str] = split.as_slice() else {
+            panic!("invalid target string {}", target_string);
+        };
+
+        Self {
+            engine: Engine::from_str(*engine_str, true).expect(""),
+            format: Format::from_str(*format_str, true).expect(""),
+        }
+    }
+
+    pub fn engine(&self) -> Engine {
+        self.engine
+    }
+
+    pub fn format(&self) -> Format {
+        self.format
+    }
+}
+
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.engine, self.format)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
