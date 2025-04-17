@@ -13,7 +13,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::dict::writer::{DictLayoutWriter, dict_layout_supported};
+use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{
     RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
@@ -59,20 +59,15 @@ impl LayoutStrategy for VortexLayoutStrategy {
             })),
         };
 
-        let writer = if dict_layout_supported(dtype) {
-            DictLayoutWriter::try_new(
-                ctx.clone(),
-                dtype,
-                ArcRef::new_arc(Arc::new(coalescing_strategy)),
-                ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
-                    child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
-                })),
-                Default::default(),
-            )?
-            .boxed()
-        } else {
-            coalescing_strategy.new_writer(ctx, dtype)?
+        let dict_strategy = DictStrategy {
+            child: ArcRef::new_arc(Arc::new(coalescing_strategy)),
+            values: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            })),
+            options: Default::default(),
         };
+
+        let writer = dict_strategy.new_writer(ctx, dtype)?;
 
         // Prior to repartitioning, we record statistics
         let stats_writer = StatsLayoutWriter::new(

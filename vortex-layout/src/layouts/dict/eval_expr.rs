@@ -98,7 +98,7 @@ impl MaskEvaluation for DictMaskEvaluation {
                     .to_array()
                     .as_ref(),
             )?;
-            Ok(mask.intersect_by_rank(&dict_mask))
+            Ok(mask.intersect_by_rank(dict_mask))
         } else {
             // Creating a mask from the dict array would canonicalise it,
             // it should be fine for now as long as values is already canonical,
