@@ -34,6 +34,8 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
+    #[arg(long, default_value_t = false)]
+    disable_datafusion_cache: bool,
     #[arg(short, long, value_delimiter = ',')]
     dataset: PBIDataset,
     #[arg(short, long, value_delimiter = ',')]
@@ -98,7 +100,8 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(dataset.write_as_vortex());
 
     for format in &args.formats {
-        let session = df::get_session_with_cache(args.emulate_object_store);
+        let session =
+            df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,

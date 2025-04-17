@@ -54,6 +54,8 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
+    #[arg(long, default_value_t = false)]
+    disable_datafusion_cache: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
     #[arg(long)]
@@ -166,6 +168,7 @@ fn main() -> ExitCode {
         args.formats,
         args.display_format,
         args.emulate_object_store,
+        args.disable_datafusion_cache,
         args.scale_factor,
         url,
         args.all_metrics,
@@ -286,6 +289,7 @@ async fn bench_main(
     formats: Vec<Format>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    disable_datafusion_cache: bool,
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
@@ -332,9 +336,10 @@ async fn bench_main(
         for format in formats.iter().copied() {
             match engine {
                 Engine::DataFusion => {
-                    let ctx = load_datasets(&url, format, emulate_object_store)
-                        .await
-                        .unwrap();
+                    let ctx =
+                        load_datasets(&url, format, emulate_object_store, disable_datafusion_cache)
+                            .await
+                            .unwrap();
 
                     let mut plans = Vec::new();
 

@@ -55,6 +55,8 @@ struct Args {
     queries_file: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
+    #[arg(long, default_value_t = false)]
+    disable_datafusion_cache: bool,
     #[arg(long)]
     export_spans: bool,
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
@@ -175,7 +177,8 @@ fn main() -> anyhow::Result<()> {
 
     for engine in &args.engines {
         for file_format in &args.formats {
-            let session_ctx = df::get_session_with_cache(args.emulate_object_store);
+            let session_ctx =
+                df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
 
             // Register object store to the session.
             df::make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
