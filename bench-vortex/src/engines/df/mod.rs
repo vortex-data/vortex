@@ -47,7 +47,7 @@ pub fn get_session_context(
         Arc::new(DefaultObjectStoreRegistry::new()) as _
     };
 
-    let mut rt_builder = RuntimeEnvBuilder::new();
+    let mut rt_builder = RuntimeEnvBuilder::new().with_object_store_registry(registry);
 
     if !disable_datafusion_cache {
         let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
@@ -55,9 +55,7 @@ pub fn get_session_context(
         let cache_config = CacheManagerConfig::default()
             .with_files_statistics_cache(Some(file_static_cache))
             .with_list_files_cache(Some(list_file_cache));
-        rt_builder = rt_builder
-            .with_cache_manager(cache_config)
-            .with_object_store_registry(registry);
+        rt_builder = rt_builder.with_cache_manager(cache_config);
     }
 
     let rt = rt_builder
