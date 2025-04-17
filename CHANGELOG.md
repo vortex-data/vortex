@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.31.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.30.0...vortex-tui-v0.31.0) - 2025-04-17
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-array` - [0.31.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.30.0...vortex-array-v0.31.0) - 2025-04-17
+
+### Other
+- Fill null without null values is just a cast ([#3042](https://github.com/spiraldb/vortex/pull/3042))
+
 ## `vortex-btrblocks` - [0.30.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.29.1...vortex-btrblocks-v0.30.0) - 2025-04-17
 
 ### Other
