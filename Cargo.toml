@@ -49,7 +49,7 @@ license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
 rust-version = "1.86"
-version = "0.29.1"
+version = "0.30.0"
 
 [workspace.dependencies]
 anyhow = "1.0.95"
@@ -177,33 +177,33 @@ wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 
 # BEGIN crates published by this project
-vortex = { version = "0.29.1", path = "./vortex" }
-vortex-alp = { version = "0.29.1", path = "./encodings/alp" }
-vortex-array = { version = "0.29.1", path = "./vortex-array" }
-vortex-btrblocks = { version = "0.29.1", path = "./vortex-btrblocks" }
-vortex-buffer = { version = "0.29.1", path = "./vortex-buffer" }
-vortex-bytebool = { version = "0.29.1", path = "./encodings/bytebool" }
-vortex-datafusion = { version = "0.29.1", path = "./vortex-datafusion" }
-vortex-datetime-parts = { version = "0.29.1", path = "./encodings/datetime-parts" }
-vortex-dict = { version = "0.29.1", path = "./encodings/dict" }
-vortex-dtype = { version = "0.29.1", path = "./vortex-dtype", default-features = false }
-vortex-error = { version = "0.29.1", path = "./vortex-error" }
-vortex-expr = { version = "0.29.1", path = "./vortex-expr" }
-vortex-fastlanes = { version = "0.29.1", path = "./encodings/fastlanes" }
-vortex-file = { version = "0.29.1", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.29.1", path = "./vortex-flatbuffers" }
-vortex-fsst = { version = "0.29.1", path = "./encodings/fsst" }
-vortex-io = { version = "0.29.1", path = "./vortex-io" }
-vortex-ipc = { version = "0.29.1", path = "./vortex-ipc" }
-vortex-layout = { version = "0.29.1", path = "./vortex-layout" }
-vortex-mask = { version = "0.29.1", path = "./vortex-mask" }
-vortex-metrics = { version = "0.29.1", path = "./vortex-metrics" }
-vortex-proto = { version = "0.29.1", path = "./vortex-proto" }
-vortex-runend = { version = "0.29.1", path = "./encodings/runend" }
-vortex-scalar = { version = "0.29.1", path = "./vortex-scalar", default-features = false }
-vortex-sparse = { version = "0.29.1", path = "./encodings/sparse" }
-vortex-tui = { version = "0.29.1", path = "./vortex-tui" }
-vortex-zigzag = { version = "0.29.1", path = "./encodings/zigzag" }
+vortex = { version = "0.30.0", path = "./vortex" }
+vortex-alp = { version = "0.30.0", path = "./encodings/alp" }
+vortex-array = { version = "0.30.0", path = "./vortex-array" }
+vortex-btrblocks = { version = "0.30.0", path = "./vortex-btrblocks" }
+vortex-buffer = { version = "0.30.0", path = "./vortex-buffer" }
+vortex-bytebool = { version = "0.30.0", path = "./encodings/bytebool" }
+vortex-datafusion = { version = "0.30.0", path = "./vortex-datafusion" }
+vortex-datetime-parts = { version = "0.30.0", path = "./encodings/datetime-parts" }
+vortex-dict = { version = "0.30.0", path = "./encodings/dict" }
+vortex-dtype = { version = "0.30.0", path = "./vortex-dtype", default-features = false }
+vortex-error = { version = "0.30.0", path = "./vortex-error" }
+vortex-expr = { version = "0.30.0", path = "./vortex-expr" }
+vortex-fastlanes = { version = "0.30.0", path = "./encodings/fastlanes" }
+vortex-file = { version = "0.30.0", path = "./vortex-file", default-features = false }
+vortex-flatbuffers = { version = "0.30.0", path = "./vortex-flatbuffers" }
+vortex-fsst = { version = "0.30.0", path = "./encodings/fsst" }
+vortex-io = { version = "0.30.0", path = "./vortex-io" }
+vortex-ipc = { version = "0.30.0", path = "./vortex-ipc" }
+vortex-layout = { version = "0.30.0", path = "./vortex-layout" }
+vortex-mask = { version = "0.30.0", path = "./vortex-mask" }
+vortex-metrics = { version = "0.30.0", path = "./vortex-metrics" }
+vortex-proto = { version = "0.30.0", path = "./vortex-proto" }
+vortex-runend = { version = "0.30.0", path = "./encodings/runend" }
+vortex-scalar = { version = "0.30.0", path = "./vortex-scalar", default-features = false }
+vortex-sparse = { version = "0.30.0", path = "./encodings/sparse" }
+vortex-tui = { version = "0.30.0", path = "./vortex-tui" }
+vortex-zigzag = { version = "0.30.0", path = "./encodings/zigzag" }
 # END crates published by this project
 
 # No version contraints for unpublished crates.
