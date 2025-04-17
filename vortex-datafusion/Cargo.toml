@@ -58,7 +58,6 @@ tracing = [
 
 [dev-dependencies]
 anyhow = { workspace = true }
-object_store = { workspace = true, features = ["aws"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
