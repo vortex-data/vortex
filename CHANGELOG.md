@@ -7,6 +7,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.28.0...vortex-tui-v0.29.0) - 2025-04-17
+
+### Fixed
+- fix minimal versions check ([#3023](https://github.com/spiraldb/vortex/pull/3023))
+
+### Other
+- slightly nicer CLI error if file doesn't exist for TUI ([#2857](https://github.com/spiraldb/vortex/pull/2857))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Scalar display ([#2951](https://github.com/spiraldb/vortex/pull/2951))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-datafusion` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.28.0...vortex-datafusion-v0.29.0) - 2025-04-17
+
+### Other
+- For now, disable DF segment caching ([#3008](https://github.com/spiraldb/vortex/pull/3008))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Global segment cache across DataFusion ([#2958](https://github.com/spiraldb/vortex/pull/2958))
+- Add flush after writing file and add some docs to file writepath ([#2922](https://github.com/spiraldb/vortex/pull/2922))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex` - [0.29.0](https://github.com/spiraldb/vortex/compare/0.28.0...0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Quickstart doctests ([#2964](https://github.com/spiraldb/vortex/pull/2964))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-ipc` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.28.0...vortex-ipc-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-file` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.28.0...vortex-file-v0.29.0) - 2025-04-17
+
+### Other
+- add docs in vortex-file ([#3029](https://github.com/spiraldb/vortex/pull/3029))
+- Postscript Segments ([#3011](https://github.com/spiraldb/vortex/pull/3011))
+- Make `FlatLayout` be more consistent with other layouts ([#2970](https://github.com/spiraldb/vortex/pull/2970))
+- Turn a mutex into a `Sync` bound ([#2965](https://github.com/spiraldb/vortex/pull/2965))
+- Segment caching ([#2934](https://github.com/spiraldb/vortex/pull/2934))
+- rename IoDispatcher::default() -> IoDispatcher::shared ([#2940](https://github.com/spiraldb/vortex/pull/2940))
+- Add flush after writing file and add some docs to file writepath ([#2922](https://github.com/spiraldb/vortex/pull/2922))
+
+## `vortex-layout` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.28.0...vortex-layout-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `FlatLayout` be more consistent with other layouts ([#2970](https://github.com/spiraldb/vortex/pull/2970))
+- Scan row range ([#2909](https://github.com/spiraldb/vortex/pull/2909))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-io` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.28.0...vortex-io-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Turn a mutex into a `Sync` bound ([#2965](https://github.com/spiraldb/vortex/pull/2965))
+- rename IoDispatcher::default() -> IoDispatcher::shared ([#2940](https://github.com/spiraldb/vortex/pull/2940))
+- Add flush after writing file and add some docs to file writepath ([#2922](https://github.com/spiraldb/vortex/pull/2922))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-metrics` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-metrics-v0.28.0...vortex-metrics-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-expr` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.28.0...vortex-expr-v0.29.0) - 2025-04-17
+
+### Other
+- Use hash of field name and idx to rewrite columns in expression splitter ([#3010](https://github.com/spiraldb/vortex/pull/3010))
+- Scalar display ([#2951](https://github.com/spiraldb/vortex/pull/2951))
+- duckdb complex filter expressions  ([#2911](https://github.com/spiraldb/vortex/pull/2911))
+
+## `vortex-bytebool` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.28.0...vortex-bytebool-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-btrblocks` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.28.0...vortex-btrblocks-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-zigzag` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.28.0...vortex-zigzag-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-sparse` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.28.0...vortex-sparse-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-runend` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.28.0...vortex-runend-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Slice a run end array, can be constant if the slice is covered by a single run ([#2957](https://github.com/spiraldb/vortex/pull/2957))
+- Duckdb REE specialise  ([#2955](https://github.com/spiraldb/vortex/pull/2955))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-dict` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.28.0...vortex-dict-v0.29.0) - 2025-04-17
+
+### Other
+- generic dict builder over codes ptype, support max values length ([#3021](https://github.com/spiraldb/vortex/pull/3021))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-datetime-parts` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.28.0...vortex-datetime-parts-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-alp` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.28.0...vortex-alp-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-fastlanes` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.28.0...vortex-fastlanes-v0.29.0) - 2025-04-17
+
+### Other
+- Correctly patch bitpacked arrays in is_constant ([#3030](https://github.com/spiraldb/vortex/pull/3030))
+- Implement is_constant for bitpacked arrays ([#2896](https://github.com/spiraldb/vortex/pull/2896))
+- opportunistically narrow bitpacked patches indices    ([#2978](https://github.com/spiraldb/vortex/pull/2978))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-array` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.28.0...vortex-array-v0.29.0) - 2025-04-17
+
+### Other
+- add docs in vortex-file ([#3029](https://github.com/spiraldb/vortex/pull/3029))
+- Implement is_constant for bitpacked arrays ([#2896](https://github.com/spiraldb/vortex/pull/2896))
+- generic dict builder over codes ptype, support max values length ([#3021](https://github.com/spiraldb/vortex/pull/3021))
+- Fill null in chunked array to propagate the right dtype ([#2994](https://github.com/spiraldb/vortex/pull/2994))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Quickstart doctests ([#2964](https://github.com/spiraldb/vortex/pull/2964))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-scalar` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.28.0...vortex-scalar-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Scalar display ([#2951](https://github.com/spiraldb/vortex/pull/2951))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-mask` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.28.0...vortex-mask-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-dtype` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.28.0...vortex-dtype-v0.29.0) - 2025-04-17
+
+### Other
+- Implement is_constant for bitpacked arrays ([#2896](https://github.com/spiraldb/vortex/pull/2896))
+- Support all non-timezone temporal types in vx ([#2971](https://github.com/spiraldb/vortex/pull/2971))
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-proto` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.28.0...vortex-proto-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
+## `vortex-flatbuffers` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.28.0...vortex-flatbuffers-v0.29.0) - 2025-04-17
+
+### Other
+- Postscript Segments ([#3011](https://github.com/spiraldb/vortex/pull/3011))
+
+## `vortex-error` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.28.0...vortex-error-v0.29.0) - 2025-04-17
+
+### Other
+- Cleanup readme ([#2968](https://github.com/spiraldb/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/spiraldb/vortex/pull/2933))
+
 ## `vortex-tui` - [0.28.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.27.0...vortex-tui-v0.28.0) - 2025-04-07
 
 ### Other
