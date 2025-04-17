@@ -396,7 +396,7 @@ impl Scheme for BitPackingScheme {
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let histogram = bit_width_histogram(stats.source())?;
-        let bw = find_best_bit_width(stats.source(), &histogram)?;
+        let bw = find_best_bit_width(stats.source().ptype(), &histogram)?;
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());

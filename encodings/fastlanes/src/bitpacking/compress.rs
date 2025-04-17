@@ -23,7 +23,7 @@ use crate::unpack_iter::BitPacked;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
     let bit_width_freq = bit_width_histogram(array)?;
-    let best_bit_width = find_best_bit_width(array, &bit_width_freq)?;
+    let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
 
@@ -377,8 +377,8 @@ pub unsafe fn unpack_single_primitive<T: NativePType + BitPacking>(
     unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
 }
 
-pub fn find_best_bit_width(array: &PrimitiveArray, bit_width_freq: &[usize]) -> VortexResult<u8> {
-    best_bit_width(bit_width_freq, bytes_per_exception(array.ptype()))
+pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResult<u8> {
+    best_bit_width(bit_width_freq, bytes_per_exception(ptype))
 }
 
 /// Assuming exceptions cost 1 value + 1 u32 index, figure out the best bit-width to use.

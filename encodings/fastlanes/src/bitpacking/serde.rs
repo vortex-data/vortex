@@ -114,7 +114,7 @@ impl EncodingVTable for BitPackedEncoding {
             Some(bw) => (bw, None),
             None => {
                 let histogram = bit_width_histogram(&parray)?;
-                let bit_width = find_best_bit_width(&parray, &histogram)?;
+                let bit_width = find_best_bit_width(parray.ptype(), &histogram)?;
                 (bit_width, Some(histogram))
             }
         };
