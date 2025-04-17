@@ -37,7 +37,6 @@ datafusion = { workspace = true, features = [
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
-duckdb = { workspace = true }
 enum-iterator = { workspace = true }
 futures = { workspace = true }
 governor = { workspace = true }

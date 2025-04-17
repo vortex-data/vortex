@@ -477,7 +477,6 @@ dependencies = [
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
- "duckdb",
  "enum-iterator",
  "futures",
  "governor",
