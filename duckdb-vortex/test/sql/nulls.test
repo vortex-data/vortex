@@ -1,5 +1,5 @@
 # name: test/sql/nulls.test
-# description: test simple tables with the vortex extension
+# description: test nullable values
 # group: [vortex]
 
 # Before we load the extension, this will fail
