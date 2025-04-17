@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.29.1](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.29.0...vortex-datafusion-v0.29.1) - 2025-04-17
+
+### Fixed
+- `ObjectStoreWriter` chunk sizes and buffering ([#2923](https://github.com/spiraldb/vortex/pull/2923))
+
+## `vortex-io` - [0.29.1](https://github.com/spiraldb/vortex/compare/vortex-io-v0.29.0...vortex-io-v0.29.1) - 2025-04-17
+
+### Fixed
+- `ObjectStoreWriter` chunk sizes and buffering ([#2923](https://github.com/spiraldb/vortex/pull/2923))
+
 ## `vortex-tui` - [0.29.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.28.0...vortex-tui-v0.29.0) - 2025-04-17
 
 ### Fixed
