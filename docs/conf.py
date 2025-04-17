@@ -1,5 +1,4 @@
 import doctest
-import sys
 from pathlib import Path
 
 # Configuration file for the Sphinx documentation builder.
@@ -83,14 +82,6 @@ ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
 bibtex_bibfiles = ["references.bib"]
 
 # -- Options for hawkmoth C API gen ----------------------------
-
-# If running on macOS, configure the clang dylib path.
-if sys.platform == "darwin":
-    import clang.cindex
-
-    clang.cindex.Config.library_file = (
-        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib"
-    )
 
 hawkmoth_root = str(git_root / "vortex-ffi/cinclude")
 
