@@ -37,7 +37,6 @@ trailer = """
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
 
-
 [parse]
 parse_deps = true
 include = ["vortex", "vortex-dtype"]

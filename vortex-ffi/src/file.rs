@@ -33,6 +33,7 @@ pub struct vx_file_writer {
     inner: File,
 }
 
+/// A file reader that can be used to read from a file.
 #[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
@@ -242,8 +243,8 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any `vx_array_stream`s that were built from this
-/// file.
+/// This function will not automatically free any :c:func:`vx_array_stream` that were built from
+/// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
     drop(Box::from_raw(file));

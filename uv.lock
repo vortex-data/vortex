@@ -140,6 +140,15 @@ wheels = [
 ]
 
 [[package]]
+name = "clang"
+version = "17.0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/39/b56db712f3879d7e96ed5e747d9024308b0d8001df7daf60ad3fc8078aa9/clang-17.0.6.tar.gz", hash = "sha256:d228511e6a29e866dcbe99e10ed10649317b9b3e636ba805f6867b7afb6e8c44", size = 32167 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/c6/e5141f7780fe401c5749faa69b3dca5f4a19236528d544733585e291d13a/clang-17.0.6-py3-none-any.whl", hash = "sha256:d05ad6dddc9b360e94b9420e239c639a9117902cce8a57fd288a5226eea3092e", size = 32121 },
+]
+
+[[package]]
 name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
@@ -174,12 +183,15 @@ name = "docs"
 version = "0.1.0"
 source = { virtual = "docs" }
 dependencies = [
+    { name = "clang" },
     { name = "furo" },
+    { name = "hawkmoth" },
     { name = "myst-parser" },
     { name = "setuptools" },
     { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "sphinx", version = "8.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sphinx-autobuild" },
+    { name = "sphinx-c-autodoc" },
     { name = "sphinx-copybutton" },
     { name = "sphinx-inline-tabs" },
     { name = "sphinxcontrib-bibtex" },
@@ -189,11 +201,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "clang", specifier = "==17.*" },
     { name = "furo", specifier = ">=2024.8.6" },
+    { name = "hawkmoth", specifier = ">=0.20.0" },
     { name = "myst-parser", specifier = ">=4.0.0" },
     { name = "setuptools", specifier = ">=75.8.0" },
     { name = "sphinx", specifier = ">=8.0.2" },
     { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
+    { name = "sphinx-c-autodoc", specifier = ">=1.5.0" },
     { name = "sphinx-copybutton", specifier = ">=0.5.2" },
     { name = "sphinx-inline-tabs", specifier = ">=2023.4.21" },
     { name = "sphinxcontrib-bibtex", specifier = ">=2.6.3" },
@@ -291,6 +306,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f5/38/3af3d3633a34a3316095b39c8e8fb4853a28a536e55d347bd8d8e9a14b03/h11-0.14.0.tar.gz", hash = "sha256:8f19fbbe99e72420ff35c00b27a34cb9937e902a8b810e2c88300c6f0a3b699d", size = 100418 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl", hash = "sha256:e3fe4ac4b851c468cc8363d500db52c2ead036020723024a109d37346efaa761", size = 58259 },
+]
+
+[[package]]
+name = "hawkmoth"
+version = "0.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "sphinx", version = "8.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/76/f283d720133609d38fce1ea16825fea6ddfe2b753c133c7bf60d820fc666/hawkmoth-0.20.0.tar.gz", hash = "sha256:262e16cd10163fc1fdc7814447056898fea137f2992f33bcc37a39bef835c4bf", size = 25540 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/bf/fc3016a5be600e5eb76ac9a90732c185c9a5c005bf89ef5d9948a888f1a3/hawkmoth-0.20.0-py3-none-any.whl", hash = "sha256:910e1970a6edd8b41698e80da04a26ac8c906b7ff298001be9ca50de878526bd", size = 31687 },
 ]
 
 [[package]]
@@ -1283,6 +1311,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/98/0b/a866924ded68efec7a1759587a4e478aec7559d8165fac8b2ad1c0e774d6/sphinx_basic_ng-1.0.0b2.tar.gz", hash = "sha256:9ec55a47c90c8c002b5960c57492ec3021f5193cb26cebc2dc4ea226848651c9", size = 20736 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/dd/018ce05c532a22007ac58d4f45232514cd9d6dd0ee1dc374e309db830983/sphinx_basic_ng-1.0.0b2-py3-none-any.whl", hash = "sha256:eb09aedbabfb650607e9b4b68c9d240b90b1e1be221d6ad71d61c52e29f7932b", size = 22496 },
+]
+
+[[package]]
+name = "sphinx-c-autodoc"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "clang" },
+    { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "sphinx", version = "8.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/05/15f227c4c474a2533cbc0b3c1a03a431235d968a6d77486b9dad91493cdc/sphinx_c_autodoc-1.5.0.tar.gz", hash = "sha256:352911f21ee9f2ca37dfeb7a123c2a5391d8ad0a0e562153ff50260dc4d7f5cd", size = 31612 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/80/034f31ff38e360cbbf432f8608589f55cf95bbfdcafcee317b24c94dfbcc/sphinx_c_autodoc-1.5.0-py3-none-any.whl", hash = "sha256:4604444dcc0eaabf2c165e792a95498dd942c8bebd0d3d435b2501a6d1564089", size = 35233 },
 ]
 
 [[package]]

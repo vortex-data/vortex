@@ -26,7 +26,8 @@ Vortex ships with an extensible file format supporting:
 * Zero-copy reads from memory-mapped files.
 * FlatBuffer metadata to support ultra-wide schemas (>>100k columns) with O(1) column access.
 * Fully customizable layouts and encodings (row-groups, column-groups -- the writer decides).
-* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels for new encodings.
+* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels for new
+  encodings.
 
 ## Over-the-wire
 
@@ -94,6 +95,7 @@ caption: API Documentation
 
 Python API <api/python/index>
 Rust API <https://docs.rs/vortex>
+C FFI API <api/c/ffi>
 ```
 
 ## User Guides

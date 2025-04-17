@@ -3,6 +3,7 @@ use std::ptr;
 
 use vortex::error::VortexResult;
 
+/// The error structure populated by fallible Vortex C functions.
 #[repr(C)]
 pub struct vx_error {
     pub code: c_int,
