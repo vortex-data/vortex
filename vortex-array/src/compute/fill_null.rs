@@ -1,6 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -30,7 +31,7 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
     }
 
     if array.invalid_count()? == 0 {
-        return Ok(array.to_array());
+        return try_cast(array, fill_value.dtype());
     }
 
     if fill_value.is_null() {
