@@ -29,6 +29,10 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
         return Ok(array.to_array());
     }
 
+    if array.invalid_count()? == 0 {
+        return Ok(array.to_array());
+    }
+
     if fill_value.is_null() {
         vortex_bail!("Cannot fill_null with a null value")
     }
