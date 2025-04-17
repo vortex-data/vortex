@@ -491,7 +491,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parquet",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rand_distr",
  "rayon",
  "regex",
@@ -2033,7 +2033,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "988360e80225a42d5e2f78fcb90ef7d54d1e4394d335476b5465d34942426776"
 dependencies = [
  "ordered-float 5.0.0",
- "rand 0.9.0",
+ "rand 0.9.1",
 ]
 
 [[package]]
@@ -2388,7 +2388,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta",
- "rand 0.9.0",
+ "rand 0.9.1",
  "smallvec",
  "spinning_top",
  "web-time",
@@ -3678,7 +3678,7 @@ dependencies = [
  "glob",
  "opentelemetry",
  "percent-encoding",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde_json",
  "thiserror 2.0.12",
  "tracing",
@@ -4245,7 +4245,7 @@ checksum = "b820744eb4dc9b57a3398183639c511b5a26d2ed702cedd3febaa1393caa22cc"
 dependencies = [
  "bytes",
  "getrandom 0.3.2",
- "rand 0.9.0",
+ "rand 0.9.1",
  "ring",
  "rustc-hash",
  "rustls",
@@ -4314,13 +4314,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
- "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -4368,7 +4367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
 ]
 
 [[package]]
@@ -5923,7 +5922,7 @@ dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rstest",
  "rustc-hash",
  "serde",
@@ -5966,7 +5965,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "pin-project",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rstest",
  "rstest_reuse",
@@ -5993,7 +5992,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rustc-hash",
  "vortex-alp",
  "vortex-array",
@@ -6060,7 +6059,7 @@ dependencies = [
  "moka",
  "object_store",
  "pin-project",
- "rand 0.9.0",
+ "rand 0.9.1",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -6100,7 +6099,7 @@ dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rustc-hash",
  "vortex-array",
@@ -6206,7 +6205,7 @@ dependencies = [
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rstest",
  "rstest_reuse",
@@ -6295,7 +6294,7 @@ dependencies = [
  "arrow-array",
  "codspeed-divan-compat",
  "fsst-rs",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -6446,7 +6445,7 @@ dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde",
  "vortex-array",
  "vortex-buffer",
