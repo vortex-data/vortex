@@ -15,7 +15,6 @@ dependencies = [
     "sphinxcontrib-bibtex>=2.6.3",
     "sphinxext-opengraph>=0.9.1",
     "vortex-array",
-    "sphinx-c-autodoc>=1.5.0",
     "clang==17.*", # MacOS ships Clang 17 right now
 ]
 requires-python = ">= 3.10"
