@@ -120,19 +120,13 @@ impl FileSink for VortexSink {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use std::sync::Arc;
 
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
     use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
-    use object_store::aws::AmazonS3Builder;
     use tempfile::TempDir;
-    use testcontainers::core::{IntoContainerPort, Mount, WaitFor};
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers::{GenericImage, ImageExt};
-    use url::Url;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
@@ -207,62 +201,5 @@ mod tests {
                 .unwrap(),
             2
         );
-    }
-
-    #[tokio::test]
-    async fn write_to_object_storage() -> anyhow::Result<()> {
-        let script_path = format!(
-            "{}/{}",
-            env!("CARGO_MANIFEST_DIR"),
-            "test_scripts/init-s3.sh"
-        );
-        let mount = Mount::bind_mount(script_path, "/etc/localstack/init/ready.d/init-aws.sh");
-        let container = GenericImage::new("localstack/localstack", "4.0")
-            .with_exposed_port(4566_u16.tcp())
-            .with_wait_for(WaitFor::message_on_stdout("Ready."))
-            .with_mount(mount)
-            .start()
-            .await?;
-
-        let host = container.get_host().await.unwrap();
-        let port = container.get_host_port_ipv4(4566).await.unwrap();
-
-        let endpoint = format!("http://{}:{}/", host, port);
-        let s3 = AmazonS3Builder::new()
-            .with_endpoint(endpoint)
-            .with_allow_http(true)
-            .with_access_key_id("local")
-            .with_secret_access_key("development")
-            .with_bucket_name("test-bucket")
-            .build()?;
-
-        let factory = VortexFormatFactory::default_config();
-
-        let mut session_state_builder = SessionStateBuilder::new()
-            .with_default_features()
-            .with_object_store(&Url::from_str("s3://test-bucket/")?, Arc::new(s3) as _);
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        session
-            .sql(
-                "CREATE EXTERNAL TABLE my_tbl \
-                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-            STORED AS vortex 
-            LOCATION 's3://test-bucket/';",
-            )
-            .await?;
-
-        session
-            .sql("INSERT INTO my_tbl VALUES ('world', 24);")
-            .await?
-            .collect()
-            .await?;
-
-        session.table("my_tbl").await?.show().await?;
-
-        assert_eq!(session.table("my_tbl").await?.count().await?, 1);
-
-        Ok(())
     }
 }

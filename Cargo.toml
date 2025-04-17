@@ -163,7 +163,6 @@ static_assertions = "1.1"
 tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
-testcontainers = "0.23"
 thiserror = "2.0.3"
 tikv-jemallocator = "0.6"
 tokio = "1.44.2"
