@@ -132,6 +132,46 @@ where
     }
 }
 
+/// A utility wrapper for Prost metadata serialization.
+pub struct ProstMetadata<M>(pub M);
+
+impl<M: Debug> Debug for ProstMetadata<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<M> SerializeMetadata for ProstMetadata<M>
+where
+    M: prost::Message,
+{
+    fn serialize(&self) -> Option<Vec<u8>> {
+        Some(self.0.encode_to_vec())
+    }
+}
+
+impl<M> DeserializeMetadata for ProstMetadata<M>
+where
+    M: Debug,
+    M: prost::Message + Default,
+{
+    type Output = M;
+
+    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
+        let bytes =
+            metadata.ok_or_else(|| vortex_err!("Prost metadata requires metadata bytes"))?;
+        Ok(M::decode(bytes)?)
+    }
+
+    #[allow(clippy::use_debug)]
+    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match Self::deserialize(metadata) {
+            Ok(m) => write!(f, "{:?}", m),
+            Err(_) => write!(f, "Failed to deserialize metadata"),
+        }
+    }
+}
+
 /// A utility wrapper for automating the serialization of metadata using [serde](docs.rs/serde) into [flexbuffers](https://docs.rs/flexbuffers/latest/flexbuffers/).
 pub struct SerdeMetadata<M>(pub M);
 

@@ -5965,6 +5965,8 @@ dependencies = [
  "parking_lot",
  "paste",
  "pin-project",
+ "prost",
+ "prost-types",
  "rand 0.9.1",
  "rkyv 0.8.10",
  "rstest",
