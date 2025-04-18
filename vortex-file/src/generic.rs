@@ -83,7 +83,6 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
             self.segment_cache.clone(),
             segment_source,
-            false,
         ));
 
         let read = InstrumentedReadAt::new(self.read.clone(), &metrics);

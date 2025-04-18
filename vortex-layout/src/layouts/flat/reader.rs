@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared, WeakShared};
+use futures::future::{BoxFuture, Shared};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
@@ -12,13 +12,12 @@ use crate::segments::SegmentSource;
 use crate::{Layout, LayoutVTable};
 
 pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
-pub(crate) type WeakSharedArray = WeakShared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 pub struct FlatReader {
     pub(crate) layout: Layout,
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     pub(crate) ctx: ArrayContext,
-    pub(crate) array: Mutex<Option<WeakSharedArray>>,
+    pub(crate) array: OnceLock<SharedArray>,
 }
 
 impl FlatReader {
@@ -53,29 +52,26 @@ impl FlatReader {
             .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
         let row_count = usize::try_from(self.layout.row_count())?;
 
-        let mut guard = self.array.lock().vortex_expect("poisoned lock");
-
-        // Attempt to upgrade the weak shared future if one exists.
-        if let Some(array) = guard.as_ref().and_then(|fut| fut.upgrade()) {
-            return Ok(array);
-        }
-
-        // Otherwise, create a new future.
-        let ctx = self.ctx.clone();
-        let dtype = self.layout.dtype().clone();
+        // We create the segment_fut here to ensure we give the segment reader visibility into
+        // how to prioritize this segment, even if the `array` future has already been initialized.
+        // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(segment_id, self.layout.name());
-        let fut = async move {
-            let segment = segment_fut.await?;
-            ArrayParts::try_from(segment)?
-                .decode(&ctx, dtype.clone(), row_count)
-                .map_err(Arc::new)
-        }
-        .boxed()
-        .shared();
 
-        *guard = fut.downgrade();
-
-        Ok(fut)
+        Ok(self
+            .array
+            .get_or_init(|| {
+                let ctx = self.ctx.clone();
+                let dtype = self.layout.dtype().clone();
+                async move {
+                    let segment = segment_fut.await?;
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, dtype.clone(), row_count)
+                        .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            })
+            .clone())
     }
 }
 
