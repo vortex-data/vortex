@@ -1,3 +1,8 @@
+//! This module defines the file statistics component of the Vortex file footer.
+//!
+//! File statistics provide metadata about the data in the file, such as min/max values,
+//! null counts, and other statistical information that can be used for query optimization
+//! and data exploration.
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
@@ -6,8 +11,16 @@ use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
 use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
 
+/// Contains statistical information about the data in a Vortex file.
+///
+/// This struct wraps an array of `StatsSet` objects, each containing statistics
+/// for a field or column in the file. These statistics can be used for query
+/// optimization and data exploration.
 #[derive(Clone, Debug)]
-pub(crate) struct FileStatistics(pub(crate) Arc<[StatsSet]>);
+pub(crate) struct FileStatistics(
+    /// An array of statistics sets, one for each field or column in the file.
+    pub(crate) Arc<[StatsSet]>,
+);
 
 impl FlatBufferRoot for FileStatistics {}
 

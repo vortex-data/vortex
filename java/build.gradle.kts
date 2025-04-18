@@ -4,7 +4,7 @@ plugins {
     id("com.diffplug.spotless") version "7.0.3"
     id("com.palantir.consistent-versions") version "2.32.0"
     id("com.palantir.git-version") version "3.2.0"
-    id("net.ltgt.errorprone") version "4.1.0" apply false
+    id("net.ltgt.errorprone") version "4.2.0" apply false
     id("org.inferred.processors") version "3.7.0" apply false
     id("com.google.protobuf") version "0.9.5" apply false
     id("com.vanniktech.maven.publish") version "0.31.0" apply false

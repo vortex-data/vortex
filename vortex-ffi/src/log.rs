@@ -1,6 +1,7 @@
 use log::LevelFilter;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 
+/// Log levels for the Vortex library.
 #[repr(C)]
 #[allow(non_camel_case_types)]
 pub enum vx_log_level {

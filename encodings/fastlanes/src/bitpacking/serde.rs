@@ -10,7 +10,7 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use super::{BitPackedEncoding, find_best_bit_width};
+use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
 use crate::{BitPackedArray, bitpack_encode};
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -110,9 +110,13 @@ impl EncodingVTable for BitPackedEncoding {
 
         // In our current benchmark suite this seems to be the faster option,
         // but it has an unbounded worst-case where some array becomes all patches.
-        let bit_width = match bit_width {
-            Some(bw) => bw,
-            None => find_best_bit_width(&parray)?,
+        let (bit_width, bit_width_histogram) = match bit_width {
+            Some(bw) => (bw, None),
+            None => {
+                let histogram = bit_width_histogram(&parray)?;
+                let bit_width = find_best_bit_width(parray.ptype(), &histogram)?;
+                (bit_width, Some(histogram))
+            }
         };
 
         let array = if bit_width as usize == parray.ptype().bit_width()
@@ -121,7 +125,7 @@ impl EncodingVTable for BitPackedEncoding {
         {
             parray.into_array()
         } else {
-            bitpack_encode(&parray, bit_width)?.into_array()
+            bitpack_encode(&parray, bit_width, bit_width_histogram.as_deref())?.into_array()
         };
 
         Ok(Some(array))

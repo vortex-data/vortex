@@ -63,6 +63,9 @@ extern "C" {
 
 #define DTYPE_EXTENSION 17
 
+/**
+ * Log levels for the Vortex library.
+ */
 typedef enum vx_log_level {
   LOG_LEVEL_OFF = 0,
   LOG_LEVEL_ERROR = 1,
@@ -98,10 +101,16 @@ typedef struct vx_array_stream vx_array_stream;
 typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
 
+/**
+ * A file reader that can be used to read from a file.
+ */
 typedef struct vx_file_reader vx_file_reader;
 
 typedef struct vx_file_writer vx_file_writer;
 
+/**
+ * The error structure populated by fallible Vortex C functions.
+ */
 typedef struct vx_error {
   int code;
   const char *message;
@@ -358,8 +367,8 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
 /**
  * Free the file and all associated resources.
  *
- * This function will not automatically free any `vx_array_stream`s that were built from this
- * file.
+ * This function will not automatically free any :c:func:`vx_array_stream` that were built from
+ * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);
 

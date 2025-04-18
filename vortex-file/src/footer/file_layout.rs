@@ -1,3 +1,9 @@
+//! This module defines the file layout component of the Vortex file footer.
+//!
+//! The file layout describes the structure of the data in the file, including:
+//! - The root layout of the file
+//! - Specifications for all segments in the file
+//! - Specifications for array and layout encodings used in the file
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
@@ -7,9 +13,16 @@ use vortex_layout::{Layout, LayoutContext};
 
 use crate::footer::segment::SegmentSpec;
 
+/// A writer for serializing a file layout to a FlatBuffer.
+///
+/// This struct is used to write the layout component of a Vortex file footer,
+/// which describes the structure of the data in the file.
 pub(crate) struct FileLayoutFlatBufferWriter {
+    /// The array context containing encodings used in the file.
     pub(crate) ctx: ArrayContext,
+    /// The root layout of the file.
     pub(crate) layout: Layout,
+    /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
 }
 

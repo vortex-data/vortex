@@ -1,3 +1,11 @@
+//! This module defines the footer of a Vortex file, which contains metadata about the file's contents.
+//!
+//! The footer includes:
+//! - The file's layout, which describes how the data is organized
+//! - Statistics about the data, which can be used for query optimization
+//! - Segment map, which describe the physical location of data in the file
+//!
+//! The footer is located at the end of the file and is used to interpret the file's contents.
 mod file_layout;
 mod file_statistics;
 mod postscript;

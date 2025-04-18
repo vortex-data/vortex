@@ -210,7 +210,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexUnwrap;
 
-    use crate::{BitPackedArray, find_best_bit_width};
+    use crate::{BitPackedArray, bit_width_histogram, find_best_bit_width};
 
     #[apply(search_sorted_conformance)]
     fn bitpacking_search_sorted(
@@ -219,9 +219,12 @@ mod test {
         #[case] side: SearchSortedSide,
         #[case] expected: SearchResult,
     ) {
+        use vortex_array::variants::PrimitiveArrayTrait;
+
         let primitive_array = array.to_primitive().vortex_unwrap();
         // force patches
-        let width = find_best_bit_width(&primitive_array)
+        let histogram = bit_width_histogram(&primitive_array).vortex_unwrap();
+        let width = find_best_bit_width(primitive_array.ptype(), &histogram)
             .vortex_unwrap()
             .saturating_sub(2);
         let bitpacked = BitPackedArray::encode(&primitive_array, width).vortex_unwrap();

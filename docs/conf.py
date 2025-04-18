@@ -1,4 +1,5 @@
 import doctest
+from pathlib import Path
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -16,6 +17,7 @@ author = "Spiral"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "hawkmoth",  # C API
     "myst_parser",  # Markdown support
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
@@ -39,7 +41,10 @@ intersphinx_mapping = {
     "polars": ("https://docs.pola.rs/api/python/stable", None),
 }
 
+git_root = Path(__file__).parent.parent
+
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
+nitpick_ignore = []
 
 doctest_global_setup = "import pyarrow; import vortex"
 doctest_default_flags = (
@@ -75,3 +80,22 @@ ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
 # -- Options for Sphinx BibTEX -------------------------------------------
 
 bibtex_bibfiles = ["references.bib"]
+
+# -- Options for hawkmoth C API gen ----------------------------
+
+hawkmoth_root = str(git_root / "vortex-ffi/cinclude")
+
+# C types that aren't keywords are not found, so we need to ignore them.
+nitpick_ignore += [
+    ("c:identifier", "bool"),
+    ("c:identifier", "usize_t"),
+    ("c:identifier", "size_t"),
+    ("c:identifier", "uint64_t"),
+    ("c:identifier", "int64_t"),
+    ("c:identifier", "uint32_t"),
+    ("c:identifier", "int32_t"),
+    ("c:identifier", "uint16_t"),
+    ("c:identifier", "int16_t"),
+    ("c:identifier", "uint8_t"),
+    ("c:identifier", "int8_t"),
+]

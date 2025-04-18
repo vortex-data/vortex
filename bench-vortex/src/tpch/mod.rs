@@ -14,7 +14,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
 use crate::Format;
-use crate::engines::df::{get_session_with_cache, make_object_store};
+use crate::engines::df::{get_session_context, make_object_store};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -37,8 +37,12 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 ];
 
 // Generate table dataset.
-pub async fn load_datasets(base_dir: &Url, format: Format) -> anyhow::Result<SessionContext> {
-    let context = get_session_with_cache();
+pub async fn load_datasets(
+    base_dir: &Url,
+    format: Format,
+    disable_datafusion_cache: bool,
+) -> anyhow::Result<SessionContext> {
+    let context = get_session_context(disable_datafusion_cache);
 
     let object_store = make_object_store(&context, base_dir)?;
 

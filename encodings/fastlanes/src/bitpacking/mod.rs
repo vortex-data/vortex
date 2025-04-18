@@ -218,7 +218,7 @@ impl BitPackedArray {
     /// error will be returned.
     pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveArray>() {
-            bitpack_encode(parray, bit_width)
+            bitpack_encode(parray, bit_width, None)
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");
         }
