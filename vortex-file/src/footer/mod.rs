@@ -165,7 +165,10 @@ impl Footer {
 
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> VortexResult<u64> {
-        Ok(self.layout()?.row_count())
+        self.statistics
+            .as_ref()
+            .map(|s| Ok(s.1))
+            .unwrap_or_else(|| Ok(self.layout()?.row_count()))
     }
 
     pub fn nbytes(&self) -> usize {

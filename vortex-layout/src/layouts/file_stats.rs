@@ -16,6 +16,7 @@ use crate::{Layout, LayoutWriter};
 pub struct FileStatsLayoutWriter {
     inner: Box<dyn LayoutWriter>,
     stats: Arc<[Stat]>,
+    row_count: u64,
     stats_accumulators: Vec<StatsAccumulator>,
 }
 
@@ -37,23 +38,27 @@ impl FileStatsLayoutWriter {
             inner,
             stats,
             stats_accumulators,
+            row_count: 0,
         })
     }
 
     /// Returns one [`StatsSet`] per field in the [`DType::Struct`] of the layout.
-    pub fn into_stats_sets(self) -> Vec<StatsSet> {
-        self.stats_accumulators
-            .into_iter()
-            .map(|mut acc| {
-                acc.as_stats_table()
-                    .map(|table| {
-                        table
-                            .to_stats_set(&self.stats)
-                            .vortex_expect("shouldn't fail to convert table we just created")
-                    })
-                    .unwrap_or_default()
-            })
-            .collect()
+    pub fn into_stats_sets(self) -> (Vec<StatsSet>, u64) {
+        (
+            self.stats_accumulators
+                .into_iter()
+                .map(|mut acc| {
+                    acc.as_stats_table()
+                        .map(|table| {
+                            table
+                                .to_stats_set(&self.stats)
+                                .vortex_expect("shouldn't fail to convert table we just created")
+                        })
+                        .unwrap_or_default()
+                })
+                .collect(),
+            self.row_count,
+        )
     }
 }
 
@@ -73,6 +78,7 @@ impl LayoutWriter for FileStatsLayoutWriter {
                 }
             }
         }
+        self.row_count += chunk.len() as u64;
         self.inner.push_chunk(segment_writer, chunk)
     }
 

@@ -37,7 +37,7 @@ impl ReadFlatBuffer for FileStatistics {
             .iter()
             .map(|s| StatsSet::read_flatbuffer(&s))
             .try_collect()?;
-        Ok(Self(Arc::from(field_stats)))
+        Ok(Self(Arc::from(field_stats), fb.row_count()))
     }
 }
 
