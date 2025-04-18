@@ -141,16 +141,17 @@ static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> 
 		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
 		vx_error *error = nullptr;
 
-		auto* duckdb_type = vx_dtype_to_duckdb_logical_type(field_dtype, &error);
+		auto duckdb_type = vx_dtype_to_duckdb_logical_type(field_dtype, &error);
 		HandleError(error);
 
-		// Create proper C++ object - use std::unique_ptr for exception safety
-		// Let the unique_ptr destructor now handle cleanup, instead of callign duckdb_destroy_logical_type
-		std::unique_ptr<LogicalType> temp_duckdb_type(reinterpret_cast<LogicalType*>(duckdb_type));
-		column_types.push_back(*temp_duckdb_type);
-
 		column_names.push_back(field_name);
+		column_types.push_back(*reinterpret_cast<LogicalType *>(duckdb_type));
 		vx_dtype_free(field_dtype);
+
+		// The memory allocated by vx_dtype_to_duckdb_logical_type needs to be freed eventually.
+		// Since we are copying the LogicalType into the column_types vector,
+		// we should free the original allocation here.
+		duckdb_destroy_logical_type(&duckdb_type);
 	}
 }
 
