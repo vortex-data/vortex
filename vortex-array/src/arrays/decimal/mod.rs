@@ -2,8 +2,8 @@ mod serde;
 
 use std::iter::FromIterator;
 
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, DecimalDType, Nullability};
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
@@ -14,19 +14,19 @@ use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{
-    ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    IntoArray, try_from_array_ref,
+    ArrayComputeImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, try_from_array_ref,
 };
 
 pub struct DecimalEncoding;
+
+impl ComputeVTable for DecimalEncoding {}
 
 impl EncodingVTable for DecimalEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.decimal")
     }
 }
-
-impl ComputeVTable for DecimalEncoding {}
 
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;
@@ -83,6 +83,14 @@ impl DecimalArray {
             DType::Decimal(decimal_dtype, _) => *decimal_dtype,
             _ => vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype),
         }
+    }
+}
+
+impl ArrayComputeImpl for DecimalArray {}
+
+impl ArrayVisitorImpl<EmptyMetadata> for DecimalArray {
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
     }
 }
 

@@ -6463,6 +6463,7 @@ version = "0.31.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
+ "arrow-buffer",
  "datafusion-common",
  "flatbuffers 25.2.10",
  "flexbuffers",

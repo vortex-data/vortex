@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use arrow_array::*;
+use datafusion_common::arrow::datatypes::DECIMAL128_MAX_SCALE;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, vortex_bail, vortex_err};
@@ -71,6 +72,11 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         .map(|i| Arc::new(Float64Array::new_scalar(i)) as Arc<dyn Datum>)
                         .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
+            }
+            DType::Decimal(dt, ..) => {
+                if (dt.scale() >= DECIMAL128_MAX_SCALE) {
+                    Decimal256
+                }
             }
             DType::Utf8(_) => {
                 value_to_arrow_scalar!(value.as_utf8().value(), StringViewArray)

@@ -7,6 +7,7 @@ mod utf8;
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
+use arrow_buffer::i256;
 use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
@@ -29,6 +30,8 @@ pub(crate) enum InnerScalarValue {
     Null,
     Bool(bool),
     Primitive(PValue),
+    Decimal128(i128),
+    Decimal256(i256),
     Buffer(Arc<ByteBuffer>),
     BufferString(Arc<BufferString>),
     List(Arc<[ScalarValue]>),
@@ -78,6 +81,7 @@ impl Display for InnerScalarValue {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
             Self::Primitive(pvalue) => write!(f, "{}", pvalue),
+            Self::Decimal128(value) | Self::Decimal256(value) => write!(f, "{}", value),
             Self::Buffer(buf) => {
                 if buf.len() > 10 {
                     write!(
