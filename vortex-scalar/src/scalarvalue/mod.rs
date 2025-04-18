@@ -7,13 +7,13 @@ mod utf8;
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
-use arrow_buffer::i256;
 use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::ScalarType;
+use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
@@ -30,8 +30,7 @@ pub(crate) enum InnerScalarValue {
     Null,
     Bool(bool),
     Primitive(PValue),
-    Decimal128(i128),
-    Decimal256(i256),
+    Decimal(DecimalValue),
     Buffer(Arc<ByteBuffer>),
     BufferString(Arc<BufferString>),
     List(Arc<[ScalarValue]>),
@@ -81,7 +80,7 @@ impl Display for InnerScalarValue {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
             Self::Primitive(pvalue) => write!(f, "{}", pvalue),
-            Self::Decimal128(value) | Self::Decimal256(value) => write!(f, "{}", value),
+            Self::Decimal(value) => write!(f, "{:?}", value),
             Self::Buffer(buf) => {
                 if buf.len() > 10 {
                     write!(
@@ -143,6 +142,10 @@ impl ScalarValue {
         self.0.as_pvalue()
     }
 
+    pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+        self.0.as_decimal()
+    }
+
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         self.0.as_buffer()
     }
@@ -167,6 +170,9 @@ impl InnerScalarValue {
             (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
                 pvalue.is_instance_of(ptype)
             }
+            // Make sure the scalar value is of the right representation, either
+            // 128 or 256.
+            (InnerScalarValue::Decimal(_), DType::Decimal(..)) => true,
             (InnerScalarValue::Buffer(_), DType::Binary(_)) => true,
             (InnerScalarValue::BufferString(_), DType::Utf8(_)) => true,
             (InnerScalarValue::List(values), DType::List(dtype, _)) => {
@@ -205,6 +211,14 @@ impl InnerScalarValue {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Primitive(p) => Ok(Some(*p)),
             _ => Err(vortex_err!("Expected a primitive scalar, found {:?}", self)),
+        }
+    }
+
+    pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+        match self {
+            InnerScalarValue::Null => Ok(None),
+            InnerScalarValue::Decimal(v) => Ok(Some(*v)),
+            _ => Err(vortex_err!("Expected a decimal scalar, found {:?}", self)),
         }
     }
 

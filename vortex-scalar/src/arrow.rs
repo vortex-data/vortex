@@ -1,12 +1,18 @@
 use std::sync::Arc;
 
 use arrow_array::*;
-use datafusion_common::arrow::datatypes::DECIMAL128_MAX_SCALE;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, vortex_bail, vortex_err};
 
 use crate::Scalar;
+use crate::decimal::DecimalValue;
+
+/// The maximum precision for [DataType::Decimal128] values
+pub const DECIMAL128_MAX_PRECISION: u8 = 38;
+
+/// The maximum scale for [DataType::Decimal128] values
+pub const DECIMAL128_MAX_SCALE: i8 = 38;
 
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
@@ -73,11 +79,14 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
             }
-            DType::Decimal(dt, ..) => {
-                if (dt.scale() >= DECIMAL128_MAX_SCALE) {
-                    Decimal256
-                }
-            }
+            DType::Decimal(..) => match value.as_decimal().decimal_value() {
+                Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(*v128))),
+                Some(DecimalValue::I256(v256)) => Ok(Arc::new(Decimal256Array::new_scalar(*v256))),
+                // TODO(aduffy): we need to pick 128 or 256 based on the DecimalDType?
+                _ => Ok(Arc::new(arrow_array::Scalar::new(
+                    Decimal128Array::new_null(1),
+                ))),
+            },
             DType::Utf8(_) => {
                 value_to_arrow_scalar!(value.as_utf8().value(), StringViewArray)
             }

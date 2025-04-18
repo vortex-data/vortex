@@ -6,6 +6,7 @@ use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vortex_buffer::{BufferString, ByteBuffer};
 
+use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
 use crate::{InnerScalarValue, ScalarValue};
 
@@ -27,6 +28,7 @@ impl Serialize for InnerScalarValue {
             Self::Null => ().serialize(serializer),
             Self::Bool(b) => b.serialize(serializer),
             Self::Primitive(p) => p.serialize(serializer),
+            Self::Decimal(dv) => dv.serialize(serializer),
             // NOTE: we explicitly handle the serialization of bytes, strings and lists so as not
             //  to create ambiguities amongst them. The serde data model has specific representations
             //  of binary data, UTF-8 strings and sequences.
@@ -197,14 +199,22 @@ impl Serialize for PValue {
     }
 }
 
+impl Serialize for DecimalValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            DecimalValue::I128(value) => serializer.serialize_bytes(&value.to_le_bytes()),
+            DecimalValue::I256(value) => serializer.serialize_bytes(&value.to_le_bytes()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use flexbuffers::{FlexbufferSerializer, Reader};
     use rstest::rstest;
-    use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, FieldDType, Nullability, PType, StructDType};
 
     use super::*;
     use crate::Scalar;
@@ -213,8 +223,12 @@ mod tests {
     #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable))]
     #[case(Scalar::utf8("hello", Nullability::NonNullable))]
     #[case(Scalar::primitive(1u8, Nullability::NonNullable))]
-    #[case(Scalar::primitive(f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])), Nullability::NonNullable))]
-    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable))]
+    #[case(Scalar::primitive(
+        f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])),
+        Nullability::NonNullable
+    ))]
+    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable
+    ))]
     #[case(Scalar::struct_(DType::Struct(
         Arc::new(StructDType::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),

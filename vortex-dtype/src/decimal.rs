@@ -1,5 +1,12 @@
+use vortex_error::{VortexError, vortex_err};
+
+use crate::DType;
+
 const MAX_PRECISION: u8 = 76;
 const MAX_SCALE: i8 = 76;
+
+/// Maximum precision for a Decimal128 type from Arrow
+pub const DECIMAL128_MAX_PRECISION: u8 = 38;
 
 /// Parameters that define the precision and scale of a decimal type.
 ///
@@ -44,5 +51,27 @@ impl DecimalDType {
     /// zeros before the decimal point.
     pub fn scale(&self) -> i8 {
         self.scale
+    }
+}
+
+impl TryFrom<&DType> for DecimalDType {
+    type Error = VortexError;
+
+    fn try_from(value: &DType) -> Result<Self, Self::Error> {
+        match value {
+            DType::Decimal(dt, _) => Ok(*dt),
+            _ => Err(vortex_err!(
+                "Cannot convert DType {} into DecimalType",
+                value
+            )),
+        }
+    }
+}
+
+impl TryFrom<DType> for DecimalDType {
+    type Error = VortexError;
+
+    fn try_from(value: DType) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
     }
 }

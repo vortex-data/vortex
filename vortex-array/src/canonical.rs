@@ -6,7 +6,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
