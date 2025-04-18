@@ -22,7 +22,7 @@ use crate::footer::Footer;
 #[derive(Clone)]
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
-    pub(crate) footer: Footer,
+    pub(crate) footer: Arc<Footer>,
     /// A factory for creating segment sources that read data from the file.
     pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
     /// Metrics tied to the file.
@@ -41,7 +41,7 @@ impl VortexFile {
     }
 
     /// Returns the data type of the file's contents.
-    pub fn dtype(&self) -> VortexResult<&DType> {
+    pub fn dtype(&self) -> &DType {
         self.footer.dtype()
     }
 

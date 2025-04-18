@@ -204,7 +204,7 @@ impl FileFormat for VortexFormat {
                 let cache = self.file_cache.clone();
                 async move {
                     let vxf = cache.try_get(&o, store).await?;
-                    let inferred_schema = vxf.dtype()?.to_arrow_schema()?;
+                    let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
             })
@@ -235,7 +235,7 @@ impl FileFormat for VortexFormat {
         let vxf = self.file_cache.try_get(object, store.clone()).await?;
 
         let struct_dtype = vxf
-            .dtype()?
+            .dtype()
             .as_struct()
             .vortex_expect("dtype is not a struct");
 

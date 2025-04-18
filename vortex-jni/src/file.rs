@@ -15,9 +15,7 @@ use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{
-    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
-};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
@@ -112,7 +110,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_dtype(
     _pointer: jlong,
 ) -> jlong {
     let file = unsafe { NativeFile::from_ptr(_pointer) };
-    file.inner.dtype().vortex_unwrap() as *const DType as jlong
+    file.inner.dtype() as *const DType as jlong
 }
 
 #[unsafe(no_mangle)]

@@ -51,7 +51,7 @@ impl LayoutCursor {
 
     pub fn new_with_path(footer: Footer, path: Vec<usize>) -> Self {
         let mut layout = footer.layout().vortex_unwrap().clone();
-        let mut dtype = footer.dtype().vortex_unwrap().clone();
+        let mut dtype = footer.dtype().clone();
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
             // Find the DType of the child based on the DType of the current node.

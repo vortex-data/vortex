@@ -43,6 +43,8 @@ table FileStatistics {
     /// Statistics for each field in the root schema. If the root schema is not a struct, there will
     /// be a single entry in this array.
     field_stats: [ArrayStats];
+    /// The number of rows of in this file.
+    row_count: uint64;
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,

@@ -665,6 +665,7 @@ impl<'a> flatbuffers::Follow<'a> for FileStatistics<'a> {
 
 impl<'a> FileStatistics<'a> {
   pub const VT_FIELD_STATS: flatbuffers::VOffsetT = 4;
+  pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -676,6 +677,7 @@ impl<'a> FileStatistics<'a> {
     args: &'args FileStatisticsArgs<'args>
   ) -> flatbuffers::WIPOffset<FileStatistics<'bldr>> {
     let mut builder = FileStatisticsBuilder::new(_fbb);
+    builder.add_row_count(args.row_count);
     if let Some(x) = args.field_stats { builder.add_field_stats(x); }
     builder.finish()
   }
@@ -690,6 +692,14 @@ impl<'a> FileStatistics<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats>>>>(FileStatistics::VT_FIELD_STATS, None)}
   }
+  /// The number of rows of in this file.
+  #[inline]
+  pub fn row_count(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(FileStatistics::VT_ROW_COUNT, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for FileStatistics<'_> {
@@ -700,18 +710,21 @@ impl flatbuffers::Verifiable for FileStatistics<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("field_stats", Self::VT_FIELD_STATS, false)?
+     .visit_field::<u64>("row_count", Self::VT_ROW_COUNT, false)?
      .finish();
     Ok(())
   }
 }
 pub struct FileStatisticsArgs<'a> {
     pub field_stats: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
+    pub row_count: u64,
 }
 impl<'a> Default for FileStatisticsArgs<'a> {
   #[inline]
   fn default() -> Self {
     FileStatisticsArgs {
       field_stats: None,
+      row_count: 0,
     }
   }
 }
@@ -724,6 +737,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b, A
   #[inline]
   pub fn add_field_stats(&mut self, field_stats: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayStats<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileStatistics::VT_FIELD_STATS, field_stats);
+  }
+  #[inline]
+  pub fn add_row_count(&mut self, row_count: u64) {
+    self.fbb_.push_slot::<u64>(FileStatistics::VT_ROW_COUNT, row_count, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
@@ -744,6 +761,7 @@ impl core::fmt::Debug for FileStatistics<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("FileStatistics");
       ds.field("field_stats", &self.field_stats());
+      ds.field("row_count", &self.row_count());
       ds.finish()
   }
 }

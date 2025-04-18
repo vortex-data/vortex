@@ -2,18 +2,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::ArrayRegistry;
 use vortex_array::aliases::DefaultHashBuilder;
-use vortex_array::stats::{Precision, Stat};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_file::segments::SegmentCache;
-use vortex_file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex_file::{VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::SegmentId;
 use vortex_metrics::VortexMetrics;
@@ -63,9 +60,7 @@ impl VortexFileCache {
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
                 log::trace!("Removed {:?} due to {:?}", k, cause);
             })
-            .weigher(|_k, vxf| {
-                u32::try_from(estimate_layout_size(vxf.footer())).unwrap_or(u32::MAX)
-            })
+            .weigher(|_k, vxf| u32::try_from(vxf.footer().nbytes()).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());
 
         let segment_cache = Cache::builder()
@@ -145,18 +140,4 @@ impl SegmentCache for VortexFileSegmentCache {
             .await;
         Ok(())
     }
-}
-
-/// Approximate the in-memory size of a layout
-fn estimate_layout_size(footer: &Footer) -> usize {
-    let segments_size = footer.segment_map().vortex_unwrap().len() * size_of::<SegmentSpec>();
-    let stats_size = footer.statistics().iter().map(|v| v.len()).sum::<usize>()
-        * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>());
-
-    let root_layout = footer.layout().vortex_unwrap();
-    let layout_size = size_of::<DType>()
-        + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
-        + root_layout.nsegments() * size_of::<SegmentId>();
-
-    segments_size + stats_size + layout_size
 }

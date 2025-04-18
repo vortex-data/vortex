@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use futures::{StreamExt, pin_mut};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentSource};
 use vortex_metrics::VortexMetrics;
@@ -11,7 +11,7 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{FileType, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -42,7 +42,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     pub async fn open<R: VortexReadAt + Send + Sync>(self, read: R) -> VortexResult<VortexFile> {
         let read = Arc::new(read);
-        let footer = self.read_footer(&read).await?;
+        let footer = Arc::new(self.read_footer(&read).await?);
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
             InitialReadSegmentCache {
@@ -54,7 +54,8 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         let segment_source_factory = Arc::new(GenericVortexFileIo {
             read,
-            segment_map: footer.segment_map()?.clone(),
+            segment_map: OnceLock::new(),
+            footer: footer.clone(),
             segment_cache,
             options: self.options,
         });
@@ -69,7 +70,8 @@ impl VortexOpenOptions<GenericVortexFile> {
 
 struct GenericVortexFileIo<R> {
     read: Arc<R>,
-    segment_map: Arc<[SegmentSpec]>,
+    segment_map: OnceLock<Arc<[SegmentSpec]>>,
+    footer: Arc<Footer>,
     segment_cache: Arc<dyn SegmentCache>,
     options: GenericFileOptions,
 }
@@ -89,7 +91,10 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
 
         let driver = CoalescedDriver::new(
             read.performance_hint(),
-            self.segment_map.clone(),
+            self.segment_map
+                .get_or_try_init(|| self.footer.segment_map().cloned())
+                .vortex_unwrap()
+                .clone(),
             events,
             metrics,
         );

@@ -20,6 +20,7 @@ use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer
 pub(crate) struct FileStatistics(
     /// An array of statistics sets, one for each field or column in the file.
     pub(crate) Arc<[StatsSet]>,
+    pub(crate) u64,
 );
 
 impl FlatBufferRoot for FileStatistics {}
@@ -54,6 +55,7 @@ impl WriteFlatBuffer for FileStatistics {
             fbb,
             &fb::FileStatisticsArgs {
                 field_stats: Some(field_stats),
+                row_count: self.1,
             },
         )
     }

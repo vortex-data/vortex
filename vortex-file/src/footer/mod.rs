@@ -20,10 +20,11 @@ use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::scalar::ScalarValue;
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
 use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 
@@ -158,12 +159,19 @@ impl Footer {
     }
 
     /// Returns the [`DType`] of the file.
-    pub fn dtype(&self) -> VortexResult<&DType> {
-        Ok(self.layout()?.dtype())
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> VortexResult<u64> {
         Ok(self.layout()?.row_count())
+    }
+
+    pub fn nbytes(&self) -> usize {
+        let stats_size = self.statistics().iter().map(|v| v.len()).sum::<usize>()
+            * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>());
+
+        size_of::<DType>() + stats_size + self.flatbuffer.len()
     }
 }

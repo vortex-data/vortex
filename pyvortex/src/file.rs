@@ -62,7 +62,7 @@ impl PyVortexFile {
     /// The dtype of the file.
     #[getter]
     fn dtype(slf: Bound<Self>) -> PyResult<Bound<PyDType>> {
-        PyDType::init(slf.py(), slf.get().vxf.dtype()?.clone())
+        PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
     /// Scan the Vortex file returning a :class:`vortex.ArrayIterator`.

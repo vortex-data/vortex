@@ -115,7 +115,7 @@ impl VortexWriteOptions {
         let statistics_segment = if self.file_statistics.is_empty() {
             None
         } else {
-            let file_statistics = FileStatistics(layout_writer.into_stats_sets().into());
+            let file_statistics = FileStatistics(layout_writer.into_stats_sets().into(), layout_writer.);
             Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
         };
 

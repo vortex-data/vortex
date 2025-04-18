@@ -14,7 +14,7 @@ use vortex_metrics::VortexMetrics;
 use crate::footer::{FileStatistics, Footer, Postscript};
 use crate::initial_read::InitialRead;
 use crate::segments::{NoOpSegmentCache, SegmentCache};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, SegmentSpec, VERSION};
+use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub trait FileType: Sized {
     type Options;
@@ -203,13 +203,13 @@ impl<F: FileType> VortexOpenOptions<F> {
         let file_stats = initial_read.parse_stats()?;
         let footer = self.parse_file_layout(initial_read, dtype, file_stats)?;
 
-        // If the initial read happened to cover any segments, then we can populate the
-        // segment cache
-        self.populate_initial_segments(
-            initial_read.initial_offset,
-            &initial_read.initial_read,
-            footer.segment_map()?,
-        );
+        // // If the initial read happened to cover any segments, then we can populate the
+        // // segment cache
+        // self.populate_initial_segments(
+        //     initial_read.initial_offset,
+        //     &initial_read.initial_read,
+        //     footer.segment_map()?,
+        // );
 
         Ok(footer)
     }
@@ -265,30 +265,30 @@ impl<F: FileType> VortexOpenOptions<F> {
         ))
     }
 
-    /// Populate segments in the cache that were covered by the initial read.
-    fn populate_initial_segments(
-        &self,
-        initial_offset: u64,
-        initial_read: &ByteBuffer,
-        segment_map: &Arc<[SegmentSpec]>,
-    ) {
-        let first_idx = segment_map.partition_point(|segment| segment.offset < initial_offset);
-
-        let mut initial_segments = self
-            .initial_read_segments
-            .write()
-            .vortex_expect("poisoned lock");
-
-        for idx in first_idx..segment_map.len() {
-            let segment = &segment_map[idx];
-            let segment_id =
-                SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
-            let offset =
-                usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
-                .aligned(segment.alignment);
-            initial_segments.insert(segment_id, buffer);
-        }
-    }
+    // /// Populate segments in the cache that were covered by the initial read.
+    // fn populate_initial_segments(
+    //     &self,
+    //     initial_offset: u64,
+    //     initial_read: &ByteBuffer,
+    //     segment_map: &Arc<[SegmentSpec]>,
+    // ) {
+    //     let first_idx = segment_map.partition_point(|segment| segment.offset < initial_offset);
+    //
+    //     let mut initial_segments = self
+    //         .initial_read_segments
+    //         .write()
+    //         .vortex_expect("poisoned lock");
+    //
+    //     for idx in first_idx..segment_map.len() {
+    //         let segment = &segment_map[idx];
+    //         let segment_id =
+    //             SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
+    //         let offset =
+    //             usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
+    //         let buffer = initial_read
+    //             .slice(offset..offset + (segment.length as usize))
+    //             .aligned(segment.alignment);
+    //         initial_segments.insert(segment_id, buffer);
+    //     }
+    // }
 }
