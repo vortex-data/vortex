@@ -12,7 +12,7 @@ use crate::{
     DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 
-#[derive(Clone, PartialEq, prost::Message)]
+#[derive(prost::Message)]
 pub struct BoolMetadata {
     // The offset in bits must be <8
     #[prost(uint32, tag = "1")]
