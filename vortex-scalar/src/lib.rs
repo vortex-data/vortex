@@ -29,6 +29,7 @@ mod utf8;
 
 pub use binary::*;
 pub use bool::*;
+pub use decimal::*;
 pub use extension::*;
 pub use list::*;
 pub use primitive::*;
@@ -37,8 +38,6 @@ pub use scalarvalue::*;
 pub use struct_::*;
 pub use utf8::*;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-
-use crate::decimal::DecimalScalar;
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -134,7 +133,7 @@ impl Scalar {
             DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
-            DType::Decimal(..) => self.as_decimal().cast(target),
+            DType::Decimal(..) => todo!("(aduffy): implement DecimalScalar casting"),
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
@@ -335,6 +334,17 @@ impl From<PrimitiveScalar<'_>> for Scalar {
         let value = pscalar
             .pvalue()
             .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
+        Self::new(dtype, value)
+    }
+}
+
+impl From<DecimalScalar<'_>> for Scalar {
+    fn from(decimal_scalar: DecimalScalar<'_>) -> Self {
+        let dtype = decimal_scalar.dtype().clone();
+        let value = decimal_scalar
+            .decimal_value()
+            .map(|value| ScalarValue(InnerScalarValue::Decimal(value)))
             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
         Self::new(dtype, value)
     }

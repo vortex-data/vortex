@@ -1,15 +1,12 @@
 use vortex_buffer::Alignment;
-use vortex_dtype::{DType, DecimalDType};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use super::{DecimalArray, DecimalEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, EncodingId,
-};
+use crate::{Array, ArrayContext, ArrayRef, Canonical, EncodingId};
 
 impl EncodingVTable for DecimalEncoding {
     fn id(&self) -> EncodingId {
@@ -63,19 +60,5 @@ impl EncodingVTable for DecimalEncoding {
         _like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(input.clone().into_decimal()?.into_array()))
-    }
-}
-
-impl ArrayVisitorImpl for DecimalArray {
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.byte_buffer());
-    }
-
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len());
-    }
-
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
     }
 }

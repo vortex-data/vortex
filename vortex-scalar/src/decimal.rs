@@ -3,8 +3,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use arrow_buffer::i256;
-use vortex_dtype::{DType, DecimalDType, PType, match_each_native_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{DType, DecimalDType};
+use vortex_error::{VortexError, VortexResult};
 
 use crate::{Scalar, ScalarValue};
 
@@ -33,26 +33,13 @@ impl<'a> DecimalScalar<'a> {
         })
     }
 
-    pub fn decimal_value(&self) -> &Option<DecimalValue> {
-        &self.value
+    #[inline]
+    pub fn dtype(&self) -> &'a DType {
+        self.dtype
     }
 
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let decimal_type = DecimalDType::try_from(dtype)?;
-        let value = self
-            .decimal_value()
-            .clone()
-            .vortex_expect("nullness handled in Scalar::cast");
-        // How does this work? I don't think we can safely cast, unless we're casting the nullability
-        // from non-null to null when we have a non-null value.
-        // Ok(match_each_native_ptype!(ptype, |$Q| {
-        //     Scalar::primitive(
-        //         pvalue
-        //             .as_primitive::<$Q>()
-        //             .map_err(|err| vortex_err!("Can't cast {} scalar {} to {} (cause: {})", self.ptype, pvalue, dtype, err))?,
-        //         dtype.nullability()
-        //     )
-        // }))
+    pub fn decimal_value(&self) -> &Option<DecimalValue> {
+        &self.value
     }
 }
 

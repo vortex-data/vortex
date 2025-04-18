@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use serde::de::{Error, SeqAccess, Visitor};
-use serde::ser::SerializeSeq;
+use serde::ser::{SerializeSeq, SerializeTupleStruct};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vortex_buffer::{BufferString, ByteBuffer};
 
@@ -199,14 +199,29 @@ impl Serialize for PValue {
     }
 }
 
+pub const DECIMAL128_SERDE_NAME: &str = "decimal128";
+pub const DECIMAL256_SERDE_NAME: &str = "decimal256";
+
 impl Serialize for DecimalValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match self {
-            DecimalValue::I128(value) => serializer.serialize_bytes(&value.to_le_bytes()),
-            DecimalValue::I256(value) => serializer.serialize_bytes(&value.to_le_bytes()),
+            DecimalValue::I128(value) => {
+                let mut tuple_writer =
+                    serializer.serialize_tuple_struct(DECIMAL128_SERDE_NAME, 1)?;
+                tuple_writer.serialize_field(value)?;
+                tuple_writer.end()
+            }
+            DecimalValue::I256(value) => {
+                let (low, high) = value.to_parts();
+                let mut tuple_writer =
+                    serializer.serialize_tuple_struct(DECIMAL256_SERDE_NAME, 2)?;
+                tuple_writer.serialize_field(&low)?;
+                tuple_writer.serialize_field(&high)?;
+                tuple_writer.end()
+            }
         }
     }
 }
@@ -215,6 +230,7 @@ impl Serialize for DecimalValue {
 mod tests {
     use flexbuffers::{FlexbufferSerializer, Reader};
     use rstest::rstest;
+    use vortex_dtype::Nullability;
 
     use super::*;
     use crate::Scalar;

@@ -1,7 +1,5 @@
 mod serde;
 
-use std::iter::FromIterator;
-
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
@@ -12,21 +10,15 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
-use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
+use crate::vtable::{ComputeVTable, VTableRef};
 use crate::{
     ArrayComputeImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, try_from_array_ref,
+    EmptyMetadata, Encoding, try_from_array_ref,
 };
 
 pub struct DecimalEncoding;
 
 impl ComputeVTable for DecimalEncoding {}
-
-impl EncodingVTable for DecimalEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
-    }
-}
 
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;

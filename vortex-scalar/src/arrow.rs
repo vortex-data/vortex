@@ -8,12 +8,6 @@ use vortex_error::{VortexError, vortex_bail, vortex_err};
 use crate::Scalar;
 use crate::decimal::DecimalValue;
 
-/// The maximum precision for [DataType::Decimal128] values
-pub const DECIMAL128_MAX_PRECISION: u8 = 38;
-
-/// The maximum scale for [DataType::Decimal128] values
-pub const DECIMAL128_MAX_SCALE: i8 = 38;
-
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
         Ok(std::sync::Arc::new(

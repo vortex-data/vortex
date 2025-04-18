@@ -52,6 +52,12 @@ impl DecimalDType {
     pub fn scale(&self) -> i8 {
         self.scale
     }
+
+    /// Decimal values exceeding the maximum precision of 38 digits cannot fit in an i128
+    /// representation.
+    pub fn fits_in_i128(&self) -> bool {
+        self.precision <= DECIMAL128_MAX_PRECISION
+    }
 }
 
 impl TryFrom<&DType> for DecimalDType {
