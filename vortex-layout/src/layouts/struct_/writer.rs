@@ -125,7 +125,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::LayoutWriterExt;
-    use crate::layouts::flat::writer::{FlatLayoutOptions, FlatLayoutWriter};
+    use crate::layouts::flat::writer::{FlatLayoutStrategy, FlatLayoutWriter};
     use crate::layouts::struct_::writer::StructLayoutWriter;
 
     #[test]
@@ -147,13 +147,13 @@ mod tests {
                 FlatLayoutWriter::new(
                     ArrayContext::empty(),
                     DType::Primitive(PType::I32, Nullability::NonNullable),
-                    FlatLayoutOptions::default(),
+                    FlatLayoutStrategy::default(),
                 )
                 .boxed(),
                 FlatLayoutWriter::new(
                     ArrayContext::empty(),
                     DType::Primitive(PType::I32, Nullability::NonNullable),
-                    FlatLayoutOptions::default(),
+                    FlatLayoutStrategy::default(),
                 )
                 .boxed(),
             ],

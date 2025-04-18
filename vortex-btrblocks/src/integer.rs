@@ -12,7 +12,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_fastlanes::{FoRArray, bitpack_encode, find_best_bit_width};
+use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -395,12 +395,13 @@ impl Scheme for BitPackingScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let bw = find_best_bit_width(stats.source())?;
+        let histogram = bit_width_histogram(stats.source())?;
+        let bw = find_best_bit_width(stats.source().ptype(), &histogram)?;
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let mut packed = bitpack_encode(stats.source(), bw)?;
+        let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
 
         let patches = packed.patches().map(compress_patches).transpose()?;
         packed.replace_patches(patches);

@@ -1,4 +1,5 @@
 pub use array::*;
+pub use iter::trimmed_ends_iter;
 
 mod array;
 pub mod compress;

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use datafusion_physical_plan::metrics::{Label, MetricValue, MetricsSet};
-use datafusion_physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
+use datafusion::physical_plan::metrics::{Label, MetricValue, MetricsSet};
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
 use itertools::Itertools;
 use opentelemetry::trace::{SpanContext, Status, TraceId};
 use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
@@ -12,7 +12,8 @@ use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
 use vortex::aliases::hash_map::HashMap;
 
-use crate::{Format, GIT_COMMIT_ID};
+use crate::Format;
+use crate::engines::df::GIT_COMMIT_ID;
 
 pub trait MetricsSetExt {
     fn merge_all_with_label(&mut self, other: MetricsSet, labels: &[Label]);
@@ -78,12 +79,12 @@ fn aggregate_metric(metric: &mut MetricValue, to_aggregate: &MetricValue) {
 
 pub async fn export_plan_spans(
     format: Format,
-    plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
+    plans: &Vec<(usize, Arc<dyn ExecutionPlan>)>,
 ) -> anyhow::Result<()> {
     let mut exporter = OtlpSpanExporter::builder().with_http().build()?;
     for (query_idx, plan) in plans {
         let resource = Resource::builder()
-            .with_attribute(KeyValue::new("query_idx", query_idx as i64))
+            .with_attribute(KeyValue::new("query_idx", *query_idx as i64))
             .with_attribute(KeyValue::new("format", format.name()))
             .with_attribute(KeyValue::new("commit", GIT_COMMIT_ID.as_str()))
             .build();

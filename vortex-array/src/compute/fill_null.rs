@@ -1,6 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -29,6 +30,10 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
         return Ok(array.to_array());
     }
 
+    if array.invalid_count()? == 0 {
+        return try_cast(array, fill_value.dtype());
+    }
+
     if fill_value.is_null() {
         vortex_bail!("Cannot fill_null with a null value")
     }
@@ -40,16 +45,16 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
     let fill_value_nullability = fill_value.dtype().nullability();
     let filled = fill_null_impl(array, fill_value)?;
 
-    debug_assert_eq!(
+    assert_eq!(
         filled.len(),
         array.len(),
         "FillNull length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
-        filled.dtype(),
-        &array.dtype().with_nullability(fill_value_nullability),
-        "FillNull dtype mismatch {}",
+    assert_eq!(
+        filled.dtype().nullability(),
+        fill_value_nullability,
+        "FillNull nullability mismatch {}",
         array.encoding()
     );
 

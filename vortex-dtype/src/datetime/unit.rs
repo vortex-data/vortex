@@ -12,15 +12,15 @@ use vortex_error::VortexResult;
 #[repr(u8)]
 pub enum TimeUnit {
     /// Nanoseconds
-    Ns,
+    Ns = 0,
     /// Microseconds
-    Us,
+    Us = 1,
     /// Milliseconds
-    Ms,
+    Ms = 2,
     /// Seconds
-    S,
+    S = 3,
     /// Days
-    D,
+    D = 4,
 }
 
 impl TimeUnit {

@@ -1,5 +1,5 @@
-use bytes::BytesDictBuilder;
-use primitive::PrimitiveDictBuilder;
+use bytes::bytes_dict_builder;
+use primitive::primitive_dict_builder;
 use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -12,31 +12,51 @@ use crate::DictArray;
 mod bytes;
 mod primitive;
 
-pub trait DictEncoder {
+pub struct DictConstraints {
+    pub max_bytes: usize,
+    pub max_len: usize,
+}
+
+pub const UNCONSTRAINED: DictConstraints = DictConstraints {
+    max_bytes: usize::MAX,
+    max_len: usize::MAX,
+};
+
+pub trait DictEncoder: Send {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
     fn values(&mut self) -> VortexResult<ArrayRef>;
 }
 
-pub fn dict_encode_max_sized(array: &dyn Array, max_dict_bytes: usize) -> VortexResult<DictArray> {
-    let dict_builder: &mut dyn DictEncoder = if let Some(pa) = array.as_opt::<PrimitiveArray>() {
+pub fn dict_encoder(
+    array: &dyn Array,
+    constraints: &DictConstraints,
+) -> VortexResult<Box<dyn DictEncoder>> {
+    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveArray>() {
         match_each_native_ptype!(pa.ptype(), |$P| {
-            &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability(), max_dict_bytes)
+            primitive_dict_builder::<$P>(pa.dtype().nullability(), &constraints)
         })
     } else if let Some(vbv) = array.as_opt::<VarBinViewArray>() {
-        &mut BytesDictBuilder::new(vbv.dtype().clone(), max_dict_bytes)
+        bytes_dict_builder(vbv.dtype().clone(), constraints)
     } else if let Some(vb) = array.as_opt::<VarBinArray>() {
-        &mut BytesDictBuilder::new(vb.dtype().clone(), max_dict_bytes)
+        bytes_dict_builder(vb.dtype().clone(), constraints)
     } else {
         vortex_bail!("Can only encode primitive or varbin/view arrays")
     };
-    let codes = downscale_integer_array(dict_builder.encode(array)?)?;
+    Ok(dict_builder)
+}
 
-    DictArray::try_new(codes, dict_builder.values()?)
+pub fn dict_encode_with_constraints(
+    array: &dyn Array,
+    constraints: &DictConstraints,
+) -> VortexResult<DictArray> {
+    let mut encoder = dict_encoder(array, constraints)?;
+    let codes = downscale_integer_array(encoder.encode(array)?)?;
+    DictArray::try_new(codes, encoder.values()?)
 }
 
 pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {
-    let dict_array = dict_encode_max_sized(array, usize::MAX)?;
+    let dict_array = dict_encode_with_constraints(array, &UNCONSTRAINED)?;
     if dict_array.len() != array.len() {
         vortex_bail!(
             "must have encoded all {} elements, but only encoded {}",

@@ -1,6 +1,6 @@
 use vortex_array::compute::{
-    BetweenFn, BetweenOptions, FilterKernelAdapter, KernelRef, ScalarAtFn, SearchSortedFn, SliceFn,
-    TakeFn, between,
+    BetweenFn, BetweenOptions, FilterKernelAdapter, IsConstantFn, KernelRef, ScalarAtFn,
+    SearchSortedFn, SliceFn, TakeFn, between,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef, IntoArray};
@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 mod filter;
+mod is_constant;
 mod scalar_at;
 mod search_sorted;
 mod slice;
@@ -20,6 +21,10 @@ impl ArrayComputeImpl for BitPackedArray {
 
 impl ComputeVTable for BitPackedEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
@@ -89,5 +94,21 @@ impl BetweenFn<&BitPackedArray> for BitPackedEncoding {
             options,
         )
         .map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bitpacking::compute::chunked_indices;
+
+    #[test]
+    fn chunk_indices_repeated() {
+        let mut called = false;
+        chunked_indices([0; 1025].into_iter(), 0, |chunk_idx, idxs| {
+            assert_eq!(chunk_idx, 0);
+            assert_eq!(idxs, [0; 1025]);
+            called = true;
+        });
+        assert!(called);
     }
 }

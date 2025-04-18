@@ -99,7 +99,7 @@ pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowAr
             )
         })?;
 
-    debug_assert_eq!(array.len(), arrow_array.len());
+    assert_eq!(array.len(), arrow_array.len());
 
     Ok(arrow_array)
 }

@@ -10,14 +10,14 @@ use crate::writer::LayoutWriter;
 use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
 
 #[derive(Clone)]
-pub struct FlatLayoutOptions {
+pub struct FlatLayoutStrategy {
     /// Stats to preserve when writing arrays
     pub array_stats: Vec<Stat>,
     /// Whether to include padding for memory-mapped reads.
     pub include_padding: bool,
 }
 
-impl Default for FlatLayoutOptions {
+impl Default for FlatLayoutStrategy {
     fn default() -> Self {
         Self {
             array_stats: STATS_TO_WRITE.to_vec(),
@@ -26,7 +26,7 @@ impl Default for FlatLayoutOptions {
     }
 }
 
-impl LayoutStrategy for FlatLayoutOptions {
+impl LayoutStrategy for FlatLayoutStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
     }
@@ -36,12 +36,12 @@ impl LayoutStrategy for FlatLayoutOptions {
 pub struct FlatLayoutWriter {
     ctx: ArrayContext,
     dtype: DType,
-    options: FlatLayoutOptions,
+    options: FlatLayoutStrategy,
     layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(ctx: ArrayContext, dtype: DType, options: FlatLayoutOptions) -> Self {
+    pub fn new(ctx: ArrayContext, dtype: DType, options: FlatLayoutStrategy) -> Self {
         Self {
             ctx,
             dtype,

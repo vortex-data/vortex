@@ -1,6 +1,6 @@
 use std::any::type_name;
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
@@ -18,6 +18,15 @@ pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
+}
+
+impl Display for PrimitiveScalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.pvalue {
+            None => write!(f, "null"),
+            Some(pv) => write!(f, "{}", pv),
+        }
+    }
 }
 
 impl PartialEq for PrimitiveScalar<'_> {
@@ -354,7 +363,7 @@ pub enum BinaryNumericOperator {
 }
 
 impl Display for BinaryNumericOperator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
 }

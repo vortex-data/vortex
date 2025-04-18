@@ -92,13 +92,13 @@ impl ComputeFn for Filter {
 
         let filtered = filter_impl(array, mask)?;
 
-        debug_assert_eq!(
+        assert_eq!(
             filtered.len(),
             true_count,
             "Filter length mismatch {}",
             array.encoding()
         );
-        debug_assert_eq!(
+        assert_eq!(
             filtered.dtype(),
             array.dtype(),
             "Filter dtype mismatch {}",

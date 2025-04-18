@@ -532,7 +532,7 @@ mod test {
             result.as_ref().is_err_and(|err| {
                 err
                     .to_string()
-                    .contains("Can't cast u16 scalar 1000_u16 to u8 (cause: Cannot read primitive value U16(1000) as u8")
+                    .contains("Can't cast u16 scalar 1000u16 to u8 (cause: Cannot read primitive value U16(1000) as u8")
             }),
             "{:?}",
             result

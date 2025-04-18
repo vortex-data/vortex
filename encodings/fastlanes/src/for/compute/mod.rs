@@ -1,10 +1,11 @@
 mod compare;
+mod is_constant;
 
 use num_traits::WrappingSub;
 use vortex_array::compute::{
-    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at, search_sorted, slice,
-    take,
+    CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, KernelRef, ScalarAtFn,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at,
+    search_sorted, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -22,6 +23,10 @@ impl ArrayComputeImpl for FoRArray {
 
 impl ComputeVTable for FoREncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 

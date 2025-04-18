@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
@@ -10,6 +11,15 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
+}
+
+impl Display for BoolScalar<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.value {
+            None => write!(f, "null"),
+            Some(v) => write!(f, "{}", v),
+        }
+    }
 }
 
 impl PartialEq for BoolScalar<'_> {

@@ -9,23 +9,19 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use url::Url;
-use vortex::TryIntoArray;
-use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
-use vortex::stream::ArrayStreamAdapter;
 use vortex_datafusion::persistent::VortexFormat;
 
-use crate::{idempotent, idempotent_async};
+use crate::conversions::parquet_to_vortex;
+use crate::utils::file_utils::{idempotent, idempotent_async};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -146,17 +142,14 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     ])
 });
 
-pub async fn convert_parquet_to_vortex(
-    session: SessionContext,
-    input_path: &Path,
-) -> anyhow::Result<()> {
+pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> {
     let vortex_dir = input_path.join("vortex");
     let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
 
-    let parquet_inputs =
-        std::fs::read_dir(parquet_path.clone())?.collect::<std::io::Result<Vec<_>>>()?;
-    info!(
+    let parquet_inputs = std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
+
+    debug!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
         parquet_path.to_str().unwrap()
@@ -175,32 +168,11 @@ pub async fn convert_parquet_to_vortex(
             };
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
             let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
-            let session = session.clone();
 
             tokio::spawn(async move {
-                let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     info!("Processing file '{filename}'");
-                    let record_batches = session
-                        .read_parquet(
-                            parquet_file_path.to_str().unwrap(),
-                            ParquetReadOptions::default(),
-                        )
-                        .await?
-                        .execute_stream()
-                        .await?;
-
-                    // Convert the arrow schema to a Vortex DType
-                    let array_stream = ArrayStreamAdapter::new(
-                        // TODO(ngates): or should we use the provided schema?
-                        DType::from_arrow(record_batches.schema()),
-                        record_batches.map(|batch| {
-                            batch
-                                .map_err(VortexError::from)
-                                .and_then(|b| b.try_into_array())
-                        }),
-                    );
-
+                    let array_stream = parquet_to_vortex(parquet_file_path)?;
                     let f = OpenOptions::new()
                         .write(true)
                         .truncate(true)
@@ -222,7 +194,7 @@ pub async fn convert_parquet_to_vortex(
     Ok(())
 }
 
-pub async fn register_vortex_files(
+pub fn register_vortex_files(
     session: SessionContext,
     table_name: &str,
     input_path: &Url,
@@ -241,16 +213,16 @@ pub async fn register_vortex_files(
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session.register_table(table_name, listing_table as _)?;
+    session.register_table(table_name, listing_table)?;
 
     Ok(())
 }
 
-pub async fn register_parquet_files(
+pub fn register_parquet_files(
     session: &SessionContext,
     table_name: &str,
     input_path: &Url,
@@ -267,20 +239,18 @@ pub async fn register_parquet_files(
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
-    session.register_table(table_name, listing_table as _)?;
+    session.register_table(table_name, listing_table)?;
 
     Ok(())
 }
 
-pub fn clickbench_queries() -> Vec<(usize, String)> {
-    let queries_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql");
-
-    std::fs::read_to_string(queries_file)
+pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
+    std::fs::read_to_string(queries_file_path)
         .unwrap()
         .split(';')
         .map(|s| s.trim())

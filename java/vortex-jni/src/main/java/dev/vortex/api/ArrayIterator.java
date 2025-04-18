@@ -17,7 +17,7 @@ package dev.vortex.api;
 
 import java.util.Iterator;
 
-public interface ArrayStream extends AutoCloseable, Iterator<Array> {
+public interface ArrayIterator extends AutoCloseable, Iterator<Array> {
     DType getDataType();
 
     @Override

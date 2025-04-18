@@ -41,13 +41,13 @@ pub fn fill_forward(array: &dyn Array) -> VortexResult<ArrayRef> {
             ))
         })?;
 
-    debug_assert_eq!(
+    assert_eq!(
         filled.len(),
         array.len(),
         "FillForward length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
+    assert_eq!(
         filled.dtype(),
         array.dtype(),
         "FillForward dtype mismatch {}",

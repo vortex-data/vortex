@@ -13,7 +13,7 @@ impl FillNullFn<&ChunkedArray> for ChunkedEncoding {
                 .iter()
                 .map(|c| fill_null(c, fill_value.clone()))
                 .collect::<VortexResult<Vec<_>>>()?,
-            array.dtype().as_nonnullable(),
+            fill_value.dtype().clone(),
         )
         .into_array())
     }

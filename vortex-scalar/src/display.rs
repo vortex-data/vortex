@@ -1,111 +1,20 @@
 use std::fmt::{Display, Formatter};
 
-use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
-use vortex_error::{VortexExpect, vortex_panic};
 
-use crate::binary::BinaryScalar;
-use crate::extension::ExtScalar;
-use crate::struct_::StructScalar;
-use crate::utf8::Utf8Scalar;
-use crate::{ListScalar, Scalar};
+use crate::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.dtype() {
-            DType::Null | DType::Bool(_) | DType::Primitive(..) => Display::fmt(&self.value, f),
-            DType::Utf8(_) => {
-                match Utf8Scalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    None => write!(f, "null"),
-                    Some(bs) => write!(f, "\"{}\"", bs.as_str()),
-                }
-            }
-            DType::Binary(_) => {
-                match BinaryScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    None => write!(f, "null"),
-                    Some(buf) => {
-                        write!(
-                            f,
-                            "\"{}\"",
-                            buf.as_slice().iter().map(|b| format!("{b:x}")).format(",")
-                        )
-                    }
-                }
-            }
-            DType::Struct(dtype, _) => {
-                let v = StructScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-
-                if v.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(f, "{{")?;
-                    let formatted_fields = dtype
-                        .names()
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, name)| {
-                            let val = v.field_by_idx(idx).vortex_expect("not out of bounds");
-                            format!("{name}:{val}")
-                        })
-                        .format(",");
-                    write!(f, "{}", formatted_fields)?;
-                    write!(f, "}}")
-                }
-            }
-            DType::List(..) => {
-                let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-                match v.elements() {
-                    None => write!(f, "null"),
-                    Some(elems) => {
-                        write!(f, "[{}]", elems.iter().format(","))
-                    }
-                }
-            }
-            // Specialized handling for date/time/timestamp builtin extension types.
-            DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
-                let metadata =
-                    TemporalMetadata::try_from(dtype.as_ref()).map_err(|_| std::fmt::Error)?;
-                let storage_scalar = self.as_extension().storage();
-
-                match storage_scalar.dtype() {
-                    DType::Null => {
-                        write!(f, "null")
-                    }
-                    DType::Primitive(..) => {
-                        let maybe_timestamp = storage_scalar
-                            .as_primitive()
-                            .as_::<i64>()
-                            .and_then(|maybe_timestamp| {
-                                maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
-                            })
-                            .map_err(|_| std::fmt::Error)?;
-                        match maybe_timestamp {
-                            None => write!(f, "null"),
-                            Some(v) => write!(f, "{}", v),
-                        }
-                    }
-                    _ => {
-                        vortex_panic!(
-                            "Expected temporal extension data type to have Primitive or Null storage type"
-                        )
-                    }
-                }
-            }
-            // Generic handling of unknown extension types.
-            // TODO(aduffy): Allow extension authors plugin their own Scalar display.
-            DType::Extension(..) => {
-                let storage_value = ExtScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .storage();
-                write!(f, "{}", storage_value)
-            }
+            DType::Null => write!(f, "null"),
+            DType::Bool(_) => write!(f, "{}", self.as_bool()),
+            DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
+            DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
+            DType::Binary(_) => write!(f, "{}", self.as_binary()),
+            DType::Struct(..) => write!(f, "{}", self.as_struct()),
+            DType::List(..) => write!(f, "{}", self.as_list()),
+            DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
 }
@@ -134,19 +43,19 @@ mod tests {
 
     #[test]
     fn display_primitive() {
-        assert_eq!(format!("{}", Scalar::from(0_u8)), "0_u8");
-        assert_eq!(format!("{}", Scalar::from(255_u8)), "255_u8");
+        assert_eq!(format!("{}", Scalar::from(0u8)), "0u8");
+        assert_eq!(format!("{}", Scalar::from(255u8)), "255u8");
 
-        assert_eq!(format!("{}", Scalar::from(0_u16)), "0_u16");
-        assert_eq!(format!("{}", Scalar::from(!0_u16)), "65535_u16");
+        assert_eq!(format!("{}", Scalar::from(0u16)), "0u16");
+        assert_eq!(format!("{}", Scalar::from(!0u16)), "65535u16");
 
-        assert_eq!(format!("{}", Scalar::from(0_u32)), "0_u32");
-        assert_eq!(format!("{}", Scalar::from(!0_u32)), "4294967295_u32");
+        assert_eq!(format!("{}", Scalar::from(0u32)), "0u32");
+        assert_eq!(format!("{}", Scalar::from(!0u32)), "4294967295u32");
 
-        assert_eq!(format!("{}", Scalar::from(0_u64)), "0_u64");
+        assert_eq!(format!("{}", Scalar::from(0u64)), "0u64");
         assert_eq!(
-            format!("{}", Scalar::from(!0_u64)),
-            "18446744073709551615_u64"
+            format!("{}", Scalar::from(!0u64)),
+            "18446744073709551615u64"
         );
 
         assert_eq!(
@@ -174,7 +83,7 @@ mod tests {
                     NonNullable
                 )
             ),
-            "\"48,65,6c,6c,6f,20,57,6f,72,6c,64,21\""
+            "\"48 65 6c 6c 6f 20 57 6f 72 6c 64 21\""
         );
         assert_eq!(format!("{}", Scalar::null(DType::Binary(Nullable))), "null");
     }
@@ -209,12 +118,12 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype(), vec![Scalar::null_typed::<u32>()])
             ),
-            "{foo:null}"
+            "{foo: null}"
         );
 
         assert_eq!(
             format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(32_u32)])),
-            "{foo:32_u32}"
+            "{foo: 32u32}"
         );
     }
 
@@ -242,7 +151,7 @@ mod tests {
                     vec![Scalar::null(f1), Scalar::null(f2.clone())]
                 )
             ),
-            "{foo:null,bar:null}"
+            "{foo: null, bar: null}"
         );
 
         assert_eq!(
@@ -250,7 +159,7 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
             ),
-            "{foo:true,bar:null}"
+            "{foo: true, bar: null}"
         );
 
         assert_eq!(
@@ -258,7 +167,7 @@ mod tests {
                 "{}",
                 Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
             ),
-            "{foo:true,bar:32_u32}"
+            "{foo: true, bar: 32u32}"
         );
     }
 

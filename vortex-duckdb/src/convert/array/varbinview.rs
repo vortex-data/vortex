@@ -1,5 +1,8 @@
 use std::ffi::c_char;
 
+use duckdb::ffi::{
+    duckdb_assign_buffer_to_vector, duckdb_free_vector_buffer, duckdb_vector_buffer,
+};
 use duckdb::vtab::arrow::WritableVector;
 use itertools::Itertools;
 use vortex_array::Array;
@@ -8,11 +11,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::ToDuckDB;
-use crate::buffer::{
-    AssignBufferToVec, CppVectorBuffer, ExternalBuffer, FFIDuckDBBufferInternal,
-    new_cpp_vector_buffer,
-};
-use crate::convert::array::{ConversionCache, write_validity_from_mask};
+use crate::buffer::{ExternalBuffer, FFIDuckDBBufferInternal, new_cpp_vector_buffer};
+use crate::convert::array::ConversionCache;
+use crate::convert::array::validity::write_validity_from_mask;
 // This is the C++ string view struct
 // private:
 // 	union {
@@ -110,11 +111,13 @@ impl ToDuckDB for VarBinViewArray {
                 let buffer: *mut ExternalBuffer = Box::into_raw(Box::new(
                     FFIDuckDBBufferInternal { inner: Box::new(b) }.into(),
                 ));
-                let extern_buf: *mut CppVectorBuffer = unsafe { new_cpp_vector_buffer(buffer) };
+                let mut extern_buf: duckdb_vector_buffer = unsafe { new_cpp_vector_buffer(buffer) };
                 // Adds an extra ref to the buffer which will outlive the `views`
                 // Note this fn takes ownership of the cpp vector buffer.
                 // TODO(joe): create a free_cpp_vector_buffer method, maybe?
-                unsafe { AssignBufferToVec(vec.unowned_ptr(), extern_buf) };
+                unsafe { duckdb_assign_buffer_to_vector(vec.unowned_ptr(), extern_buf) };
+
+                unsafe { duckdb_free_vector_buffer(std::ptr::addr_of_mut!(extern_buf)) }
             });
 
         let mut vector = chunk.flat_vector();
@@ -133,8 +136,9 @@ mod tests {
     use vortex_array::{Array, ToCanonical};
 
     use crate::ToDuckDB;
+    use crate::convert::array::ConversionCache;
+    use crate::convert::array::array_ref::to_duckdb;
     use crate::convert::array::data_chunk_adaptor::DataChunkHandleSlice;
-    use crate::convert::array::{ConversionCache, to_duckdb};
 
     #[test]
     fn constant_empty_str_array() {
