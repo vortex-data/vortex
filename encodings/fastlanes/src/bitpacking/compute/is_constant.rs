@@ -146,6 +146,22 @@ fn apply_patches_idx_typed<T: BitPacked, I: NativePType + AsPrimitive<usize>>(
         .skip_while(|(i, _)| i < &values_range.start)
         .take_while(|(i, _)| i < &values_range.end)
     {
-        values[i] = v
+        values[i - values_range.start] = v
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::compute::is_constant;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexUnwrap;
+
+    use crate::BitPackedArray;
+
+    #[test]
+    fn is_constant_with_patches() {
+        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).vortex_unwrap();
+        assert!(is_constant(&array).vortex_unwrap());
     }
 }

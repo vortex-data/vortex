@@ -1,5 +1,5 @@
-# name: test/sql/table.test
-# description: test creating tables and round tripping vortex with them
+# name: test/sql/table.test_slow
+# description: test creating tables and round tripping vortex with them, generate a lot of value to test many batch round trip
 # group: [vortex]
 
 require vortex
@@ -47,7 +47,7 @@ SELECT
     TIMESTAMP '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_us_col,
     TIMESTAMP_NS '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_ns_col,
     CAST(md5(CAST(seq AS VARCHAR)) AS BLOB) AS blob_col,
-FROM generate_series(1, 100) AS t(seq);
+FROM generate_series(1, 40000) AS t(seq);
 
 statement ok
 COPY generated_data_table TO '__TEST_DIR__/table_test.vortex' (FORMAT VORTEX);

@@ -3,18 +3,24 @@ use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatch;
+use datafusion::datasource::provider::DefaultTableFactory;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::physical_plan::{ExecutionPlan, collect};
+use datafusion::physical_plan::collect;
+use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::prelude::{SessionConfig, SessionContext};
+use datafusion_common::GetExt;
+use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex::error::VortexResult;
+use vortex_datafusion::persistent::VortexFormatFactory;
 
 use crate::blob::SlowObjectStoreRegistry;
 
@@ -31,27 +37,50 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .to_string()
 });
 
-pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
+pub fn get_session_context(
+    emulate_object_store: bool,
+    disable_datafusion_cache: bool,
+) -> SessionContext {
     let registry = if emulate_object_store {
         Arc::new(SlowObjectStoreRegistry::default()) as _
     } else {
         Arc::new(DefaultObjectStoreRegistry::new()) as _
     };
 
-    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
-    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+    let mut rt_builder = RuntimeEnvBuilder::new().with_object_store_registry(registry);
 
-    let cache_config = CacheManagerConfig::default()
-        .with_files_statistics_cache(Some(file_static_cache))
-        .with_list_files_cache(Some(list_file_cache));
+    if !disable_datafusion_cache {
+        let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+        let list_file_cache = Arc::new(DefaultListFilesCache::default());
+        let cache_config = CacheManagerConfig::default()
+            .with_files_statistics_cache(Some(file_static_cache))
+            .with_list_files_cache(Some(list_file_cache));
+        rt_builder = rt_builder.with_cache_manager(cache_config);
+    }
 
-    let rt = RuntimeEnvBuilder::new()
-        .with_cache_manager(cache_config)
-        .with_object_store_registry(registry)
+    let rt = rt_builder
         .build_arc()
         .expect("could not build runtime environment");
 
-    SessionContext::new_with_config_rt(SessionConfig::default(), rt)
+    let factory = VortexFormatFactory::default_config();
+
+    let mut session_state_builder = SessionStateBuilder::new()
+        .with_config(SessionConfig::default())
+        .with_runtime_env(rt)
+        .with_default_features();
+
+    if let Some(table_factories) = session_state_builder.table_factories() {
+        table_factories.insert(
+            GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
+            Arc::new(DefaultTableFactory::new()),
+        );
+    }
+
+    if let Some(file_formats) = session_state_builder.file_formats() {
+        file_formats.push(Arc::new(factory));
+    }
+
+    SessionContext::new_with_state(session_state_builder.build())
 }
 
 pub fn make_object_store(
@@ -109,10 +138,8 @@ pub fn write_execution_plan(
     query_idx: usize,
     format: crate::Format,
     dataset_name: &str,
-    execution_plan: &std::sync::Arc<dyn datafusion::physical_plan::execution_plan::ExecutionPlan>,
+    execution_plan: &Arc<dyn ExecutionPlan>,
 ) {
-    use datafusion::physical_plan::display::DisplayableExecutionPlan;
-
     fs::write(
         format!("{dataset_name}_{format}_q{query_idx:02}.plan"),
         format!("{:#?}", execution_plan),

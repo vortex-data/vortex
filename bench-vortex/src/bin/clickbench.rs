@@ -1,10 +1,13 @@
 use std::cell::OnceCell;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
+use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     Engine, Format, IdempotentPath, ddb, default_env_filter, df, feature_flagged_allocator,
 };
@@ -12,8 +15,7 @@ use clap::Parser;
 use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
 use log::warn;
-use tokio::runtime::Builder;
-use tracing::info_span;
+use tracing::{debug, info_span};
 use tracing_futures::Instrument;
 use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
@@ -49,8 +51,12 @@ struct Args {
     emit_plan: bool,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(long)]
+    queries_file: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
+    #[arg(long, default_value_t = false)]
+    disable_datafusion_cache: bool,
     #[arg(long)]
     export_spans: bool,
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
@@ -106,6 +112,7 @@ impl EngineCtx {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    validate_args(&args);
 
     // Capture `RUST_LOG` configuration
     let filter = default_env_filter(args.verbose);
@@ -144,22 +151,15 @@ fn main() -> anyhow::Result<()> {
         panic!("use `--formats vortex` instead of `--only-vortex`");
     }
 
-    let tokio_runtime = || {
-        match args.threads {
-            Some(0) => panic!("Can't use 0 threads for runtime"),
-            Some(1) => Builder::new_current_thread().enable_all().build(),
-            Some(n) => Builder::new_multi_thread()
-                .worker_threads(n)
-                .enable_all()
-                .build(),
-            None => Builder::new_multi_thread().enable_all().build(),
-        }
-        .expect("Failed building the Runtime")
-    };
+    let queries_filepath = args
+        .queries_file
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"));
+
+    debug!(file = ?queries_filepath, "Reading queries from file");
 
     let queries = match &args.queries {
-        None => clickbench_queries(),
-        Some(queries) => clickbench_queries()
+        None => clickbench_queries(queries_filepath),
+        Some(queries) => clickbench_queries(queries_filepath)
             .into_iter()
             .filter(|(q_idx, _)| queries.contains(q_idx))
             .collect(),
@@ -177,7 +177,8 @@ fn main() -> anyhow::Result<()> {
 
     for engine in &args.engines {
         for file_format in &args.formats {
-            let session_ctx = df::get_session_with_cache(args.emulate_object_store);
+            let session_ctx =
+                df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
 
             // Register object store to the session.
             df::make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
@@ -188,7 +189,7 @@ fn main() -> anyhow::Result<()> {
                 _ => unreachable!("engine not supported"),
             };
 
-            let tokio_runtime = tokio_runtime();
+            let tokio_runtime = new_tokio_runtime(args.threads);
 
             init_data_source(
                 *file_format,
@@ -236,6 +237,20 @@ fn main() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+fn validate_args(args: &Args) {
+    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
+        panic!("--duckdb-path is only valid when DuckDB engine is used");
+    }
+
+    if (args.emit_plan || args.export_spans || !args.hide_metrics || args.threads.is_some())
+        && !args.engines.contains(&Engine::DataFusion)
+    {
+        panic!(
+            "--emit-plan, --export-spans, --hide-metrics, --threads are only valid if DataFusion is used"
+        );
+    }
 }
 
 fn print_metrics(
@@ -405,7 +420,7 @@ fn execute_queries(
                     df::write_execution_plan(
                         *query_idx,
                         file_format,
-                        "clickbench",
+                        CLICKBENCH_DATASET,
                         &execution_plan,
                     );
                 }
@@ -419,10 +434,10 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
                     engine: Engine::DataFusion,
-                    storage: "nvme".to_owned(),
-                    time: fastest_run,
+                    storage: STORAGE_NVME.to_owned(),
+                    fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_owned(),
+                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
 
@@ -442,10 +457,10 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
                     engine: Engine::DuckDB,
-                    storage: "nvme".to_string(),
-                    time: fastest_run,
+                    storage: STORAGE_NVME.to_owned(),
+                    fastest_run,
                     format: file_format,
-                    dataset: "clickbench".to_owned(),
+                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
         };

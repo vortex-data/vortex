@@ -1,3 +1,31 @@
+//! Builders for Vortex arrays.
+//!
+//! Every logical type in Vortex has a canonical (uncompressed) in-memory encoding. This module
+//! provides pre-allocated builders to construct new canonical arrays.
+//!
+//! ## Example:
+//!
+//! ```
+//! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+//! use vortex_array::compute::scalar_at;
+//! use vortex_dtype::{DType, Nullability};
+//!
+//! // Create a new builder for string data.
+//! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
+//!
+//! builder.append_scalar(&"a".into()).unwrap();
+//! builder.append_scalar(&"b".into()).unwrap();
+//! builder.append_scalar(&"c".into()).unwrap();
+//! builder.append_scalar(&"d".into()).unwrap();
+//!
+//! let strings = builder.finish();
+//!
+//! assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
+//! assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
+//! assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
+//! assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+//! ```
+
 mod bool;
 mod extension;
 mod lazy_validity_builder;
@@ -76,6 +104,31 @@ pub trait ArrayBuilder: Send {
     fn finish(&mut self) -> ArrayRef;
 }
 
+/// Construct a new canonical builder for the given [`DType`].
+///
+///
+/// # Example
+///
+/// ```
+/// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+/// use vortex_array::compute::scalar_at;
+/// use vortex_dtype::{DType, Nullability};
+///
+/// // Create a new builder for string data.
+/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
+///
+/// builder.append_scalar(&"a".into()).unwrap();
+/// builder.append_scalar(&"b".into()).unwrap();
+/// builder.append_scalar(&"c".into()).unwrap();
+/// builder.append_scalar(&"d".into()).unwrap();
+///
+/// let strings = builder.finish();
+///
+/// assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
+/// assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
+/// assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
+/// assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+/// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),

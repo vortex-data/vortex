@@ -4,25 +4,18 @@ plugins {
     id("com.diffplug.spotless") version "7.0.3"
     id("com.palantir.consistent-versions") version "2.32.0"
     id("com.palantir.git-version") version "3.2.0"
-    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
-    id("net.ltgt.errorprone") version "4.1.0" apply false
+    id("net.ltgt.errorprone") version "4.2.0" apply false
     id("org.inferred.processors") version "3.7.0" apply false
     id("com.google.protobuf") version "0.9.5" apply false
+    id("com.vanniktech.maven.publish") version "0.31.0" apply false
+}
+
+subprojects {
+    apply(plugin = "com.vanniktech.maven.publish")
 }
 
 val gitVersion: groovy.lang.Closure<String> by extra
 version = gitVersion()
-
-nexusPublishing {
-    repositories {
-        sonatype {
-            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
-            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
-            username.set(System.getenv("MAVEN_CENTRAL_USER"))
-            password.set(System.getenv("MAVEN_CENTRAL_PASSWORD"))
-        }
-    }
-}
 
 allprojects {
     apply(plugin = "com.diffplug.spotless")

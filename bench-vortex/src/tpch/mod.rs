@@ -14,7 +14,7 @@ use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
 use crate::Format;
-use crate::engines::df::{get_session_with_cache, make_object_store};
+use crate::engines::df::{get_session_context, make_object_store};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -41,8 +41,9 @@ pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
     emulate_object_store: bool,
+    disable_datafusion_cache: bool,
 ) -> anyhow::Result<SessionContext> {
-    let context = get_session_with_cache(emulate_object_store);
+    let context = get_session_context(emulate_object_store, disable_datafusion_cache);
 
     let object_store = make_object_store(&context, base_dir)?;
 

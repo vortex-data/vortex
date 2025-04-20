@@ -49,7 +49,7 @@ pub async fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    let stream = scan.into_array_stream()?;
+    let stream = scan.spawn_tokio(TOKIO_RUNTIME.handle().clone())?;
     let dtype = stream.dtype().clone();
 
     let all_arrays = stream.try_collect::<Vec<_>>().await?;

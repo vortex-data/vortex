@@ -10,13 +10,14 @@ use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
 };
+use bench_vortex::utils::constants::TPCH_DATASET;
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, ddb, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
-use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
@@ -53,6 +54,8 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
+    #[arg(long, default_value_t = false)]
+    disable_datafusion_cache: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
     #[arg(long)]
@@ -63,7 +66,7 @@ struct Args {
     emit_plan: bool,
 }
 
-#[derive(ValueEnum, Default, Clone, Debug)]
+#[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
 pub enum DataGenerator {
     #[default]
     Dbgen,
@@ -72,6 +75,7 @@ pub enum DataGenerator {
 
 fn main() -> ExitCode {
     let args = Args::parse();
+    validate_args(&args);
 
     let filter = default_env_filter(args.verbose);
     #[cfg(not(feature = "tracing"))]
@@ -108,16 +112,7 @@ fn main() -> ExitCode {
         panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
     }
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     let url = match args.use_remote_data_dir {
         None => {
@@ -173,6 +168,7 @@ fn main() -> ExitCode {
         args.formats,
         args.display_format,
         args.emulate_object_store,
+        args.disable_datafusion_cache,
         args.scale_factor,
         url,
         args.all_metrics,
@@ -191,35 +187,42 @@ fn verify_row_counts(
     queries: &Option<Vec<usize>>,
     exclude_queries: &Option<Vec<usize>>,
 ) -> bool {
-    let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
-    for &(idx, format, row_count) in row_counts {
-        format_row_counts
-            .entry(format)
-            .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
-    }
+    let format_row_counts =
+        row_counts
+            .iter()
+            .fold(HashMap::new(), |mut acc, &(idx, format, row_count)| {
+                acc.entry(format)
+                    .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
+                acc
+            });
+
+    let is_query_included = |idx: &usize| {
+        queries.as_ref().is_none_or(|q| q.contains(idx))
+            && exclude_queries
+                .as_ref()
+                .is_none_or(|excluded| !excluded.contains(idx))
+    };
 
     let mut mismatched = false;
     for (format, row_counts) in format_row_counts {
         row_counts
             .into_iter()
             .enumerate()
-            .filter(|(idx, _)| queries.as_ref().map(|q| q.contains(idx)).unwrap_or(true))
-            .filter(|(idx, _)| exclude_queries.as_ref().map(|excluded| !excluded.contains(idx)).unwrap_or(true))
+            .filter(|(idx, _)| is_query_included(idx))
             .for_each(|(idx, actual_row_count)| {
-                let expected_row_count = expected_row_counts[idx];
-                if actual_row_count != expected_row_count {
+                if actual_row_count != expected_row_counts[idx] {
                     if idx == 15 && actual_row_count == 0 {
                         warn!(
                             "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/spiraldb/vortex/issues/2395",
                             actual_row_count,
-                            expected_row_count,
+                            expected_row_counts[idx],
                             format,
                         );
                     } else  {
                         warn!(
                             "Mismatched row count {} instead of {} in query {} for format {:?}",
                             actual_row_count,
-                            expected_row_count,
+                            expected_row_counts[idx],
                             idx,
                             format,
                         );
@@ -286,6 +289,7 @@ async fn bench_main(
     formats: Vec<Format>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    disable_datafusion_cache: bool,
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
@@ -332,15 +336,16 @@ async fn bench_main(
         for format in formats.iter().copied() {
             match engine {
                 Engine::DataFusion => {
-                    let ctx = load_datasets(&url, format, emulate_object_store)
-                        .await
-                        .unwrap();
+                    let ctx =
+                        load_datasets(&url, format, emulate_object_store, disable_datafusion_cache)
+                            .await
+                            .unwrap();
 
                     let mut plans = Vec::new();
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
                         // Run benchmark as an async function
-                        let (fastest_result, plan) =
+                        let (fastest_run, plan) =
                             benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx)
                                 .await;
 
@@ -363,24 +368,18 @@ async fn bench_main(
                         }
                         plans.push((query_idx, plan.clone()));
 
-                        let storage = match url.scheme() {
-                            "s3" => "s3",
-                            "gcs" => "gcs",
-                            "file" => "nvme",
-                            otherwise => {
-                                warn!("unknown URL scheme: {}", otherwise);
-                                return ExitCode::FAILURE;
-                            }
-                        }
-                        .to_owned();
+                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
+                            Ok(storage) => storage,
+                            Err(exit_code) => return exit_code,
+                        };
 
                         measurements.push(QueryMeasurement {
                             query_idx,
                             engine: Engine::DataFusion,
                             storage,
-                            time: fastest_result,
+                            fastest_run,
                             format,
-                            dataset: "tpch".to_owned(),
+                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -405,24 +404,18 @@ async fn bench_main(
                             &duckdb_executable,
                         );
 
-                        let storage = match url.scheme() {
-                            "s3" => "s3",
-                            "gcs" => "gcs",
-                            "file" => "nvme",
-                            otherwise => {
-                                warn!("unknown URL scheme: {}", otherwise);
-                                return ExitCode::FAILURE;
-                            }
-                        }
-                        .to_owned();
+                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
+                            Ok(storage) => storage,
+                            Err(exit_code) => return exit_code,
+                        };
 
                         measurements.push(QueryMeasurement {
                             query_idx,
                             engine: Engine::DuckDB,
                             storage,
-                            time: fastest_run,
+                            fastest_run,
                             format,
-                            dataset: "tpch".to_owned(),
+                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -456,5 +449,19 @@ async fn bench_main(
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+fn validate_args(args: &Args) {
+    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
+        panic!("--duckdb-path is only valid if DuckDB is used");
+    }
+
+    if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
+        && !args.engines.contains(&Engine::DataFusion)
+    {
+        panic!(
+            "--all-metrics, --emit-plan, --threads, --export-spans are only valid if DataFusion is used"
+        );
     }
 }

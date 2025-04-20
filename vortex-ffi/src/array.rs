@@ -1,6 +1,6 @@
 //! FFI interface for working with Vortex Arrays.
 //!
-//! The FFIArray provides both type-erased and type-aware access behind an `ArrayRef`.
+//! The VXArray provides both type-erased and type-aware access behind an `ArrayRef`.
 
 use std::ffi::{c_int, c_void};
 use std::ptr;
@@ -11,23 +11,22 @@ use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ArrayRef, ArrayVariants};
 
-use crate::error::{FFIError, try_or};
+use crate::error::{try_or, vx_error};
 
 /// The FFI interface for an [`Array`].
 ///
 /// Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
 /// the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
-/// one of the various `FFIArray_*` functions.
-pub struct FFIArray {
+/// one of the various `vx_array_*` functions.
+#[allow(non_camel_case_types)]
+pub struct vx_array {
     pub inner: ArrayRef,
 }
 
 /// Get the length of the array.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
-    let array = ffi_array.as_ref().vortex_expect("array null");
-
-    array.inner.len() as u64
+pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> u64 {
+    array.as_ref().vortex_expect("array null").inner.len() as u64
 }
 
 /// Get a pointer to the data type for an array.
@@ -35,30 +34,28 @@ pub unsafe extern "C" fn FFIArray_len(ffi_array: *const FFIArray) -> u64 {
 /// Note that this pointer is tied to the lifetime of the array, and the caller is responsible
 /// for ensuring that it is never dereferenced after the array has been freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_dtype(ffi_array: *const FFIArray) -> *const DType {
-    let array = ffi_array.as_ref().vortex_expect("array null");
-
-    array.inner.dtype()
+pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const DType {
+    array.as_ref().vortex_expect("array null").inner.dtype()
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_get_field(
-    ffi_array: *const FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_get_field(
+    array: *const vx_array,
     index: u32,
-    error: *mut *mut FFIError,
-) -> *const FFIArray {
+    error: *mut *mut vx_error,
+) -> *const vx_array {
     try_or(error, ptr::null(), || {
-        let array = ffi_array.as_ref().vortex_expect("array null");
+        let array = array.as_ref().vortex_expect("array null");
 
         let field_array = array
             .inner
             .as_struct_typed()
-            .ok_or_else(|| vortex_err!("FFIArray_get_field: expected struct-typed array"))?
+            .ok_or_else(|| vortex_err!("vx_array_get_field: expected struct-typed array"))?
             .maybe_null_field_by_idx(index as usize)?;
 
-        let ffi_array = Box::new(FFIArray { inner: field_array });
+        let ffi_array = field_array;
 
-        Ok(Box::into_raw(ffi_array).cast_const())
+        Ok(Box::into_raw(Box::new(vx_array { inner: ffi_array })))
     })
 }
 
@@ -67,41 +64,39 @@ pub unsafe extern "C" fn FFIArray_get_field(
 
 /// Free the array and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_free(ffi_array: *mut FFIArray) -> i32 {
-    let boxed = Box::from_raw(ffi_array);
-    drop(boxed);
-
-    0
+pub unsafe extern "C-unwind" fn vx_array_free(array: *mut vx_array) {
+    assert!(!array.is_null());
+    drop(unsafe { Box::from_raw(array) });
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_slice(
-    array: *const FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_slice(
+    array: *const vx_array,
     start: u32,
     stop: u32,
-    error: *mut *mut FFIError,
-) -> *mut FFIArray {
+    error: *mut *mut vx_error,
+) -> *const vx_array {
+    let array = array.as_ref().vortex_expect("array null");
     try_or(error, ptr::null_mut(), || {
-        let array = array.as_ref().vortex_expect("array null");
         let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)?;
-        Ok(Box::into_raw(Box::new(FFIArray { inner: sliced })))
+        Ok(Box::into_raw(Box::new(vx_array { inner: sliced })))
     })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_is_null(
-    array: *const FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_is_null(
+    array: *const vx_array,
     index: u32,
-    error: *mut *mut FFIError,
+    error: *mut *mut vx_error,
 ) -> bool {
     let array = array.as_ref().vortex_expect("array null");
     try_or(error, false, || array.inner.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_null_count(
-    array: *const FFIArray,
-    error: *mut *mut FFIError,
+pub unsafe extern "C-unwind" fn vx_array_null_count(
+    array: *const vx_array,
+    error: *mut *mut vx_error,
 ) -> u32 {
     let array = array.as_ref().vortex_expect("array null");
     try_or(error, 0, || {
@@ -113,7 +108,7 @@ macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste::paste! {
             #[unsafe(no_mangle)]
-            pub unsafe extern "C" fn [<FFIArray_get_ $ptype>](array: *const FFIArray, index: u32) -> $ptype {
+            pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = array.as_ref().vortex_expect("array null");
                 let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
                 value.as_primitive()
@@ -123,7 +118,7 @@ macro_rules! ffiarray_get_ptype {
             }
 
             #[unsafe(no_mangle)]
-            pub unsafe extern "C" fn [<FFIArray_get_storage_ $ptype>](array: *const FFIArray, index: u32) -> $ptype {
+            pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = array.as_ref().vortex_expect("array null");
                 let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
                 value.as_extension()
@@ -152,8 +147,8 @@ ffiarray_get_ptype!(f64);
 /// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
 /// the length in `len`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_get_utf8(
-    array: *const FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_get_utf8(
+    array: *const vx_array,
     index: u32,
     dst: *mut c_void,
     len: *mut c_int,
@@ -172,8 +167,8 @@ pub unsafe extern "C" fn FFIArray_get_utf8(
 /// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
 /// the length in `len`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArray_get_binary(
-    array: *const FFIArray,
+pub unsafe extern "C-unwind" fn vx_array_get_binary(
+    array: *const vx_array,
     index: u32,
     dst: *mut c_void,
     len: *mut c_int,
@@ -195,27 +190,27 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::validity::Validity;
 
-    use crate::array::{FFIArray, FFIArray_dtype, FFIArray_free, FFIArray_get_i32, FFIArray_len};
-    use crate::dtype::{DTYPE_PRIMITIVE_I32, DType_get};
+    use crate::array::{vx_array, vx_array_dtype, vx_array_free, vx_array_get_i32, vx_array_len};
+    use crate::dtype::{DTYPE_PRIMITIVE_I32, vx_dtype_get};
 
     #[test]
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = Box::new(FFIArray {
+            let ffi_array = Box::new(vx_array {
                 inner: primitive.to_array(),
             });
 
-            assert_eq!(FFIArray_len(&*ffi_array), 3);
+            assert_eq!(vx_array_len(&*ffi_array), 3);
 
-            let array_dtype = FFIArray_dtype(&*ffi_array);
-            assert_eq!(DType_get(array_dtype), DTYPE_PRIMITIVE_I32);
+            let array_dtype = vx_array_dtype(&*ffi_array);
+            assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
 
-            assert_eq!(FFIArray_get_i32(&*ffi_array, 0), 1);
-            assert_eq!(FFIArray_get_i32(&*ffi_array, 1), 2);
-            assert_eq!(FFIArray_get_i32(&*ffi_array, 2), 3);
+            assert_eq!(vx_array_get_i32(&*ffi_array, 0), 1);
+            assert_eq!(vx_array_get_i32(&*ffi_array, 1), 2);
+            assert_eq!(vx_array_get_i32(&*ffi_array, 2), 3);
 
-            FFIArray_free(Box::into_raw(ffi_array));
+            vx_array_free(Box::into_raw(ffi_array));
         }
     }
 }

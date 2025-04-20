@@ -14,9 +14,11 @@ mod stream;
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;
 
+pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
+thread_local! {
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     // Using a new_multi_thread runtime since a current local runtime has a deadlock.
     Builder::new_current_thread()
@@ -24,6 +26,7 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .build()
         .vortex_expect("building runtime")
 });
+}
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);

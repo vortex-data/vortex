@@ -50,38 +50,21 @@ pub async fn register_parquet_files(
                 parquet_url.set_path(&parquet_path);
             }
 
-            let parquet_url_path = parquet_url.path().to_owned();
-            let parquet_url_str = parquet_url.as_str().to_owned();
-
-            if let Err(e) = object_store
-                .head(&ObjectStorePath::parse(&parquet_url_path)?)
-                .await
-            {
-                info!("File {} doesn't exist because {e}", parquet_url_str);
-
-                if parquet_url.scheme() != "file" {
-                    anyhow::bail!("Writing to S3 does not seem to work!");
-                }
-
-                let csv_file = file_url.as_str();
-                with_lock(parquet_url_path.clone(), async move || {
-                    crate::conversions::csv_to_parquet_file(
-                        session,
-                        datafusion::prelude::CsvReadOptions::default()
-                            .delimiter(b'|')
-                            .has_header(false)
-                            .file_extension("tbl")
-                            .schema(schema),
-                        csv_file,
-                        &parquet_url_path,
-                    )
-                    .await
-                })
-                .await?;
-            }
+            ensure_parquet_file_exists(
+                session,
+                object_store.as_ref(),
+                file_url,
+                &parquet_url,
+                schema,
+            )
+            .await?;
 
             session
-                .register_parquet(table_name, &parquet_url_str, ParquetReadOptions::default())
+                .register_parquet(
+                    table_name,
+                    parquet_url.as_str(),
+                    ParquetReadOptions::default(),
+                )
                 .await?;
         }
         BenchmarkDataset::ClickBench { single_file } => {
@@ -97,7 +80,7 @@ pub async fn register_parquet_files(
             let table_url = ListingTableUrl::parse(parquet_path)?;
 
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format as _))
+                .with_listing_options(ListingOptions::new(format))
                 .with_schema(schema.clone().into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
@@ -158,13 +141,9 @@ pub async fn register_vortex_files(
                             .execute_stream()
                             .await?;
 
-                        // Convert to Vortex.
-                        use std::pin::Pin;
-
                         use futures::StreamExt;
                         use vortex::TryIntoArray;
                         use vortex::dtype::arrow::FromArrowType;
-                        use vortex::stream::ArrayStream;
 
                         let adapter = vortex::stream::ArrayStreamAdapter::new(
                             vortex::dtype::DType::from_arrow(record_batches.schema()),
@@ -175,7 +154,8 @@ pub async fn register_vortex_files(
                             }),
                         );
 
-                        let array_stream: Pin<Box<dyn ArrayStream + Send>> = Box::pin(adapter);
+                        let array_stream = Box::pin(adapter)
+                            as std::pin::Pin<Box<dyn vortex::stream::ArrayStream + Send>>;
 
                         // Write to file
                         let f = OpenOptions::new()
@@ -198,12 +178,12 @@ pub async fn register_vortex_files(
             let format = Arc::new(VortexFormat::default());
             let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format as _))
+                .with_listing_options(ListingOptions::new(format))
                 .infer_schema(&session.state())
                 .await?;
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
-            session.register_table(table_name, listing_table as _)?;
+            session.register_table(table_name, listing_table)?;
         }
         BenchmarkDataset::ClickBench { single_file } => {
             crate::clickbench::register_vortex_files(
@@ -214,6 +194,44 @@ pub async fn register_vortex_files(
                 single_file,
             )?;
         }
+    }
+
+    Ok(())
+}
+
+async fn ensure_parquet_file_exists(
+    session: &SessionContext,
+    object_store: &dyn ObjectStore,
+    file_url: &Url,
+    parquet_url: &Url,
+    schema: &Schema,
+) -> Result<()> {
+    let parquet_path = parquet_url.path();
+
+    if let Err(e) = object_store
+        .head(&ObjectStorePath::parse(parquet_path)?)
+        .await
+    {
+        info!("File {} doesn't exist because {e}", parquet_url.as_str());
+
+        if parquet_url.scheme() != "file" {
+            anyhow::bail!("Writing to S3 does not seem to work!");
+        }
+
+        with_lock(parquet_path.to_owned(), async move || {
+            crate::conversions::csv_to_parquet_file(
+                session,
+                datafusion::prelude::CsvReadOptions::default()
+                    .delimiter(b'|')
+                    .has_header(false)
+                    .file_extension("tbl")
+                    .schema(schema),
+                file_url.as_str(),
+                parquet_path,
+            )
+            .await
+        })
+        .await?;
     }
 
     Ok(())

@@ -22,12 +22,20 @@ use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
-    let best_bit_width = find_best_bit_width(array)?;
-    bitpack_encode(array, best_bit_width)
+    let bit_width_freq = bit_width_histogram(array)?;
+    let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
+    bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
 
-pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = bit_width_histogram(array)?;
+pub fn bitpack_encode(
+    array: &PrimitiveArray,
+    bit_width: u8,
+    bit_width_freq: Option<&[usize]>,
+) -> VortexResult<BitPackedArray> {
+    let bit_width_freq = match bit_width_freq {
+        Some(freq) => freq,
+        None => &bit_width_histogram(array)?,
+    };
 
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
@@ -39,7 +47,7 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
         }
     }
 
-    let num_exceptions = count_exceptions(bit_width, &bit_width_freq);
+    let num_exceptions = count_exceptions(bit_width, bit_width_freq);
 
     if bit_width >= array.ptype().bit_width() as u8 {
         // Nothing we can do
@@ -369,9 +377,8 @@ pub unsafe fn unpack_single_primitive<T: NativePType + BitPacking>(
     unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
 }
 
-pub fn find_best_bit_width(array: &PrimitiveArray) -> VortexResult<u8> {
-    let bit_width_freq = bit_width_histogram(array)?;
-    best_bit_width(&bit_width_freq, bytes_per_exception(array.ptype()))
+pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResult<u8> {
+    best_bit_width(bit_width_freq, bytes_per_exception(ptype))
 }
 
 /// Assuming exceptions cost 1 value + 1 u32 index, figure out the best bit-width to use.
@@ -413,7 +420,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
     bit_width_freq[bit_width as usize + 1..].iter().sum()
 }
 
-fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
+pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
     match_each_integer_ptype!(array.ptype(), |$P| {
         bit_width_histogram_typed::<$P>(array)
     })
@@ -487,7 +494,7 @@ pub mod test_harness {
             PrimitiveArray::new(values, validity)
         };
 
-        bitpack_encode(&values, 12).map(|a| a.into_array())
+        bitpack_encode(&values, 12, None).map(|a| a.into_array())
     }
 }
 
@@ -508,7 +515,7 @@ mod test {
     #[test]
     fn test_all_zeros() {
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive().unwrap();
-        let bitpacked = bitpack_encode(&zeros, 0).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack(&bitpacked).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[0u16, 0, 0, 0]);
@@ -517,7 +524,7 @@ mod test {
     #[test]
     fn test_simple_patches() {
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive().unwrap();
-        let bitpacked = bitpack_encode(&zeros, 0).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack(&bitpacked).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[0u16, 1, 0, 1]);
@@ -529,7 +536,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 10).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         let actual = unpack(&bitpacked).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(0u16..1024).collect::<Vec<_>>());
@@ -541,7 +548,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 10).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked).unwrap();
         let actual = actual.as_slice::<u16>();
@@ -560,7 +567,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 11).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 11, None).unwrap();
         assert!(bitpacked.patches().is_none());
         let actual = unpack(&bitpacked).unwrap();
         let actual = actual.as_slice::<u16>();
@@ -573,7 +580,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 10).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked).unwrap();
@@ -587,7 +594,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 10).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let bitpacked = slice(&bitpacked, 1023, 1025).unwrap();
@@ -602,7 +609,7 @@ mod test {
             .into_array()
             .to_primitive()
             .unwrap();
-        let bitpacked = bitpack_encode(&zeros, 10).unwrap();
+        let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
         let bitpacked = slice(&bitpacked, 1023, 2049).unwrap();

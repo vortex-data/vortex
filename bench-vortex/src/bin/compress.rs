@@ -6,11 +6,12 @@ use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLComment
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
 use vortex::{Array, ArrayExt};
@@ -40,16 +41,7 @@ fn main() {
     let filter = default_env_filter(args.verbose);
     setup_logger(filter);
 
-    let runtime = match args.threads {
-        Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => Builder::new_current_thread().enable_all().build(),
-        Some(n) => Builder::new_multi_thread()
-            .worker_threads(n)
-            .enable_all()
-            .build(),
-        None => Builder::new_multi_thread().enable_all().build(),
-    }
-    .expect("Failed building the Runtime");
+    let runtime = new_tokio_runtime(args.threads);
 
     compress(
         runtime,

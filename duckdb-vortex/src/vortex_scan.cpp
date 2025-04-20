@@ -32,7 +32,7 @@ struct VortexBindData : public TableFunctionData {
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
 	uint64_t num_columns;
-	unique_ptr<VortexFile> initial_file;
+	unique_ptr<VortexFileReader> initial_file;
 
 	shared_ptr<MultiFileList> file_list;
 
@@ -128,25 +128,25 @@ void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> 
 }
 
 /// Extracts schema information from a Vortex file's data type.
-static void ExtractVortexSchema(const DType *file_dtype, vector<LogicalType> &column_types,
+static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> &column_types,
                                 vector<string> &column_names) {
-	uint32_t field_count = DType_field_count(file_dtype);
+	uint32_t field_count = vx_dtype_field_count(file_dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
 		char name_buffer[512];
 		int name_len = 0;
 
-		DType_field_name(file_dtype, idx, name_buffer, &name_len);
+		vx_dtype_field_name(file_dtype, idx, name_buffer, &name_len);
 		std::string field_name(name_buffer, name_len);
 
-		DType *field_dtype = DType_field_dtype(file_dtype, idx);
-		FFIError *error = nullptr;
-		auto duckdb_type = reinterpret_cast<LogicalType *>(DType_to_duckdb_logical_type(field_dtype, &error));
+		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
+		vx_error *error = nullptr;
+		auto duckdb_type = vx_dtype_to_duckdb_logical_type(field_dtype, &error);
 		HandleError(error);
 
 		column_names.push_back(field_name);
-		column_types.push_back(LogicalType(*duckdb_type));
-		DType_free(field_dtype);
-		delete duckdb_type;
+		column_types.push_back(LogicalType(*reinterpret_cast<LogicalType *>(duckdb_type)));
+		vx_dtype_free(field_dtype);
+		duckdb_destroy_logical_type(&duckdb_type);
 	}
 }
 
@@ -170,23 +170,20 @@ std::string EnsureFileProtocol(const std::string &path) {
 	return prefix + absolute_path;
 }
 
-static unique_ptr<VortexFile> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
-                                       vector<string> &column_names) {
-	FileOpenOptions options;
-	options.uri = filename.c_str();
-	options.property_keys = nullptr;
-	options.property_vals = nullptr;
-	options.property_len = 0;
+static unique_ptr<VortexFileReader> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
+                                             vector<string> &column_names) {
+	vx_file_open_options options {
+	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
-	auto file = VortexFile::Open(&options);
+	auto file = VortexFileReader::Open(&options);
 	if (!file) {
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
 	// This Ptr is owned by the file
-	const DType *file_dtype = File_dtype(file->file);
-	if (DType_get(file_dtype) != DTYPE_STRUCT) {
-		File_free(file->file);
+	const vx_dtype *file_dtype = vx_file_dtype(file->file);
+	if (vx_dtype_get(file_dtype) != DTYPE_STRUCT) {
+		vx_file_reader_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
@@ -212,7 +209,7 @@ static void VerifyNewFile(const VortexBindData &bind_data, vector<LogicalType> &
 	}
 }
 
-static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
+static unique_ptr<VortexFileReader> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
 	auto new_column_types = vector<LogicalType>();
@@ -224,8 +221,8 @@ static unique_ptr<VortexFile> OpenFileAndVerify(const std::string &filename, con
 }
 
 static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_data,
-                                                     VortexScanGlobalState &global_state, VortexFile *file) {
-	auto options = FileScanOptions {
+                                                     VortexScanGlobalState &global_state, VortexFileReader *file) {
+	auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
 	    .filter_expression = global_state.filter_str.data(),
@@ -233,8 +230,8 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(const VortexBindData &bind_
 	    .split_by_row_count = ROW_SPLIT_COUNT,
 	};
 
-	FFIError *error = nullptr;
-	auto scan = File_scan(file->file, &options, &error);
+	vx_error *error = nullptr;
+	auto scan = vx_file_scan(file->file, &options, &error);
 	HandleError(error);
 
 	return make_uniq<VortexArrayStream>(scan);
@@ -259,28 +256,28 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		// todo: 3. check if we can work steal from another thread
 		// 4. we are done
 
-		auto next = slot.array_stream != nullptr ? slot.array_stream->NextArray() : false;
-		while (!next) {
-			if (slot.array_stream != nullptr) {
+		while (local_state.array == nullptr) {
+			if (slot.array_stream == nullptr) {
+				auto file_idx = global_state.next_file.fetch_add(1);
+
+				if (file_idx >= global_state.expanded_files.size()) {
+					local_state.finished = true;
+					global_state.finished = true;
+					output.Reset();
+					return;
+				}
+
+				auto file_name = global_state.expanded_files[file_idx];
+				auto file = OpenFileAndVerify(file_name, bind_data);
+
+				slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
+			}
+
+			local_state.array = slot.array_stream->NextArray();
+			if (local_state.array == nullptr) {
 				slot.array_stream = nullptr;
 			}
-
-			auto file_idx = global_state.next_file.fetch_add(1);
-
-			if (file_idx >= global_state.expanded_files.size()) {
-				local_state.finished = true;
-				global_state.finished = true;
-				output.Reset();
-				return;
-			}
-
-			auto file_name = global_state.expanded_files[file_idx];
-			auto file = OpenFileAndVerify(file_name, bind_data);
-
-			slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
-			next = slot.array_stream->NextArray();
 		}
-		local_state.array = slot.array_stream->CurrentArray();
 		local_state.current_row = 0;
 	}
 

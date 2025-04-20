@@ -1,28 +1,31 @@
 use std::pin::Pin;
 use std::ptr;
+use std::ptr::null_mut;
 
 use futures::StreamExt;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, vortex_bail};
 use vortex::stream::ArrayStream;
 
-use crate::array::{FFIArray, FFIArray_free};
-use crate::error::{FFIError, try_or};
+use crate::array::vx_array;
+use crate::error::{try_or, vx_error};
 
 /// FFI-exposed stream interface.
-pub struct FFIArrayStream {
-    pub inner: Option<Box<FFIArrayStreamInner>>,
-    pub current: Option<Box<FFIArray>>,
+#[allow(non_camel_case_types)]
+pub struct vx_array_stream {
+    pub inner: Option<Box<ArrayStreamInner>>,
 }
 
 /// FFI-compatible interface for dealing with a stream array.
-pub struct FFIArrayStreamInner {
+pub struct ArrayStreamInner {
     pub(crate) stream: Pin<Box<dyn ArrayStream>>,
 }
 
 /// Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> *const DType {
+pub unsafe extern "C-unwind" fn vx_array_stream_dtype(
+    stream: *const vx_array_stream,
+) -> *const DType {
     let Some(inner) = unsafe { stream.as_ref() }
         .vortex_expect("null stream")
         .inner
@@ -41,69 +44,40 @@ pub unsafe extern "C" fn FFIArrayStream_dtype(stream: *const FFIArrayStream) -> 
 ///
 /// It is an error to call this function again after the stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_next(
-    stream: *mut FFIArrayStream,
-    error: *mut *mut FFIError,
-) -> bool {
-    try_or(error, false, || {
+pub unsafe extern "C-unwind" fn vx_array_stream_next(
+    stream: *mut vx_array_stream,
+    error: *mut *mut vx_error,
+) -> *mut vx_array {
+    try_or(error, null_mut(), || {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
         let Some(inner) = stream.inner.as_mut() else {
-            vortex_bail!("FFIArrayStream_next called after finish")
+            vortex_bail!("vx_array_stream_next called after finish")
         };
 
         let element = futures::executor::block_on(inner.stream.next());
 
         if let Some(element) = element {
-            let inner = element?;
-            let ffi_array = FFIArray { inner };
-            stream.current = Some(Box::new(ffi_array));
-
-            Ok(true)
+            Ok(Box::into_raw(Box::new(vx_array { inner: element? })))
         } else {
-            // Drop the element and stream pointers.
-            stream.current.take();
+            // Drop the stream pointers.
             stream.inner.take();
 
-            Ok(false)
+            Ok(null_mut())
         }
     })
 }
 
 /// Predicate function to check if the array stream is finished.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_finished(stream: *const FFIArrayStream) -> bool {
+pub unsafe extern "C-unwind" fn vx_array_stream_finished(stream: *const vx_array_stream) -> bool {
     unsafe { stream.as_ref().vortex_expect("null stream") }
         .inner
         .is_none()
 }
 
-/// Get the current array batch from the stream. Returns a unique pointer.
-///
-/// If this is called on an already finished stream the return value will be null.
-///
-/// # Safety
-///
-/// This function is unsafe because it dereferences the `stream` pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_current(stream: *mut FFIArrayStream) -> *mut FFIArray {
-    let stream = unsafe { stream.as_mut().vortex_expect("null stream") };
-
-    if let Some(current) = stream.current.take() {
-        Box::into_raw(current)
-    } else {
-        ptr::null_mut()
-    }
-}
-
 /// Free the array stream and all associated resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIArrayStream_free(stream: *mut FFIArrayStream) {
+pub unsafe extern "C-unwind" fn vx_array_stream_free(stream: *mut vx_array_stream) {
     assert!(!stream.is_null(), "stream null");
-    let mut stream = Box::from_raw(stream);
-
-    if let Some(current) = stream.current.take() {
-        FFIArray_free(Box::into_raw(current));
-    }
-
-    drop(stream.inner.take())
+    drop(unsafe { Box::from_raw(stream) });
 }

@@ -3,16 +3,18 @@ use std::ptr;
 
 use vortex::error::VortexResult;
 
+/// The error structure populated by fallible Vortex C functions.
 #[repr(C)]
-pub struct FFIError {
+pub struct vx_error {
     pub code: c_int,
     pub message: *const c_char,
 }
 
-pub fn try_or<F, ValueT>(error: *mut *mut FFIError, default_value: ValueT, function: F) -> ValueT
-where
-    F: Fn() -> VortexResult<ValueT>,
-{
+pub fn try_or<T>(
+    error: *mut *mut vx_error,
+    default_value: T,
+    mut function: impl FnMut() -> VortexResult<T>,
+) -> T {
     match function() {
         Ok(value) => {
             unsafe { error.write(ptr::null_mut()) };
@@ -24,7 +26,7 @@ where
                 std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
             unsafe {
                 error.write(
-                    Box::into_raw(Box::new(FFIError {
+                    Box::into_raw(Box::new(vx_error {
                         code: -1,
                         message: c_string.into_raw(),
                     }))
@@ -37,6 +39,6 @@ where
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FFIError_free(error: *mut FFIError) {
+pub unsafe extern "C-unwind" fn vx_error_free(error: *mut vx_error) {
     drop(unsafe { Box::from_raw(error) })
 }
