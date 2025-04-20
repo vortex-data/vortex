@@ -6,15 +6,12 @@ mod tokio;
 mod wasm;
 
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::task::Poll;
 
-use cfg_if::cfg_if;
 use futures::FutureExt;
 use futures::channel::oneshot;
 use vortex_error::{VortexResult, vortex_err};
-
-static SHARED: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(feature = "compio")]
 use self::compio::*;
@@ -73,18 +70,6 @@ pub trait Dispatch: sealed::Sealed {
 pub struct IoDispatcher(Arc<Inner>);
 
 impl IoDispatcher {
-    pub fn new() -> Self {
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                Self(Arc::new(Inner::Wasm(WasmDispatcher::new())))
-            } else if #[cfg(not(feature = "compio"))] {
-                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(1))))
-            } else {
-                Self(Arc::new(Inner::Compio(CompioDispatcher::new(1))))
-            }
-        }
-    }
-
     /// Create a new IO dispatcher that uses a set of Tokio `current_thread` runtimes to
     /// execute both `Send` and `!Send` futures.
     ///
@@ -103,19 +88,6 @@ impl IoDispatcher {
     #[cfg(target_arch = "wasm32")]
     pub fn new_wasm() -> Self {
         Self(Arc::new(Inner::Wasm(WasmDispatcher)))
-    }
-}
-
-impl Default for IoDispatcher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl IoDispatcher {
-    /// Returns a handle to the current process's shared Dispatcher.
-    pub fn shared() -> Self {
-        SHARED.clone()
     }
 }
 

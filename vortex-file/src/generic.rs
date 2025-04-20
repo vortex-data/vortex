@@ -281,10 +281,6 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
     }
 }
 
-#[cfg(feature = "tokio")]
-const TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
-    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
-
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open_object_store(
@@ -336,7 +332,11 @@ impl Default for GenericFileOptions {
             initial_read_size: 0,
             initial_read_segments: Default::default(),
             io_concurrency: 8,
-            io_dispatcher: IoDispatcher::shared(),
+            io_dispatcher: TOKIO_DISPATCHER.clone(),
         }
     }
 }
+
+#[cfg(feature = "tokio")]
+static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
+    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));

@@ -65,6 +65,7 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
+default = ["tokio"]
 object_store = [
     "tokio",
     "dep:object_store",
