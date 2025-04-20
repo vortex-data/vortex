@@ -214,16 +214,6 @@ worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 
-[patch.crates-io]
-# https://github.com/apache/datafusion/pull/15466 (arrow 55)
-datafusion = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-common = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-datasource = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-execution = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-expr = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-physical-expr = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-datafusion-physical-plan = { git = "https://github.com/apache/datafusion.git", branch = "branch-47" }
-
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
 package = "getrandom"

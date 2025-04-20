@@ -21,7 +21,6 @@ bench = false
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-arrow-array = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 vortex-array = { workspace = true }
