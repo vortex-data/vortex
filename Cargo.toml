@@ -76,12 +76,12 @@ clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
 dashmap = "6.1.0"
-datafusion = { version = "46", default-features = false }
-datafusion-common = { version = "46" }
-datafusion-execution = { version = "46" }
-datafusion-expr = { version = "46" }
-datafusion-physical-expr = { version = "46" }
-datafusion-physical-plan = { version = "46" }
+datafusion = { version = "47", default-features = false }
+datafusion-common = { version = "47" }
+datafusion-execution = { version = "47" }
+datafusion-expr = { version = "47" }
+datafusion-physical-expr = { version = "47" }
+datafusion-physical-plan = { version = "47" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
     "vtab-full",
