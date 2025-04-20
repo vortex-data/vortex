@@ -9,8 +9,15 @@ use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
+
+#[derive(prost::Message)]
+pub struct BoolMetadata {
+    // The offset in bits must be <8
+    #[prost(uint32, tag = "1")]
+    pub offset: u32,
+}
 
 impl EncodingVTable for BoolEncoding {
     fn id(&self) -> EncodingId {
@@ -24,7 +31,7 @@ impl EncodingVTable for BoolEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<BoolMetadata>::deserialize(parts.metadata())?;
+        let metadata = <Self as Encoding>::Metadata::deserialize(parts.metadata())?;
 
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
@@ -48,13 +55,7 @@ impl EncodingVTable for BoolEncoding {
     }
 }
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct BoolMetadata {
-    // We know the offset in bits must be <8
-    offset: u8,
-}
-
-impl ArrayVisitorImpl<RkyvMetadata<BoolMetadata>> for BoolArray {
+impl ArrayVisitorImpl<ProstMetadata<BoolMetadata>> for BoolArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
             self.boolean_buffer().clone().into_inner(),
@@ -66,11 +67,11 @@ impl ArrayVisitorImpl<RkyvMetadata<BoolMetadata>> for BoolArray {
         visitor.visit_validity(&self.validity, self.len());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<BoolMetadata> {
+    fn _metadata(&self) -> ProstMetadata<BoolMetadata> {
         let bit_offset = self.boolean_buffer().offset();
         assert!(bit_offset < 8, "Offset must be <8, got {}", bit_offset);
-        RkyvMetadata(BoolMetadata {
-            offset: u8::try_from(bit_offset).vortex_expect("checked"),
+        ProstMetadata(BoolMetadata {
+            offset: u32::try_from(bit_offset).vortex_expect("checked"),
         })
     }
 }

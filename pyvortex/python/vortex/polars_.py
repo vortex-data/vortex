@@ -25,7 +25,13 @@ _OPS = {
     "LogicalOr": operator.or_,
 }
 
+
+def _unsupported(v, name: str):
+    raise ValueError(f"Unsupported Polars expression {name}: {v}")
+
+
 _LITERAL_TYPES = {
+    "Boolean": lambda v: vx.bool_(nullable=v is None),
     "Int": lambda v: vx.int_(64, nullable=v is None),
     "Int8": lambda v: vx.int_(8, nullable=v is None),
     "Int16": lambda v: vx.int_(16, nullable=v is None),
@@ -37,7 +43,6 @@ _LITERAL_TYPES = {
     "UInt64": lambda v: vx.uint(64, nullable=v is None),
     "Float32": lambda v: vx.float_(32, nullable=v is None),
     "Float64": lambda v: vx.float_(64, nullable=v is None),
-    "Boolean": lambda v: vx.bool_(nullable=v is None),
     "Null": lambda v: vx.null(),
     "String": lambda v: vx.utf8(nullable=v is None),
     "Binary": lambda v: vx.binary(nullable=v is None),
@@ -59,10 +64,27 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
     if "Column" in expr:
         return ve.column(expr["Column"])
 
+    # See https://github.com/pola-rs/polars/pull/21849)
+    if "Scalar" in expr:
+        dtype = expr["Scalar"]["dtype"]  # DType
+        value = expr["Scalar"]["value"]  # AnyValue
+
+        if "Null" in value:
+            value = None
+        elif "StringOwned" in value:
+            value = value["StringOwned"]
+        else:
+            raise ValueError(f"Unsupported Polars scalar value type {value}")
+
+        return ve.literal(_LITERAL_TYPES[dtype](value), value)
+
     if "Literal" in expr:
         expr = expr["Literal"]
 
         literal_type = next(iter(expr.keys()), None)
+
+        if literal_type == "Scalar":
+            return _polars_to_vortex(expr)
 
         # Special-case Series
         if literal_type == "Series":
@@ -91,6 +113,12 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
             dtype = vx.ext("vortex.timestamp", vx.int_(64, nullable=value is None), metadata=metadata)
             return ve.literal(dtype, value)
 
+        # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
+        # (post https://github.com/pola-rs/polars/pull/21849)
+        if literal_type == "Dyn":
+            expr = expr["Dyn"]
+            literal_type = next(iter(expr.keys()), None)
+
         if literal_type not in _LITERAL_TYPES:
             raise NotImplementedError(f"Unsupported Polars literal type: {literal_type}")
         value = expr[literal_type]
@@ -110,6 +138,11 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
                     raise ValueError(f"Unsupported nulls_equal argument in fn {expr}")
 
                 # Vortex doesn't support is-in, so we need to construct a series of ORs?
+
+        if "StringExpr" in fn:
+            fn = fn["StringExpr"]
+            if "Contains" in fn:
+                raise ValueError("Unsupported Polars StringExpr.Contains")
 
         raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
