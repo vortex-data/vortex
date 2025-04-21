@@ -166,3 +166,17 @@ impl ArrayValidityImpl for DecimalArray {
         self.validity.to_mask(self.len())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use arrow_array::Decimal128Array;
+
+    #[test]
+    fn test_decimal() {
+        // They pass it b/c the DType carries the information. No other way to carry a
+        // dtype except via the array.
+        let value = Decimal128Array::new_null(100);
+        let numeric = value.value(10);
+        assert_eq!(numeric, 0i128);
+    }
+}

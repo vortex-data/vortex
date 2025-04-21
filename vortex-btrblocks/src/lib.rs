@@ -283,6 +283,7 @@ impl BtrBlocksCompressor {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
                 }
             }
+            Canonical::Decimal(_) => todo!("decimal compressor"),
             Canonical::Struct(struct_array) => {
                 let mut fields = Vec::new();
                 for idx in 0..struct_array.nfields() {
