@@ -14,6 +14,15 @@ pub enum DecimalValue {
     I256(i256),
 }
 
+impl Display for DecimalValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DecimalValue::I128(v128) => write!(f, "decimal128({})", v128),
+            DecimalValue::I256(v256) => write!(f, "decimal256({})", v256),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
     dtype: &'a DType,

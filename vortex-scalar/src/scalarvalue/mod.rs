@@ -80,7 +80,7 @@ impl Display for InnerScalarValue {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
             Self::Primitive(pvalue) => write!(f, "{}", pvalue),
-            Self::Decimal(value) => write!(f, "{:?}", value),
+            Self::Decimal(value) => write!(f, "{}", value),
             Self::Buffer(buf) => {
                 if buf.len() > 10 {
                     write!(

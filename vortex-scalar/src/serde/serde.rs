@@ -229,8 +229,9 @@ impl Serialize for DecimalValue {
 #[cfg(test)]
 mod tests {
     use flexbuffers::{FlexbufferSerializer, Reader};
+    use half::f16;
     use rstest::rstest;
-    use vortex_dtype::Nullability;
+    use vortex_dtype::{DType, FieldDType, Nullability, PType, StructDType, half};
 
     use super::*;
     use crate::Scalar;
