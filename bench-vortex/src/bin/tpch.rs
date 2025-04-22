@@ -325,6 +325,10 @@ async fn bench_main(
         })
         .collect();
 
+    if tpch_queries.len() == 0 {
+        panic!("No queries to run")
+    }
+
     for target in &targets {
         let engine = target.engine();
         let format = target.format();
