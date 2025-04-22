@@ -20,7 +20,7 @@ use vortex_duckdb::{
 
 use crate::array::vx_array;
 use crate::duckdb::cache::{into_conversion_cache, vx_conversion_cache};
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or, try_or_else, vx_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -31,7 +31,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    try_or(
+    try_or_else(
         error,
         || LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
         || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
@@ -50,38 +50,34 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
     cache: *mut vx_conversion_cache,
     error: *mut *mut vx_error,
 ) -> c_uint {
-    try_or(
-        error,
-        || 0,
-        || {
-            let offset = offset as usize;
+    try_or(error, 0, || {
+        let offset = offset as usize;
 
-            let array = &unsafe { stream.as_ref() }
-                .vortex_expect("null stream")
-                .inner;
+        let array = &unsafe { stream.as_ref() }
+            .vortex_expect("null stream")
+            .inner;
 
-            assert!(array.len() > offset, "offset out of bounds");
+        assert!(array.len() > offset, "offset out of bounds");
 
-            let end = min(offset + DUCKDB_STANDARD_VECTOR_SIZE, array.len());
-            let is_end = end == array.len();
+        let end = min(offset + DUCKDB_STANDARD_VECTOR_SIZE, array.len());
+        let is_end = end == array.len();
 
-            let slice = slice(array, offset, end)?;
-            let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
-            let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
+        let slice = slice(array, offset, end)?;
+        let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
+        let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
 
-            to_duckdb_chunk(
-                &slice.to_struct().vortex_expect("must be a struct"),
-                &mut data_chunk_handle,
-                cache,
-            )?;
+        to_duckdb_chunk(
+            &slice.to_struct().vortex_expect("must be a struct"),
+            &mut data_chunk_handle,
+            cache,
+        )?;
 
-            if is_end {
-                Ok(0)
-            } else {
-                Ok(u32::try_from(end)?)
-            }
-        },
-    )
+        if is_end {
+            Ok(0)
+        } else {
+            Ok(u32::try_from(end)?)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -91,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     len: c_int,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
-    try_or(error, ptr::null_mut, || {
+    try_or_else(error, ptr::null_mut, || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)
