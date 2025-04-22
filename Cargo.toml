@@ -222,7 +222,7 @@ version = "0.3.1"
 [workspace.dependencies.getrandom_v02]
 features = ["js"]
 package = "getrandom"
-version = "0.2.15"
+version = "0.3.0"
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"
