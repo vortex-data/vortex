@@ -5,6 +5,7 @@ use std::fmt::Display;
 
 use clap::ValueEnum;
 use itertools::Itertools;
+use serde::Serialize;
 
 pub mod bench_run;
 pub mod blob;
@@ -40,7 +41,7 @@ macro_rules! feature_flagged_allocator {
     };
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {
     engine: Engine,
     format: Format,
@@ -57,8 +58,26 @@ impl Target {
         };
 
         Self {
-            engine: Engine::from_str(*engine_str, true).expect(""),
-            format: Format::from_str(*format_str, true).expect(""),
+            engine: Engine::from_str(*engine_str, true)
+                .map_err(|e| {
+                    vortex_err!(
+                        "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
+                        *engine_str,
+                        Engine::value_variants().into_iter().join(","),
+                        e
+                    )
+                })
+                .vortex_unwrap(),
+            format: Format::from_str(*format_str, true)
+                .map_err(|e| {
+                    vortex_err!(
+                        "cannot convert str ({}) to a Format oneof([{}]), got error {}",
+                        *format_str,
+                        Format::value_variants().into_iter().join(","),
+                        e
+                    )
+                })
+                .vortex_unwrap(),
         }
     }
 
@@ -77,7 +96,8 @@ impl Display for Target {
     }
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Format {
     #[clap(name = "csv")]
     Csv,
@@ -86,8 +106,10 @@ pub enum Format {
     #[clap(name = "parquet")]
     Parquet,
     #[clap(name = "in-memory-vortex")]
+    #[serde(rename = "in-memory-vortex")]
     InMemoryVortex,
     #[clap(name = "vortex")]
+    #[serde(rename = "vortex")]
     OnDiskVortex,
 }
 
@@ -109,13 +131,16 @@ impl Format {
     }
 }
 
-#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
+#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Engine {
     #[default]
     Vortex,
     #[clap(name = "datafusion")]
+    #[serde(rename = "datafusion")]
     DataFusion,
     #[clap(name = "duckdb")]
+    #[serde(rename = "duckdb")]
     DuckDB,
 }
 
@@ -131,3 +156,4 @@ impl std::fmt::Display for Engine {
 
 pub use utils::file_utils::*;
 pub use utils::logging::*;
+use vortex::error::{VortexUnwrap, vortex_err};

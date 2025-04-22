@@ -28,7 +28,7 @@ feature_flagged_allocator!();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:pq".to_string(), "datafusion:vx".to_string()])]
+    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
     target: Vec<String>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,

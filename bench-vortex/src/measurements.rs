@@ -120,6 +120,7 @@ pub struct JsonValue {
     pub storage: Option<String>,
     pub unit: Option<Cow<'static, str>>,
     pub value: MeasurementValue,
+    pub target: Target,
     pub time: Option<u128>,
     pub bytes: Option<u64>,
     pub commit_id: Cow<'static, str>,
@@ -180,6 +181,7 @@ impl ToJson for TimingMeasurement {
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: self.target,
         }
     }
 }
@@ -211,6 +213,7 @@ impl ToJson for QueryMeasurement {
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: self.target,
         }
     }
 }
@@ -251,6 +254,7 @@ impl ToJson for ThroughputMeasurement {
             time: Some(self.time.as_nanos()),
             bytes: Some(self.bytes),
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: Target::new(Engine::Vortex, self.format),
         }
     }
 }
@@ -286,6 +290,7 @@ impl ToJson for CustomUnitMeasurement {
             time: None,
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: Target::new(Engine::Vortex, self.format),
         }
     }
 }
