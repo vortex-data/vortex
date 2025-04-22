@@ -463,7 +463,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bench-vortex"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -491,7 +491,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parquet",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rand_distr",
  "rayon",
  "regex",
@@ -602,9 +602,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "4.0.2"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74fa05ad7d803d413eb8380983b092cbbaf9a85f151b871360e7b00cd7060b37"
+checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -818,9 +818,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.36"
+version = "4.5.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2df961d8c8a0d08aa9945718ccf584145eee3f3aa06cddbeac12933781102e04"
+checksum = "eccb054f56cbd38340b380d4a8e69ef1f02f1af43db2f0cc817a4774d80ae071"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -828,9 +828,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.36"
+version = "4.5.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "132dbda40fb6753878316a489d5a1242a8ef2f0d9e47ba01c951ea8aa7d013a5"
+checksum = "efd9466fac8543255d3b1fcad4762c5e116ffe808c8a3043d4263cd4fd4862a2"
 dependencies = [
  "anstream",
  "anstyle",
@@ -932,7 +932,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2002,7 +2002,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "976dd42dc7e85965fe702eb8164f21f450704bdde31faefd6471dba214cb594e"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2033,7 +2033,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "988360e80225a42d5e2f78fcb90ef7d54d1e4394d335476b5465d34942426776"
 dependencies = [
  "ordered-float 5.0.0",
- "rand 0.9.0",
+ "rand 0.9.1",
 ]
 
 [[package]]
@@ -2388,7 +2388,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta",
- "rand 0.9.0",
+ "rand 0.9.1",
  "smallvec",
  "spinning_top",
  "web-time",
@@ -2889,9 +2889,9 @@ dependencies = [
 
 [[package]]
 name = "jiff"
-version = "0.2.8"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ad87c89110f55e4cd4dc2893a9790820206729eaf221555f742d540b0724a0"
+checksum = "5a064218214dc6a10fbae5ec5fa888d80c45d611aba169222fc272072bf7aef6"
 dependencies = [
  "jiff-static",
  "jiff-tzdb-platform",
@@ -2899,14 +2899,14 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
 name = "jiff-static"
-version = "0.2.8"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d076d5b64a7e2fe6f0743f02c43ca4a6725c0f904203bfe276a5b3e793103605"
+checksum = "199b7932d97e325aff3a7030e141eafe7f2c6268e1d1b24859b753a627f45254"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3678,7 +3678,7 @@ dependencies = [
  "glob",
  "opentelemetry",
  "percent-encoding",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde_json",
  "thiserror 2.0.12",
  "tracing",
@@ -4167,7 +4167,7 @@ dependencies = [
 
 [[package]]
 name = "pyvortex"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow",
  "futures",
@@ -4245,7 +4245,7 @@ checksum = "b820744eb4dc9b57a3398183639c511b5a26d2ed702cedd3febaa1393caa22cc"
 dependencies = [
  "bytes",
  "getrandom 0.3.2",
- "rand 0.9.0",
+ "rand 0.9.1",
  "ring",
  "rustc-hash",
  "rustls",
@@ -4268,7 +4268,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4314,13 +4314,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
- "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -4368,7 +4367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
 ]
 
 [[package]]
@@ -4745,7 +4744,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4758,7 +4757,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5022,9 +5021,9 @@ dependencies = [
 
 [[package]]
 name = "signal-hook-registry"
-version = "1.4.2"
+version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9e9e0b4211b72e7b8b6e85c807d36c212bdb33ea8587f7569562a84df5465b1"
+checksum = "9203b8055f63a2a00e2f593bb0510367fe707d7ff1e5c872de2f537b339e5410"
 dependencies = [
  "libc",
 ]
@@ -5186,7 +5185,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5362,7 +5361,7 @@ dependencies = [
  "getrandom 0.3.2",
  "once_cell",
  "rustix 1.0.5",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5884,7 +5883,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow",
  "itertools 0.14.0",
@@ -5918,12 +5917,12 @@ dependencies = [
 
 [[package]]
 name = "vortex-alp"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rstest",
  "rustc-hash",
  "serde",
@@ -5938,7 +5937,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-array"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arbitrary",
  "arrow-arith",
@@ -5966,7 +5965,9 @@ dependencies = [
  "parking_lot",
  "paste",
  "pin-project",
- "rand 0.9.0",
+ "prost",
+ "prost-types",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rstest",
  "rstest_reuse",
@@ -5984,7 +5985,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-btrblocks"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
@@ -5993,7 +5994,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rustc-hash",
  "vortex-alp",
  "vortex-array",
@@ -6013,7 +6014,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-buffer"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
@@ -6027,7 +6028,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-bytebool"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -6041,7 +6042,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datafusion"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -6060,7 +6061,7 @@ dependencies = [
  "moka",
  "object_store",
  "pin-project",
- "rand 0.9.0",
+ "rand 0.9.1",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -6080,7 +6081,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-parts"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "getrandom 0.2.15",
  "rkyv 0.8.10",
@@ -6095,12 +6096,12 @@ dependencies = [
 
 [[package]]
 name = "vortex-dict"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rustc-hash",
  "vortex-array",
@@ -6114,7 +6115,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dtype"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arbitrary",
  "arrow-schema",
@@ -6136,7 +6137,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-duckdb"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-array",
  "duckdb",
@@ -6155,7 +6156,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-error"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
@@ -6176,7 +6177,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-expr"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
@@ -6197,7 +6198,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fastlanes"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
@@ -6206,7 +6207,7 @@ dependencies = [
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rkyv 0.8.10",
  "rstest",
  "rstest_reuse",
@@ -6222,7 +6223,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ffi"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "duckdb",
  "futures",
@@ -6239,7 +6240,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-file"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6282,7 +6283,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-flatbuffers"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "flatbuffers 25.2.10",
  "vortex-buffer",
@@ -6290,12 +6291,12 @@ dependencies = [
 
 [[package]]
 name = "vortex-fsst"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-array",
  "codspeed-divan-compat",
  "fsst-rs",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -6307,7 +6308,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fuzz"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
@@ -6327,7 +6328,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-io"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -6349,7 +6350,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ipc"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "bytes",
  "flatbuffers 25.2.10",
@@ -6366,7 +6367,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-jni"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow",
  "futures",
@@ -6383,7 +6384,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-layout"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "async-trait",
@@ -6414,7 +6415,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-mask"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "itertools 0.14.0",
@@ -6423,7 +6424,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-metrics"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "getrandom 0.3.2",
  "vortex-error",
@@ -6432,7 +6433,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-proto"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -6440,13 +6441,13 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -6458,7 +6459,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-scalar"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
@@ -6480,7 +6481,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-sparse"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "itertools 0.14.0",
  "rkyv 0.8.10",
@@ -6496,7 +6497,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-tui"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6514,7 +6515,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-zigzag"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "vortex-array",
  "vortex-buffer",
@@ -6700,7 +6701,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7279,7 +7280,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "clap",

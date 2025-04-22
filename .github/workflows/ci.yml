@@ -428,3 +428,14 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+
+      - name: "Checkout develop flatbuffers"
+        working-directory: vortex-flatbuffers/
+        run: |
+          cp -R flatbuffers flatbuffers.HEAD
+          git fetch origin develop --depth 1
+          git checkout origin/develop -- flatbuffers
+      - name: "Verify flatbuffer back-compat"
+        working-directory: vortex-flatbuffers/
+        run: |
+          find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}

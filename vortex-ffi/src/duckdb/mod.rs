@@ -5,7 +5,7 @@ use std::ffi::{c_char, c_int, c_uint};
 use std::ptr;
 use std::sync::Arc;
 
-use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use vortex::arrays::ChunkedArray;
 use vortex::compute::slice;
@@ -31,11 +31,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    try_or(
-        error,
-        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
-        || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
-    )
+    try_or(error, ptr::null_mut(), || {
+        Ok(dtype.to_duckdb_type()?.into_owning_ptr())
+    })
 }
 
 /// Back a single chunk of the array as a duckdb data chunk.

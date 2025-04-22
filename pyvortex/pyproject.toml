@@ -8,7 +8,7 @@ dependencies = ["pyarrow>=17.0.0", "substrait>=0.23.0"]
 requires-python = ">= 3.10"
 
 [project.optional-dependencies]
-polars = ["polars>=1.24.0"]
+polars = ["polars>=1.27.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]

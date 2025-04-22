@@ -1,5 +1,5 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
-use std::ptr::null;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
@@ -199,7 +199,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_element_type(
 ) -> *const DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    try_or(error, null(), || {
+    try_or(error, ptr::null(), || {
         let DType::List(element_dtype, _) = dtype else {
             vortex_bail!("vx_dtype_element_type: not a list dtype")
         };

@@ -30,11 +30,7 @@ def _to_polars(self: VortexFile):
         if predicate is not None:
             predicate = polars_to_vortex(predicate)
 
-        reader = self.to_arrow(
-            projection=with_columns,
-            expr=predicate,
-            batch_size=batch_size or 8192,
-        )
+        reader = self.to_arrow(projection=with_columns, expr=predicate)
 
         for batch in reader:
             batch = pl.DataFrame._from_arrow(batch, rechunk=False)
@@ -46,7 +42,7 @@ def _to_polars(self: VortexFile):
             data=pa.RecordBatch.from_arrays(
                 [pa.array([], type=field.type) for field in reader.schema],
                 schema=reader.schema,
-            )
+            ),
         )
 
     return register_io_source(_io_source, schema=schema)

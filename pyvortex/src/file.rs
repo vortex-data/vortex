@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arrow::array::RecordBatchReader;
 use arrow::pyarrow::IntoPyArrow;
-use futures::{SinkExt, StreamExt};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -10,13 +9,13 @@ use vortex::ToCanonical;
 use vortex::compute::try_cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
-use vortex::error::{VortexExpect, vortex_err};
+use vortex::error::VortexError;
 use vortex::expr::{ExprRef, ident, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
-use vortex::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
+use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
@@ -184,37 +183,23 @@ impl PyVortexFile {
         expr: Option<PyExpr>,
         batch_size: Option<usize>,
     ) -> PyResult<PyObject> {
-        let mut builder = slf
-            .get()
-            .vxf
-            .scan()?
-            .with_canonicalize(true)
-            .with_some_filter(expr.map(|e| e.into_inner()))
-            .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
+        let vxf = slf.get().vxf.clone();
 
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
+        let stream = slf.py().allow_threads(|| {
+            let mut builder = vxf
+                .scan()?
+                .with_canonicalize(true)
+                .with_some_filter(expr.map(|e| e.into_inner()))
+                .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
-        let stream = ArrayStreamExt::boxed(builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?);
-        let dtype = stream.dtype().clone();
+            if let Some(batch_size) = batch_size {
+                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+            }
 
-        // The I/O of the array stream won't make progress unless it's polled. So we need to spawn it.
-        let (mut send, recv) = futures::channel::mpsc::unbounded();
-
-        TOKIO_RUNTIME
-            .block_on(TOKIO_RUNTIME.spawn(async move {
-                let mut stream = stream;
-                while let Some(batch) = stream.next().await {
-                    send.send(batch)
-                        .await
-                        .map_err(|e| vortex_err!("Send failed {}", e))
-                        .vortex_expect("send failed");
-                }
-            }))
-            .vortex_expect("failed to spawn stream");
-
-        let stream = ArrayStreamAdapter::new(dtype, recv);
+            Ok::<_, VortexError>(ArrayStreamExt::boxed(
+                builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
+            ))
+        })?;
 
         let iter = ArrayStreamToIterator::new(stream);
         let rbr: Box<dyn RecordBatchReader + Send> =
