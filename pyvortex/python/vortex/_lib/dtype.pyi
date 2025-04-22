@@ -23,7 +23,6 @@ class PrimitiveDType(DType):
 class DecimalDType(DType):
     @property
     def precision(self) -> int: ...
-
     @property
     def scale(self) -> int: ...
 
