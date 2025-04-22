@@ -13,6 +13,10 @@ use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
+        if self.nchunks() == 1 {
+            return self.chunks()[0].to_canonical();
+        }
+
         match self.dtype() {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(

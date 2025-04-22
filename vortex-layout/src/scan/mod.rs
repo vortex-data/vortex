@@ -226,6 +226,18 @@ impl ScanBuilder {
             .try_collect()
     }
 
+    pub fn dtype(&self) -> VortexResult<DType> {
+        self.projection.return_dtype(self.layout_reader.dtype())
+    }
+
+    /// Returns a stream over the scan with each CPU task spawned using the given spawn function.
+    pub fn into_futures(
+        self,
+    ) -> VortexResult<impl Iterator<Item = impl Future<Output = VortexResult<Option<ArrayRef>>>>>
+    {
+        Ok(self.build_tasks()?.into_iter())
+    }
+
     /// Returns a stream over the scan with each CPU task spawned using the given spawn function.
     pub fn spawn_on<F, S>(self, mut spawner: S) -> VortexResult<impl ArrayStream + 'static>
     where

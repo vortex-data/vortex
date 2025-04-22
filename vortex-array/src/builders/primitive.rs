@@ -172,9 +172,12 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             vortex_bail!("Cannot extend from array with different ptype");
         }
 
-        self.values.extend_from_slice(array.as_slice::<T>());
-
         self.extend_with_validity_mask(array.validity_mask()?);
+        if self.values.is_empty() {
+            self.values = array.into_buffer_mut();
+        } else {
+            self.values.extend_from_slice(array.as_slice::<T>());
+        }
 
         Ok(())
     }

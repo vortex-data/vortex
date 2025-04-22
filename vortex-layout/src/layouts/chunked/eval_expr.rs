@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -183,6 +183,9 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
         .await?;
 
         // Combine the arrays.
+        if chunks.len() == 1 {
+            return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
+        }
         Ok(ChunkedArray::try_new(chunks, self.dtype.clone())?.to_array())
     }
 }

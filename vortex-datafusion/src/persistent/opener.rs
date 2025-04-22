@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use arrow_schema::SchemaRef;
+use arrow_schema::{ArrowError, SchemaRef};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use futures::{FutureExt as _, StreamExt};
+use futures::{FutureExt, StreamExt, stream};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
-use vortex_array::ToCanonical;
+use vortex_array::{ArrayRef, ToCanonical};
+use vortex_error::{ResultExt, VortexError, VortexResult};
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
@@ -58,24 +59,49 @@ impl FileOpener for VortexFileOpener {
         let batch_size = self.batch_size;
 
         Ok(async move {
-            Ok(file_cache
+            let scan = file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
                 .scan()?
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_canonicalize(true)
+                //.with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
-                .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .spawn_tokio(Handle::current())?
-                .map(move |array| {
-                    let st = array?.to_struct()?;
-                    Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+                .with_split_by(SplitBy::RowCount(8 * batch_size));
+
+            let stream = stream::iter(scan.into_futures()?)
+                .map(move |fut| {
+                    let projected_arrow_schema = projected_arrow_schema.clone();
+                    fut.map(move |array: VortexResult<Option<ArrayRef>>| {
+                        array.transpose().map(|array| {
+                            let st = array?.to_struct()?;
+                            Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+                        })
+                    })
                 })
-                .boxed())
+                // Spawn the tasks onto the Tokio runtime.
+                .map(|fut| Handle::current().spawn(fut))
+                .buffer_unordered(16)
+                .filter_map(|result| async move {
+                    result.transpose().map(|r| {
+                        r.map_err(VortexError::from)
+                            .unnest()
+                            .map_err(ArrowError::from)
+                    })
+                });
+
+            Ok(StreamExt::boxed(stream))
+            //
+            // Ok(scan
+            //     .spawn_tokio(Handle::current())?
+            //     .map(move |array| {
+            //         let st = array?.to_struct()?;
+            //         Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+            //     })
+            //     .boxed())
         }
         .boxed())
     }
