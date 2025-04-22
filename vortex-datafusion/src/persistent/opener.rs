@@ -7,6 +7,7 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
+use vortex_error::{ResultExt, VortexError};
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
@@ -65,16 +66,21 @@ impl FileOpener for VortexFileOpener {
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_canonicalize(true)
+                .with_canonicalize(false)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
                 .spawn_tokio(Handle::current())?
                 .map(move |array| {
-                    let st = array?.to_struct()?;
-                    Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+                    let projected_arrow_schema = projected_arrow_schema.clone();
+                    tokio::task::spawn(async move {
+                        let st = array?.to_struct()?;
+                        Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+                    })
                 })
+                .buffered(10_000)
+                .map(|r| r.map_err(VortexError::from).unnest().map_err(Into::into))
                 .boxed())
         }
         .boxed())
