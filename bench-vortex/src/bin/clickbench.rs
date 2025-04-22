@@ -60,7 +60,7 @@ struct Args {
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
-    hide_metrics: bool,
+    show_metrics: bool,
 }
 
 struct DataFusionCtx {
@@ -224,7 +224,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            if !args.hide_metrics {
+            if args.show_metrics {
                 print_metrics(&ctx.metrics);
             }
         }
@@ -242,10 +242,12 @@ fn validate_args(engines: &[Engine], args: &Args) {
         panic!("--duckdb-path is only valid when DuckDB engine is used");
     }
 
-    if (args.emit_plan || args.export_spans || args.threads.is_some())
+    if (args.emit_plan || args.export_spans || args.show_metrics || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {
-        panic!("--emit-plan, --export-spans, --threads are only valid if DataFusion is used");
+        panic!(
+            "--emit-plan, --export-spans, --show_metrics, --threads are only valid if DataFusion is used"
+        );
     }
 }
 

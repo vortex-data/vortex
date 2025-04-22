@@ -3,13 +3,13 @@ window.initAndRender = (function () {
     function stringToColor(str) {
         // Random colours are generally pretty disgusting...
         const MAP = {
-            "df:arrow": '#7a27b1',
-            "df:parquet": '#ef7f1d',
-            "dfvortex": '#23d100',
+            "datafusion:arrow": '#7a27b1',
+            "datafusion:parquet": '#ef7f1d',
+            "datafusionvortex": '#23d100',
 
-            "ddb:parquet": '#ef1d24',
-            "ddb:vortex": '#0062d1',
-            "ddb:duckdb": '#000000',
+            "duckdb:parquet": '#ef1d24',
+            "duckdb:vortex": '#0062d1',
+            "duckdb:duckdb": '#000000',
 
         };
 
@@ -110,8 +110,8 @@ window.initAndRender = (function () {
             }
 
             // Rename old series names to new ones,
-            // e.g. vortex-file-compressed -> df:vortex
-            // also new series DataFusion:vortex-file-compressed -> df:vortex.
+            // e.g. vortex-file-compressed -> datafusion:vortex
+            // also new series DataFusion:vortex-file-compressed -> datafusion:vortex.
             const renamer = seriesRenameFn?.find((n, v) => n[0] === group_id);
             if (renamer !== undefined && renamer[1] !== undefined && renamer[1]['renamedDatasets'] !== undefined) {
                 const renameDict = renamer[1]['renamedDatasets']
