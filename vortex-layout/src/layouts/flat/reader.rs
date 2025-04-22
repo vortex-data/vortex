@@ -4,7 +4,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
@@ -50,7 +50,7 @@ impl FlatReader {
             .layout
             .segment_id(0)
             .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
-        let row_count = usize::try_from(self.layout.row_count())?;
+        let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
