@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
@@ -108,7 +109,7 @@ fn main() -> anyhow::Result<()> {
     let targets = args
         .target
         .iter()
-        .map(|t| Target::from_target_string(t))
+        .map(|t| Target::from_str(t).unwrap())
         .collect_vec();
 
     let engines = targets.iter().map(|t| t.engine()).unique().collect_vec();

@@ -2,6 +2,7 @@
 
 use std::clone::Clone;
 use std::fmt::Display;
+use std::str::FromStr;
 
 use clap::ValueEnum;
 use itertools::Itertools;
@@ -47,17 +48,16 @@ pub struct Target {
     format: Format,
 }
 
-impl Target {
-    pub fn new(engine: Engine, format: Format) -> Self {
-        Self { engine, format }
-    }
-    pub fn from_target_string(target_string: &str) -> Self {
+impl FromStr for Target {
+    type Err = ();
+
+    fn from_str(target_string: &str) -> Result<Self, Self::Err> {
         let split = target_string.split(":").collect_vec();
         let [engine_str, format_str] = split.as_slice() else {
             panic!("invalid target string {}", target_string);
         };
 
-        Self {
+        Ok(Self {
             engine: Engine::from_str(engine_str, true)
                 .map_err(|e| {
                     vortex_err!(
@@ -78,7 +78,13 @@ impl Target {
                     )
                 })
                 .vortex_unwrap(),
-        }
+        })
+    }
+}
+
+impl Target {
+    pub fn new(engine: Engine, format: Format) -> Self {
+        Self { engine, format }
     }
 
     pub fn engine(&self) -> Engine {

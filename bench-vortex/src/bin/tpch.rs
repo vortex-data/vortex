@@ -1,4 +1,5 @@
 use std::process::ExitCode;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
@@ -74,7 +75,7 @@ fn main() -> ExitCode {
     let targets = args
         .target
         .iter()
-        .map(|t| Target::from_target_string(t))
+        .map(|t| Target::from_str(t).unwrap())
         .collect_vec();
     let engines = targets.iter().map(|t| t.engine()).collect_vec();
 
