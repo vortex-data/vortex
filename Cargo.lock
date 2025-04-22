@@ -6407,6 +6407,7 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-dict",
  "vortex-dtype",

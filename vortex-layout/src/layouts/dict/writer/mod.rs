@@ -1,10 +1,13 @@
 use bytes::Bytes;
 use vortex_array::arcref::ArcRef;
 use vortex_array::compute::slice;
+use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, RkyvMetadata, SerializeMetadata};
+use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 mod repeating;
 mod single;
@@ -41,25 +44,14 @@ impl LayoutStrategy for DictStrategy {
         if !dict_layout_supported(dtype) {
             return self.child.new_writer(ctx, dtype);
         }
-        if self.options.repeat {
-            Ok(repeating::RepeatingDictLayoutWriter::new(
-                ctx.clone(),
-                dtype,
-                self.child.clone(),
-                self.values.clone(),
-                self.options.constraints.clone(),
-            )
-            .boxed())
-        } else {
-            Ok(single::DictLayoutWriter::new(
-                ctx.clone(),
-                dtype,
-                self.child.clone(),
-                self.values.clone(),
-                self.options.constraints.clone(),
-            )
-            .boxed())
-        }
+        Ok(DelegatingDictLayoutWriter::Uninit(DictWriterArgs {
+            ctx: ctx.clone(),
+            options: self.options.clone(),
+            child_strategy: self.child.clone(),
+            values_strategy: self.values.clone(),
+            dtype: dtype.clone(),
+        })
+        .boxed())
     }
 }
 
@@ -68,6 +60,80 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
         dtype,
         DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_)
     )
+}
+
+struct DictWriterArgs {
+    ctx: ArrayContext,
+    options: DictLayoutOptions,
+    child_strategy: ArcRef<dyn LayoutStrategy>,
+    values_strategy: ArcRef<dyn LayoutStrategy>,
+    dtype: DType,
+}
+
+enum DelegatingDictLayoutWriter {
+    Uninit(DictWriterArgs),
+    Writer(Box<dyn LayoutWriter>),
+}
+
+impl LayoutWriter for DelegatingDictLayoutWriter {
+    fn push_chunk(
+        &mut self,
+        segment_writer: &mut dyn crate::segments::SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
+        match self {
+            Self::Uninit(args) => {
+                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                *self = if !compressed.is_encoding(DictEncoding.id()) {
+                    Self::Writer(args.child_strategy.new_writer(&args.ctx, &args.dtype)?)
+                } else if args.options.repeat {
+                    Self::Writer(
+                        repeating::RepeatingDictLayoutWriter::new(
+                            args.ctx.clone(),
+                            &args.dtype,
+                            args.child_strategy.clone(),
+                            args.values_strategy.clone(),
+                            args.options.constraints.clone(),
+                        )
+                        .boxed(),
+                    )
+                } else {
+                    Self::Writer(
+                        single::DictLayoutWriter::new(
+                            args.ctx.clone(),
+                            &args.dtype,
+                            args.child_strategy.clone(),
+                            args.values_strategy.clone(),
+                            args.options.constraints.clone(),
+                        )
+                        .boxed(),
+                    )
+                };
+                self.push_chunk(segment_writer, chunk)
+            }
+            Self::Writer(writer) => writer.push_chunk(segment_writer, chunk),
+        }
+    }
+
+    fn flush(
+        &mut self,
+        segment_writer: &mut dyn crate::segments::SegmentWriter,
+    ) -> VortexResult<()> {
+        match self {
+            Self::Uninit(_) => vortex_bail!("flush called before push_chunk"),
+            Self::Writer(writer) => writer.flush(segment_writer),
+        }
+    }
+
+    fn finish(
+        &mut self,
+        segment_writer: &mut dyn crate::segments::SegmentWriter,
+    ) -> VortexResult<Layout> {
+        match self {
+            Self::Uninit(_) => vortex_bail!("finish called before push_chunk"),
+            Self::Writer(writer) => writer.finish(segment_writer),
+        }
+    }
 }
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
