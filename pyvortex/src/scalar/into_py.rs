@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use arrow::datatypes::i256;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods};
 use pyo3::types::{PyBytes, PyDict, PyList, PyString};
@@ -110,46 +112,50 @@ trait DecimalIntoParts: Sized {
     /// (whole number, decimal) parts.
     ///
     /// For example, for the number 123i128 and scale 2, this will return returns (1, 28).
-    fn into_parts(&self, scale: i8) -> (Self, Self);
+    fn into_parts(self, scale: i8) -> (Self, Self);
 }
 
 impl DecimalIntoParts for i128 {
-    fn into_parts(&self, scale: i8) -> (Self, Self) {
-        if scale == 0 {
-            (*self, 0)
-        } else if scale < 0 {
-            // Negative scale -> apply the given number of trailing zeros
-            let scale_factor = 10i128.pow(-scale as u32);
-            (self * scale_factor, 0)
-        } else {
-            // Positive scale -> extract the leading/trailing digits separately.
-            let scale_factor = 10i128.pow(scale as u32);
-            (self / scale_factor, self % scale_factor)
+    fn into_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i128.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i128.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
         }
     }
 }
 
 impl DecimalIntoParts for i256 {
-    fn into_parts(&self, scale: i8) -> (Self, Self) {
-        if scale == 0 {
-            (*self, i256::ZERO)
-        } else if scale < 0 {
-            // Negative scale -> apply the given number of trailing zeros
-            let scale_factor = i256::from_i128(10).wrapping_pow(-scale as u32);
-            (self * scale_factor, i256::ZERO)
-        } else {
-            // Positive scale -> extract the leading/trailing digits separately.
-            let scale_factor = i256::from_i128(10).wrapping_pow(scale as u32);
-            (self / scale_factor, self % scale_factor)
+    fn into_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, i256::ZERO),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = i256::from_i128(10).wrapping_pow(-scale as u32);
+                (self * scale_factor, i256::ZERO)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = i256::from_i128(10).wrapping_pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
         }
     }
 }
 
-fn decimal_value_to_py<'py>(
-    py: Python<'py>,
+fn decimal_value_to_py(
+    py: Python,
     scale: i8,
     decimal_value: DecimalValue,
-) -> PyResult<Bound<'py, PyAny>> {
+) -> PyResult<Bound<PyAny>> {
     let m = py.import("decimal")?;
     let decimal_class = m.getattr("Decimal")?;
 
