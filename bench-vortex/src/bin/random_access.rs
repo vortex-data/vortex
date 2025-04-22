@@ -73,7 +73,7 @@ fn random_access(
     let taxi_vortex = runtime.block_on(taxi_data_vortex());
     let taxi_parquet = runtime.block_on(taxi_data_parquet());
     measurements.push(TimingMeasurement {
-        name: "random-access/vortex/vortex-tokio-local-disk".to_string(),
+        name: "random-access/vortex-tokio-local-disk".to_string(),
         storage: STORAGE_NVME.to_owned(),
         target: Target::new(Engine::Vortex, Format::OnDiskVortex),
         time: run_with_setup(
@@ -87,7 +87,7 @@ fn random_access(
 
     if formats.contains(&Format::Parquet) {
         measurements.push(TimingMeasurement {
-            name: "random-access/arrow/parquet-tokio-local-disk".to_string(),
+            name: "random-access/parquet-tokio-local-disk".to_string(),
             storage: STORAGE_NVME.to_owned(),
             target: Target::new(Engine::Arrow, Format::Parquet),
             time: run_with_setup(

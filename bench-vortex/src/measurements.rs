@@ -199,7 +199,7 @@ pub struct QueryMeasurement {
 impl ToJson for QueryMeasurement {
     fn to_json(&self) -> JsonValue {
         let name = format!(
-            "{dataset}_q{query_idx:02}/{engine}/{format}",
+            "{dataset}_q{query_idx:02}/{engine}:{format}",
             dataset = self.dataset,
             engine = self.target.engine,
             format = self.target.format.name(),

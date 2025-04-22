@@ -88,8 +88,8 @@ impl EngineCtx {
         emit_execution_plan: bool,
     ) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
-            execution_plans: std::vec::Vec::new(),
-            metrics: std::vec::Vec::new(),
+            execution_plans: Vec::new(),
+            metrics: Vec::new(),
             session: session_ctx,
             emit_execution_plan,
         })
