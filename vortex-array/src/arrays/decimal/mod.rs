@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::decimal::serde::{DecimalMetadata, DecimalValueType};
 use crate::builders::ArrayBuilder;
-use crate::compute::ScalarAtFn;
+use crate::compute::{ScalarAtFn, SliceFn};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
@@ -26,6 +26,20 @@ impl ComputeVTable for DecimalEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
+        Some(self)
+    }
+
+    // TODO(aduffy): SumFn
+    // TODO(aduffy): BetweenFn
+    // TODO(aduffy): IsSortedFn
+    // TODO(aduffy): SearchSortedFn
+    // TODO(aduffy): CompareFn
+    // TODO(aduffy): IsConstant
+    // TODO(aduffy): BetweenFn
+    // TODO(aduffy): BinaryNumericFn
+    // TODO(aduffy): TakeFn
 }
 
 impl Encoding for DecimalEncoding {

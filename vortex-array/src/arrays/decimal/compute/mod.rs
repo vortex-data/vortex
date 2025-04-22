@@ -1,5 +1,6 @@
 mod filter;
 mod scalar_at;
+mod slice;
 
 use crate::ArrayComputeImpl;
 use crate::arrays::{DecimalArray, DecimalEncoding};
