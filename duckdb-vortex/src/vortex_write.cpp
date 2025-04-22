@@ -79,16 +79,9 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		auto opts = vx_file_create_options();
-		opts.path = global_state.file_name.c_str();
 		vx_error *error;
-		auto file = vx_file_create(&opts, &error);
-		if (file == nullptr) {
-			HandleError(error);
-		}
-		vx_file_write_array(file, global_state.array->array, &error);
+		vx_file_write_array(global_state.file_name.c_str(), global_state.array->array, &error);
 		HandleError(error);
-		vx_file_writer_free(file);
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {

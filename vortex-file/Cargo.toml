@@ -27,7 +27,7 @@ moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
 rustc-hash = { workspace = true }
-tokio = { workspace = true, features = ["rt"], optional = true }
+tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }
 tracing-futures = { workspace = true, features = [
     "futures-03",
@@ -42,13 +42,13 @@ vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
-vortex-error = { workspace = true }
+vortex-error = { workspace = true, features = ["tokio"] }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
-vortex-io = { workspace = true }
-vortex-layout = { workspace = true }
+vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true, features = ["tokio"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
@@ -65,18 +65,10 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
-default = ["tokio"]
 object_store = [
-    "tokio",
     "dep:object_store",
     "vortex-error/object_store",
     "vortex-io/object_store",
-]
-tokio = [
-    "dep:tokio",
-    "vortex-error/tokio",
-    "vortex-io/tokio",
-    "vortex-layout/tokio",
 ]
 tracing = [
     "dep:tracing",

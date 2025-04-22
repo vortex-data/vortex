@@ -30,7 +30,6 @@ url = { workspace = true }
 vortex = { workspace = true, features = [
     "object_store",
     "files",
-    "tokio",
     "proto",
 ] }
 

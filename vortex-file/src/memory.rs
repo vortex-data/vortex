@@ -13,20 +13,19 @@ use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, Vor
 ///
 /// This type of file reader performs no coalescing or other clever orchestration, simply
 /// zero-copy slicing the segments from the buffer.
-pub struct InMemoryVortexFile;
+pub struct InMemoryFileType;
 
-impl FileType for InMemoryVortexFile {
+impl FileType for InMemoryFileType {
     type Options = ();
 }
 
-impl VortexOpenOptions<InMemoryVortexFile> {
+impl VortexOpenOptions<InMemoryFileType> {
     /// Create open options for an in-memory Vortex file.
     pub fn in_memory() -> Self {
         Self::new(())
     }
 
     /// Open an in-memory file contained in the provided buffer.
-    // TODO(ngates): we could add a lifetime to a VortexFile and then just take a &[u8] here?
     pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
 

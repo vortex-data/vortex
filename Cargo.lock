@@ -510,6 +510,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-datafusion",
+ "vortex-io",
  "vortex-metrics",
  "xshell",
 ]

@@ -14,7 +14,6 @@ use vortex::expr::{ExprRef, ident, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;
@@ -38,12 +37,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = TOKIO_RUNTIME.block_on(
-        VortexOpenOptions::file()
-            // TODO(ngates): use a globally shared segment cache for all files
-            .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
-            .open(TokioFile::open(path)?),
-    )?;
+    let vxf = VortexOpenOptions::file()
+        // TODO(ngates): use a globally shared segment cache for all files
+        .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
+        .open_blocking(path)?;
     Ok(PyVortexFile { vxf })
 }
 

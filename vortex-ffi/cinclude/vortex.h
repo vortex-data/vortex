@@ -106,8 +106,6 @@ typedef struct vx_conversion_cache vx_conversion_cache;
  */
 typedef struct vx_file_reader vx_file_reader;
 
-typedef struct vx_file_writer vx_file_writer;
-
 /**
  * The error structure populated by fallible Vortex C functions.
  */
@@ -139,16 +137,6 @@ typedef struct vx_file_open_options {
    */
   int property_len;
 } vx_file_open_options;
-
-/**
- * Options supplied for opening a file.
- */
-typedef struct vx_file_create_options {
-  /**
-   * path of the file to be created.
-   */
-  const char *path;
-} vx_file_create_options;
 
 /**
  * Whole file statistics.
@@ -338,12 +326,7 @@ void vx_error_free(struct vx_error *error);
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_error **error);
 
-struct vx_file_writer *vx_file_create(const struct vx_file_create_options *options,
-                                      struct vx_error **error);
-
-void vx_file_write_array(struct vx_file_writer *file,
-                         struct vx_array *ffi_array,
-                         struct vx_error **error);
+void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);
 
 struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
@@ -371,8 +354,6 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
  * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);
-
-void vx_file_writer_free(struct vx_file_writer *file);
 
 /**
  * Initialize native logging with the specified level.

@@ -1,11 +1,13 @@
 use std::ops::Range;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use futures::executor::block_on;
 use futures::{StreamExt, pin_mut};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, TokioFile, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
@@ -18,6 +20,9 @@ use crate::{
     EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, SegmentSourceFactory, SegmentSpec, VortexFile,
     VortexOpenOptions,
 };
+
+static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
+    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -63,7 +68,24 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    pub async fn open<R: VortexReadAt + Send + Sync>(self, read: R) -> VortexResult<VortexFile> {
+    /// Blocking call to open a Vortex file using the provided [`Path`].
+    pub fn open_blocking(self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
+        // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
+        // block-on the async call to open.
+        block_on(self.open_async(read))
+    }
+
+    /// Open a Vortex file using the provided [`Path`].
+    pub async fn open_async(mut self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
+        self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
+        self.open_read_at(TokioFile::open(read)?).await
+    }
+
+    /// Internal API for opening a file.
+    async fn open_read_at<R: VortexReadAt + Send + Sync>(
+        self,
+        read: R,
+    ) -> VortexResult<VortexFile> {
         let read = Arc::new(read);
 
         let footer = if let Some(footer) = self.footer {
@@ -290,7 +312,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
-        use vortex_io::{ObjectStoreReadAt, TokioFile};
+        use vortex_io::ObjectStoreReadAt;
 
         // Object store _must_ use tokio for I/O.
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
@@ -302,9 +324,9 @@ impl VortexOpenOptions<GenericVortexFile> {
         let local_path = Path::new("/").join(path);
         if local_path.exists() {
             // Local disk is too fast to justify prefetching.
-            self.open(TokioFile::open(local_path)?).await
+            self.open_async(local_path).await
         } else {
-            self.open(ObjectStoreReadAt::new(
+            self.open_read_at(ObjectStoreReadAt::new(
                 object_store.clone(),
                 path.into(),
                 None,
@@ -336,7 +358,3 @@ impl Default for GenericFileOptions {
         }
     }
 }
-
-#[cfg(feature = "tokio")]
-static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
-    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));

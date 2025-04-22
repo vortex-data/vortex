@@ -24,7 +24,7 @@ indicatif = { workspace = true, features = ["futures"] }
 parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-vortex = { workspace = true, features = ["tokio", "parquet"] }
+vortex = { workspace = true, features = ["parquet"] }
 vortex-layout = { workspace = true }
 
 [lints]

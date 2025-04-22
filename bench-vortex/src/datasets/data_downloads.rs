@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use bzip2::read::BzDecoder;
 use log::info;
 use tokio::fs::File as TokioFile;
+use tokio::io::AsyncWriteExt;
 use vortex::error::VortexError;
-use vortex::io::VortexWrite;
 
 use crate::utils::file_utils::{idempotent, idempotent_async};
 
@@ -19,7 +19,7 @@ pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
             anyhow::bail!("Failed to download data from {}", data_url);
         }
         let bytes = response.bytes().await?;
-        file.write_all(bytes).await?;
+        file.write(&bytes).await?;
         Ok::<_, anyhow::Error>(())
     })
     .await
