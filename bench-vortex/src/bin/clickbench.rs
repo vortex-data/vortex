@@ -177,14 +177,18 @@ fn main() -> anyhow::Result<()> {
         let engine = target.engine();
         let file_format = target.format();
 
-        let session_ctx =
-            df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
-
-        // Register object store to the session.
-        df::make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
-
         let mut engine_ctx = match engine {
-            Engine::DataFusion => EngineCtx::new_with_datafusion(session_ctx, args.emit_plan),
+            Engine::DataFusion => {
+                let session_ctx = df::get_session_context(
+                    args.emulate_object_store,
+                    args.disable_datafusion_cache,
+                );
+                // Register object store to the session.
+                df::make_object_store(&session_ctx, &base_url)
+                    .expect("Failed to make object store");
+
+                EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
+            }
             Engine::DuckDB => EngineCtx::new_with_duckdb(args.duckdb_path.clone()),
             _ => unreachable!("engine not supported"),
         };
@@ -238,12 +242,10 @@ fn validate_args(engines: &[Engine], args: &Args) {
         panic!("--duckdb-path is only valid when DuckDB engine is used");
     }
 
-    if (args.emit_plan || args.export_spans || !args.hide_metrics || args.threads.is_some())
+    if (args.emit_plan || args.export_spans || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {
-        panic!(
-            "--emit-plan, --export-spans, --hide-metrics, --threads are only valid if DataFusion is used"
-        );
+        panic!("--emit-plan, --export-spans, --threads are only valid if DataFusion is used");
     }
 }
 
