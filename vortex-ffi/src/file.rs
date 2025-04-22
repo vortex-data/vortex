@@ -1,10 +1,9 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
-use std::ptr::null_mut;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{ptr, slice};
 
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -24,7 +23,7 @@ use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::vx_array;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or, try_or_else, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -83,7 +82,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
-    try_or(error, null_mut(), || {
+    try_or_else(error, ptr::null_mut, || {
         {
             let options = unsafe {
                 options
@@ -121,7 +120,7 @@ pub unsafe extern "C-unwind" fn vx_file_create(
     options: *const vx_file_create_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_writer {
-    try_or(error, null_mut(), || {
+    try_or_else(error, ptr::null_mut, || {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
@@ -198,7 +197,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
-    try_or(error, null_mut(), || {
+    try_or_else(error, ptr::null_mut, || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 

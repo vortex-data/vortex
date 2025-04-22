@@ -20,7 +20,7 @@ use vortex_duckdb::{
 
 use crate::array::vx_array;
 use crate::duckdb::cache::{into_conversion_cache, vx_conversion_cache};
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or, try_or_else, vx_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -31,9 +31,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    try_or(
+    try_or_else(
         error,
-        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+        || LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
         || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
     )
 }
@@ -87,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     len: c_int,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
-    try_or(error, ptr::null_mut(), || {
+    try_or_else(error, ptr::null_mut, || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)
