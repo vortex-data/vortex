@@ -65,6 +65,15 @@ jobs:
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: DuckDB extension build
+        run: GEN=ninja make debug
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
+
+
       - name: Generate data
         shell: bash
         run:
