@@ -208,8 +208,8 @@ pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult
 /// `scale` digits after the decimal point. If `scale` is a negative value, then it is taken
 /// to be the number of trailing zeros before the decimal point.
 ///
-///     >>> vx.decimal(precision = 10, scale = 30)
-///     decimal(precision=10, scale=30, nullable=False)
+///     >>> vx.decimal(precision = 10, scale = 3)
+///     decimal(precision=10, scale=3, nullable=False)
 #[pyfunction(name = "decimal")]
 #[pyo3(signature = (*, precision = 10, scale = 0, nullable = false))]
 pub(super) fn dtype_decimal(

@@ -1,4 +1,5 @@
 from typing import Any, final
+from decimal import Decimal
 
 import vortex as vx
 
@@ -20,6 +21,10 @@ class BoolScalar:
 @final
 class PrimitiveScalar:
     def as_py(self) -> int | float | None: ...
+
+@final
+class DecimalScalar:
+    def as_py(self) -> Decimal | None: ...
 
 @final
 class Utf8Scalar:
