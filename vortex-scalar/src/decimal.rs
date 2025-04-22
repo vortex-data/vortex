@@ -3,9 +3,10 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use arrow_buffer::i256;
-use vortex_dtype::{DType, DecimalDType};
+use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 
+use crate::scalarvalue::InnerScalarValue;
 use crate::{Scalar, ScalarValue};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
@@ -20,6 +21,19 @@ impl Display for DecimalValue {
             DecimalValue::I128(v128) => write!(f, "decimal128({})", v128),
             DecimalValue::I256(v256) => write!(f, "decimal256({})", v256),
         }
+    }
+}
+
+impl Scalar {
+    pub fn decimal(
+        value: DecimalValue,
+        decimal_type: DecimalDType,
+        nullability: Nullability,
+    ) -> Self {
+        Self::new(
+            DType::Decimal(decimal_type, nullability),
+            ScalarValue(InnerScalarValue::Decimal(value)),
+        )
     }
 }
 

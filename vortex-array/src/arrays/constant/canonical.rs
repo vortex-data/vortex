@@ -60,23 +60,23 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let fits_in_i128 = decimal_type.fits_in_i128();
                 let decimal_array = match (fits_in_i128, scalar.as_decimal().decimal_value()) {
                     (true, None) => DecimalArray::new(
-                        Buffer::<i128>::zeroed(self.len()).into_byte_buffer(),
+                        Buffer::<i128>::zeroed(self.len()),
                         *decimal_type,
                         Validity::AllInvalid,
                     ),
                     (false, None) => DecimalArray::new(
-                        Buffer::<i256>::zeroed(self.len()).into_byte_buffer(),
+                        Buffer::<i256>::zeroed(self.len()),
                         *decimal_type,
                         Validity::AllInvalid,
                     ),
                     (_, Some(dv)) => match dv {
                         DecimalValue::I128(v) => DecimalArray::new(
-                            Buffer::full(v, self.len()).into_byte_buffer(),
+                            Buffer::full(*v, self.len()),
                             *decimal_type,
                             Validity::AllValid,
                         ),
                         DecimalValue::I256(v) => DecimalArray::new(
-                            Buffer::full(v, self.len()).into_byte_buffer(),
+                            Buffer::full(*v, self.len()),
                             *decimal_type,
                             Validity::AllValid,
                         ),

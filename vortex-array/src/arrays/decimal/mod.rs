@@ -1,28 +1,49 @@
+mod compute;
 mod serde;
 
-use vortex_buffer::ByteBuffer;
+use arrow_buffer::i256;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
+use crate::arrays::decimal::serde::{DecimalMetadata, DecimalValueType};
 use crate::builders::ArrayBuilder;
+use crate::compute::ScalarAtFn;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
 use crate::vtable::{ComputeVTable, VTableRef};
 use crate::{
-    ArrayComputeImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, try_from_array_ref,
+    ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical, Encoding, SerdeMetadata,
+    try_from_array_ref,
 };
 
 pub struct DecimalEncoding;
 
-impl ComputeVTable for DecimalEncoding {}
+impl ComputeVTable for DecimalEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
+        Some(self)
+    }
+}
 
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = SerdeMetadata<DecimalMetadata>;
+}
+
+/// Type of decimal scalar values.
+pub trait NativeDecimalType {
+    const VALUES_TYPE: DecimalValueType;
+}
+
+impl NativeDecimalType for i128 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
+}
+
+impl NativeDecimalType for i256 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
 }
 
 /// Array for decimal-typed real numbers
@@ -30,6 +51,7 @@ impl Encoding for DecimalEncoding {
 pub struct DecimalArray {
     dtype: DType,
     values: ByteBuffer,
+    values_type: DecimalValueType,
     validity: Validity,
     stats_set: ArrayStats,
 }
@@ -37,15 +59,18 @@ pub struct DecimalArray {
 try_from_array_ref!(DecimalArray);
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`ByteBuffer`] and [`Validity`], without checking
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
     /// any invariants.
-    pub fn new(buffer: ByteBuffer, decimal_dtype: DecimalDType, validity: Validity) -> Self {
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
         if let Some(len) = validity.maybe_len() {
-            if buffer.len() / 16 != len {
-                // Assuming 128-bit (16-byte) decimal representation
+            if buffer.len() != len {
                 vortex_panic!(
                     "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len() / 16,
+                    buffer.len(),
                     len
                 );
             }
@@ -53,15 +78,27 @@ impl DecimalArray {
 
         Self {
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            values: buffer,
+            values: buffer.into_byte_buffer(),
+            values_type: T::VALUES_TYPE,
             validity,
             stats_set: ArrayStats::default(),
         }
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
-    pub fn byte_buffer(&self) -> &ByteBuffer {
-        &self.values
+    pub fn byte_buffer(&self) -> ByteBuffer {
+        self.values.clone()
+    }
+
+    pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
+        if self.values_type != T::VALUES_TYPE {
+            vortex_panic!(
+                "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
+                T::VALUES_TYPE,
+                self.values_type
+            );
+        }
+        Buffer::<T>::from_byte_buffer(self.values.clone())
     }
 
     /// Returns the underlying [`Validity`] of the array.
@@ -86,11 +123,11 @@ impl DecimalArray {
     }
 }
 
-impl ArrayComputeImpl for DecimalArray {}
-
-impl ArrayVisitorImpl<EmptyMetadata> for DecimalArray {
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
+impl ArrayVisitorImpl<SerdeMetadata<DecimalMetadata>> for DecimalArray {
+    fn _metadata(&self) -> SerdeMetadata<DecimalMetadata> {
+        SerdeMetadata(DecimalMetadata {
+            values_type: self.values_type,
+        })
     }
 }
 
@@ -99,7 +136,11 @@ impl ArrayImpl for DecimalArray {
 
     #[inline]
     fn _len(&self) -> usize {
-        self.values.len() / 16 // Assuming 128-bit (16-byte) decimal representation
+        let divisor = match self.values_type {
+            DecimalValueType::I128 => 16,
+            DecimalValueType::I256 => 32,
+        };
+        self.values.len() / divisor
     }
 
     #[inline]
@@ -112,18 +153,9 @@ impl ArrayImpl for DecimalArray {
         VTableRef::new_ref(&DecimalEncoding)
     }
 
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Ok(Self::new(
-            self.byte_buffer().clone(),
-            self.decimal_dtype(),
-            validity,
-        ))
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+        // No non-validity child arrays to replace.
+        Ok(self.clone())
     }
 }
 

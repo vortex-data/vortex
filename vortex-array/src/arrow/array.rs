@@ -99,7 +99,7 @@ impl_from_arrow_primitive!(Float64Type);
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
     fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, _nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone()).into_byte_buffer();
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), false);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
@@ -108,7 +108,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
     fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, _nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone()).into_byte_buffer();
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), false);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }

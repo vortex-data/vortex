@@ -72,12 +72,10 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     // TODO(aduffy): also do i256.
                     let chunk: Vec<i128> = arbitrary_vec_of_len(u, chunk_len)?;
                     let validity = random_validity(u, *n, chunk.len())?;
-                    Ok(DecimalArray::new(
-                        Buffer::from_iter(chunk).into_byte_buffer(),
-                        *decimal,
-                        validity,
+                    Ok(
+                        DecimalArray::new(Buffer::from_iter(chunk), *decimal, validity)
+                            .into_array(),
                     )
-                    .into_array())
                 }
                 DType::Utf8(n) => random_string(u, *n, chunk_len),
                 DType::Binary(n) => random_bytes(u, *n, chunk_len),
