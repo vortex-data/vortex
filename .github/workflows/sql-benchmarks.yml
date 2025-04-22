@@ -69,7 +69,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: DuckDB extension build
-        run: GEN=ninja make debug
+        run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
 
