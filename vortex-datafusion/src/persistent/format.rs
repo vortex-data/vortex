@@ -14,6 +14,7 @@ use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue, Statistics,
     config_datafusion_err, not_impl_err,
 };
+use datafusion_common_runtime::SpawnedTask;
 use datafusion_expr::Expr;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
@@ -232,7 +233,15 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let vxf = self.file_cache.try_get(object, store.clone()).await?;
+        let vxf = SpawnedTask::spawn({
+            let file_cache = self.file_cache.clone();
+            let store = store.clone();
+            let object = object.clone();
+            async move { file_cache.try_get(&object, store).await }
+        })
+        .join()
+        .await
+        .vortex_expect("task completed successfully")?;
 
         let struct_dtype = vxf
             .dtype()

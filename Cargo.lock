@@ -6051,6 +6051,7 @@ dependencies = [
  "chrono",
  "datafusion",
  "datafusion-common",
+ "datafusion-common-runtime",
  "datafusion-execution",
  "datafusion-expr",
  "datafusion-physical-expr",
