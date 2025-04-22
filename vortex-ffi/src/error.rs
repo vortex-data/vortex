@@ -33,7 +33,7 @@ pub fn try_or<T>(
                     .cast(),
                 )
             };
-            default_value
+            default_value()
         }
     }
 }
