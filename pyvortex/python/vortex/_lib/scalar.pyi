@@ -1,5 +1,5 @@
-from typing import Any, final
 from decimal import Decimal
+from typing import Any, final
 
 import vortex as vx
 

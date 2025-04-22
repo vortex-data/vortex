@@ -16,8 +16,8 @@ use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
 use crate::vtable::{ComputeVTable, VTableRef};
 use crate::{
-    ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical, Encoding, SerdeMetadata,
-    try_from_array_ref,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayVisitorImpl, Canonical, Encoding, SerdeMetadata, try_from_array_ref,
 };
 
 pub struct DecimalEncoding;
@@ -142,6 +142,14 @@ impl ArrayVisitorImpl<SerdeMetadata<DecimalMetadata>> for DecimalArray {
         SerdeMetadata(DecimalMetadata {
             values_type: self.values_type,
         })
+    }
+
+    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&self.values);
+    }
+
+    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len())
     }
 }
 
