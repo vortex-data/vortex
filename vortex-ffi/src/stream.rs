@@ -1,6 +1,5 @@
 use std::pin::Pin;
 use std::ptr;
-use std::ptr::null_mut;
 
 use futures::StreamExt;
 use vortex::dtype::DType;
@@ -48,7 +47,7 @@ pub unsafe extern "C-unwind" fn vx_array_stream_next(
     stream: *mut vx_array_stream,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let stream = unsafe { stream.as_mut() }.vortex_expect("stream null");
         let Some(inner) = stream.inner.as_mut() else {
             vortex_bail!("vx_array_stream_next called after finish")
@@ -62,7 +61,7 @@ pub unsafe extern "C-unwind" fn vx_array_stream_next(
             // Drop the stream pointers.
             stream.inner.take();
 
-            Ok(null_mut())
+            Ok(ptr::null_mut())
         }
     })
 }

@@ -10,10 +10,11 @@ pub struct vx_error {
     pub message: *const c_char,
 }
 
+#[inline]
 pub fn try_or<T>(
     error: *mut *mut vx_error,
-    default_value: T,
-    mut function: impl FnMut() -> VortexResult<T>,
+    on_err: T,
+    function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
     match function() {
         Ok(value) => {
@@ -33,7 +34,7 @@ pub fn try_or<T>(
                     .cast(),
                 )
             };
-            default_value
+            on_err
         }
     }
 }
