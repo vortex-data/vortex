@@ -13,7 +13,7 @@ pub struct vx_error {
 #[inline]
 pub fn try_or<T>(
     error: *mut *mut vx_error,
-    default_value: T,
+    on_err: T,
     function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
     match function() {
@@ -34,36 +34,7 @@ pub fn try_or<T>(
                     .cast(),
                 )
             };
-            default_value
-        }
-    }
-}
-
-#[inline]
-pub fn try_or_else<T>(
-    error: *mut *mut vx_error,
-    default_value: impl FnOnce() -> T,
-    function: impl FnOnce() -> VortexResult<T>,
-) -> T {
-    match function() {
-        Ok(value) => {
-            unsafe { error.write(ptr::null_mut()) };
-            value
-        }
-        Err(err) => {
-            #[allow(clippy::expect_used)]
-            let c_string =
-                std::ffi::CString::new(err.to_string()).expect("Failed to create CString");
-            unsafe {
-                error.write(
-                    Box::into_raw(Box::new(vx_error {
-                        code: -1,
-                        message: c_string.into_raw(),
-                    }))
-                    .cast(),
-                )
-            };
-            default_value()
+            on_err
         }
     }
 }
