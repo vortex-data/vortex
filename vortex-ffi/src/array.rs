@@ -44,7 +44,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     index: u32,
     error: *mut *mut vx_error,
 ) -> *const vx_array {
-    try_or(error, ptr::null(), || {
+    try_or(error, ptr::null, || {
         let array = array.as_ref().vortex_expect("array null");
 
         let field_array = array
@@ -77,7 +77,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     error: *mut *mut vx_error,
 ) -> *const vx_array {
     let array = array.as_ref().vortex_expect("array null");
-    try_or(error, ptr::null_mut(), || {
+    try_or(error, ptr::null_mut, || {
         let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)?;
         Ok(Box::into_raw(Box::new(vx_array { inner: sliced })))
     })
@@ -90,7 +90,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     error: *mut *mut vx_error,
 ) -> bool {
     let array = array.as_ref().vortex_expect("array null");
-    try_or(error, false, || array.inner.is_invalid(index as usize))
+    try_or(error, || false, || array.inner.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
@@ -99,9 +99,11 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     error: *mut *mut vx_error,
 ) -> u32 {
     let array = array.as_ref().vortex_expect("array null");
-    try_or(error, 0, || {
-        Ok(array.inner.as_ref().invalid_count()?.try_into()?)
-    })
+    try_or(
+        error,
+        || 0,
+        || Ok(array.inner.as_ref().invalid_count()?.try_into()?),
+    )
 }
 
 macro_rules! ffiarray_get_ptype {

@@ -199,7 +199,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_element_type(
 ) -> *const DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    try_or(error, null(), || {
+    try_or(error, null, || {
         let DType::List(element_dtype, _) = dtype else {
             vortex_bail!("vx_dtype_element_type: not a list dtype")
         };

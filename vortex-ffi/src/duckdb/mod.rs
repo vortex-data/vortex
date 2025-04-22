@@ -33,7 +33,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 
     try_or(
         error,
-        LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
+        || LogicalTypeHandle::from(LogicalTypeId::Invalid).into_owning_ptr(),
         || Ok(dtype.to_duckdb_type()?.into_owning_ptr()),
     )
 }
@@ -87,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     len: c_int,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
-    try_or(error, ptr::null_mut(), || {
+    try_or(error, ptr::null_mut, || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)

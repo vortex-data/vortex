@@ -12,8 +12,8 @@ pub struct vx_error {
 
 pub fn try_or<T>(
     error: *mut *mut vx_error,
-    default_value: T,
-    mut function: impl FnMut() -> VortexResult<T>,
+    default_value: impl FnOnce() -> T,
+    function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
     match function() {
         Ok(value) => {

@@ -83,7 +83,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
-    try_or(error, null_mut(), || {
+    try_or(error, null_mut, || {
         {
             let options = unsafe {
                 options
@@ -121,7 +121,7 @@ pub unsafe extern "C-unwind" fn vx_file_create(
     options: *const vx_file_create_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_writer {
-    try_or(error, null_mut(), || {
+    try_or(error, null_mut, || {
         let options = options.as_ref().vortex_expect("null options");
         assert!(!options.path.is_null(), "null path");
 
@@ -139,21 +139,25 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     ffi_array: *mut vx_array,
     error: *mut *mut vx_error,
 ) {
-    try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let file = unsafe { file.as_mut().vortex_expect("null file") };
+    try_or(
+        error,
+        || (),
+        || {
+            let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
+            let file = unsafe { file.as_mut().vortex_expect("null file") };
 
-        RUNTIME.with(|r| {
-            r.block_on(async move {
-                let file = VortexWriteOptions::default()
-                    .write(&mut file.inner, array.inner.to_array_stream())
-                    .await?;
+            RUNTIME.with(|r| {
+                r.block_on(async move {
+                    let file = VortexWriteOptions::default()
+                        .write(&mut file.inner, array.inner.to_array_stream())
+                        .await?;
 
-                file.flush().await?;
-                Ok(())
+                    file.flush().await?;
+                    Ok(())
+                })
             })
-        })
-    });
+        },
+    );
 }
 
 /// Whole file statistics.
@@ -198,7 +202,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
-    try_or(error, null_mut(), || {
+    try_or(error, null_mut, || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
