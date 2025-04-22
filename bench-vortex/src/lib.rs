@@ -136,6 +136,7 @@ impl Format {
 pub enum Engine {
     #[default]
     Vortex,
+    Arrow,
     #[clap(name = "datafusion")]
     #[serde(rename = "datafusion")]
     DataFusion,
@@ -144,12 +145,13 @@ pub enum Engine {
     DuckDB,
 }
 
-impl std::fmt::Display for Engine {
+impl Display for Engine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Engine::DataFusion => write!(f, "DataFusion"),
             Engine::DuckDB => write!(f, "DuckDB"),
             Engine::Vortex => write!(f, "Vortex"),
+            Engine::Arrow => write!(f, "Arrow"),
         }
     }
 }

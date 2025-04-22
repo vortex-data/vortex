@@ -136,10 +136,10 @@ fn compress(
             render_table(
                 measurements.ratios,
                 RatioMode::Throughput,
-                if formats.contains(&Format::OnDiskVortex) {
-                    &[Target::new(Engine::default(), Format::OnDiskVortex)],
+                &if formats.contains(&Format::OnDiskVortex) {
+                    vec![Target::new(Engine::default(), Format::OnDiskVortex)]
                 } else {
-                    &[]
+                    vec![]
                 },
             )
             .unwrap();
