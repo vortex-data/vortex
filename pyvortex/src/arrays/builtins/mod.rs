@@ -1,10 +1,12 @@
 mod chunked;
 mod constant;
+mod decimal;
 mod primitive;
 mod struct_;
 
 pub(crate) use chunked::*;
 pub(crate) use constant::*;
+pub(crate) use decimal::*;
 pub(crate) use primitive::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;

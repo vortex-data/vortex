@@ -76,6 +76,14 @@ impl DecimalArray {
             _ => vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype),
         }
     }
+
+    pub fn precision(&self) -> u8 {
+        self.decimal_dtype().precision()
+    }
+
+    pub fn scale(&self) -> i8 {
+        self.decimal_dtype().scale()
+    }
 }
 
 impl ArrayComputeImpl for DecimalArray {}
