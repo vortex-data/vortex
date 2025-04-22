@@ -105,7 +105,8 @@ fn main() -> anyhow::Result<()> {
 
     for target in &targets {
         let format = target.format();
-        let session =             df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
+        let session =
+            df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
 
         let file_type = match format {
             Format::Csv => FileType::Csv,

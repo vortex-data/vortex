@@ -74,7 +74,7 @@ fn main() -> ExitCode {
     let targets = args
         .target
         .iter()
-        .map(|t| Target::from_target_string(&t))
+        .map(|t| Target::from_target_string(t))
         .collect_vec();
     let engines = targets.iter().map(|t| t.engine()).collect_vec();
 
@@ -329,7 +329,7 @@ async fn bench_main(
         })
         .collect();
 
-    if tpch_queries.len() == 0 {
+    if tpch_queries.is_empty() {
         panic!("No queries to run")
     }
 
@@ -338,10 +338,10 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx =                        load_datasets(&url, format, emulate_object_store, disable_datafusion_cache)
-
-                    .await
-                    .unwrap();
+                let ctx =
+                    load_datasets(&url, format, emulate_object_store, disable_datafusion_cache)
+                        .await
+                        .unwrap();
 
                 let mut plans = Vec::new();
 

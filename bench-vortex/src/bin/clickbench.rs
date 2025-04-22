@@ -108,7 +108,7 @@ fn main() -> anyhow::Result<()> {
     let targets = args
         .target
         .iter()
-        .map(|t| Target::from_target_string(&t))
+        .map(|t| Target::from_target_string(t))
         .collect_vec();
 
     let engines = targets.iter().map(|t| t.engine()).unique().collect_vec();
