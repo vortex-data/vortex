@@ -33,10 +33,8 @@ pub fn render_table<T: ToTable>(
 
     let engines = targets.iter().map(|t| t.engine()).unique().collect_vec();
 
-    println!("all_measurements {:?}", all_measurements.len());
     for m in all_measurements.into_iter() {
         let generic = m.to_table();
-        println!("generic");
         measurements
             .entry(generic.target)
             .or_default()
@@ -46,10 +44,7 @@ pub fn render_table<T: ToTable>(
     measurements.values_mut().sorted_unstable();
 
     // The first format serves as the baseline
-    println!("targets {:?}", targets);
-    println!("measurements {:?}", measurements);
     let baseline_target = &targets[0];
-    println!("base line {baseline_target:?}");
     let baseline = measurements[baseline_target].clone();
 
     let mut table_builder = Builder::default();
