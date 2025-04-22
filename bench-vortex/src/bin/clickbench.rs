@@ -29,7 +29,7 @@ feature_flagged_allocator!();
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
-    target: Vec<String>,
+    targets: Vec<String>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
     #[arg(short, long, default_value_t = 5)]
@@ -107,7 +107,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let targets = args
-        .target
+        .targets
         .iter()
         .map(|t| Target::from_str(t).unwrap())
         .collect_vec();
