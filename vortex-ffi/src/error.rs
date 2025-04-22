@@ -10,6 +10,7 @@ pub struct vx_error {
     pub message: *const c_char,
 }
 
+#[inline]
 pub fn try_or<T>(
     error: *mut *mut vx_error,
     default_value: impl FnOnce() -> T,
