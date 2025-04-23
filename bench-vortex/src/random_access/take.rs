@@ -12,6 +12,7 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
+use tokio::runtime::Handle;
 use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
@@ -37,6 +38,7 @@ async fn take_vortex<T: VortexReadAt + Send + Sync>(
         .open(reader)
         .await?
         .scan()?
+        .with_tokio_executor(Handle::current())
         .with_row_indices(indices)
         .into_array_stream()?
         .read_all()

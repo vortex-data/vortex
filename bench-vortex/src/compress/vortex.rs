@@ -3,6 +3,7 @@ use std::io::Cursor;
 use arrow_array::ArrayRef;
 use bytes::Bytes;
 use futures::TryStreamExt;
+use tokio::runtime::Handle;
 use vortex::Array;
 use vortex::arrow::IntoArrowArray;
 use vortex::error::VortexResult;
@@ -23,6 +24,7 @@ pub async fn vortex_decompress_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
         .open(buf)
         .await?
         .scan()?
+        .with_tokio_executor(Handle::current())
         .into_array_stream()?
         .try_collect::<Vec<_>>()
         .await?
