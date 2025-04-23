@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use arrow::datatypes::i256;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods};
 use pyo3::types::{PyBytes, PyDict, PyList, PyString};
-use pyo3::{Bound, IntoPyObject, IntoPyObjectExt, PyAny, PyErr, PyResult, Python};
+use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
