@@ -4,6 +4,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 
 use crate::engines::df::execute_query;
+use crate::labels::FutureCustomLabelsExt;
 
 pub async fn run_tpch_query(
     ctx: &SessionContext,
@@ -14,7 +15,10 @@ pub async fn run_tpch_query(
         let mut result = None;
         for (i, q) in queries.iter().enumerate() {
             if i == 1 {
-                let (record_batches, metrics) = execute_query(ctx, q).await.unwrap();
+                let (record_batches, metrics) = execute_query(ctx, q)
+                    .with_label("query_idx", idx.to_string())
+                    .await
+                    .unwrap();
                 result = Some((record_batches.iter().map(|r| r.num_rows()).sum(), metrics));
             } else {
                 execute_query(ctx, q).await.unwrap();

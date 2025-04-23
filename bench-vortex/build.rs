@@ -4,4 +4,6 @@ fn main() {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn main() {}
+fn main() {
+    panic!("out dir = {}", std::env::var("OUT_DIR").unwrap());
+}

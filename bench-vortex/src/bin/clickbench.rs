@@ -523,6 +523,7 @@ async fn execute_datafusion_query(
     let (duration, execution_plan) = tokio::task::spawn(async move {
         let time_instant = Instant::now();
         let (_, execution_plan) = df::execute_query(&session_context, &query_string)
+            .with_label("query_idx", idx.to_string())
             .instrument(info_span!("execute_query", query_idx, iteration))
             .await
             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
