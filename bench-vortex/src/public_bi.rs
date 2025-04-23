@@ -409,8 +409,9 @@ impl Dataset for PBIBenchmark {
                     .open(TokioFile::open(f)?)
                     .await?
                     .scan()?
-                    .spawn_tokio(Handle::current())
-                    .unwrap()
+                    // TODO(ngates): why do we spawn this on the tokio executor?
+                    .with_tokio_executor(Handle::current())
+                    .into_array_stream()?
                     .read_all()
                     .await
             })

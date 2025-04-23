@@ -2,8 +2,11 @@
 
 use std::clone::Clone;
 use std::fmt::Display;
+use std::str::FromStr;
 
 use clap::ValueEnum;
+use itertools::Itertools;
+use serde::Serialize;
 
 pub mod bench_run;
 pub mod blob;
@@ -40,7 +43,68 @@ macro_rules! feature_flagged_allocator {
     };
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
+pub struct Target {
+    engine: Engine,
+    format: Format,
+}
+
+impl FromStr for Target {
+    type Err = ();
+
+    fn from_str(target_string: &str) -> Result<Self, Self::Err> {
+        let split = target_string.split(":").collect_vec();
+        let [engine_str, format_str] = split.as_slice() else {
+            panic!("invalid target string {}", target_string);
+        };
+
+        Ok(Self {
+            engine: Engine::from_str(engine_str, true)
+                .map_err(|e| {
+                    vortex_err!(
+                        "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
+                        *engine_str,
+                        Engine::value_variants().iter().join(","),
+                        e
+                    )
+                })
+                .vortex_unwrap(),
+            format: Format::from_str(format_str, true)
+                .map_err(|e| {
+                    vortex_err!(
+                        "cannot convert str ({}) to a Format oneof([{}]), got error {}",
+                        *format_str,
+                        Format::value_variants().iter().join(","),
+                        e
+                    )
+                })
+                .vortex_unwrap(),
+        })
+    }
+}
+
+impl Target {
+    pub fn new(engine: Engine, format: Format) -> Self {
+        Self { engine, format }
+    }
+
+    pub fn engine(&self) -> Engine {
+        self.engine
+    }
+
+    pub fn format(&self) -> Format {
+        self.format
+    }
+}
+
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.engine, self.format)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Format {
     #[clap(name = "csv")]
     Csv,
@@ -49,8 +113,10 @@ pub enum Format {
     #[clap(name = "parquet")]
     Parquet,
     #[clap(name = "in-memory-vortex")]
+    #[serde(rename = "in-memory-vortex")]
     InMemoryVortex,
     #[clap(name = "vortex")]
+    #[serde(rename = "vortex")]
     OnDiskVortex,
 }
 
@@ -72,25 +138,31 @@ impl Format {
     }
 }
 
-#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq)]
+#[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Engine {
     #[default]
     Vortex,
+    Arrow,
     #[clap(name = "datafusion")]
+    #[serde(rename = "datafusion")]
     DataFusion,
     #[clap(name = "duckdb")]
+    #[serde(rename = "duckdb")]
     DuckDB,
 }
 
-impl std::fmt::Display for Engine {
+impl Display for Engine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Engine::DataFusion => write!(f, "DataFusion"),
             Engine::DuckDB => write!(f, "DuckDB"),
             Engine::Vortex => write!(f, "Vortex"),
+            Engine::Arrow => write!(f, "Arrow"),
         }
     }
 }
 
 pub use utils::file_utils::*;
 pub use utils::logging::*;
+use vortex::error::{VortexUnwrap, vortex_err};

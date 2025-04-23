@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,11 +9,14 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use tokio::fs::OpenOptions;
 use tracing::info;
 use url::Url;
+use vortex::TryIntoArray;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -118,12 +122,15 @@ pub async fn register_vortex_files(
                 .head(&ObjectStorePath::parse(vtx_file.path())?)
                 .await
             {
-                info!("File {} doesn't exist because {e}", vtx_file);
+                info!(
+                    "Checking if file exists: File {} doesn't exist because {e}",
+                    vtx_file
+                );
 
                 if vtx_file.scheme() == "file" {
                     // Create directory if it doesn't exist
                     if let Some(parent) = Path::new(vtx_file.path()).parent() {
-                        std::fs::create_dir_all(parent)?;
+                        fs::create_dir_all(parent)?;
                     }
 
                     with_lock(vtx_file.path().to_owned(), async move || {
@@ -140,10 +147,6 @@ pub async fn register_vortex_files(
                             .await?
                             .execute_stream()
                             .await?;
-
-                        use futures::StreamExt;
-                        use vortex::TryIntoArray;
-                        use vortex::dtype::arrow::FromArrowType;
 
                         let adapter = vortex::stream::ArrayStreamAdapter::new(
                             vortex::dtype::DType::from_arrow(record_batches.schema()),
@@ -212,7 +215,10 @@ async fn ensure_parquet_file_exists(
         .head(&ObjectStorePath::parse(parquet_path)?)
         .await
     {
-        info!("File {} doesn't exist because {e}", parquet_url.as_str());
+        info!(
+            "Checking if file exist: File {} doesn't exist because {e}",
+            parquet_url.as_str()
+        );
 
         if parquet_url.scheme() != "file" {
             anyhow::bail!("Writing to S3 does not seem to work!");

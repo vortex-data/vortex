@@ -58,10 +58,7 @@ impl BenchmarkDataset {
         match self {
             BenchmarkDataset::TpcH => {
                 // TPC-H vortex files are stored in "vortex_compressed/" subdirectory
-                let vortex_dir_path = format!("{}vortex_compressed/", base_url.path());
-                let mut vortex_dir = base_url.clone();
-                vortex_dir.set_path(&vortex_dir_path);
-                Ok(vortex_dir)
+                Ok(base_url.join("vortex_compressed/")?)
             }
             BenchmarkDataset::ClickBench { .. } => {
                 // ClickBench vortex files are stored in "vortex/" subdirectory

@@ -27,7 +27,10 @@ pub async fn run_tpch_query(
         result.expect("Must have had a result in 2nd sql statement for query 15")
     } else {
         let q = &queries[0];
-        let (record_batches, metrics) = execute_query(ctx, q).await.unwrap();
+        let (record_batches, metrics) = execute_query(ctx, q)
+            .with_label("query_idx", idx.to_string())
+            .await
+            .unwrap();
         (record_batches.iter().map(|r| r.num_rows()).sum(), metrics)
     }
 }

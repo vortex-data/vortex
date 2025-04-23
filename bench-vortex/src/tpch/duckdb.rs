@@ -70,7 +70,7 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
         .arg(format!("install tpch; load tpch; call dbgen(sf={scale_factor}); export database '.' (format csv, delimiter '|', header false);"))
         .output()?;
 
-    if !output.status.success() {
+    if !output.status.success() || !output.stderr.is_empty() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");

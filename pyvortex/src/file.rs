@@ -154,6 +154,7 @@ impl PyVortexFile {
             .get()
             .vxf
             .scan()?
+            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
@@ -168,9 +169,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
-            builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
-        ));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -188,7 +187,7 @@ impl PyVortexFile {
         let stream = slf.py().allow_threads(|| {
             let mut builder = vxf
                 .scan()?
-                .with_canonicalize(true)
+                .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
@@ -196,9 +195,8 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            Ok::<_, VortexError>(ArrayStreamExt::boxed(
-                builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
-            ))
+            // TODO(ngates): use ScanBuilder::map_to_record_batch
+            Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
         })?;
 
         let iter = ArrayStreamToIterator::new(stream);

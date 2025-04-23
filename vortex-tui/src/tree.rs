@@ -14,7 +14,8 @@ pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
         .open(opened)
         .await?
         .scan()?
-        .spawn_tokio(TOKIO_RUNTIME.handle().clone())?
+        .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
+        .into_array_stream()?
         .read_all()
         .await?;
 

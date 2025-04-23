@@ -165,10 +165,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             scan_builder = scan_builder.with_row_indices(indices_buffer);
         }
 
-        // Canonicalize first, to avoid needing to pay decoding cost for every access.
-        let scan = scan_builder.with_canonicalize(true);
-
-        Ok(NativeArrayIterator::new(Box::new(scan.into_array_iter()?)).into_raw())
+        Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter()?)).into_raw())
     })
 }
 

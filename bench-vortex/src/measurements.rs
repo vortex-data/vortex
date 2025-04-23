@@ -8,7 +8,7 @@ use serde::{Serialize, Serializer};
 use vortex::error::vortex_panic;
 
 use crate::engines::df::GIT_COMMIT_ID;
-use crate::{Engine, Format};
+use crate::{Engine, Format, Target};
 
 pub trait ToJson {
     fn to_json(&self) -> JsonValue;
@@ -120,6 +120,7 @@ pub struct JsonValue {
     pub storage: Option<String>,
     pub unit: Option<Cow<'static, str>>,
     pub value: MeasurementValue,
+    pub target: Target,
     pub time: Option<u128>,
     pub bytes: Option<u64>,
     pub commit_id: Cow<'static, str>,
@@ -129,8 +130,7 @@ pub struct JsonValue {
 pub struct TableValue {
     pub id: Option<usize>,
     pub name: String,
-    pub format: Format,
-    pub engine: Engine,
+    pub target: Target,
     pub unit: Cow<'static, str>,
     pub value: MeasurementValue,
 }
@@ -154,8 +154,7 @@ impl Ord for TableValue {
 
 pub struct TimingMeasurement {
     pub name: String,
-    pub format: Format,
-    pub engine: Engine,
+    pub target: Target,
     pub storage: String,
     pub time: Duration,
 }
@@ -165,8 +164,7 @@ impl ToTable for TimingMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: self.engine,
+            target: self.target,
             unit: Cow::from("μs"),
             value: MeasurementValue::Int(self.time.as_micros()),
         }
@@ -183,6 +181,7 @@ impl ToJson for TimingMeasurement {
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: self.target,
         }
     }
 }
@@ -190,21 +189,20 @@ impl ToJson for TimingMeasurement {
 #[derive(Clone, Debug)]
 pub struct QueryMeasurement {
     pub query_idx: usize,
-    // Database engine: Datafusion or DuckDB
-    pub engine: Engine,
+    pub target: Target,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub fastest_run: Duration,
-    pub format: Format,
     pub dataset: String,
 }
 
 impl ToJson for QueryMeasurement {
     fn to_json(&self) -> JsonValue {
         let name = format!(
-            "{dataset}_q{query_idx:02}/{format}",
+            "{dataset}_q{query_idx:02}/{engine}:{format}",
             dataset = self.dataset,
-            format = self.format.name(),
+            engine = self.target.engine,
+            format = self.target.format.name(),
             query_idx = self.query_idx
         );
 
@@ -216,6 +214,7 @@ impl ToJson for QueryMeasurement {
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: self.target,
         }
     }
 }
@@ -225,8 +224,7 @@ impl ToTable for QueryMeasurement {
         TableValue {
             id: Some(self.query_idx),
             name: self.query_idx.to_string(),
-            format: self.format,
-            engine: self.engine,
+            target: self.target,
             unit: Cow::from("μs"),
             value: MeasurementValue::Int(self.fastest_run.as_micros()),
         }
@@ -257,6 +255,7 @@ impl ToJson for ThroughputMeasurement {
             time: Some(self.time.as_nanos()),
             bytes: Some(self.bytes),
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: Target::new(Engine::Vortex, self.format),
         }
     }
 }
@@ -266,8 +265,7 @@ impl ToTable for ThroughputMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: Engine::default(),
+            target: Target::new(Engine::default(), self.format),
             unit: Cow::from("bytes / μs"),
             value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
         }
@@ -293,6 +291,7 @@ impl ToJson for CustomUnitMeasurement {
             time: None,
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: Target::new(Engine::Vortex, self.format),
         }
     }
 }
@@ -302,8 +301,7 @@ impl ToTable for CustomUnitMeasurement {
         TableValue {
             id: None,
             name: self.name.clone(),
-            format: self.format,
-            engine: Engine::default(),
+            target: Target::new(Engine::default(), self.format),
             unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
         }

@@ -6,7 +6,7 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
+use bench_vortex::{Engine, Format, Target, default_env_filter, df, feature_flagged_allocator};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -26,11 +26,9 @@ struct Args {
     threads: Option<usize>,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
-    #[arg(long)]
-    only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
-    #[arg(short, long, default_value_t, value_enum)]
+    #[arg(long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
     emulate_object_store: bool,
@@ -80,6 +78,12 @@ fn main() -> anyhow::Result<()> {
 
     let runtime = new_tokio_runtime(args.threads);
 
+    let targets = args
+        .formats
+        .iter()
+        .map(|f| Target::new(Engine::DataFusion, *f))
+        .collect_vec();
+
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
         None => pbi_dataset.queries()?,
@@ -99,9 +103,11 @@ fn main() -> anyhow::Result<()> {
     // download csvs, unzip, convert to parquet, and convert that to vortex
     runtime.block_on(dataset.write_as_vortex());
 
-    for format in &args.formats {
+    for target in &targets {
+        let format = target.format();
         let session =
             df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
+
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,
@@ -147,10 +153,9 @@ fn main() -> anyhow::Result<()> {
 
             all_measurements.push(QueryMeasurement {
                 query_idx,
-                engine: Engine::DataFusion,
+                target: *target,
                 storage: STORAGE_NVME.to_owned(),
                 fastest_run,
-                format: *format,
                 dataset: pbi_dataset.name.to_owned(),
             });
 
@@ -175,13 +180,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(
-                all_measurements,
-                &args.formats,
-                RatioMode::Time,
-                &[Engine::DataFusion],
-            )
-            .unwrap()
+            render_table(all_measurements, RatioMode::Time, &targets).unwrap()
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
