@@ -52,18 +52,6 @@ impl<E: TaskExecutor + ?Sized> TaskExecutorExt for E {
     }
 }
 
-/// A task executor that runs tasks on the polling thread.
-pub struct BlockingTaskExecutor;
-
-impl TaskExecutor for BlockingTaskExecutor {
-    fn do_spawn(
-        &self,
-        fut: BoxFuture<'static, VortexResult<()>>,
-    ) -> BoxFuture<'static, VortexResult<()>> {
-        fut
-    }
-}
-
 #[cfg(feature = "tokio")]
 impl TaskExecutor for tokio::runtime::Handle {
     fn do_spawn(
