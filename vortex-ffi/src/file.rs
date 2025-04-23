@@ -260,7 +260,7 @@ fn make_object_store(
     property_keys: &[String],
     property_vals: &[String],
 ) -> VortexResult<Arc<dyn ObjectStore>> {
-    let (scheme, path) =
+    let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
     // Configure extra properties on that scheme instead.
