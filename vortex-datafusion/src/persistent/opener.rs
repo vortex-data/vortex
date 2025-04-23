@@ -7,7 +7,7 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use object_store::path::Path;
-use tokio::runtime::Handle;
+// use tokio::runtime::Handle;
 use vortex_array::ArrayRef;
 use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
@@ -82,7 +82,7 @@ impl FileOpener for VortexFileOpener {
             let scan_builder = apply_plan(file_meta, vxf.row_count(), scan_builder);
 
             Ok(scan_builder
-                .with_tokio_executor(Handle::current())
+                // .with_tokio_executor(Handle::current())
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
