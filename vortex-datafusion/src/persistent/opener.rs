@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
 use arrow_schema::{ArrowError, SchemaRef};
+use dashmap::DashMap;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tokio::runtime::Handle;
 use vortex_array::ArrayRef;
 use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::scan::ScanBuilder;
+use vortex_layout::LayoutReader;
 use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
 
@@ -24,6 +27,7 @@ pub(crate) struct VortexFileOpener {
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
+    layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
 }
 
 impl VortexFileOpener {
@@ -45,6 +49,7 @@ impl VortexFileOpener {
             projected_arrow_schema,
             batch_size,
             metrics,
+            layout_readers: DashMap::default(),
         }
     }
 }
@@ -58,13 +63,22 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
+        let layout_reader_cache = self.layout_readers.clone();
 
         Ok(async move {
             let vxf = file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await?;
 
-            let scan_builder = apply_plan(file_meta, vxf.row_count(), vxf.scan()?);
+            let layout_reader = layout_reader_cache
+                .entry(file_meta.object_meta.location.clone())
+                .or_try_insert_with(|| vxf.layout_reader())?
+                .value()
+                .clone();
+
+            let scan_builder = ScanBuilder::new(layout_reader);
+
+            let scan_builder = apply_plan(file_meta, vxf.row_count(), scan_builder);
 
             Ok(scan_builder
                 .with_tokio_executor(Handle::current())

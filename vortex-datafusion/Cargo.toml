@@ -18,6 +18,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+dashmap = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-execution = { workspace = true }

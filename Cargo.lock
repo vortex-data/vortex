@@ -6049,6 +6049,7 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "chrono",
+ "dashmap",
  "datafusion",
  "datafusion-common",
  "datafusion-execution",
