@@ -318,7 +318,7 @@ impl FileFormat for VortexFormat {
             })
         })
         .await
-        .vortex_expect("Failed to spawn statistics")
+        .vortex_expect("Failed to spawn infer_stats")
     }
 
     async fn create_physical_plan(
