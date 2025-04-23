@@ -60,7 +60,7 @@ jobs:
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.3.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.3.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
