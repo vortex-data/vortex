@@ -188,7 +188,6 @@ impl PyVortexFile {
             let mut builder = vxf
                 .scan()?
                 .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
-                .with_canonicalize(true)
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
@@ -196,6 +195,7 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
+            // TODO(ngates): use ScanBuilder::map_to_record_batch
             Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
         })?;
 
