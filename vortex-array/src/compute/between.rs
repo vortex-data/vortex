@@ -116,11 +116,6 @@ pub fn between(
         &DType::Bool(
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability()
         ),
-        "arr: {}\nlower: {}\nupper: {}\n, result: {}",
-        arr,
-        lower,
-        upper,
-        result,
     );
 
     Ok(result)
