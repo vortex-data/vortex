@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::labels::FutureCustomLabelsExt as _;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
@@ -13,7 +14,8 @@ use bench_vortex::{
     Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df, feature_flagged_allocator,
 };
 use clap::Parser;
-use datafusion::physical_plan::execution_plan;
+use datafusion::prelude::SessionContext;
+use datafusion_physical_plan::execution_plan::ExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::warn;
@@ -65,14 +67,14 @@ struct Args {
 }
 
 struct DataFusionCtx {
-    execution_plans: Vec<(usize, std::sync::Arc<dyn execution_plan::ExecutionPlan>)>,
+    execution_plans: Vec<(usize, std::sync::Arc<dyn ExecutionPlan>)>,
     metrics: Vec<(
         usize,
         Format,
         Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
 
-    session: datafusion::prelude::SessionContext,
+    session: SessionContext,
     emit_execution_plan: bool,
 }
 
@@ -86,10 +88,7 @@ enum EngineCtx {
 }
 
 impl EngineCtx {
-    fn new_with_datafusion(
-        session_ctx: datafusion::prelude::SessionContext,
-        emit_execution_plan: bool,
-    ) -> Self {
+    fn new_with_datafusion(session_ctx: SessionContext, emit_execution_plan: bool) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
             execution_plans: Vec::new(),
             metrics: Vec::new(),
@@ -475,9 +474,9 @@ fn benchmark_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    context: &datafusion::prelude::SessionContext,
+    context: &SessionContext,
     tokio_runtime: &tokio::runtime::Runtime,
-) -> (Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>) {
+) -> (Duration, std::sync::Arc<dyn ExecutionPlan>) {
     let execution_plan = OnceCell::new();
 
     let fastest_run =
@@ -510,14 +509,14 @@ async fn execute_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iteration: usize,
-    session_context: datafusion::prelude::SessionContext,
-) -> anyhow::Result<(Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>)> {
+    session_context: SessionContext,
+) -> anyhow::Result<(Duration, std::sync::Arc<dyn ExecutionPlan>)> {
     let query_string = query_string.to_owned();
 
     let (duration, execution_plan) = tokio::task::spawn(async move {
         let time_instant = Instant::now();
         let (_, execution_plan) = df::execute_query(&session_context, &query_string)
-            .with_label("query_idx", idx.to_string())
+            .with_label("query_idx", query_idx.to_string())
             .instrument(info_span!("execute_query", query_idx, iteration))
             .await
             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));

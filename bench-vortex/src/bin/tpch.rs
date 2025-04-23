@@ -1,9 +1,9 @@
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
-use bench_vortex::labels::FutureCustomLabelsExt as _;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
@@ -16,6 +16,8 @@ use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, Target, ddb, default_env_filter, feature_flagged_allocator};
 use clap::{Parser, ValueEnum};
+use datafusion::execution::context::SessionContext;
+use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -33,7 +35,7 @@ struct Args {
     #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
     targets: Vec<String>,
     #[arg(long)]
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -241,7 +243,7 @@ fn benchmark_duckdb_query(
     iterations: usize,
     file_format: Format,
     base_url: &Url,
-    duckdb_path: &std::path::Path,
+    duckdb_path: &Path,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
         let duration = ddb::execute_tpch_query(queries, base_url, file_format, duckdb_path)
@@ -255,11 +257,8 @@ async fn benchmark_datafusion_query(
     query_idx: usize,
     query_string: &[String],
     iterations: usize,
-    context: &datafusion::execution::context::SessionContext,
-) -> (
-    Duration,
-    std::sync::Arc<dyn datafusion::physical_plan::execution_plan::ExecutionPlan>,
-) {
+    context: &SessionContext,
+) -> (Duration, std::sync::Arc<dyn ExecutionPlan>) {
     let mut fastest_run = Duration::from_millis(u64::MAX);
     let mut plan_result = None;
 
@@ -294,7 +293,7 @@ async fn bench_main(
     url: Url,
     display_all_metrics: bool,
     export_spans: bool,
-    duckdb_path: &Option<std::path::PathBuf>,
+    duckdb_path: &Option<PathBuf>,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
