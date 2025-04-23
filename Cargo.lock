@@ -6227,6 +6227,7 @@ version = "0.31.0"
 dependencies = [
  "duckdb",
  "futures",
+ "itertools 0.14.0",
  "log",
  "object_store",
  "paste",

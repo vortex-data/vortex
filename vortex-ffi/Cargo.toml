@@ -19,6 +19,7 @@ categories = { workspace = true }
 [dependencies]
 duckdb = { workspace = true, optional = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }

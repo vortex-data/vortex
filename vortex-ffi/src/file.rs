@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
 
+use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
@@ -259,7 +260,7 @@ fn make_object_store(
     property_keys: &[String],
     property_vals: &[String],
 ) -> VortexResult<Arc<dyn ObjectStore>> {
-    let (scheme, _) =
+    let (scheme, path) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
     // Configure extra properties on that scheme instead.
@@ -271,11 +272,18 @@ fn make_object_store(
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
             let mut builder = AmazonS3Builder::new().with_url(url.to_string());
-            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
+            for (key, val) in property_keys.iter().zip_eq(property_vals.iter()) {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Amazon S3 config key: {}", key);
+                }
+            }
+
+            if property_keys.is_empty() {
+                builder = AmazonS3Builder::from_env();
+                if let Some(domain) = url.domain() {
+                    builder = builder.with_bucket_name(domain);
                 }
             }
 

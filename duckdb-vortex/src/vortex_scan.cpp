@@ -8,6 +8,7 @@
 #include "vortex_extension.hpp"
 
 #include <filesystem>
+#include <regex>
 
 #include "vortex_common.hpp"
 #include "expr/expr.hpp"
@@ -150,10 +151,16 @@ static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> 
 	}
 }
 
+const  std::regex schema_prefix = std::regex("^[^/]*:\\/\\/.*$");
+
 std::string EnsureFileProtocol(const std::string &path) {
+	// Check if the path has a schema, if not prepend the file:// schema
+	if (std::regex_match(path, schema_prefix)) {
+			return path;
+	}
+
 	auto absolute_path = path;
 	const std::string prefix = "file://";
-
 	std::filesystem::path p = absolute_path;
 	if (!p.is_absolute()) {
 		try {
@@ -163,10 +170,6 @@ std::string EnsureFileProtocol(const std::string &path) {
 		}
 	}
 
-	// Check if the string already starts with "file://"
-	if (absolute_path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), absolute_path.begin())) {
-		return absolute_path;
-	}
 	return prefix + absolute_path;
 }
 
