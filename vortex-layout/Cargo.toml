@@ -22,7 +22,6 @@ bit-vec = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
-flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }

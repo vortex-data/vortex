@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use sketches_ddsketch::DDSketch;
 use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::nbytes::NBytes;
@@ -11,7 +12,7 @@ use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
@@ -46,8 +47,9 @@ impl LayoutStrategy for VortexLayoutStrategy {
 
         // Compress each chunk with btrblocks.
         let writer = BtrBlocksCompressedWriter {
-            previous_chunk: None,
+            prev_compressed: None,
             child: strategy.new_writer(ctx, dtype)?,
+            ratio: Default::default(),
         }
         .boxed();
 
@@ -102,15 +104,11 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
         let child = self.child.new_writer(ctx, dtype)?;
         Ok(BtrBlocksCompressedWriter {
             child,
-            previous_chunk: None,
+            ratio: DDSketch::default(),
+            prev_compressed: None,
         }
         .boxed())
     }
-}
-
-struct PreviousCompression {
-    chunk: ArrayRef,
-    ratio: f64,
 }
 
 const COMPRESSION_DRIFT_THRESHOLD: f64 = 1.2;
@@ -119,7 +117,8 @@ const COMPRESSION_DRIFT_THRESHOLD: f64 = 1.2;
 /// compressed chunk as a hint for the next.
 struct BtrBlocksCompressedWriter {
     child: Box<dyn LayoutWriter>,
-    previous_chunk: Option<PreviousCompression>,
+    ratio: DDSketch,
+    prev_compressed: Option<ArrayRef>,
 }
 
 impl LayoutWriter for BtrBlocksCompressedWriter {
@@ -136,29 +135,41 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             Some(ConstantArray::new(constant, chunk.len()).into_array())
         }
         // If we have information about the data from the previous chunk
-        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
-            let prev_chunk = prev_compression.chunk.clone();
-            let canonical_chunk = chunk.to_canonical()?;
-            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
+        else if let Some(prev_compressed) = self.prev_compressed.as_ref() {
+            let uncompressed_chunk = chunk.to_canonical()?;
+            let uncompressed_nbytes = uncompressed_chunk.as_ref().nbytes();
 
-            if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
+            if let Some(compressed_chunk) =
+                encode_children_like(uncompressed_chunk.into_array(), prev_compressed)?
             {
-                let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
+                let ratio = compressed_chunk.nbytes() as f64 / uncompressed_nbytes as f64;
 
-                // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
-                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
-                    Some(encoded_chunk)
+                // Make sure the ratio is within the expected drift, if it isn't we fall back to the compressor.
+                if let Some(avg_ratio) = self
+                    .ratio
+                    .quantile(0.5)
+                    .map_err(|_| vortex_err!("Quantile outside 0.0 -> 1.0"))
+                    .vortex_unwrap()
+                {
+                    if ratio < avg_ratio * COMPRESSION_DRIFT_THRESHOLD {
+                        log::trace!(
+                            "Compressed-like to a ratio of {ratio}, which is below the threshold of {}",
+                            avg_ratio * COMPRESSION_DRIFT_THRESHOLD
+                        );
+                        Some(compressed_chunk)
+                    } else {
+                        log::trace!(
+                            "Compressed to a ratio of {ratio}, which is above the threshold of {}",
+                            avg_ratio * COMPRESSION_DRIFT_THRESHOLD
+                        );
+                        None
+                    }
                 } else {
-                    log::trace!(
-                        "Compressed to a ratio of {ratio}, which is below the threshold of {}",
-                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
-                    );
+                    // No ratios published yet
                     None
                 }
             } else {
                 log::debug!("Couldn't re-encode children");
-
                 None
             }
         } else {
@@ -168,14 +179,18 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         let compressed_chunk = match compressed_chunk {
             Some(array) => array,
             None => {
-                let canonical_chunk = chunk.to_canonical()?;
-                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
-                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
-                self.previous_chunk = Some(PreviousCompression {
-                    chunk: compressed.clone(),
-                    ratio: canonical_size / compressed.nbytes() as f64,
-                });
-                compressed
+                let uncompressed_chunk = chunk.to_canonical()?;
+                let uncompressed_nbytes = uncompressed_chunk.as_ref().nbytes();
+
+                let compressed_chunk =
+                    BtrBlocksCompressor.compress_canonical(uncompressed_chunk)?;
+                let compressed_nbytes = compressed_chunk.nbytes();
+
+                let ratio = compressed_nbytes as f64 / uncompressed_nbytes as f64;
+                self.ratio.add(ratio);
+                self.prev_compressed = Some(compressed_chunk.clone());
+
+                compressed_chunk
             }
         };
 
@@ -253,14 +268,14 @@ impl LayoutWriter for BufferedWriter {
     }
 }
 
-fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+fn encode_children_like(current: ArrayRef, previous: &dyn Array) -> VortexResult<Option<ArrayRef>> {
     if let Some(constant) = current.as_constant() {
         Ok(Some(
             ConstantArray::new(constant, current.len()).into_array(),
         ))
     } else if let Some(encoded) = previous
         .vtable()
-        .encode(&current.to_canonical()?, Some(&previous))?
+        .encode(&current.to_canonical()?, Some(previous))?
     {
         let previous_children = previous.children();
         let encoded_children = encoded.children();
@@ -280,7 +295,7 @@ fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<O
             .into_iter()
             .zip_eq(encoded_children.into_iter())
         {
-            new_children.push(encode_children_like(e.clone(), p)?.unwrap_or(e));
+            new_children.push(encode_children_like(e.clone(), p.as_ref())?.unwrap_or(e));
         }
 
         Ok(Some(encoded.with_children(&new_children)?))
