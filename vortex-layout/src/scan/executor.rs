@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
-use vortex_error::{ResultExt, VortexError, VortexResult, vortex_err};
+use vortex_error::{ResultExt, VortexResult, vortex_err};
 
 pub trait TaskExecutor: 'static + Send + Sync {
     fn do_spawn(
@@ -70,8 +70,10 @@ impl TaskExecutor for tokio::runtime::Handle {
         &self,
         f: BoxFuture<'static, VortexResult<()>>,
     ) -> BoxFuture<'static, VortexResult<()>> {
+        use futures::TryFutureExt;
+
         tokio::runtime::Handle::spawn(self, f)
-            .map_err(VortexError::from)
+            .map_err(vortex_error::VortexError::from)
             .map(|result| result.unnest())
             .boxed()
     }

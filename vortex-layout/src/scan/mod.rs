@@ -40,8 +40,6 @@ pub struct ScanBuilder<A> {
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
-    /// Whether the arrays returned by the scan should be in canonical form.
-    canonicalize: bool,
     /// The number of splits to make progress on concurrently.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -92,12 +90,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Set whether the scan should canonicalize the output.
-    pub fn with_canonicalize(mut self, canonicalize: bool) -> Self {
-        self.canonicalize = canonicalize;
-        self
-    }
-
     /// The number of row splits to make progress on concurrently, must be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
@@ -133,7 +125,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_range: self.row_range,
             selection: self.selection,
             split_by: self.split_by,
-            canonicalize: self.canonicalize,
             concurrency: self.concurrency,
             map_fn: Arc::new(move |a| map_fn(old_map_fn(a)?)),
             executor: self.executor,
@@ -270,7 +261,6 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
-            canonicalize: false,
             // How many row splits to make progress on concurrently (not necessarily in parallel,
             // that is decided by the TaskExecutor).
             concurrency: 16,
