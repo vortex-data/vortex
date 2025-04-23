@@ -339,7 +339,6 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                println!("url {}", url);
                 let ctx =
                     load_datasets(&url, format, emulate_object_store, disable_datafusion_cache)
                         .await
