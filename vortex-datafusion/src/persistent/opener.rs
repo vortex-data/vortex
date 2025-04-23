@@ -6,8 +6,10 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
+use vortex_array::ArrayRef;
 use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
+use vortex_file::scan::ScanBuilder;
 use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
 
@@ -58,10 +60,13 @@ impl FileOpener for VortexFileOpener {
         let batch_size = self.batch_size;
 
         Ok(async move {
-            Ok(file_cache
+            let vxf = file_cache
                 .try_get(&file_meta.object_meta, object_store)
-                .await?
-                .scan()?
+                .await?;
+
+            let scan_builder = apply_plan(file_meta, vxf.row_count(), vxf.scan()?);
+
+            Ok(scan_builder
                 .with_tokio_executor(Handle::current())
                 .with_metrics(metrics)
                 .with_projection(projection)
@@ -76,5 +81,21 @@ impl FileOpener for VortexFileOpener {
                 .boxed())
         }
         .boxed())
+    }
+}
+
+fn apply_plan(
+    file_meta: FileMeta,
+    row_count: u64,
+    scan_builder: ScanBuilder<ArrayRef>,
+) -> ScanBuilder<ArrayRef> {
+    if let Some(byte_range) = file_meta.range.as_ref() {
+        let average_row = file_meta.object_meta.size as u64 / row_count;
+        let start = byte_range.start as u64 / average_row;
+        let end = byte_range.end as u64 / average_row;
+
+        scan_builder.with_row_range(start..end)
+    } else {
+        scan_builder
     }
 }

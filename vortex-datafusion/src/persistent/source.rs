@@ -152,21 +152,22 @@ impl FileSource for VortexSource {
         VORTEX_FILE_EXTENSION
     }
 
-    fn repartitioned(
-        &self,
-        target_partitions: usize,
-        _repartition_file_min_size: usize,
-        _output_ordering: Option<datafusion_physical_expr::LexOrdering>,
-        config: &FileScanConfig,
-    ) -> DFResult<Option<FileScanConfig>> {
-        let mut new_config = config.clone();
-        let file_groups = std::mem::take(&mut new_config.file_groups);
-        new_config.file_groups = repartition_by_size(file_groups, target_partitions);
+    // fn repartitioned(
+    //     &self,
+    //     target_partitions: usize,
+    //     _repartition_file_min_size: usize,
+    //     _output_ordering: Option<LexOrdering>,
+    //     config: &FileScanConfig,
+    // ) -> DFResult<Option<FileScanConfig>> {
+    //     let mut new_config = config.clone();
+    //     let file_groups = std::mem::take(&mut new_config.file_groups);
+    //     new_config.file_groups = repartition_by_size(file_groups, target_partitions);
 
-        Ok(Some(new_config))
-    }
+    //     Ok(Some(new_config))
+    // }
 }
 
+#[allow(dead_code)]
 pub(crate) fn repartition_by_size(
     file_groups: Vec<Vec<PartitionedFile>>,
     desired_partitions: usize,

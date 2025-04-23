@@ -170,6 +170,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .filter_map(|row_range| {
                 if let Some(scan_range) = &self.row_range {
                     // If the row range is fully within the scan range, return it.
+                    // TODO(adam): Is this a bug?
                     if row_range.start >= scan_range.end || row_range.end < scan_range.start {
                         return None;
                     }
