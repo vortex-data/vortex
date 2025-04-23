@@ -202,7 +202,7 @@ pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult
 ///
 ///     >>> import vortex as vx
 ///     >>> vx.decimal(precision=13, scale=2, nullable=True)
-///     decimal(8, nullable=True)
+///     decimal(precision=13, scale=2, nullable=True)
 ///
 /// A data type representing fixed-width decimal numbers with `precision` significant figures and
 /// `scale` digits after the decimal point. If `scale` is a negative value, then it is taken

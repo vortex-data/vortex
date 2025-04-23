@@ -162,12 +162,14 @@ fn decimal_value_to_py(
     match decimal_value {
         DecimalValue::I128(v128) => {
             let (whole, decimal) = v128.into_parts(scale);
-            let repr = format!("{}.{}", whole, decimal).into_pyobject(py)?;
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
             decimal_class.call1((repr,))
         }
         DecimalValue::I256(v256) => {
             let (whole, decimal) = v256.into_parts(scale);
-            let repr = format!("{}.{}", whole, decimal).into_pyobject(py)?;
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
             decimal_class.call1((repr,))
         }
     }
