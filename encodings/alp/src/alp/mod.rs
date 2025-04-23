@@ -14,6 +14,7 @@ pub use array::*;
 pub use compress::*;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
+use vortex_scalar::PValue;
 
 const SAMPLE_SIZE: usize = 32;
 
@@ -37,7 +38,7 @@ mod private {
 }
 
 pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
-    type ALPInt: PrimInt + Display + ToPrimitive + Copy;
+    type ALPInt: PrimInt + Display + ToPrimitive + Copy + NativePType + Into<PValue>;
 
     const FRACTIONAL_BITS: u8;
     const MAX_EXPONENT: u8;

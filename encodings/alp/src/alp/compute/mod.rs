@@ -10,7 +10,7 @@ use vortex_array::compute::{
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
-use vortex_dtype::NativePType;
+use vortex_dtype::{NativePType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarType};
@@ -132,8 +132,11 @@ impl BetweenFn<&ALPArray> for ALPEncoding {
             return Ok(None);
         }
 
+        let nullability =
+            array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+
         match_each_alp_float_ptype!(array.ptype(), |$F| {
-            between_impl::<$F>(array, $F::try_from(lower)?, $F::try_from(upper)?, options)
+            between_impl::<$F>(array, $F::try_from(lower)?, $F::try_from(upper)?, nullability, options)
         })
         .map(Some)
     }
@@ -143,6 +146,7 @@ fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,
     lower: T,
     upper: T,
+    nullability: Nullability,
     options: &BetweenOptions,
 ) -> VortexResult<ArrayRef>
 where
@@ -173,8 +177,8 @@ where
 
     between(
         array.encoded(),
-        &ConstantArray::new(lower_enc, array.len()),
-        &ConstantArray::new(upper_enc, array.len()),
+        &ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()),
+        &ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()),
         &options,
     )
 }
@@ -185,12 +189,13 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
+    use vortex_dtype::Nullability;
 
     use crate::alp::compute::between_impl;
     use crate::{ALPArray, alp_encode};
 
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
-        let res = between_impl(arr, lower, upper, options)
+        let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
             .unwrap()
             .to_bool()
             .unwrap()
