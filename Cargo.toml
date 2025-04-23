@@ -78,7 +78,6 @@ crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "46", default-features = false }
 datafusion-common = { version = "46" }
-datafusion-common-runtime = { version = "46" }
 datafusion-execution = { version = "46" }
 datafusion-expr = { version = "46" }
 datafusion-physical-expr = { version = "46" }

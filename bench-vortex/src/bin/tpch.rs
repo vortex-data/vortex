@@ -64,6 +64,10 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(long, default_value_t = false)]
+    hide_progress_bar: bool,
+    #[arg(long, default_value_t = false)]
+    hide_metrics: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -170,8 +174,9 @@ fn main() -> ExitCode {
         args.emulate_object_store,
         args.disable_datafusion_cache,
         args.scale_factor,
+        args.hide_progress_bar,
+        args.hide_metrics,
         url,
-        args.all_metrics,
         args.export_spans,
         &args.engines,
         &args.duckdb_path,
@@ -291,8 +296,9 @@ async fn bench_main(
     emulate_object_store: bool,
     disable_datafusion_cache: bool,
     scale_factor: u8,
+    hide_progress_bar: bool,
+    hide_metrics: bool,
     url: Url,
-    display_all_metrics: bool,
     export_spans: bool,
     engines: &[Engine],
     duckdb_path: &Option<std::path::PathBuf>,
@@ -314,7 +320,13 @@ async fn bench_main(
     );
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
-    let progress = ProgressBar::new((query_count * formats.len() * engines.len()) as u64);
+
+    let progress = if hide_progress_bar {
+        ProgressBar::hidden()
+    } else {
+        ProgressBar::new((query_count * formats.len() * engines.len()) as u64)
+    };
+
     let mut row_counts: Vec<(usize, Format, usize)> = Vec::new();
     let mut measurements = Vec::new();
     let mut metrics = MetricsSet::new();
@@ -432,12 +444,17 @@ async fn bench_main(
 
     match display_format {
         DisplayFormat::Table => {
-            if !display_all_metrics {
-                metrics = metrics.aggregate();
+            if !hide_metrics {
+                for m in metrics
+                    .aggregate()
+                    .timestamps_removed()
+                    .sorted_for_display()
+                    .iter()
+                {
+                    eprintln!("{}", m);
+                }
             }
-            for m in metrics.timestamps_removed().sorted_for_display().iter() {
-                println!("{}", m);
-            }
+
             render_table(measurements, &formats, RatioMode::Time, engines).unwrap();
         }
         DisplayFormat::GhJson => {
@@ -457,7 +474,7 @@ fn validate_args(args: &Args) {
         panic!("--duckdb-path is only valid if DuckDB is used");
     }
 
-    if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
+    if (args.all_metrics || args.emit_plan || args.threads.is_some())
         && !args.engines.contains(&Engine::DataFusion)
     {
         panic!(
