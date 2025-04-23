@@ -59,8 +59,6 @@ struct Args {
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
     #[arg(long)]
-    all_metrics: bool,
-    #[arg(long)]
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
@@ -474,11 +472,9 @@ fn validate_args(args: &Args) {
         panic!("--duckdb-path is only valid if DuckDB is used");
     }
 
-    if (args.all_metrics || args.emit_plan || args.threads.is_some())
+    if (args.export_spans || args.emit_plan || args.threads.is_some())
         && !args.engines.contains(&Engine::DataFusion)
     {
-        panic!(
-            "--all-metrics, --emit-plan, --threads, --export-spans are only valid if DataFusion is used"
-        );
+        panic!("--export-spans, --emit-plan, --threads are only valid if DataFusion is used");
     }
 }
