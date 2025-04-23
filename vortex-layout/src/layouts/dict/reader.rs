@@ -3,8 +3,8 @@ use std::sync::{Arc, OnceLock, RwLock};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, RkyvMetadata};
-use vortex_dtype::DType;
+use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_dtype::{DType, PType};
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -35,7 +35,7 @@ impl DictReader {
         if layout.vtable().id() != DictLayout.id() {
             vortex_panic!("Mitmatched layout ID")
         }
-        let metadata = RkyvMetadata::<DictLayoutMetadata>::deserialize(
+        let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
             layout.metadata().as_ref().map(|b| b.as_ref()),
         )?;
 
@@ -43,8 +43,8 @@ impl DictReader {
             .child(0, layout.dtype().clone(), "values")?
             .reader(segment_source, ctx)?;
 
-        let codes_dtype =
-            DType::from(metadata.codes_ptype).with_nullability(values.dtype().nullability());
+        let codes_dtype = DType::from(PType::from(metadata.codes_ptype()))
+            .with_nullability(values.dtype().nullability());
 
         let codes = layout
             .child(1, codes_dtype, "codes")?

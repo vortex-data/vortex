@@ -2,10 +2,11 @@ use bytes::Bytes;
 use vortex_array::arcref::ArcRef;
 use vortex_array::compute::slice;
 use vortex_array::vtable::EncodingVTable as _;
-use vortex_array::{Array, ArrayContext, ArrayRef, RkyvMetadata, SerializeMetadata};
+use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
+use vortex_dtype::proto::dtype as pb;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -30,6 +31,11 @@ impl Default for DictLayoutOptions {
     }
 }
 
+/// A layout strategy that encodes chunk into values and codes, if found
+/// appropriate by the btrblocks compressor. Current implementation only
+/// checks the first chunk to decide whether to apply dict layout and
+/// encodes chunks into dictionaries. When the dict constraints are hit, a
+/// new dictionary is created.
 #[derive(Clone)]
 pub struct DictStrategy {
     pub options: DictLayoutOptions,
@@ -115,15 +121,24 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
     }
 }
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(prost::Message)]
 pub struct DictLayoutMetadata {
-    pub codes_ptype: PType,
+    #[prost(enumeration = "pb::PType", tag = "1")]
+    // i32 is required for proto, use the generated getter to read this field.
+    codes_ptype: i32,
+}
+
+impl DictLayoutMetadata {
+    pub fn new(codes_ptype: PType) -> Self {
+        let mut metadata = Self::default();
+        metadata.set_codes_ptype(codes_ptype.into());
+        metadata
+    }
 }
 
 fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
-    let codes_ptype = codes.dtype().try_into()?;
     let metadata = Bytes::copy_from_slice(
-        &RkyvMetadata(DictLayoutMetadata { codes_ptype })
+        &ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?))
             .serialize()
             .ok_or_else(|| vortex_err!("could not serialize dict layout metadata"))?,
     );

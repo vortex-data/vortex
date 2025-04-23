@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "duckdb"
-version = "1.2.2"
+version = "1.2.0"
 dependencies = [
  "arrow",
  "calamine",
@@ -3075,7 +3075,7 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libduckdb-sys"
-version = "1.2.2"
+version = "1.2.0"
 dependencies = [
  "autocfg",
  "cc",
@@ -6399,7 +6399,7 @@ dependencies = [
  "getrandom 0.3.2",
  "itertools 0.14.0",
  "log",
- "rkyv 0.8.10",
+ "prost",
  "roaring",
  "rstest",
  "sketches-ddsketch",
