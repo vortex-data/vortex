@@ -4,6 +4,7 @@
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -75,7 +76,7 @@ impl VortexFile {
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder> {
+    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 }

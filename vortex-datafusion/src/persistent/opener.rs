@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use arrow_schema::SchemaRef;
+use arrow_schema::{ArrowError, SchemaRef};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use futures::{FutureExt as _, StreamExt};
+use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::ToCanonical;
+use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
@@ -58,6 +59,8 @@ impl FileOpener for VortexFileOpener {
         let batch_size = self.batch_size;
 
         Ok(async move {
+            let projected_arrow_schema = projected_arrow_schema.clone();
+
             Ok(file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
@@ -65,16 +68,16 @@ impl FileOpener for VortexFileOpener {
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .spawn_tokio(Handle::current())?
                 .map(move |array| {
-                    let st = array?.to_struct()?;
-                    Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
+                    let st = array.to_struct()?;
+                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
                 })
+                .spawn_tokio(Handle::current())?
+                .map_err(|e: VortexError| ArrowError::from(e))
                 .boxed())
         }
         .boxed())

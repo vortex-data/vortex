@@ -44,7 +44,7 @@ vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
 vortex-file = { workspace = true, features = ["object_store", "tokio"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
-vortex-layout = { workspace = true }
+vortex-layout = { workspace = true, features = ["tokio"] }
 vortex-metrics = { workspace = true }
 
 [features]
