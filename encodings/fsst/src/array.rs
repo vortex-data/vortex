@@ -3,7 +3,10 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::VTableRef;
-use vortex_array::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Encoding, ProstMetadata};
+use vortex_array::{
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    Encoding, ProstMetadata,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};

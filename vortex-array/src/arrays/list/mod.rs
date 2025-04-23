@@ -7,8 +7,8 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::ListMetadata;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -20,7 +20,10 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
-use crate::{Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef};
+use crate::{
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
+};
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
@@ -259,8 +262,8 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::list::ListArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::list::ListArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
 

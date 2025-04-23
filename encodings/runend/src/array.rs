@@ -7,7 +7,11 @@ use vortex_array::compute::{
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
-use vortex_array::{Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, IntoArray, ToCanonical, try_from_array_ref, ProstMetadata};
+use vortex_array::{
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
+    try_from_array_ref,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
