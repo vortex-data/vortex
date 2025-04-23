@@ -392,6 +392,7 @@ async fn bench_main(
                     }
                 }
             }
+            // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
                 let duckdb_executable = ddb::executable_path(duckdb_path);
 
