@@ -3,15 +3,18 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
+use dashmap::DashMap;
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_layout::LayoutReader;
 use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -32,6 +35,7 @@ pub struct VortexSource {
     pub(crate) arrow_schema: Option<SchemaRef>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
+    layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
 }
 
 impl VortexSource {
@@ -45,6 +49,7 @@ impl VortexSource {
             arrow_schema: None,
             predicate: None,
             _unused_df_metrics: Default::default(),
+            layout_readers: DashMap::default(),
         }
     }
 
@@ -81,6 +86,7 @@ impl FileSource for VortexSource {
                 .vortex_expect("We should have a schema here"),
             batch_size,
             partition_metrics,
+            self.layout_readers.clone(),
         );
 
         Arc::new(opener)

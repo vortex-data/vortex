@@ -40,6 +40,7 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
+        layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
     ) -> Self {
         Self {
             object_store,
@@ -49,7 +50,7 @@ impl VortexFileOpener {
             projected_arrow_schema,
             batch_size,
             metrics,
-            layout_readers: DashMap::default(),
+            layout_readers,
         }
     }
 }
