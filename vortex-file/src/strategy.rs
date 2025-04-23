@@ -49,7 +49,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             }) as _);
 
         // Prior to compression, re-partition into size-based chunks.
-        let coalescing_strategy = RepartitionStrategy {
+        let coalescing_strategy = Arc::new(RepartitionStrategy {
             options: RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,        // 1 MB
                 block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
@@ -57,13 +57,14 @@ impl LayoutStrategy for VortexLayoutStrategy {
             child: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
                 child: buffered_strategy,
             })),
-        };
+        });
 
         let dict_strategy = DictStrategy {
-            child: ArcRef::new_arc(Arc::new(coalescing_strategy)),
+            codes: ArcRef::new_arc(coalescing_strategy.clone()),
             values: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
                 child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             })),
+            fallback: ArcRef::new_arc(coalescing_strategy),
             options: Default::default(),
         };
 

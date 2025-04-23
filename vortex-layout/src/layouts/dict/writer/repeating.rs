@@ -1,38 +1,27 @@
-use vortex_array::arcref::ArcRef;
 use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_dict::builders::{DictConstraints, DictEncoder};
+use vortex_dict::builders::DictEncoder;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use super::{EncodingState, encode_chunk, start_encoding};
+use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
 use crate::layouts::chunked::writer::chunked_layout;
 use crate::layouts::dict::writer::dict_layout;
 use crate::segments::SegmentWriter;
-use crate::{Layout, LayoutStrategy, LayoutWriter};
+use crate::{Layout, LayoutWriter};
 
-pub struct RepeatingDictLayoutWriter {
+pub struct DictLayoutWriter {
     ctx: ArrayContext,
-    constraints: DictConstraints,
-    codes_strategy: ArcRef<dyn LayoutStrategy>,
-    values_strategy: ArcRef<dyn LayoutStrategy>,
+    strategy: DictStrategy,
     dtype: DType,
     writers: Vec<(Box<dyn LayoutWriter>, Box<dyn LayoutWriter>)>,
     encoder: Option<Box<dyn DictEncoder>>,
 }
 
-impl RepeatingDictLayoutWriter {
-    pub fn new(
-        ctx: ArrayContext,
-        dtype: &DType,
-        codes_strategy: ArcRef<dyn LayoutStrategy>,
-        values_strategy: ArcRef<dyn LayoutStrategy>,
-        constraints: DictConstraints,
-    ) -> Self {
+impl DictLayoutWriter {
+    pub fn new(ctx: ArrayContext, dtype: &DType, strategy: DictStrategy) -> Self {
         Self {
             ctx,
-            constraints,
-            codes_strategy,
-            values_strategy,
+            strategy,
             dtype: dtype.clone(),
             writers: vec![],
             encoder: None,
@@ -40,7 +29,7 @@ impl RepeatingDictLayoutWriter {
     }
 }
 
-impl RepeatingDictLayoutWriter {
+impl DictLayoutWriter {
     fn flush_last(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         if let Some((last_values, last_codes)) = self.writers.last_mut() {
             last_values.flush(segment_writer)?;
@@ -61,8 +50,8 @@ impl RepeatingDictLayoutWriter {
         } else {
             encoded_dtype.clone()
         };
-        let codes_writer = self.codes_strategy.new_writer(&self.ctx, &codes_dtype)?;
-        let values_writer = self.values_strategy.new_writer(&self.ctx, &self.dtype)?;
+        let codes_writer = self.strategy.codes.new_writer(&self.ctx, &codes_dtype)?;
+        let values_writer = self.strategy.values.new_writer(&self.ctx, &self.dtype)?;
         self.writers.push((values_writer, codes_writer));
         Ok(())
     }
@@ -90,7 +79,7 @@ impl RepeatingDictLayoutWriter {
     }
 }
 
-impl LayoutWriter for RepeatingDictLayoutWriter {
+impl LayoutWriter for DictLayoutWriter {
     fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
@@ -99,7 +88,7 @@ impl LayoutWriter for RepeatingDictLayoutWriter {
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
-                None => match start_encoding(&self.constraints, &remaining)? {
+                None => match start_encoding(&self.strategy.options.constraints, &remaining)? {
                     EncodingState::Continue((encoder, encoded)) => {
                         self.new_dict(segment_writer, encoded.dtype())?;
                         self.push_encoded(segment_writer, encoded)?;
@@ -128,15 +117,17 @@ impl LayoutWriter for RepeatingDictLayoutWriter {
         Ok(())
     }
 
-    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        // dicts are flushed when they exceed constraints in push_chunk, or in finish
+    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        if let Some(mut encoder) = self.encoder.take() {
+            self.push_values(segment_writer, encoder.values()?)?;
+            self.flush_last(segment_writer)?;
+        }
         Ok(())
     }
 
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        if let Some(mut encoder) = self.encoder.take() {
-            self.push_values(segment_writer, encoder.values()?)?;
-            self.flush_last(segment_writer)?;
+        if self.encoder.is_some() {
+            vortex_bail!("flush not called before finish")
         }
 
         let mut children = self

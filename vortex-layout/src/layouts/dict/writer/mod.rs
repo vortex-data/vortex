@@ -10,21 +10,18 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 mod repeating;
-mod single;
 
 use crate::layouts::dict::DictLayout;
 use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
-    pub repeat: bool,
     pub constraints: DictConstraints,
 }
 
 impl Default for DictLayoutOptions {
     fn default() -> Self {
         Self {
-            repeat: true,
             constraints: DictConstraints {
                 max_bytes: 1024 * 1024,
                 max_len: u16::MAX as usize,
@@ -33,24 +30,25 @@ impl Default for DictLayoutOptions {
     }
 }
 
+#[derive(Clone)]
 pub struct DictStrategy {
     pub options: DictLayoutOptions,
-    pub child: ArcRef<dyn LayoutStrategy>,
+    pub codes: ArcRef<dyn LayoutStrategy>,
     pub values: ArcRef<dyn LayoutStrategy>,
+    pub fallback: ArcRef<dyn LayoutStrategy>,
 }
 
 impl LayoutStrategy for DictStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         if !dict_layout_supported(dtype) {
-            return self.child.new_writer(ctx, dtype);
+            return self.fallback.new_writer(ctx, dtype);
         }
-        Ok(DelegatingDictLayoutWriter::Uninit(DictWriterArgs {
+        Ok(DelegatingDictLayoutWriter {
             ctx: ctx.clone(),
-            options: self.options.clone(),
-            child_strategy: self.child.clone(),
-            values_strategy: self.values.clone(),
+            strategy: self.clone(),
             dtype: dtype.clone(),
-        })
+            writer: None,
+        }
         .boxed())
     }
 }
@@ -62,17 +60,11 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
     )
 }
 
-struct DictWriterArgs {
+struct DelegatingDictLayoutWriter {
     ctx: ArrayContext,
-    options: DictLayoutOptions,
-    child_strategy: ArcRef<dyn LayoutStrategy>,
-    values_strategy: ArcRef<dyn LayoutStrategy>,
+    strategy: DictStrategy,
     dtype: DType,
-}
-
-enum DelegatingDictLayoutWriter {
-    Uninit(DictWriterArgs),
-    Writer(Box<dyn LayoutWriter>),
+    writer: Option<Box<dyn LayoutWriter>>,
 }
 
 impl LayoutWriter for DelegatingDictLayoutWriter {
@@ -81,37 +73,24 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
         segment_writer: &mut dyn crate::segments::SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
-        match self {
-            Self::Uninit(args) => {
+        match self.writer.as_mut() {
+            Some(writer) => writer.push_chunk(segment_writer, chunk),
+            None => {
                 let compressed = BtrBlocksCompressor.compress(&chunk)?;
-                *self = if !compressed.is_encoding(DictEncoding.id()) {
-                    Self::Writer(args.child_strategy.new_writer(&args.ctx, &args.dtype)?)
-                } else if args.options.repeat {
-                    Self::Writer(
-                        repeating::RepeatingDictLayoutWriter::new(
-                            args.ctx.clone(),
-                            &args.dtype,
-                            args.child_strategy.clone(),
-                            args.values_strategy.clone(),
-                            args.options.constraints.clone(),
-                        )
-                        .boxed(),
-                    )
+                let mut writer = if !compressed.is_encoding(DictEncoding.id()) {
+                    self.strategy.fallback.new_writer(&self.ctx, &self.dtype)?
                 } else {
-                    Self::Writer(
-                        single::DictLayoutWriter::new(
-                            args.ctx.clone(),
-                            &args.dtype,
-                            args.child_strategy.clone(),
-                            args.values_strategy.clone(),
-                            args.options.constraints.clone(),
-                        )
-                        .boxed(),
+                    repeating::DictLayoutWriter::new(
+                        self.ctx.clone(),
+                        &self.dtype,
+                        self.strategy.clone(),
                     )
+                    .boxed()
                 };
-                self.push_chunk(segment_writer, chunk)
+                writer.push_chunk(segment_writer, chunk)?;
+                self.writer = Some(writer);
+                Ok(())
             }
-            Self::Writer(writer) => writer.push_chunk(segment_writer, chunk),
         }
     }
 
@@ -119,9 +98,9 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
     ) -> VortexResult<()> {
-        match self {
-            Self::Uninit(_) => vortex_bail!("flush called before push_chunk"),
-            Self::Writer(writer) => writer.flush(segment_writer),
+        match self.writer.as_mut() {
+            None => vortex_bail!("flush called before push_chunk"),
+            Some(writer) => writer.flush(segment_writer),
         }
     }
 
@@ -129,9 +108,9 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
     ) -> VortexResult<Layout> {
-        match self {
-            Self::Uninit(_) => vortex_bail!("finish called before push_chunk"),
-            Self::Writer(writer) => writer.finish(segment_writer),
+        match self.writer.as_mut() {
+            None => vortex_bail!("finish called before push_chunk"),
+            Some(writer) => writer.finish(segment_writer),
         }
     }
 }
