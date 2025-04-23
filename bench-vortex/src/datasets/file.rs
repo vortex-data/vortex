@@ -1,6 +1,6 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, iter};
 
 use anyhow::Result;
 use arrow_schema::Schema;
@@ -10,7 +10,6 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use futures::StreamExt;
-use itertools::Itertools;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use tokio::fs::OpenOptions;
@@ -115,18 +114,8 @@ pub async fn register_vortex_files(
                 .unwrap()
                 .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref());
 
-            let folder = iter::once("file://")
-                .chain(
-                    file_url
-                        .path_segments()
-                        .expect("path not empty")
-                        .dropping_back(1),
-                )
-                .chain(iter::once(""))
-                .join("/");
-
             // Calculate vortex directory path
-            let vortex_dir = dataset.vortex_path(&Url::parse(&folder).expect(""))?;
+            let vortex_dir = dataset.vortex_path(file_url)?;
             let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
 
             if let Err(e) = object_store
