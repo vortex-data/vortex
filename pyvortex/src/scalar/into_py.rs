@@ -41,7 +41,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Decimal(decimal_type, ..) => {
                 let decimal = self.0.as_decimal();
                 match decimal.decimal_value() {
-                    None => ().into_bound_py_any(py),
+                    None => Ok(py.None().into_pyobject(py)?),
                     Some(value) => decimal_value_to_py(py, decimal_type.scale(), *value),
                 }
             }
