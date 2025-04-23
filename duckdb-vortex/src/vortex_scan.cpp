@@ -7,7 +7,15 @@
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
 
-#include <filesystem>
+#if __has_include(<filesystem>)
+    #include <filesystem>
+    namespace fs = std::filesystem;
+#elif __has_include(<experimental/filesystem>)
+    #include <experimental/filesystem>
+    namespace fs = std::experimental::filesystem;
+#else
+    #error "No filesystem support available"
+#endif
 #include <regex>
 
 #include "vortex_common.hpp"
@@ -161,7 +169,8 @@ std::string EnsureFileProtocol(const std::string &path) {
 
 	auto absolute_path = path;
 	const std::string prefix = "file://";
-	std::filesystem::path p = absolute_path;
+
+	fs::path p = absolute_path;
 	if (!p.is_absolute()) {
 		try {
 			absolute_path = absolute(p).string();

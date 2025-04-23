@@ -147,12 +147,12 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
                 // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
-                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
+                if ratio > (prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD) {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
                         "Compressed to a ratio of {ratio}, which is below the threshold of {}",
-                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
+                        prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
                 }
@@ -171,10 +171,18 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 let canonical_chunk = chunk.to_canonical()?;
                 let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
                 let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
-                self.previous_chunk = Some(PreviousCompression {
-                    chunk: compressed.clone(),
-                    ratio: canonical_size / compressed.nbytes() as f64,
-                });
+
+                if compressed.is_canonical()
+                    || ((canonical_size / compressed.nbytes() as f64) < COMPRESSION_DRIFT_THRESHOLD)
+                {
+                    self.previous_chunk = None;
+                } else {
+                    self.previous_chunk = Some(PreviousCompression {
+                        chunk: compressed.clone(),
+                        ratio: canonical_size / compressed.nbytes() as f64,
+                    });
+                }
+
                 compressed
             }
         };
