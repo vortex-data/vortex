@@ -18,13 +18,13 @@ workspace = true
 
 [dependencies]
 fsst-rs = { workspace = true }
+prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-prost = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
