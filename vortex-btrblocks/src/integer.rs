@@ -40,7 +40,7 @@ impl Compressor for IntCompressor {
             &ZigZagScheme,
             &BitPackingScheme,
             &SparseScheme,
-            //&DictScheme,
+            &DictScheme,
             &RunEndScheme,
         ]
     }
