@@ -173,7 +173,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
                 let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
 
                 if compressed.is_canonical()
-                    || ((canonical_size / compressed.nbytes() as f64) < 1.2)
+                    || ((canonical_size / compressed.nbytes() as f64) < COMPRESSION_DRIFT_THRESHOLD)
                 {
                     self.previous_chunk = None;
                 } else {
