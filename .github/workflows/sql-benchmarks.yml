@@ -110,7 +110,7 @@ jobs:
             --export-spans \
           | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
         shell: bash
         env:
