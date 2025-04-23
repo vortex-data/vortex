@@ -13,6 +13,7 @@ pub mod conversions;
 pub mod datasets;
 pub mod display;
 pub mod engines;
+pub mod labels;
 pub mod measurements;
 pub mod metrics;
 pub mod public_bi;

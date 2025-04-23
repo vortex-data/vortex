@@ -75,6 +75,13 @@ vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
 xshell = { workspace = true }
+# custom-labels = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+custom-labels = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+custom-labels = { workspace = true }
 
 [features]
 jemalloc = ["dep:tikv-jemallocator"]

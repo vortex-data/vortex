@@ -2,6 +2,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::labels::FutureCustomLabelsExt as _;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
@@ -350,7 +351,10 @@ async fn bench_main(
                                 .await;
 
                         // Row count verification
-                        let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await.0;
+                        let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx)
+                            .with_labels([("query", format!("{query_idx}"))])
+                            .await
+                            .0;
                         row_counts.push((query_idx, format, first_row_count));
 
                         // Gather metrics.
