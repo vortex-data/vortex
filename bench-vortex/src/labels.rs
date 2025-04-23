@@ -8,7 +8,7 @@ pub trait FutureCustomLabelsExt: Sized + Future {
             if #[cfg(target_os = "linux")] {
                 custom_labels::asynchronous::Label::with_current_labels(self)
             } else {
-                self
+                todo!()
             }
         }
     }
@@ -22,7 +22,7 @@ pub trait FutureCustomLabelsExt: Sized + Future {
             if #[cfg(target_os = "linux")] {
                 custom_labels::asynchronous::Label::with_label(self, k, v)
             } else {
-                self
+                todo!()
             }
         }
     }
@@ -37,7 +37,7 @@ pub trait FutureCustomLabelsExt: Sized + Future {
             if #[cfg(target_os = "linux")] {
                 custom_labels::asynchronous::Label::with_labels(self, i)
             } else {
-                self
+                todo!()
             }
         }
     }
