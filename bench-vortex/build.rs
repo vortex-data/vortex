@@ -1,4 +1,9 @@
 fn main() {
     #[cfg(target_os = "linux")]
-    custom_labels::build::emit_build_instructions();
+    linux_build()
+}
+
+#[cfg(target_os = "linux")]
+fn linux_build() {
+    custom_labels::build::emit_build_instructions1();
 }
