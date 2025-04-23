@@ -45,7 +45,10 @@ pub async fn load_datasets(
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_context(emulate_object_store, disable_datafusion_cache);
 
+    println!("base dir {}", base_dir);
     let object_store = make_object_store(&context, base_dir)?;
+
+    println!("obj s {}", object_store.to_string());
 
     let customer = base_dir.join("customer.tbl")?;
     let lineitem = base_dir.join("lineitem.tbl")?;
@@ -55,6 +58,9 @@ pub async fn load_datasets(
     let partsupp = base_dir.join("partsupp.tbl")?;
     let region = base_dir.join("region.tbl")?;
     let supplier = base_dir.join("supplier.tbl")?;
+
+    println!("customer url {}", customer);
+    println!("format {}", format);
 
     macro_rules! register_table {
         ($name:ident, $schema:expr) => {
@@ -200,6 +206,8 @@ async fn register_vortex_file(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
+    println!("file {}", file);
+    println!("table_name {}", table_name);
     crate::datasets::file::register_vortex_files(
         session,
         object_store,

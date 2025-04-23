@@ -34,7 +34,8 @@ if "storage" not in pr:
 # match.
 df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
 
-assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
+# This check will fail if new names are included, so remove this.
+# assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 
 print(
     pd.DataFrame(

@@ -110,9 +110,15 @@ pub async fn register_vortex_files(
                 .unwrap()
                 .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref());
 
+            println!("base name {:?}", csv_basename);
+            println!("vortex_basename {}", vortex_basename);
+
             // Calculate vortex directory path
             let vortex_dir = dataset.vortex_path(file_url)?;
             let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
+
+            println!("vortex_dir  {}", vortex_dir);
+            println!("vtx_file {}", vtx_file);
 
             if let Err(e) = object_store
                 .head(&ObjectStorePath::parse(vtx_file.path())?)
@@ -212,7 +218,10 @@ async fn ensure_parquet_file_exists(
         .head(&ObjectStorePath::parse(parquet_path)?)
         .await
     {
-        info!("File {} doesn't exist because {e}", parquet_url.as_str());
+        info!(
+            "Checking if file exist: File {} doesn't exist because {e}",
+            parquet_url.as_str()
+        );
 
         if parquet_url.scheme() != "file" {
             anyhow::bail!("Writing to S3 does not seem to work!");
