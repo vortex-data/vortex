@@ -352,7 +352,7 @@ async fn bench_main(
 
                         // Row count verification
                         let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx)
-                            .with_labels([("query", format!("{query_idx}"))])
+                            .with_label("query", format!("{query_idx}"))
                             .await
                             .0;
                         row_counts.push((query_idx, format, first_row_count));
