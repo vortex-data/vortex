@@ -362,7 +362,7 @@ impl PBIData {
             session.sql(create_table).await?;
             let table_ref = TableReference::bare(&*table.name);
             let df_table = session.table(table_ref.clone()).await?;
-            let schema = replace_utf8_with_utf8view(df_table.schema())?;
+            let schema = replace_with_views(df_table.schema())?;
 
             // drop the temp table after getting the arrow schema.
             session
@@ -427,7 +427,7 @@ impl Dataset for PBIBenchmark {
     }
 }
 
-fn replace_utf8_with_utf8view(schema: &DFSchema) -> Result<DFSchema> {
+fn replace_with_views(schema: &DFSchema) -> Result<DFSchema> {
     let fields: Vec<_> = schema
         .fields()
         .iter()
