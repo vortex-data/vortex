@@ -18,6 +18,10 @@ pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 thread_local! {
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     // Using a new_multi_thread runtime since a current local runtime has a deadlock.

@@ -6228,6 +6228,7 @@ dependencies = [
  "duckdb",
  "futures",
  "log",
+ "mimalloc",
  "object_store",
  "paste",
  "prost",
