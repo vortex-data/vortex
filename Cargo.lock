@@ -6386,7 +6386,9 @@ dependencies = [
 name = "vortex-layout"
 version = "0.31.0"
 dependencies = [
+ "arrow-array",
  "arrow-buffer",
+ "arrow-schema",
  "async-trait",
  "bit-vec",
  "bytes",

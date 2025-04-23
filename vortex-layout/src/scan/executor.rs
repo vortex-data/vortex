@@ -1,0 +1,78 @@
+use std::sync::Arc;
+
+use futures::channel::oneshot;
+use futures::future::BoxFuture;
+use futures::{FutureExt, TryFutureExt};
+use vortex_error::{ResultExt, VortexError, VortexResult, vortex_err};
+
+pub trait TaskExecutor: 'static + Send + Sync {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>>;
+}
+
+impl<T: TaskExecutor> TaskExecutor for Arc<T> {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        self.as_ref().do_spawn(fut)
+    }
+}
+
+pub trait TaskExecutorExt: TaskExecutor {
+    fn spawn<T: 'static + Send>(
+        &self,
+        fut: BoxFuture<'static, VortexResult<T>>,
+    ) -> BoxFuture<'static, VortexResult<T>>;
+}
+
+impl<E: TaskExecutor + ?Sized> TaskExecutorExt for E {
+    fn spawn<T: 'static + Send>(
+        &self,
+        fut: BoxFuture<'static, VortexResult<T>>,
+    ) -> BoxFuture<'static, VortexResult<T>> {
+        let (send, recv) = oneshot::channel::<VortexResult<T>>();
+        let fut = self.do_spawn(
+            async move {
+                let result = fut.await;
+                send.send(result)
+                    .map_err(|_| vortex_err!("Failed to send result"))
+            }
+            .boxed(),
+        );
+
+        Box::pin(async move {
+            fut.await?;
+            recv.await
+                .map_err(|canceled| vortex_err!("Spawned task canceled {}", canceled))
+                .unnest()
+        })
+    }
+}
+
+/// A task executor that runs tasks on the polling thread.
+pub struct BlockingTaskExecutor;
+
+impl TaskExecutor for BlockingTaskExecutor {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        fut
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl TaskExecutor for tokio::runtime::Handle {
+    fn do_spawn(
+        &self,
+        f: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        tokio::runtime::Handle::spawn(self, f)
+            .map_err(VortexError::from)
+            .map(|result| result.unnest())
+            .boxed()
+    }
+}

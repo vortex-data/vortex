@@ -28,7 +28,7 @@ use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
-use vortex::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef};
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -405,12 +405,13 @@ impl Dataset for PBIBenchmark {
 
         let arrays = stream::iter(dataset.list_files(FileType::Vortex))
             .map(|f| async move {
-                let scan = VortexOpenOptions::file()
+                VortexOpenOptions::file()
                     .open(TokioFile::open(f)?)
                     .await?
-                    .scan()?;
-                let dtype = scan.dtype()?;
-                ArrayStreamAdapter::new(dtype, scan.spawn_tokio(Handle::current()).unwrap())
+                    .scan()?
+                    // TODO(ngates): why do we spawn this on the tokio executor?
+                    .with_tokio_executor(Handle::current())
+                    .into_array_stream()?
                     .read_all()
                     .await
             })

@@ -6,7 +6,6 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
-use vortex_array::ToCanonical;
 use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_layout::scan::SplitBy;
@@ -59,12 +58,11 @@ impl FileOpener for VortexFileOpener {
         let batch_size = self.batch_size;
 
         Ok(async move {
-            let projected_arrow_schema = projected_arrow_schema.clone();
-
             Ok(file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await?
                 .scan()?
+                .with_tokio_executor(Handle::current())
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
@@ -72,11 +70,8 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .map(move |array| {
-                    let st = array.to_struct()?;
-                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
-                })
-                .spawn_tokio(Handle::current())?
+                .map_to_record_batch(projected_arrow_schema.clone())
+                .into_stream()?
                 .map_err(|e: VortexError| ArrowError::from(e))
                 .boxed())
         }
