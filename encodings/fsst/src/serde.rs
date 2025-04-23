@@ -1,11 +1,10 @@
 use fsst::{Compressor, Symbol};
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::VarBinArray;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -13,9 +12,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, prost::Message)]
 pub struct FSSTMetadata {
-    uncompressed_lengths_ptype: PType,
+    #[prost(enumeration = "PType", tag = "1")]
+    uncompressed_lengths_ptype: i32,
 }
 
 impl EncodingVTable for FSSTEncoding {
@@ -30,7 +30,7 @@ impl EncodingVTable for FSSTEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
 
         if parts.nbuffers() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", parts.nbuffers());
@@ -55,7 +55,7 @@ impl EncodingVTable for FSSTEncoding {
         let uncompressed_lengths = parts.child(1).decode(
             ctx,
             DType::Primitive(
-                metadata.uncompressed_lengths_ptype,
+                metadata.uncompressed_lengths_ptype(),
                 Nullability::NonNullable,
             ),
             len,
@@ -97,7 +97,7 @@ impl EncodingVTable for FSSTEncoding {
     }
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
+impl ArrayVisitorImpl<ProstMetadata<FSSTMetadata>> for FSSTArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
         visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
@@ -108,17 +108,18 @@ impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
         visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
     }
 
-    fn _metadata(&self) -> SerdeMetadata<FSSTMetadata> {
-        SerdeMetadata(FSSTMetadata {
+    fn _metadata(&self) -> ProstMetadata<FSSTMetadata> {
+        ProstMetadata(FSSTMetadata {
             uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType")
+                as i32,
         })
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::SerdeMetadata;
+    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
@@ -129,8 +130,8 @@ mod test {
     fn test_fsst_metadata() {
         check_metadata(
             "fsst.metadata",
-            SerdeMetadata(FSSTMetadata {
-                uncompressed_lengths_ptype: PType::U64,
+            ProstMetadata(FSSTMetadata {
+                uncompressed_lengths_ptype: PType::U64 as i32,
             }),
         );
     }

@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 
-use ::serde::{Deserialize, Serialize};
 use itertools::Itertools;
 use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
 
@@ -18,7 +17,7 @@ use vortex_scalar::PValue;
 
 const SAMPLE_SIZE: usize = 32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Exponents {
     pub e: u8,
     pub f: u8,

@@ -51,5 +51,5 @@ flatbuffers = [
     "vortex-error/flatbuffers",
     "vortex-error/flexbuffers",
 ]
-proto = ["vortex-dtype/proto", "vortex-proto/scalar"]
+proto = ["vortex-proto/scalar"]
 serde = ["dep:serde", "serde/derive", "vortex-dtype/serde"]

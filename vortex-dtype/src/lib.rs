@@ -31,7 +31,6 @@ mod ptype;
 mod serde;
 mod struct_;
 
-#[cfg(feature = "proto")]
 pub mod proto {
     //! Protocol buffer representations for DTypes
     //!

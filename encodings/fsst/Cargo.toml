@@ -17,16 +17,14 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-arrow-array = { workspace = true }
 fsst-rs = { workspace = true }
-serde = { workspace = true }
-
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+prost = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

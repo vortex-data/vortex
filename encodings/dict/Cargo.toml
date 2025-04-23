@@ -22,7 +22,7 @@ arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
 # test-harness
 rand = { workspace = true, optional = true }
-rkyv = { workspace = true }
+prost = { workspace = true }
 rustc-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

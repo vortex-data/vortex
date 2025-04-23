@@ -18,7 +18,7 @@ workspace = true
 
 [dependencies]
 getrandom_v02 = { workspace = true }
-rkyv = { workspace = true }
+prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

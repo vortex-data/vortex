@@ -6,7 +6,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, SerdeMetadata,
+    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -27,7 +27,7 @@ pub struct ALPArray {
 pub struct ALPEncoding;
 impl Encoding for ALPEncoding {
     type Array = ALPArray;
-    type Metadata = SerdeMetadata<ALPMetadata>;
+    type Metadata = ProstMetadata<ALPMetadata>;
 }
 
 impl ALPArray {

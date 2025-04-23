@@ -3,7 +3,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, RkyvMetadata,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -12,9 +12,10 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{SparseArray, SparseEncoding};
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Clone, prost::Message)]
 #[repr(C)]
 pub struct SparseMetadata {
+    #[prost(message, required, tag = "1")]
     patches: PatchesMetadata,
 }
 
@@ -36,7 +37,7 @@ impl EncodingVTable for SparseEncoding {
                 parts.nchildren()
             )
         }
-        let metadata = RkyvMetadata::<SparseMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<SparseMetadata>::deserialize(parts.metadata())?;
         assert_eq!(
             metadata.patches.offset(),
             0,
@@ -84,7 +85,7 @@ impl EncodingVTable for SparseEncoding {
     }
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
+impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         let fill_value_buffer = self
             .fill_value
@@ -98,8 +99,8 @@ impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
         visitor.visit_patches(self.patches())
     }
 
-    fn _metadata(&self) -> RkyvMetadata<SparseMetadata> {
-        RkyvMetadata(SparseMetadata {
+    fn _metadata(&self) -> ProstMetadata<SparseMetadata> {
+        ProstMetadata(SparseMetadata {
             patches: self
                 .patches()
                 .to_metadata(self.len(), self.dtype())
