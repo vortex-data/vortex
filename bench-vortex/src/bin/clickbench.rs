@@ -4,17 +4,23 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
+use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df};
+use bench_vortex::{
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df,
+};
 use clap::Parser;
 use datafusion::physical_plan::execution_plan;
+use datafusion::prelude;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::warn;
+use prelude::SessionContext;
+use tempfile::{TempDir, tempdir};
 use tracing::{debug, info_span};
 use tracing_futures::Instrument;
 use url::Url;
@@ -27,10 +33,14 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()]
+    )]
     targets: Vec<String>,
     #[arg(long)]
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
@@ -71,12 +81,22 @@ struct DataFusionCtx {
         Vec<datafusion::physical_plan::metrics::MetricsSet>,
     )>,
 
-    session: datafusion::prelude::SessionContext,
+    session: SessionContext,
     emit_execution_plan: bool,
 }
 
 struct DuckDBCtx {
     duckdb_path: PathBuf,
+    tmp_dir: TempDir,
+}
+
+impl DuckDBCtx {
+    pub fn duckdb_file(&self, format: Format) -> PathBuf {
+        self.tmp_dir
+            .path()
+            .to_path_buf()
+            .join(format!("hits-{format}.db"))
+    }
 }
 
 enum EngineCtx {
@@ -85,10 +105,7 @@ enum EngineCtx {
 }
 
 impl EngineCtx {
-    fn new_with_datafusion(
-        session_ctx: datafusion::prelude::SessionContext,
-        emit_execution_plan: bool,
-    ) -> Self {
+    fn new_with_datafusion(session_ctx: SessionContext, emit_execution_plan: bool) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
             execution_plans: Vec::new(),
             metrics: Vec::new(),
@@ -100,6 +117,7 @@ impl EngineCtx {
     fn new_with_duckdb(duckdb_path: &Path) -> Self {
         EngineCtx::DuckDB(DuckDBCtx {
             duckdb_path: duckdb_path.to_path_buf(),
+            tmp_dir: tempdir().vortex_expect("cannot open temp directory"),
         })
     }
 }
@@ -217,10 +235,8 @@ fn main() -> anyhow::Result<()> {
         let bench_measurements = execute_queries(
             &queries,
             args.iterations,
-            args.single_file,
             &tokio_runtime,
             file_format,
-            &base_url,
             &progress_bar,
             &mut engine_ctx,
         );
@@ -343,13 +359,20 @@ fn init_data_source(
     engine_ctx: &EngineCtx,
     tokio_runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::ClickBench { single_file };
+
     match file_format {
         Format::Parquet => match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
                 dataset.register_tables(&ctx.session, base_url, file_format)?
             }
-            EngineCtx::DuckDB(_) => { /* nothing to do */ }
+            EngineCtx::DuckDB(ctx) => register_tables(
+                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
+                base_url,
+                file_format,
+                dataset,
+            )?,
         },
         Format::OnDiskVortex => {
             tokio_runtime.block_on(async {
@@ -370,12 +393,28 @@ fn init_data_source(
                         dataset.register_tables(&ctx.session, base_url, file_format)?;
                     }
 
-                    EngineCtx::DuckDB(_) => { /* nothing to do */ }
+                    EngineCtx::DuckDB(ctx) => register_tables(
+                        &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
+                        base_url,
+                        file_format,
+                        dataset,
+                    )?,
                 }
 
                 Ok::<(), anyhow::Error>(())
             })?;
         }
+        Format::OnDiskDuckDB => match engine_ctx {
+            EngineCtx::DuckDB(ctx) => register_tables(
+                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
+                base_url,
+                file_format,
+                dataset,
+            )?,
+            EngineCtx::DataFusion(_) => {
+                vortex_panic!("Data fusion cannot run clickbench backed by duckdb files")
+            }
+        },
         _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
     }
 
@@ -398,10 +437,8 @@ fn init_data_source(
 fn execute_queries(
     queries: &[(usize, String)],
     iterations: usize,
-    single_file: bool,
     tokio_runtime: &tokio::runtime::Runtime,
     file_format: Format,
-    base_url: &Url,
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
 ) -> Vec<QueryMeasurement> {
@@ -451,9 +488,7 @@ fn execute_queries(
                     query_string,
                     iterations,
                     file_format,
-                    base_url,
-                    single_file,
-                    &args.duckdb_path,
+                    &DuckDBExecutor::new(args.duckdb_path.clone(), args.duckdb_file(file_format)),
                 );
 
                 query_measurements.push(QueryMeasurement {
@@ -482,7 +517,7 @@ fn benchmark_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    context: &datafusion::prelude::SessionContext,
+    context: &SessionContext,
     tokio_runtime: &tokio::runtime::Runtime,
 ) -> (Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>) {
     let execution_plan = OnceCell::new();
@@ -517,7 +552,7 @@ async fn execute_datafusion_query(
     query_idx: usize,
     query_string: &str,
     iteration: usize,
-    session_context: datafusion::prelude::SessionContext,
+    session_context: SessionContext,
 ) -> anyhow::Result<(Duration, std::sync::Arc<dyn execution_plan::ExecutionPlan>)> {
     let query_string = query_string.to_owned();
 
@@ -546,19 +581,11 @@ fn benchmark_duckdb_query(
     query_string: &str,
     iterations: usize,
     file_format: Format,
-    base_url: &Url,
-    single_file: bool,
-    duckdb_path: &std::path::Path,
+    duckdb_executor: &DuckDBExecutor,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_clickbench_query(
-            query_string,
-            base_url,
-            file_format,
-            single_file,
-            duckdb_path,
-        )
-        .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
+        let duration = ddb::execute_clickbench_query(query_string, file_format, duckdb_executor)
+            .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)
     });
