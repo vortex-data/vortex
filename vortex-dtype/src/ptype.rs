@@ -80,6 +80,10 @@ pub trait NativePType:
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
 
+    /// Whether this instance (`self`) is Infinite
+    /// For integer types, this is always `false`
+    fn is_infinite(self) -> bool;
+
     /// Compare another instance of this type to `self`, providing a total ordering
     fn total_compare(self, other: Self) -> Ordering;
 
@@ -122,6 +126,11 @@ macro_rules! native_ptype {
             }
 
             #[inline]
+            fn is_infinite(self) -> bool {
+                false
+            }
+
+            #[inline]
             fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
             }
@@ -142,6 +151,11 @@ macro_rules! native_float_ptype {
             #[inline]
             fn is_nan(self) -> bool {
                 <$T>::is_nan(self)
+            }
+
+            #[inline]
+            fn is_infinite(self) -> bool {
+                <$T>::is_infinite(self)
             }
 
             #[inline]
