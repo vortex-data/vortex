@@ -4,7 +4,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use log::{debug, info, trace};
+use log::{info, trace};
 use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
