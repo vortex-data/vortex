@@ -5,17 +5,9 @@
 #include "duckdb/common/multi_file_reader.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_util.hpp"
+#include "duckdb/common/file_system.hpp"
 #include "vortex_extension.hpp"
 
-#if __has_include(<filesystem>)
-    #include <filesystem>
-    namespace fs = std::filesystem;
-#elif __has_include(<experimental/filesystem>)
-    #include <experimental/filesystem>
-    namespace fs = std::experimental::filesystem;
-#else
-    #error "No filesystem support available"
-#endif
 #include <regex>
 
 #include "vortex_common.hpp"
@@ -159,26 +151,22 @@ static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> 
 	}
 }
 
-const  std::regex schema_prefix = std::regex("^[^/]*:\\/\\/.*$");
+const std::regex schema_prefix = std::regex("^[^/]*:\\/\\/.*$");
 
 std::string EnsureFileProtocol(const std::string &path) {
 	// Check if the path has a schema, if not prepend the file:// schema
 	if (std::regex_match(path, schema_prefix)) {
-			return path;
+		return path;
 	}
 
-	auto absolute_path = path;
 	const std::string prefix = "file://";
 
-	fs::path p = absolute_path;
-	if (!p.is_absolute()) {
-		try {
-			absolute_path = absolute(p).string();
-		} catch (const std::exception &e) {
-			throw InternalException(std::string("Error making path absolute: ") + e.what());
-		}
+	auto fs = FileSystem::CreateLocal();
+	if (fs->IsPathAbsolute(path)) {
+		return path;
 	}
 
+	const auto absolute_path = fs->JoinPath(fs->GetWorkingDirectory(), path);
 	return prefix + absolute_path;
 }
 
@@ -378,7 +366,7 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 
 		// Most expressions are extracted from `PushdownComplexFilter`, the final filters come from `input.filters`.
 		vector<vortex::expr::Expr *> conjuncts;
-		std::ranges::copy(bind.conjuncts, std::back_inserter(conjuncts));
+		std::copy(bind.conjuncts.begin(), bind.conjuncts.end(), std::back_inserter(conjuncts));
 		CreateFilterExpression(*bind.arena, bind.column_names, input.filters, input.column_ids, conjuncts);
 
 		auto column_names = std::vector<char const *>();
