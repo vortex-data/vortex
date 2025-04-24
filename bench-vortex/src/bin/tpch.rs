@@ -335,10 +335,7 @@ async fn bench_main(
         panic!("No queries to run")
     }
 
-    let duckdb_resolved_path = if targets
-        .iter()
-        .any(|t| t.engine() == Engine::DuckDB)
-    {
+    let duckdb_resolved_path = if targets.iter().any(|t| t.engine() == Engine::DuckDB) {
         Some(ddb::build_and_get_executable_path(duckdb_path))
     } else {
         None
