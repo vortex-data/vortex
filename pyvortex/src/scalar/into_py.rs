@@ -110,7 +110,7 @@ trait DecimalIntoParts: Sized {
     /// Split an integer encoding a decimal with the given `scale` into a
     /// (whole number, decimal) parts.
     ///
-    /// For example, for the number 123i128 and scale 2, this will return returns (1, 28).
+    /// For example, for the number 123i128 and scale 2, this will return returns (1, 23).
     fn decimal_parts(self, scale: i8) -> (Self, Self);
 }
 
