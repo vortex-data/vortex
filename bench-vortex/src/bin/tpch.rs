@@ -32,7 +32,15 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
+    #[arg(long, value_delimiter = ',',
+        default_values_t = vec![
+            "datafusion:parquet".to_string(),
+            "datafusion:vortex".to_string(),
+            "datafusion:arrow".to_string(),
+            "duckdb:parquet".to_string(),
+            "duckdb:vortex".to_string(),
+            "duckdb:duckdb".to_string()
+        ])]
     targets: Vec<String>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,

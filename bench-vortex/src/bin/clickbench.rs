@@ -36,7 +36,13 @@ struct Args {
     #[arg(
         long,
         value_delimiter = ',',
-        default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()]
+        default_values_t = vec![
+            "datafusion:parquet".to_string(),
+            "datafusion:vortex".to_string(),
+            "duckdb:parquet".to_string(),
+            "duckdb:vortex".to_string(),
+            "duckdb:duckdb".to_string()
+        ]
     )]
     targets: Vec<String>,
     #[arg(long)]
