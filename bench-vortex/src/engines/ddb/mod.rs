@@ -248,8 +248,6 @@ pub fn execute_query(
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
 
-    if matches!(file_format, Format::Parquet | Format::OnDiskVortex) {}
-
     for query in queries {
         command.arg("-c").arg(query);
     }
