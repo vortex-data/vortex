@@ -178,8 +178,7 @@ fn main() -> anyhow::Result<()> {
 
     let resolved_path = if targets
         .iter()
-        .find(|t| t.engine() == Engine::DuckDB)
-        .is_some()
+        .any(|t| t.engine() == Engine::DuckDB)
     {
         Some(ddb::build_and_get_executable_path(&args.duckdb_path))
     } else {

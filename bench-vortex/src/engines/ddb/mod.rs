@@ -51,7 +51,10 @@ pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) 
         .join("duckdb-vortex");
 
     let mut command = Command::new("make");
-    command.env("GEN", "ninja").arg("release");
+    command
+        .current_dir(duckdb_vortex_path)
+        .env("GEN", "ninja")
+        .arg("release");
 
     info!(
         "Building duckdb vortex extension at {}, with command {:?}",

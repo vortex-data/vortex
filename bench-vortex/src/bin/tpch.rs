@@ -337,8 +337,7 @@ async fn bench_main(
 
     let duckdb_resolved_path = if targets
         .iter()
-        .find(|t| t.engine() == Engine::DuckDB)
-        .is_some()
+        .any(|t| t.engine() == Engine::DuckDB)
     {
         Some(ddb::build_and_get_executable_path(duckdb_path))
     } else {
