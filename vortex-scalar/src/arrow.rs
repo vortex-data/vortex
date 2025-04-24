@@ -78,8 +78,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 Some(DecimalValue::I256(v256)) => {
                     Ok(Arc::new(Decimal256Array::new_scalar((*v256).into())))
                 }
-                // TODO(aduffy): we need to pick 128 or 256 based on the DecimalDType?
-                _ => Ok(Arc::new(arrow_array::Scalar::new(
+                None => Ok(Arc::new(arrow_array::Scalar::new(
                     Decimal128Array::new_null(1),
                 ))),
             },
