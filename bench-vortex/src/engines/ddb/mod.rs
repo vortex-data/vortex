@@ -4,7 +4,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use log::info;
+use log::{debug, info, trace};
 use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
@@ -224,7 +224,7 @@ pub fn register_tables(
         object,
     ));
 
-    println!("command  {:?}", command);
+    trace!("register duckdb tables with command: {:?}", command);
 
     let output = command.output()?;
 
@@ -250,6 +250,8 @@ pub fn execute_query(
     for query in queries {
         command.arg("-c").arg(query);
     }
+
+    trace!("execute duckdb query with command: {:?}", command);
 
     let time_instant = Instant::now();
     let output = command.output()?;
