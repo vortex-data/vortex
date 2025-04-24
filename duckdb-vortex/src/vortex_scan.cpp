@@ -163,7 +163,7 @@ std::string EnsureFileProtocol(const std::string &path) {
 
 	auto fs = FileSystem::CreateLocal();
 	if (fs->IsPathAbsolute(path)) {
-		return path;
+		return prefix + path;
 	}
 
 	const auto absolute_path = fs->JoinPath(fs->GetWorkingDirectory(), path);
