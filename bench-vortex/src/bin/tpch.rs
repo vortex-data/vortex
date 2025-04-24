@@ -405,7 +405,7 @@ async fn bench_main(
                 let temp_dir = tempdir().expect("");
                 let duckdb_file = temp_dir
                     .path()
-                    .join(&format!("duckdb-file-{}.db", format.name()));
+                    .join(format!("duckdb-file-{}.db", format.name()));
 
                 let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
                 {
