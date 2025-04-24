@@ -1,6 +1,5 @@
-use arrow_buffer::i256;
 use vortex_error::VortexResult;
-use vortex_scalar::{DecimalValue, Scalar};
+use vortex_scalar::{DecimalValue, Scalar, i256};
 
 use crate::Array;
 use crate::arrays::decimal::serde::DecimalValueType;

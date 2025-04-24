@@ -55,7 +55,7 @@ impl TryFrom<Scalar> for ScalarValue {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal256(None, precision, scale),
                         Some(DecimalValue::I256(v256)) => {
-                            ScalarValue::Decimal256(Some(*v256), precision, scale)
+                            ScalarValue::Decimal256(Some((*v256).into()), precision, scale)
                         }
                         _ => vortex_bail!(
                             "invalid ScalarValue for decimal with precision {}",

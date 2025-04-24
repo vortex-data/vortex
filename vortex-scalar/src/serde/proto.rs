@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use arrow_buffer::i256;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_dtype::half::f16;
@@ -11,7 +10,7 @@ use vortex_proto::scalar::decimal_value::Value;
 use vortex_proto::scalar::scalar_value::Kind;
 
 use crate::pvalue::PValue;
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue};
+use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue, i256};
 
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {

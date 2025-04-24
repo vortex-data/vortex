@@ -19,6 +19,7 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
+use vortex_scalar::i256;
 
 use crate::arrays::{
     BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
@@ -109,6 +110,11 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
     fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, _nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+        // SAFETY: Our i256 implementation has the same bit-pattern representation of the
+        //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
+        //  of either type.
+        let buffer =
+            unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
         let validity = nulls(array.nulls(), false);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }

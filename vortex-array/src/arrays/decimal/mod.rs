@@ -1,11 +1,11 @@
 mod compute;
 mod serde;
 
-use arrow_buffer::i256;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
+use vortex_scalar::i256;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::decimal::serde::{DecimalMetadata, DecimalValueType};

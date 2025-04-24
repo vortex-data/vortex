@@ -1,8 +1,8 @@
-use arrow_buffer::i256;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_scalar::i256;
 
 use super::{DecimalArray, DecimalEncoding};
 use crate::arrays::NativeDecimalType;

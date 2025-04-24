@@ -1,7 +1,7 @@
-use arrow_buffer::i256;
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
+use vortex_scalar::i256;
 
 use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};

@@ -1,10 +1,10 @@
-use arrow_buffer::{BooleanBuffer, i256};
+use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar,
+    StructScalar, Utf8Scalar, i256,
 };
 
 use crate::array::ArrayCanonicalImpl;

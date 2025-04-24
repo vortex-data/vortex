@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use arrow_buffer::i256;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
@@ -10,6 +9,7 @@ use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
+mod bigint;
 mod binary;
 mod bool;
 mod datafusion;
@@ -27,6 +27,7 @@ mod serde;
 mod struct_;
 mod utf8;
 
+pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;

@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-use arrow::datatypes::i256;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods};
 use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
@@ -8,7 +7,7 @@ use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
-use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar};
+use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
 
 use crate::PyVortex;
 
@@ -112,11 +111,11 @@ trait DecimalIntoParts: Sized {
     /// (whole number, decimal) parts.
     ///
     /// For example, for the number 123i128 and scale 2, this will return returns (1, 28).
-    fn into_parts(self, scale: i8) -> (Self, Self);
+    fn decimal_parts(self, scale: i8) -> (Self, Self);
 }
 
 impl DecimalIntoParts for i128 {
-    fn into_parts(self, scale: i8) -> (Self, Self) {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
         match scale.cmp(&0) {
             Ordering::Equal => (self, 0),
             Ordering::Less => {
@@ -134,7 +133,7 @@ impl DecimalIntoParts for i128 {
 }
 
 impl DecimalIntoParts for i256 {
-    fn into_parts(self, scale: i8) -> (Self, Self) {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
         match scale.cmp(&0) {
             Ordering::Equal => (self, i256::ZERO),
             Ordering::Less => {
@@ -161,13 +160,13 @@ fn decimal_value_to_py(
 
     match decimal_value {
         DecimalValue::I128(v128) => {
-            let (whole, decimal) = v128.into_parts(scale);
+            let (whole, decimal) = v128.decimal_parts(scale);
             let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
                 .into_pyobject(py)?;
             decimal_class.call1((repr,))
         }
         DecimalValue::I256(v256) => {
-            let (whole, decimal) = v256.into_parts(scale);
+            let (whole, decimal) = v256.decimal_parts(scale);
             let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
                 .into_pyobject(py)?;
             decimal_class.call1((repr,))

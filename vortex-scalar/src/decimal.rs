@@ -2,12 +2,11 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-use arrow_buffer::i256;
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 
 use crate::scalarvalue::InnerScalarValue;
-use crate::{Scalar, ScalarValue};
+use crate::{Scalar, ScalarValue, i256};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
 pub enum DecimalValue {
