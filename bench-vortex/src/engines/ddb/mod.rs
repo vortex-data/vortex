@@ -243,7 +243,6 @@ pub fn register_tables(
 /// Execute DuckDB queries for benchmarks
 pub fn execute_query(
     queries: &[String],
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
@@ -270,17 +269,15 @@ pub fn execute_query(
 /// Convenience wrapper for TPC-H benchmarks
 pub fn execute_tpch_query(
     queries: &[String],
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
-    execute_query(queries, file_format, duckdb_executor)
+    execute_query(queries, duckdb_executor)
 }
 
 /// Convenience wrapper for ClickBench benchmarks
 pub fn execute_clickbench_query(
     query_string: &str,
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
-    execute_query(&[query_string.to_string()], file_format, duckdb_executor)
+    execute_query(&[query_string.to_string()], duckdb_executor)
 }

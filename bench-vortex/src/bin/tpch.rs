@@ -241,11 +241,10 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     queries: &[String],
     iterations: usize,
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_tpch_query(queries, file_format, duckdb_executor)
+        let duration = ddb::execute_tpch_query(queries, duckdb_executor)
             .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)
@@ -414,13 +413,8 @@ async fn bench_main(
                         .expect("failed to register tables");
                 }
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    let fastest_run = benchmark_duckdb_query(
-                        query_idx,
-                        &sql_queries,
-                        iterations,
-                        format,
-                        &executor,
-                    );
+                    let fastest_run =
+                        benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
 
                     let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
                         Ok(storage) => storage,

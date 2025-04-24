@@ -487,7 +487,6 @@ fn execute_queries(
                     *query_idx,
                     query_string,
                     iterations,
-                    file_format,
                     &DuckDBExecutor::new(args.duckdb_path.clone(), args.duckdb_file(file_format)),
                 );
 
@@ -580,11 +579,10 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> Duration {
     let fastest_run = (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_clickbench_query(query_string, file_format, duckdb_executor)
+        let duration = ddb::execute_clickbench_query(query_string, duckdb_executor)
             .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)
