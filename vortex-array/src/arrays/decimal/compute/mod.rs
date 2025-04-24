@@ -1,5 +1,6 @@
 mod between;
 mod filter;
+mod is_constant;
 mod is_sorted;
 mod scalar_at;
 mod slice;
@@ -7,7 +8,7 @@ mod sum;
 
 use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{
-    BetweenFn, FilterKernelAdapter, IsSortedFn, KernelRef, ScalarAtFn, SliceFn, SumFn,
+    BetweenFn, FilterKernelAdapter, IsConstantFn, IsSortedFn, KernelRef, ScalarAtFn, SliceFn, SumFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayComputeImpl};
@@ -17,6 +18,18 @@ impl ArrayComputeImpl for DecimalArray {
 }
 
 impl ComputeVTable for DecimalEncoding {
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -29,16 +42,6 @@ impl ComputeVTable for DecimalEncoding {
         Some(self)
     }
 
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    // TODO(aduffy): IsConstant
-    // TODO(aduffy): BetweenFn
     // TODO(aduffy): BinaryNumericFn
     // TODO(aduffy): TakeFn
 }
