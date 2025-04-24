@@ -140,11 +140,13 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=${{ github.event.pull_request.base.sha }}
-
+          
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
             > base.json
-
+          
+          cat results.json
+          
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
