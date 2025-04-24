@@ -106,7 +106,7 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
-            --targets datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex \
+            --targets datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,datafusion:arrow \
             --export-spans \
           | tee results.json
 
