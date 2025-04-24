@@ -145,8 +145,6 @@ jobs:
             | grep $base_commit_sha \
             > base.json
 
-          cat results.json
-
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
