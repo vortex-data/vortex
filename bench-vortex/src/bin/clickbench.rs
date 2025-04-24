@@ -77,7 +77,7 @@ struct DataFusionCtx {
 }
 
 struct DuckDBCtx {
-    duckdb_path: Option<PathBuf>,
+    duckdb_path: PathBuf,
 }
 
 enum EngineCtx {
@@ -98,8 +98,10 @@ impl EngineCtx {
         })
     }
 
-    fn new_with_duckdb(duckdb_path: Option<std::path::PathBuf>) -> Self {
-        EngineCtx::DuckDB(DuckDBCtx { duckdb_path })
+    fn new_with_duckdb(duckdb_path: &PathBuf) -> Self {
+        EngineCtx::DuckDB(DuckDBCtx {
+            duckdb_path: duckdb_path.clone(),
+        })
     }
 }
 
@@ -174,6 +176,16 @@ fn main() -> anyhow::Result<()> {
 
     let mut query_measurements = Vec::new();
 
+    let resolved_path = if targets
+        .iter()
+        .find(|t| t.engine() == Engine::DuckDB)
+        .is_some()
+    {
+        Some(ddb::build_and_get_executable_path(&args.duckdb_path))
+    } else {
+        None
+    };
+
     for target in &targets {
         let engine = target.engine();
         let file_format = target.format();
@@ -190,7 +202,9 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(args.duckdb_path.clone()),
+            Engine::DuckDB => {
+                EngineCtx::new_with_duckdb(resolved_path.as_ref().expect("path resolved above"))
+            }
             _ => unreachable!("engine not supported"),
         };
 
@@ -437,8 +451,6 @@ fn execute_queries(
             }
 
             EngineCtx::DuckDB(args) => {
-                let duckdb_path = ddb::executable_path(&args.duckdb_path);
-
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
                     query_string,
@@ -446,7 +458,7 @@ fn execute_queries(
                     file_format,
                     base_url,
                     single_file,
-                    &duckdb_path,
+                    &args.duckdb_path,
                 );
 
                 query_measurements.push(QueryMeasurement {

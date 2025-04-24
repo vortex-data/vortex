@@ -1,8 +1,10 @@
 use std::path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use log::info;
 use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
@@ -12,8 +14,8 @@ use crate::Format;
 use crate::datasets::BenchmarkDataset;
 
 /// Finds the path to the DuckDB executable
-pub fn executable_path(user_supplied_path_flag: &Option<path::PathBuf>) -> path::PathBuf {
-    let validate_path = |duckdb_path: &path::PathBuf| {
+pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
+    let validate_path = |duckdb_path: &PathBuf| {
         if !duckdb_path.as_path().exists() {
             panic!(
                 "failed to find duckdb executable at: {}",
@@ -44,11 +46,35 @@ pub fn executable_path(user_supplied_path_flag: &Option<path::PathBuf>) -> path:
         }
     }
 
-    let duckdb_path = path::PathBuf::from_str(&format!(
-        "{}/duckdb-vortex/build/release/duckdb",
-        repo_root.unwrap_or_default()
-    ))
-    .expect("failed to create DuckDB executable path");
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or(".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    let mut command = Command::new("make");
+    command.env("GEN", "ninja").arg("release");
+
+    info!(
+        "Building duckdb vortex extension at {}, with command {:?}",
+        duckdb_vortex_path.display(),
+        command
+    );
+
+    let output = command
+        .output()
+        .expect("Trying to build duckdb vortex extension");
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
+
+    info!(
+        "Built duckdb vortex extension at {}",
+        duckdb_vortex_path.display()
+    );
+
+    let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
 
     validate_path(&duckdb_path);
 
