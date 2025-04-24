@@ -31,7 +31,10 @@ bytes = { workspace = true }
 bzip2 = { workspace = true }
 cfg-if = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-datafusion = { workspace = true, features = ["parquet", "datetime_expressions", ] }
+datafusion = { workspace = true, features = [
+    "parquet",
+    "datetime_expressions",
+] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 enum-iterator = { workspace = true }
@@ -62,7 +65,10 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
 tracing-futures = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log", ] }
+tracing-subscriber = { workspace = true, features = [
+    "env-filter",
+    "tracing-log",
+] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet", "files"] }
