@@ -37,9 +37,6 @@ impl ComputeVTable for DecimalEncoding {
         Some(self)
     }
 
-    // TODO(aduffy): IsSortedFn
-    // TODO(aduffy): SearchSortedFn
-    // TODO(aduffy): CompareFn
     // TODO(aduffy): IsConstant
     // TODO(aduffy): BetweenFn
     // TODO(aduffy): BinaryNumericFn
