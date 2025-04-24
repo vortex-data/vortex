@@ -59,7 +59,7 @@ impl PerformanceHint {
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
         // Coalesce ~8K page size, also ensures we span padding for adjacent segments.
-        Self::new(8192, Some(8192))
+        Self::new(8192, Some(1 << 20))
     }
 
     pub fn object_storage() -> Self {
