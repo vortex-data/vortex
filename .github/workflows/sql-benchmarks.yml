@@ -110,7 +110,7 @@ jobs:
             --export-spans \
           | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
         shell: bash
         env:
@@ -120,10 +120,10 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
-        # TODO(joe): support s3 duckdb
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
+              --targets datafusion:parquet,datafusion:vortex \
               --export-spans \
               -d gh-json \
             | tee results.json

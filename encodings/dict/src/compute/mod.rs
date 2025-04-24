@@ -1,5 +1,6 @@
 mod binary_numeric;
 mod compare;
+mod fill_null;
 mod is_constant;
 mod is_sorted;
 mod like;
@@ -7,9 +8,9 @@ mod min_max;
 mod optimize;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsSortedFn,
-    KernelRef, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice,
-    take,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterKernel, FilterKernelAdapter, IsConstantFn,
+    IsSortedFn, KernelRef, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter,
+    scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
@@ -29,6 +30,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
 

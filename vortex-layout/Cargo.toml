@@ -23,10 +23,11 @@ bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
-futures = { workspace = true, features = ["alloc", "executor"] }
+futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+prost = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -35,8 +36,10 @@ tracing-futures = { workspace = true, features = [
     "futures-03",
 ], optional = true }
 vortex-array = { workspace = true }
+vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-dict = { workspace = true }
+vortex-dtype = { workspace = true, features = ["proto"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }

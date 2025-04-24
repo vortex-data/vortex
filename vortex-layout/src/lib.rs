@@ -28,3 +28,5 @@ pub const CHUNKED_LAYOUT_ID: LayoutId = ArcRef::new_ref("vortex.chunked");
 pub const STRUCT_LAYOUT_ID: LayoutId = ArcRef::new_ref("vortex.struct");
 /// The layout ID for a stats layout
 pub const STATS_LAYOUT_ID: LayoutId = ArcRef::new_ref("vortex.stats");
+/// The layout ID for a dict layout
+pub const DICT_LAYOUT_ID: LayoutId = ArcRef::new_ref("vortex.dict");

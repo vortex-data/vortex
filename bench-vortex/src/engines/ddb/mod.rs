@@ -63,6 +63,7 @@ fn create_table_registration(base_url: &Url, extension: &str, dataset: Benchmark
     match dataset {
         BenchmarkDataset::TpcH => {
             let mut commands = String::new();
+            commands.push_str("install httpfs; load httpfs;");
             let tables = [
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",

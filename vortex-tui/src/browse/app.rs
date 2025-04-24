@@ -2,20 +2,23 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ratatui::widgets::ListState;
-use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex::dtype::{DType, PType};
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex::{DeserializeMetadata, ProstMetadata};
 use vortex_layout::layouts::chunked::ChunkedLayout;
+use vortex_layout::layouts::dict::DictLayout;
+use vortex_layout::layouts::dict::writer::DictLayoutMetadata;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef, STATS_LAYOUT_ID,
-    STRUCT_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef,
+    STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -86,6 +89,21 @@ impl LayoutCursor {
                         &layout.metadata().expect("extracting stats").as_ref()[4..],
                     );
                     StatsTable::dtype_for_stats_table(&dtype, &present_stats)
+                }
+            } else if layout.id() == DICT_LAYOUT_ID {
+                match component {
+                    // values
+                    0 => dtype.clone(),
+                    // codes
+                    1 => {
+                        let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
+                            layout.metadata().as_ref().map(|b| b.as_ref()),
+                        )
+                        .expect("dict metadata");
+                        DType::from(PType::from(metadata.codes_ptype()))
+                            .with_nullability(dtype.nullability())
+                    }
+                    _ => vortex_panic!("can't have more than 2 children for dict layout"),
                 }
             } else {
                 todo!("unknown DType")
@@ -270,6 +288,12 @@ fn collect_segment_ids_impl(
         collect_segment_ids_impl(&stats_layout, stats_segments, &mut vec![])?;
     } else if layout_id == FlatLayout.id() {
         data_segments.extend(root.segments());
+    } else if layout_id == DictLayout.id() {
+        let values_layout = root.child(0, root.dtype().clone(), "values")?;
+        collect_segment_ids_impl(&values_layout, data_segments, stats_segments)?;
+
+        let codes_layout = root.child(1, root.dtype().clone(), "codes")?;
+        collect_segment_ids_impl(&codes_layout, data_segments, stats_segments)?;
     } else {
         unreachable!()
     };

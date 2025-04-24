@@ -1,5 +1,6 @@
 //! A collection of built-in layouts for Vortex
 pub mod chunked;
+pub mod dict;
 pub mod file_stats;
 pub mod filter;
 pub mod flat;

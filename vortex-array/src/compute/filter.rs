@@ -5,11 +5,14 @@ use arrow_array::BooleanArray;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{ComputeFn, Input, InvocationArgs, Kernel, KernelRef, Output, scalar_at};
+use crate::compute::{
+    ComputeFn, Input, InvocationArgs, Kernel, KernelRef, Output, fill_null, scalar_at,
+};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
@@ -241,6 +244,9 @@ impl TryFrom<&dyn Array> for Mask {
         if !matches!(array.dtype(), DType::Bool(_)) {
             vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
         }
+
+        // Convert nulls to false first in case this can be done cheaply by the encoding.
+        let array = fill_null(array, Scalar::bool(false, array.dtype().nullability()))?;
 
         Self::try_from(&array.to_bool()?)
     }
