@@ -160,7 +160,7 @@ serde_test = "1.0.176"
 simplelog = "0.12"
 sketches-ddsketch = "0.3.0"
 static_assertions = "1.1"
-tabled = { version = "0.18.0", default-features = false }
+tabled = { version = "0.19.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
 thiserror = "2.0.3"
