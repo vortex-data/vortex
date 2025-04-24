@@ -1,10 +1,11 @@
+mod between;
 mod filter;
 mod scalar_at;
 mod slice;
 mod sum;
 
 use crate::arrays::{DecimalArray, DecimalEncoding};
-use crate::compute::{FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, SumFn};
+use crate::compute::{BetweenFn, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, SumFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayComputeImpl};
 
@@ -25,7 +26,10 @@ impl ComputeVTable for DecimalEncoding {
         Some(self)
     }
 
-    // TODO(aduffy): BetweenFn
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
+        Some(self)
+    }
+
     // TODO(aduffy): IsSortedFn
     // TODO(aduffy): SearchSortedFn
     // TODO(aduffy): CompareFn

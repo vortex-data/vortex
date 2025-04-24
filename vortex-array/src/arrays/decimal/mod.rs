@@ -28,7 +28,7 @@ impl Encoding for DecimalEncoding {
 }
 
 /// Type of decimal scalar values.
-pub trait NativeDecimalType {
+pub trait NativeDecimalType: Copy + Eq + Ord {
     const VALUES_TYPE: DecimalValueType;
 }
 
