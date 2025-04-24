@@ -9,9 +9,7 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{
-    Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df, feature_flagged_allocator,
-};
+use bench_vortex::{Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df};
 use clap::Parser;
 use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
@@ -23,7 +21,8 @@ use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

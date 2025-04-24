@@ -18,7 +18,6 @@ pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
-#[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

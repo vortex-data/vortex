@@ -27,21 +27,6 @@ pub use datasets::{BenchmarkDataset, file};
 pub use engines::{ddb, df};
 pub use vortex::error::vortex_panic;
 
-#[macro_export]
-macro_rules! feature_flagged_allocator {
-    () => {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "mimalloc")] {
-                #[global_allocator]
-                static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-            } else if #[cfg(feature = "jemalloc")] {
-                #[global_allocator]
-                static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-            }
-        }
-    };
-}
-
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {
     engine: Engine,

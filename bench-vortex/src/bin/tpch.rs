@@ -13,7 +13,7 @@ use bench_vortex::tpch::{
 };
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, ddb, default_env_filter, feature_flagged_allocator};
+use bench_vortex::{Engine, Format, Target, ddb, default_env_filter};
 use clap::{Parser, ValueEnum};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
@@ -24,7 +24,8 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
