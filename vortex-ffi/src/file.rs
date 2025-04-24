@@ -263,6 +263,14 @@ fn make_object_store(
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
 
+    if property_vals.len() != property_keys.len() {
+        vortex_bail!(
+            "property_vals len: {}, != property_keys len {}",
+            property_vals.len(),
+            property_keys.len()
+        )
+    }
+
     // Configure extra properties on that scheme instead.
     match scheme {
         ObjectStoreScheme::Local => {
