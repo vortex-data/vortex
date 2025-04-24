@@ -18,6 +18,7 @@ pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
+#[cfg(not(miri))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
