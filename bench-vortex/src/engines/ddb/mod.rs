@@ -46,13 +46,13 @@ pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) 
         }
     }
 
-    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or(".".to_string()))
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
         .expect("failed to find the vortex repo")
         .join("duckdb-vortex");
 
     let mut command = Command::new("make");
     command
-        .current_dir(duckdb_vortex_path)
+        .current_dir(&duckdb_vortex_path)
         .env("GEN", "ninja")
         .arg("release");
 
