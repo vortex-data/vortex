@@ -77,7 +77,7 @@ impl From<&DType> for pb::DType {
                     nullable: (*n).into(),
                 }),
                 DType::Decimal(decimal, n) => DtypeType::Decimal(pb::Decimal {
-                    precision: decimal.precision() as i32,
+                    precision: decimal.precision() as u32,
                     scale: decimal.scale() as i32,
                     nullable: (*n).into(),
                 }),

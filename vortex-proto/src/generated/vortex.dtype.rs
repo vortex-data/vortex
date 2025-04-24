@@ -15,8 +15,8 @@ pub struct Primitive {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Decimal {
-    #[prost(int32, tag = "1")]
-    pub precision: i32,
+    #[prost(uint32, tag = "1")]
+    pub precision: u32,
     #[prost(int32, tag = "2")]
     pub scale: i32,
     #[prost(bool, tag = "3")]

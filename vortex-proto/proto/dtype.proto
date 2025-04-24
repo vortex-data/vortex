@@ -31,7 +31,7 @@ message Primitive {
 }
 
 message Decimal {
-  int32 precision = 1;
+  uint32 precision = 1;
   int32 scale = 2;
   bool nullable = 3;
 }
