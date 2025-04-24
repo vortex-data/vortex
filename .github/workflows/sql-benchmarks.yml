@@ -123,7 +123,7 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --targets datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex \
+              --targets datafusion:parquet,datafusion:vortex \
               --export-spans \
               -d gh-json \
             | tee results.json
