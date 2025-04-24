@@ -6,8 +6,8 @@ use std::time::Duration;
 use anyhow::Result;
 use xshell::Shell;
 
+use crate::IdempotentPath;
 use crate::ddb::DuckDBExecutor;
-use crate::{Format, IdempotentPath};
 
 pub struct DuckdbTpchOptions {
     /// Scale factor of the data in GB.
@@ -91,8 +91,7 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
 /// Convenience wrapper for TPC-H benchmarks
 pub fn execute_duckdb_tpch_query(
     queries: &[String],
-    file_format: Format,
     duckdb_executor: &DuckDBExecutor,
 ) -> Result<Duration> {
-    crate::engines::ddb::execute_query(queries, file_format, duckdb_executor)
+    crate::engines::ddb::execute_query(queries, duckdb_executor)
 }

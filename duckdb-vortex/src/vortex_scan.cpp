@@ -154,16 +154,15 @@ static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> 
 const std::regex schema_prefix = std::regex("^[^/]*:\\/\\/.*$");
 
 std::string EnsureFileProtocol(const std::string &path) {
-	// Check if the path has a schema, if not prepend the file:// schema
+	// If the path is a URL then don't change it, otherwise try to make the path an absolute path
 	if (std::regex_match(path, schema_prefix)) {
 		return path;
 	}
 
 	const std::string prefix = "file://";
-
 	auto fs = FileSystem::CreateLocal();
 	if (fs->IsPathAbsolute(path)) {
-		return path;
+		return prefix + path;
 	}
 
 	const auto absolute_path = fs->JoinPath(fs->GetWorkingDirectory(), path);
