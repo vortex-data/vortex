@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::process::ExitCode;
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
@@ -15,7 +14,7 @@ use bench_vortex::tpch::{
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, Target, ddb, default_env_filter};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum, value_parser};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -31,8 +30,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
-    targets: Vec<String>,
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target), default_values = vec!["datafusion:parquet", "datafusion:vortex"])]
+    targets: Vec<Target>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
@@ -74,12 +73,8 @@ pub enum DataGenerator {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    let targets = args
-        .targets
-        .iter()
-        .map(|t| Target::from_str(t).unwrap())
-        .collect_vec();
-    let engines = targets.iter().map(|t| t.engine()).collect_vec();
+
+    let engines = args.targets.iter().map(|t| t.engine()).collect_vec();
 
     validate_args(&engines, &args);
 
@@ -167,7 +162,7 @@ fn main() -> ExitCode {
         args.queries,
         args.exclude_queries,
         args.iterations,
-        targets,
+        args.targets,
         args.display_format,
         args.emulate_object_store,
         args.disable_datafusion_cache,
