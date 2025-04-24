@@ -138,7 +138,7 @@ jobs:
         shell: bash
         run: |
           set -Eeu -o pipefail -x
-          
+
           base_commit_sha=${{ github.event.pull_request.base.sha }}
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
