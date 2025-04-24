@@ -5,7 +5,7 @@ use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
@@ -170,11 +170,17 @@ impl ArrayVariantsImpl for RunEndArray {
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         Some(self)
     }
+
+    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
+        Some(self)
+    }
 }
 
 impl PrimitiveArrayTrait for RunEndArray {}
 
 impl BoolArrayTrait for RunEndArray {}
+
+impl DecimalArrayTrait for RunEndArray {}
 
 impl ArrayValidityImpl for RunEndArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
