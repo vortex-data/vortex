@@ -68,7 +68,7 @@ impl CoalescedDriver {
             coalesced_bytes_counter: metrics.counter("vortex.file.coalesced.bytes"),
 
             performance_hint,
-            max_prefetch_bytes: 32 << 20, // 32 MB
+            max_prefetch_bytes: 1 << 20, // 32 MB
 
             first_poll: false,
             state: Default::default(),
