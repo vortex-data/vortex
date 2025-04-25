@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub(crate) use file_layout::*;
 pub(crate) use file_statistics::*;
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
@@ -23,7 +23,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb};
+use vortex_flatbuffers::{FlatBuffer, footer as fb, layout as fbl};
 use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
@@ -64,8 +64,16 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_layout =
-            Layout::try_new_viewed("".into(), dtype, layout_bytes, 0, layout_ctx.clone())?;
+        let fb_layout_loc = unsafe { root_unchecked::<fbl::Layout>(layout_bytes.as_ref()) }
+            ._tab
+            .loc();
+        let root_layout = Layout::try_new_viewed(
+            "".into(),
+            dtype,
+            layout_bytes,
+            fb_layout_loc,
+            layout_ctx.clone(),
+        )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()

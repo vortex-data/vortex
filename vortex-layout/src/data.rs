@@ -144,12 +144,9 @@ impl ViewedLayout {
         let opts = VerifierOptions::default();
         let mut v = Verifier::new(&opts, fb._tab.buf());
 
-        let offset = v.get_uoffset(fb._tab.loc())? as usize;
-        let next_pos = offset.saturating_add(fb._tab.loc());
-
         // The internals of [`layout::Layout::run_verifier`].
         let mut table_v = v
-            .visit_table(next_pos)?
+            .visit_table(fb._tab.loc())?
             .visit_field::<u16>("encoding", layout::Layout::VT_ENCODING, false)?
             .visit_field::<u64>("row_count", layout::Layout::VT_ROW_COUNT, false)?
             .visit_field::<ForwardsUOffset<flatbuffers::Vector<'_, u8>>>(
@@ -166,9 +163,9 @@ impl ViewedLayout {
 
         // Instead of recursively verifying the children, we manually verify that the vector is
         // within bounds, but do not verify the contents of each element.
-
         if let Some(field_pos) = table_v.deref(layout::Layout::VT_CHILDREN)? {
-            let offset = table_v.verifier().get_uoffset(field_pos)? as usize;
+            let v = table_v.verifier();
+            let offset = v.get_uoffset(field_pos)? as usize;
             let next_pos = offset.saturating_add(field_pos);
 
             // Now we verify the vector itself, based on flatbuffers::verifier::verify_vector_range
