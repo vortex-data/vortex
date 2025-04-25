@@ -38,27 +38,6 @@ impl DuckDBExecutor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DuckDBExecutor {
-    duckdb_path: PathBuf,
-    duckdb_file: PathBuf,
-}
-
-impl DuckDBExecutor {
-    fn command(&self) -> Command {
-        let mut command = Command::new(&self.duckdb_path);
-        command.arg(&self.duckdb_file);
-        command
-    }
-
-    pub fn new(duckdb_path: PathBuf, duckdb_file: PathBuf) -> Self {
-        Self {
-            duckdb_path,
-            duckdb_file,
-        }
-    }
-}
-
 /// Finds the path to the DuckDB executable
 pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
@@ -283,8 +262,6 @@ pub fn execute_query(
 
     trace!("execute duckdb query with command: {:?}", command);
 
-    trace!("execute duckdb query with command: {:?}", command);
-
     let time_instant = Instant::now();
     let output = command.output()?;
     let binary_runtime = time_instant.elapsed();
@@ -300,10 +277,10 @@ pub fn execute_query(
 
     let output = String::from_utf8_lossy(&output.stdout);
 
-    println!("query output {output}");
+    trace!("query output {output}");
 
     let query_time = parse_query_output(&output)?;
-    println!(
+    trace!(
         "query ran with time real {}, user {}, sys {}",
         query_time.real.as_secs_f64(),
         query_time.user.as_secs_f64(),
