@@ -6,10 +6,11 @@ use vortex_dtype::half::f16;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
+use vortex_proto::scalar::decimal_value::Value;
 use vortex_proto::scalar::scalar_value::Kind;
 
 use crate::pvalue::PValue;
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue, i256};
 
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
@@ -30,6 +31,22 @@ impl From<&ScalarValue> for pb::ScalarValue {
                 kind: Some(Kind::BoolValue(*v)),
             },
             ScalarValue(InnerScalarValue::Primitive(v)) => v.into(),
+            ScalarValue(InnerScalarValue::Decimal(v)) => {
+                let inner_value = match v {
+                    DecimalValue::I128(v128) => {
+                        Value::I128LittleEndian(v128.to_le_bytes().to_vec())
+                    }
+                    DecimalValue::I256(v256) => {
+                        Value::I256LittleEndian(v256.to_le_bytes().to_vec())
+                    }
+                };
+
+                pb::ScalarValue {
+                    kind: Some(Kind::DecimalValue(pb::DecimalValue {
+                        value: Some(inner_value),
+                    })),
+                }
+            }
             ScalarValue(InnerScalarValue::Buffer(v)) => pb::ScalarValue {
                 kind: Some(Kind::BytesValue(v.as_slice().to_vec())),
             },
@@ -165,6 +182,31 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
             }
             Ok(ScalarValue(InnerScalarValue::List(values.into())))
         }
+        Kind::DecimalValue(v) => match v.clone().value {
+            None => {
+                vortex_bail!("DecimalValue must be populated")
+            }
+            Some(value) => match value {
+                Value::I128LittleEndian(i128_le_bytes) => {
+                    let native =
+                        i128::from_le_bytes(i128_le_bytes.try_into().map_err(|_| {
+                            vortex_err!("i128 decimal scalar value must be 16 bytes")
+                        })?);
+                    Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
+                        native,
+                    ))))
+                }
+                Value::I256LittleEndian(i256_le_bytes) => {
+                    let native =
+                        i256::from_le_bytes(i256_le_bytes.try_into().map_err(|_| {
+                            vortex_err!("i128 decimal scalar value must be 32 bytes")
+                        })?);
+                    Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
+                        native,
+                    ))))
+                }
+            },
+        },
     }
 }
 

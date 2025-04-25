@@ -23,6 +23,12 @@ table Primitive {
     nullable: bool;
 }
 
+table Decimal {
+    precision: uint8;
+    scale: int8;
+    nullable: bool;
+}
+
 table Utf8 {
     nullable: bool;
 }
@@ -52,6 +58,7 @@ union Type {
     Null = 1,
     Bool = 2,
     Primitive = 3,
+    Decimal = 10,
     Utf8 = 5,
     Binary = 6,
     Struct_ = 7,

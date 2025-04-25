@@ -12,7 +12,10 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
+use arrow_schema::DataType::{Decimal128, Decimal256};
+use arrow_schema::{
+    DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
@@ -155,6 +158,13 @@ impl DType {
                 PType::F32 => DataType::Float32,
                 PType::F64 => DataType::Float64,
             },
+            DType::Decimal(dt, _) => {
+                if dt.scale() > DECIMAL128_MAX_SCALE {
+                    Decimal256(dt.precision(), dt.scale())
+                } else {
+                    Decimal128(dt.precision(), dt.scale())
+                }
+            }
             DType::Utf8(_) => DataType::Utf8View,
             DType::Binary(_) => DataType::BinaryView,
             DType::Struct(struct_dtype, _) => {

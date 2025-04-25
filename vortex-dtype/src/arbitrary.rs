@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 
-use crate::{DType, FieldName, FieldNames, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, FieldName, FieldNames, Nullability, PType, StructDType};
 
 impl<'a> Arbitrary<'a> for DType {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -11,7 +11,7 @@ impl<'a> Arbitrary<'a> for DType {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    const BASE_TYPE_COUNT: i32 = 4;
+    const BASE_TYPE_COUNT: i32 = 5;
     const CONTAINER_TYPE_COUNT: i32 = 2;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
@@ -19,12 +19,16 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         CONTAINER_TYPE_COUNT + BASE_TYPE_COUNT
     };
     Ok(match u.int_in_range(1..=max_dtype_kind)? {
+        // base types
         1 => DType::Bool(u.arbitrary()?),
         2 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
-        3 => DType::Utf8(u.arbitrary()?),
-        4 => DType::Binary(u.arbitrary()?),
-        5 => DType::Struct(Arc::new(random_struct_dtype(u, depth - 1)?), u.arbitrary()?),
-        6 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
+        4 => DType::Utf8(u.arbitrary()?),
+        5 => DType::Binary(u.arbitrary()?),
+
+        // container types
+        6 => DType::Struct(Arc::new(random_struct_dtype(u, depth - 1)?), u.arbitrary()?),
+        7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
@@ -57,6 +61,16 @@ impl<'a> Arbitrary<'a> for PType {
             10 => PType::F64,
             _ => unreachable!("Number out of range"),
         })
+    }
+}
+
+impl<'a> Arbitrary<'a> for DecimalDType {
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
+        // Get a random integer for the scale
+        let precision = u8::try_from(u.int_in_range(0..=38)?).expect("u8 overflow");
+        let scale = i8::try_from(u.int_in_range(-38..=38)?).expect("i8 overflow");
+        Ok(Self::new(precision, scale))
     }
 }
 

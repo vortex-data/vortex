@@ -133,10 +133,10 @@ impl flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 9;
+pub const ENUM_MAX_TYPE: u8 = 10;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 9] = [
+pub const ENUM_VALUES_TYPE: [Type; 10] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -146,6 +146,7 @@ pub const ENUM_VALUES_TYPE: [Type; 9] = [
   Type::Struct_,
   Type::List,
   Type::Extension,
+  Type::Decimal,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -162,9 +163,10 @@ impl Type {
   pub const Struct_: Self = Self(7);
   pub const List: Self = Self(8);
   pub const Extension: Self = Self(9);
+  pub const Decimal: Self = Self(10);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 10;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -175,6 +177,7 @@ impl Type {
     Self::Struct_,
     Self::List,
     Self::Extension,
+    Self::Decimal,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -188,6 +191,7 @@ impl Type {
       Self::Struct_ => Some("Struct_"),
       Self::List => Some("List"),
       Self::Extension => Some("Extension"),
+      Self::Decimal => Some("Decimal"),
       _ => None,
     }
   }
@@ -531,6 +535,137 @@ impl core::fmt::Debug for Primitive<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Primitive");
       ds.field("ptype", &self.ptype());
+      ds.field("nullable", &self.nullable());
+      ds.finish()
+  }
+}
+pub enum DecimalOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Decimal<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Decimal<'a> {
+  type Inner = Decimal<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> Decimal<'a> {
+  pub const VT_PRECISION: flatbuffers::VOffsetT = 4;
+  pub const VT_SCALE: flatbuffers::VOffsetT = 6;
+  pub const VT_NULLABLE: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    Decimal { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args DecimalArgs
+  ) -> flatbuffers::WIPOffset<Decimal<'bldr>> {
+    let mut builder = DecimalBuilder::new(_fbb);
+    builder.add_nullable(args.nullable);
+    builder.add_scale(args.scale);
+    builder.add_precision(args.precision);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn precision(&self) -> u8 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(Decimal::VT_PRECISION, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn scale(&self) -> i8 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i8>(Decimal::VT_SCALE, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn nullable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Decimal::VT_NULLABLE, Some(false)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for Decimal<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u8>("precision", Self::VT_PRECISION, false)?
+     .visit_field::<i8>("scale", Self::VT_SCALE, false)?
+     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct DecimalArgs {
+    pub precision: u8,
+    pub scale: i8,
+    pub nullable: bool,
+}
+impl<'a> Default for DecimalArgs {
+  #[inline]
+  fn default() -> Self {
+    DecimalArgs {
+      precision: 0,
+      scale: 0,
+      nullable: false,
+    }
+  }
+}
+
+pub struct DecimalBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DecimalBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_precision(&mut self, precision: u8) {
+    self.fbb_.push_slot::<u8>(Decimal::VT_PRECISION, precision, 0);
+  }
+  #[inline]
+  pub fn add_scale(&mut self, scale: i8) {
+    self.fbb_.push_slot::<i8>(Decimal::VT_SCALE, scale, 0);
+  }
+  #[inline]
+  pub fn add_nullable(&mut self, nullable: bool) {
+    self.fbb_.push_slot::<bool>(Decimal::VT_NULLABLE, nullable, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DecimalBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    DecimalBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Decimal<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for Decimal<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("Decimal");
+      ds.field("precision", &self.precision());
+      ds.field("scale", &self.scale());
       ds.field("nullable", &self.nullable());
       ds.finish()
   }
@@ -1274,6 +1409,21 @@ impl<'a> DType<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn type__as_decimal(&self) -> Option<Decimal<'a>> {
+    if self.type_type() == Type::Decimal {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Decimal::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for DType<'_> {
@@ -1293,6 +1443,7 @@ impl flatbuffers::Verifiable for DType<'_> {
           Type::Struct_ => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Struct_>>("Type::Struct_", pos),
           Type::List => v.verify_union_variant::<flatbuffers::ForwardsUOffset<List>>("Type::List", pos),
           Type::Extension => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Extension>>("Type::Extension", pos),
+          Type::Decimal => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Decimal>>("Type::Decimal", pos),
           _ => Ok(()),
         }
      })?
@@ -1398,6 +1549,13 @@ impl core::fmt::Debug for DType<'_> {
         },
         Type::Extension => {
           if let Some(x) = self.type__as_extension() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Type::Decimal => {
+          if let Some(x) = self.type__as_decimal() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

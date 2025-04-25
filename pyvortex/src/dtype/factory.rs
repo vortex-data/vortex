@@ -4,7 +4,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyResult, Python, pyfunction};
-use vortex::dtype::{DType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructDType};
+use vortex::dtype::{
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructDType,
+};
 
 use crate::dtype::PyDType;
 
@@ -173,6 +175,51 @@ pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult
         _ => return Err(PyValueError::new_err("Invalid float width")),
     };
     PyDType::init(py, dtype)
+}
+
+/// Construct a decimal data type.
+///
+/// Parameters
+/// ----------
+/// precision : :class:`int`
+///     The number of significant digits representable by an instance of this type.
+///
+/// scale : :class:`int`
+///     The number of digits after the decimal point that are represented. If negative, the
+///     number of trailing zeros in the whole number portion.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting :obj:`None` and the integers from -128 to 127, inclusive:
+///
+///     >>> import vortex as vx
+///     >>> vx.decimal(precision=13, scale=2, nullable=True)
+///     decimal(precision=13, scale=2, nullable=True)
+///
+/// A data type representing fixed-width decimal numbers with `precision` significant figures and
+/// `scale` digits after the decimal point. If `scale` is a negative value, then it is taken
+/// to be the number of trailing zeros before the decimal point.
+///
+///     >>> vx.decimal(precision = 10, scale = 3)
+///     decimal(precision=10, scale=3, nullable=False)
+#[pyfunction(name = "decimal")]
+#[pyo3(signature = (*, precision = 10, scale = 0, nullable = false))]
+pub(super) fn dtype_decimal(
+    py: Python<'_>,
+    precision: u8,
+    scale: i8,
+    nullable: bool,
+) -> PyResult<Bound<PyDType>> {
+    let decimal_type = DType::Decimal(DecimalDType::new(precision, scale), nullable.into());
+    PyDType::init(py, decimal_type)
 }
 
 /// Construct a UTF-8-encoded string data type.

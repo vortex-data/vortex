@@ -6,7 +6,7 @@ use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, ExtDType, ExtID, ExtMetadata, PType, StructDType};
+use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructDType};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -20,6 +20,11 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Null(_) => Ok(Self::Null),
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
             DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
+            DtypeType::Decimal(d) => Ok(Self::Decimal(
+                DecimalDType::new(
+                    d.precision.try_into().map_err(|_| vortex_err!("proto precision could not be downcast to u8"))?,
+                    d.scale.try_into().map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?),
+                d.nullable.into())),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(
@@ -69,6 +74,11 @@ impl From<&DType> for pb::DType {
                 }),
                 DType::Primitive(ptype, n) => DtypeType::Primitive(pb::Primitive {
                     r#type: pb::PType::from(*ptype).into(),
+                    nullable: (*n).into(),
+                }),
+                DType::Decimal(decimal, n) => DtypeType::Decimal(pb::Decimal {
+                    precision: decimal.precision() as u32,
+                    scale: decimal.scale() as i32,
                     nullable: (*n).into(),
                 }),
                 DType::Utf8(n) => DtypeType::Utf8(pb::Utf8 {

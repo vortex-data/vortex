@@ -112,6 +112,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_get(dtype: *const DType) -> u8 {
             PType::F32 => DTYPE_PRIMITIVE_F32,
             PType::F64 => DTYPE_PRIMITIVE_F64,
         },
+        DType::Decimal(..) => DTYPE_DECIMAL,
         DType::Utf8(_) => DTYPE_UTF8,
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
@@ -297,6 +298,7 @@ pub const DTYPE_BINARY: u8 = 14;
 pub const DTYPE_STRUCT: u8 = 15;
 pub const DTYPE_LIST: u8 = 16;
 pub const DTYPE_EXTENSION: u8 = 17;
+pub const DTYPE_DECIMAL: u8 = 18;
 
 #[cfg(test)]
 mod tests {
