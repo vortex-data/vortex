@@ -20,7 +20,7 @@ pub fn parse_query_output(output: &str) -> anyhow::Result<QueryDuration> {
 
     let pattern = Regex::new("^Run\\sTime\\s\\(s\\):\\sreal\\s(\\d+\\.\\d+)\\suser\\s(\\d+\\.\\d+)\\ssys\\s(\\d+\\.\\d+)").expect("err building regex");
 
-    let Some(captures) = pattern.captures(&output) else {
+    let Some(captures) = pattern.captures(output) else {
         bail!("pattern didn't match output ({})", output)
     };
 
