@@ -6,7 +6,7 @@ use std::hash::Hash;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::nbytes::NBytes;
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, ArrayRef, Canonical};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -283,6 +283,8 @@ impl BtrBlocksCompressor {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
                 }
             }
+            // TODO(aduffy): implement compressor support for Decimal types.
+            Canonical::Decimal(_) => Ok(array.into_array()),
             Canonical::Struct(struct_array) => {
                 let mut fields = Vec::new();
                 for idx in 0..struct_array.nfields() {

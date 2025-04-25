@@ -1,11 +1,10 @@
-use serde::{Deserialize, Serialize};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
+    DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -14,12 +13,17 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use super::{ALPRDEncoding, RDEncoder};
 use crate::ALPRDArray;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, prost::Message)]
 pub struct ALPRDMetadata {
-    right_bit_width: u8,
-    dict_len: u8,
-    dict: [u16; 8],
-    left_parts_ptype: PType,
+    #[prost(uint32, tag = "1")]
+    right_bit_width: u32,
+    #[prost(uint32, tag = "2")]
+    dict_len: u32,
+    #[prost(uint32, repeated, tag = "3")]
+    dict: Vec<u32>,
+    #[prost(enumeration = "PType", tag = "4")]
+    left_parts_ptype: i32,
+    #[prost(message, tag = "5")]
     patches: Option<PatchesMetadata>,
 }
 
@@ -35,7 +39,7 @@ impl EncodingVTable for ALPRDEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<ALPRDMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<ALPRDMetadata>::deserialize(parts.metadata())?;
 
         if parts.nchildren() < 2 {
             vortex_bail!(
@@ -44,10 +48,13 @@ impl EncodingVTable for ALPRDEncoding {
             );
         }
 
-        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype, dtype.nullability());
+        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
         let left_parts = parts.child(0).decode(ctx, left_parts_dtype.clone(), len)?;
-        let left_parts_dictionary =
-            Buffer::copy_from(&metadata.dict.as_slice()[0..metadata.dict_len as usize]);
+        let left_parts_dictionary = Buffer::from_iter(
+            metadata.dict.as_slice()[0..metadata.dict_len as usize]
+                .iter()
+                .map(|&i| u16::try_from(i).vortex_expect("Dictionary index out of range")),
+        );
 
         let right_parts_dtype = match &dtype {
             DType::Primitive(PType::F32, _) => {
@@ -74,7 +81,7 @@ impl EncodingVTable for ALPRDEncoding {
             left_parts,
             left_parts_dictionary,
             right_parts,
-            metadata.right_bit_width,
+            u8::try_from(metadata.right_bit_width).vortex_expect("Bit width out of range"),
             left_parts_patches,
         )?
         .into_array())
@@ -121,7 +128,7 @@ impl EncodingVTable for ALPRDEncoding {
     }
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
+impl ArrayVisitorImpl<ProstMetadata<ALPRDMetadata>> for ALPRDArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("left_parts", self.left_parts());
         visitor.visit_child("right_parts", self.right_parts());
@@ -130,16 +137,19 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
         }
     }
 
-    fn _metadata(&self) -> SerdeMetadata<ALPRDMetadata> {
-        let mut dict = [0u16; 8];
-        dict[0..self.left_parts_dictionary().len()].copy_from_slice(self.left_parts_dictionary());
+    fn _metadata(&self) -> ProstMetadata<ALPRDMetadata> {
+        let dict = self
+            .left_parts_dictionary()
+            .iter()
+            .map(|&i| i as u32)
+            .collect::<Vec<_>>();
 
-        SerdeMetadata(ALPRDMetadata {
-            right_bit_width: self.right_bit_width(),
-            dict_len: self.left_parts_dictionary().len() as u8,
+        ProstMetadata(ALPRDMetadata {
+            right_bit_width: self.right_bit_width() as u32,
+            dict_len: self.left_parts_dictionary().len() as u32,
             dict,
             left_parts_ptype: PType::try_from(self.left_parts().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
             patches: self
                 .left_parts_patches()
                 .map(|p| p.to_metadata(self.len(), self.left_parts().dtype()))
@@ -151,7 +161,7 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::SerdeMetadata;
+    use vortex_array::ProstMetadata;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
@@ -163,11 +173,11 @@ mod test {
     fn test_alprd_metadata() {
         check_metadata(
             "alprd.metadata",
-            SerdeMetadata(ALPRDMetadata {
-                right_bit_width: u8::MAX,
+            ProstMetadata(ALPRDMetadata {
+                right_bit_width: u32::MAX,
                 patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-                dict: [0u16; 8],
-                left_parts_ptype: PType::U64,
+                dict: Vec::new(),
+                left_parts_ptype: PType::U64 as i32,
                 dict_len: 8,
             }),
         );

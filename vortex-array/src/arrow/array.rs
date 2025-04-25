@@ -5,12 +5,11 @@ use arrow_array::array::{
 };
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
-    ByteArrayType, ByteViewType, Date32Type, Date64Type, DurationMicrosecondType,
-    DurationMillisecondType, DurationNanosecondType, DurationSecondType, Float16Type, Float32Type,
-    Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Time32MillisecondType,
-    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
-    UInt32Type, UInt64Type,
+    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal128Type, Decimal256Type,
+    Float16Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
+    Time32MillisecondType, Time32SecondType, Time64MicrosecondType, Time64NanosecondType,
+    TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
+    TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
@@ -18,12 +17,13 @@ use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, Scalar
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, DecimalDType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
+use vortex_scalar::i256;
 
 use crate::arrays::{
-    BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray,
-    VarBinViewArray,
+    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
+    VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
@@ -73,37 +73,105 @@ where
     }
 }
 
-impl<T: ArrowPrimitiveType> FromArrowArray<&ArrowPrimitiveArray<T>> for ArrayRef
+macro_rules! impl_from_arrow_primitive {
+    ($ty:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+                let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
+                let validity = nulls(value.nulls(), nullable);
+                PrimitiveArray::new(buffer, validity).into_array()
+            }
+        }
+    };
+}
+
+impl_from_arrow_primitive!(Int8Type);
+impl_from_arrow_primitive!(Int16Type);
+impl_from_arrow_primitive!(Int32Type);
+impl_from_arrow_primitive!(Int64Type);
+impl_from_arrow_primitive!(UInt8Type);
+impl_from_arrow_primitive!(UInt16Type);
+impl_from_arrow_primitive!(UInt32Type);
+impl_from_arrow_primitive!(UInt64Type);
+impl_from_arrow_primitive!(Float16Type);
+impl_from_arrow_primitive!(Float32Type);
+impl_from_arrow_primitive!(Float64Type);
+
+impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, _nullable: bool) -> Self {
+        let decimal_type = DecimalDType::new(array.precision(), array.scale());
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+        let validity = nulls(array.nulls(), false);
+        DecimalArray::new(buffer, decimal_type, validity).into_array()
+    }
+}
+
+impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, _nullable: bool) -> Self {
+        let decimal_type = DecimalDType::new(array.precision(), array.scale());
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+        // SAFETY: Our i256 implementation has the same bit-pattern representation of the
+        //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
+        //  of either type.
+        let buffer =
+            unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
+        let validity = nulls(array.nulls(), false);
+        DecimalArray::new(buffer, decimal_type, validity).into_array()
+    }
+}
+
+macro_rules! impl_from_arrow_temporal {
+    ($ty:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+                temporal_array(value, nullable)
+            }
+        }
+    };
+}
+
+// timestamp
+impl_from_arrow_temporal!(TimestampSecondType);
+impl_from_arrow_temporal!(TimestampMillisecondType);
+impl_from_arrow_temporal!(TimestampMicrosecondType);
+impl_from_arrow_temporal!(TimestampNanosecondType);
+
+// time
+impl_from_arrow_temporal!(Time32SecondType);
+impl_from_arrow_temporal!(Time32MillisecondType);
+impl_from_arrow_temporal!(Time64MicrosecondType);
+impl_from_arrow_temporal!(Time64NanosecondType);
+
+// date
+impl_from_arrow_temporal!(Date32Type);
+impl_from_arrow_temporal!(Date64Type);
+
+fn temporal_array<T: ArrowPrimitiveType>(value: &ArrowPrimitiveArray<T>, nullable: bool) -> ArrayRef
 where
-    <T as ArrowPrimitiveType>::Native: NativePType,
+    T::Native: NativePType,
 {
-    fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
-        let arr = PrimitiveArray::new(
-            Buffer::from_arrow_scalar_buffer(value.values().clone()),
-            nulls(value.nulls(), nullable),
-        );
+    let arr = PrimitiveArray::new(
+        Buffer::from_arrow_scalar_buffer(value.values().clone()),
+        nulls(value.nulls(), nullable),
+    )
+    .into_array();
 
-        if T::DATA_TYPE.is_numeric() {
-            return arr.into_array();
+    match T::DATA_TYPE {
+        DataType::Timestamp(time_unit, tz) => {
+            let tz = tz.map(|s| s.to_string());
+            TemporalArray::new_timestamp(arr.into_array(), time_unit.into(), tz).into()
         }
-
-        match T::DATA_TYPE {
-            DataType::Timestamp(time_unit, tz) => {
-                let tz = tz.map(|s| s.to_string());
-                TemporalArray::new_timestamp(arr.into_array(), time_unit.into(), tz).into()
-            }
-            DataType::Time32(time_unit) => {
-                TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
-            }
-            DataType::Time64(time_unit) => {
-                TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
-            }
-            DataType::Date32 => TemporalArray::new_date(arr.into_array(), TimeUnit::D).into(),
-            DataType::Date64 => TemporalArray::new_date(arr.into_array(), TimeUnit::Ms).into(),
-            DataType::Duration(_) => unimplemented!(),
-            DataType::Interval(_) => unimplemented!(),
-            _ => vortex_panic!("Invalid data type for PrimitiveArray: {}", T::DATA_TYPE),
+        DataType::Time32(time_unit) => {
+            TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
         }
+        DataType::Time64(time_unit) => {
+            TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
+        }
+        DataType::Date32 => TemporalArray::new_date(arr.into_array(), TimeUnit::D).into(),
+        DataType::Date64 => TemporalArray::new_date(arr.into_array(), TimeUnit::Ms).into(),
+        DataType::Duration(_) => unimplemented!(),
+        DataType::Interval(_) => unimplemented!(),
+        _ => vortex_panic!("Invalid temporal type: {}", T::DATA_TYPE),
     }
 }
 
@@ -293,20 +361,12 @@ impl FromArrowArray<ArrowArrayRef> for ArrayRef {
                 }
                 _ => unreachable!(),
             },
-            DataType::Duration(u) => match u {
-                ArrowTimeUnit::Second => {
-                    Self::from_arrow(array.as_primitive::<DurationSecondType>(), nullable)
-                }
-                ArrowTimeUnit::Millisecond => {
-                    Self::from_arrow(array.as_primitive::<DurationMillisecondType>(), nullable)
-                }
-                ArrowTimeUnit::Microsecond => {
-                    Self::from_arrow(array.as_primitive::<DurationMicrosecondType>(), nullable)
-                }
-                ArrowTimeUnit::Nanosecond => {
-                    Self::from_arrow(array.as_primitive::<DurationNanosecondType>(), nullable)
-                }
-            },
+            DataType::Decimal128(..) => {
+                Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
+            }
+            DataType::Decimal256(..) => {
+                Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
+            }
             _ => vortex_panic!(
                 "Array encoding not implemented for Arrow data type {}",
                 array.data_type().clone()

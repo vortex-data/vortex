@@ -34,7 +34,7 @@ pub struct Target {
 }
 
 impl FromStr for Target {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(target_string: &str) -> Result<Self, Self::Err> {
         let split = target_string.split(":").collect_vec();

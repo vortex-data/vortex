@@ -5,7 +5,7 @@ use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, SerdeMetadata,
+    Encoding, ProstMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -28,7 +28,7 @@ pub struct FSSTArray {
 pub struct FSSTEncoding;
 impl Encoding for FSSTEncoding {
     type Array = FSSTArray;
-    type Metadata = SerdeMetadata<FSSTMetadata>;
+    type Metadata = ProstMetadata<FSSTMetadata>;
 }
 
 impl FSSTArray {

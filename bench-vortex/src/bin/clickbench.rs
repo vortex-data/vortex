@@ -1,6 +1,5 @@
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
@@ -10,10 +9,8 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{
-    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df,
-};
-use clap::Parser;
+use bench_vortex::{BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df};
+use clap::{Parser, value_parser};
 use datafusion::physical_plan::execution_plan;
 use datafusion::prelude;
 use indicatif::ProgressBar;
@@ -33,9 +30,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(
-        long,
-        value_delimiter = ',',
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
         default_values_t = vec![
             "datafusion:parquet".to_string(),
             "datafusion:vortex".to_string(),
@@ -44,7 +39,7 @@ struct Args {
             "duckdb:duckdb".to_string()
         ]
     )]
-    targets: Vec<String>,
+    targets: Vec<Target>,
     #[arg(long)]
     duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
@@ -131,14 +126,18 @@ impl EngineCtx {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let targets = args
+    let engines = args
         .targets
         .iter()
-        .map(|t| Target::from_str(t).unwrap())
+        .map(|t| t.engine())
+        .unique()
         .collect_vec();
-
-    let engines = targets.iter().map(|t| t.engine()).unique().collect_vec();
-    let formats = targets.iter().map(|t| t.format()).unique().collect_vec();
+    let formats = args
+        .targets
+        .iter()
+        .map(|t| t.format())
+        .unique()
+        .collect_vec();
 
     validate_args(&engines, &args);
 
@@ -199,13 +198,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut query_measurements = Vec::new();
 
-    let resolved_path = if targets.iter().any(|t| t.engine() == Engine::DuckDB) {
+    let resolved_path = if args.targets.iter().any(|t| t.engine() == Engine::DuckDB) {
         Some(ddb::build_and_get_executable_path(&args.duckdb_path))
     } else {
         None
     };
 
-    for target in &targets {
+    for target in args.targets.iter() {
         let engine = target.engine();
         let file_format = target.format();
 
@@ -264,7 +263,7 @@ fn main() -> anyhow::Result<()> {
         query_measurements.extend(bench_measurements);
     }
 
-    print_results(&args.display_format, query_measurements, &targets);
+    print_results(&args.display_format, query_measurements, &args.targets);
 
     Ok(())
 }

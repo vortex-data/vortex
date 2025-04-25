@@ -6,6 +6,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, vortex_bail, vortex_err};
 
 use crate::Scalar;
+use crate::decimal::DecimalValue;
 
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
@@ -72,6 +73,15 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
             }
+            DType::Decimal(..) => match value.as_decimal().decimal_value() {
+                Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(*v128))),
+                Some(DecimalValue::I256(v256)) => {
+                    Ok(Arc::new(Decimal256Array::new_scalar((*v256).into())))
+                }
+                None => Ok(Arc::new(arrow_array::Scalar::new(
+                    Decimal128Array::new_null(1),
+                ))),
+            },
             DType::Utf8(_) => {
                 value_to_arrow_scalar!(value.as_utf8().value(), StringViewArray)
             }
