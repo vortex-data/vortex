@@ -154,6 +154,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             read_more_offset = read_more_offset.min(stats_segment.offset);
         }
         read_more_offset = read_more_offset.min(postscript.layout.offset);
+        read_more_offset = read_more_offset.min(postscript.footer.offset);
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
@@ -188,6 +189,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         let footer = self.parse_footer(
             initial_offset,
             &initial_read,
+            &postscript.footer,
             &postscript.layout,
             dtype,
             file_stats,
