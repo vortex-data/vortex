@@ -1,7 +1,7 @@
-use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
@@ -13,12 +13,13 @@ use bench_vortex::tpch::{
 };
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, ddb, default_env_filter};
+use bench_vortex::{BenchmarkDataset, Engine, Format, Target, ddb, default_env_filter};
 use clap::{Parser, ValueEnum, value_parser};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
+use tempfile::tempdir;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
@@ -30,7 +31,16 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target), default_values = vec!["datafusion:parquet", "datafusion:vortex"])]
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "datafusion:arrow",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
     targets: Vec<Target>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
@@ -235,12 +245,10 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     queries: &[String],
     iterations: usize,
-    file_format: Format,
-    base_url: &Url,
-    duckdb_path: &Path,
+    duckdb_executor: &DuckDBExecutor,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_tpch_query(queries, base_url, file_format, duckdb_path)
+        let duration = ddb::execute_tpch_query(queries, duckdb_executor)
             .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)
@@ -397,15 +405,19 @@ async fn bench_main(
             }
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
+                let duckdb_path = duckdb_resolved_path.as_ref().expect("created above");
+                let temp_dir = tempdir().unwrap();
+                let duckdb_file = temp_dir
+                    .path()
+                    .join(format!("duckdb-file-{}.db", format.name()));
+
+                let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
+                register_tables(&executor, &url, format, BenchmarkDataset::TpcH)
+                    .expect("failed to register tables");
+
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    let fastest_run = benchmark_duckdb_query(
-                        query_idx,
-                        &sql_queries,
-                        iterations,
-                        format,
-                        &url,
-                        duckdb_resolved_path.as_ref().expect("path resoloved above"),
-                    );
+                    let fastest_run =
+                        benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
 
                     let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
                         Ok(storage) => storage,

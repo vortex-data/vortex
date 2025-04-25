@@ -16,7 +16,7 @@ version = { workspace = true }
 [features]
 arrow = ["dep:arrow-buffer"]
 compio = ["dep:compio"]
-default = []
+memmap2 = ["dep:memmap2"]
 warn-copy = ["dep:log"]
 
 [dependencies]
@@ -24,6 +24,7 @@ arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
 compio = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
+memmap2 = { workspace = true, optional = true }
 num-traits = { workspace = true }
 vortex-error = { workspace = true }
 

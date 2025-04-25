@@ -13,13 +13,13 @@ use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, Vor
 ///
 /// This type of file reader performs no coalescing or other clever orchestration, simply
 /// zero-copy slicing the segments from the buffer.
-pub struct InMemoryVortexFile;
+pub struct InMemoryFileType;
 
-impl FileType for InMemoryVortexFile {
+impl FileType for InMemoryFileType {
     type Options = ();
 }
 
-impl VortexOpenOptions<InMemoryVortexFile> {
+impl VortexOpenOptions<InMemoryFileType> {
     /// Create open options for an in-memory Vortex file.
     pub fn in_memory() -> Self {
         Self::new(())
@@ -28,7 +28,27 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     /// Open an in-memory file contained in the provided buffer.
     pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
-        let footer = self.read_footer(&buffer).await?;
+
+        let postscript = self.parse_postscript(&buffer)?;
+
+        // If we haven't been provided a DType, we must read one from the file.
+        let dtype = self.dtype
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| {
+                let dtype_segment = postscript
+                    .dtype
+                    .ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))?;
+                self.parse_dtype(0, &buffer, &dtype_segment)
+            })?;
+
+        let file_stats = postscript
+            .statistics
+            .map(|segment| self.parse_file_statistics(0, &buffer, &segment))
+            .transpose()?;
+
+        let footer = self.parse_footer(0, &buffer, &postscript.layout, dtype, file_stats)?;
+
         let segment_source_factory = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),

@@ -19,7 +19,6 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::io::VortexWrite;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
@@ -28,22 +27,10 @@ use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
-#[allow(non_camel_case_types)]
-pub struct vx_file_writer {
-    inner: File,
-}
-
 /// A file reader that can be used to read from a file.
 #[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
-}
-
-/// Options supplied for opening a file.
-#[repr(C)]
-pub struct vx_file_create_options {
-    /// path of the file to be created.
-    pub path: *const c_char,
 }
 
 /// Options supplied for opening a file.
@@ -117,39 +104,23 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_create(
-    options: *const vx_file_create_options,
-    error: *mut *mut vx_error,
-) -> *mut vx_file_writer {
-    try_or(error, ptr::null_mut(), || {
-        let options = options.as_ref().vortex_expect("null options");
-        assert!(!options.path.is_null(), "null path");
-
-        let path = CStr::from_ptr(options.path).to_string_lossy();
-
-        let inner =
-            RUNTIME.with(|r| r.block_on(async move { File::create(path.to_string()).await }))?;
-        Ok(Box::into_raw(Box::new(vx_file_writer { inner })))
-    })
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_write_array(
-    file: *mut vx_file_writer,
+    path: *const c_char,
     ffi_array: *mut vx_array,
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let file = unsafe { file.as_mut().vortex_expect("null file") };
+        let path = CStr::from_ptr(path).to_str()?;
 
         RUNTIME.with(|r| {
             r.block_on(async move {
-                let file = VortexWriteOptions::default()
-                    .write(&mut file.inner, array.inner.to_array_stream())
+                VortexWriteOptions::default()
+                    .write(
+                        &mut File::create(path).await?,
+                        array.inner.to_array_stream(),
+                    )
                     .await?;
-
-                file.flush().await?;
                 Ok(())
             })
         })
@@ -247,11 +218,6 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 /// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
-    drop(Box::from_raw(file));
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_writer_free(file: *mut vx_file_writer) {
     drop(Box::from_raw(file));
 }
 

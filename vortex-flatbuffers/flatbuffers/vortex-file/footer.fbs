@@ -81,8 +81,11 @@ table LayoutSpec {
 
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
 struct SegmentSpec {
+    /// Offset relative to the start of the file.
     offset: uint64;
+    /// Length in bytes of the segment.
     length: uint32;
+    /// Base-2 exponent of the alignment of the segment.
     alignment_exponent: uint8;
     // These two fields are reserved for future use and act as pointers
     // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`

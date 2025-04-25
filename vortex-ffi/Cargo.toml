@@ -28,7 +28,7 @@ prost = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["object_store", "proto", "tokio"] }
+vortex = { workspace = true, features = ["object_store", "proto"] }
 vortex-duckdb = { workspace = true, optional = true }
 
 [features]

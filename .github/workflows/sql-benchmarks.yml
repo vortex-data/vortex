@@ -23,15 +23,18 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             local_dir: bench-vortex/data/tpch/1
+            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
+            targets: "datafusion:parquet,datafusion:vortex"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -106,7 +109,7 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
-            --targets datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex \
+            --targets ${{ matrix.targets }} \
             --export-spans \
           | tee results.json
 
@@ -123,7 +126,7 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --targets datafusion:parquet,datafusion:vortex \
+              --targets ${{ matrix.targets }} \
               --export-spans \
               -d gh-json \
             | tee results.json

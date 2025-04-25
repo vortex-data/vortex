@@ -60,6 +60,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
@@ -72,6 +73,7 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet", "files"] }
 vortex-datafusion = { workspace = true }
+vortex-io = { workspace = true, features = ["tokio"] }
 vortex-metrics = { workspace = true }
 xshell = { workspace = true }
 

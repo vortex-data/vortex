@@ -5,7 +5,6 @@ use ratatui::widgets::ListState;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{DeserializeMetadata, ProstMetadata};
 use vortex_layout::layouts::chunked::ChunkedLayout;
@@ -231,9 +230,7 @@ impl AppState {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
-    let vxf = VortexOpenOptions::file()
-        .open(TokioFile::open(path)?)
-        .await?;
+    let vxf = VortexOpenOptions::file().open(path).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone());
 

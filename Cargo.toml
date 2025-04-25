@@ -110,6 +110,7 @@ lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
+memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 num-traits = "0.2.19"
@@ -132,7 +133,6 @@ pyo3-log = "0.12.1"
 rancor = "0.1.0"
 rand = "0.9.0"
 rand_distr = "0.5"
-range_union_find = "0.5.0"
 ratatui = "0.29"
 rayon = "1.10.0"
 regex = "1.11.0"
@@ -157,7 +157,6 @@ tabled = { version = "0.19.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
 thiserror = "2.0.3"
-tikv-jemallocator = "0.6"
 tokio = "1.44.2"
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.41" }

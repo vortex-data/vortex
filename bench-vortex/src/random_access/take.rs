@@ -17,12 +17,11 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::file::VortexOpenOptions;
-use vortex::io::{TokioFile, VortexReadAt};
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef, IntoArray};
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
-    take_vortex(TokioFile::open(path)?, indices).await
+    take_vortex(path, indices).await
 }
 
 pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<RecordBatch> {
@@ -30,10 +29,7 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<Rec
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex<T: VortexReadAt + Send + Sync>(
-    reader: T,
-    indices: Buffer<u64>,
-) -> VortexResult<ArrayRef> {
+async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
     VortexOpenOptions::file()
         .open(reader)
         .await?

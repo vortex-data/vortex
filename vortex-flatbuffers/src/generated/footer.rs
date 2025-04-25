@@ -184,6 +184,7 @@ impl<'a> SegmentSpec {
     s
   }
 
+  /// Offset relative to the start of the file.
   pub fn offset(&self) -> u64 {
     let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
     // Safety:
@@ -213,6 +214,7 @@ impl<'a> SegmentSpec {
     }
   }
 
+  /// Length in bytes of the segment.
   pub fn length(&self) -> u32 {
     let mut mem = core::mem::MaybeUninit::<<u32 as EndianScalar>::Scalar>::uninit();
     // Safety:
@@ -242,6 +244,7 @@ impl<'a> SegmentSpec {
     }
   }
 
+  /// Base-2 exponent of the alignment of the segment.
   pub fn alignment_exponent(&self) -> u8 {
     let mut mem = core::mem::MaybeUninit::<<u8 as EndianScalar>::Scalar>::uninit();
     // Safety:
