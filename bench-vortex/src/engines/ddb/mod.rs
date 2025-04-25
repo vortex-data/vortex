@@ -38,6 +38,27 @@ impl DuckDBExecutor {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DuckDBExecutor {
+    duckdb_path: PathBuf,
+    duckdb_file: PathBuf,
+}
+
+impl DuckDBExecutor {
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.duckdb_path);
+        command.arg(&self.duckdb_file);
+        command
+    }
+
+    pub fn new(duckdb_path: PathBuf, duckdb_file: PathBuf) -> Self {
+        Self {
+            duckdb_path,
+            duckdb_file,
+        }
+    }
+}
+
 /// Finds the path to the DuckDB executable
 pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
@@ -259,6 +280,8 @@ pub fn execute_query(
         .arg(".once /dev/null")
         .arg("-c")
         .arg(query);
+
+    trace!("execute duckdb query with command: {:?}", command);
 
     trace!("execute duckdb query with command: {:?}", command);
 
