@@ -52,7 +52,7 @@ struct PendingSegment {
 }
 
 impl CoalescedDriver {
-    pub fn new(
+    pub(crate) fn new(
         performance_hint: PerformanceHint,
         segment_map: Arc<[SegmentSpec]>,
         events: BoxStream<'static, SegmentEvent>,

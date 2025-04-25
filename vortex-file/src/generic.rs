@@ -82,8 +82,9 @@ impl VortexOpenOptions<GenericVortexFile> {
         self.open_read_at(vortex_io::TokioFile::open(read)?).await
     }
 
-    /// Internal API for opening a file.
-    async fn open_read_at<R: VortexReadAt + Send + Sync>(
+    /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
+    /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
+    pub async fn open_read_at<R: VortexReadAt + Send + Sync>(
         self,
         read: R,
     ) -> VortexResult<VortexFile> {
