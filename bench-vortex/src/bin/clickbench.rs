@@ -375,15 +375,13 @@ fn init_data_source(
 ) -> anyhow::Result<()> {
     let dataset = BenchmarkDataset::ClickBench { single_file };
 
-    if file_format == Format::OnDiskVortex {
-        if base_url.scheme() == "file" {
-            let file_path = base_url
-                .to_file_path()
-                .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
-            tokio_runtime.block_on(bench_vortex::file::convert_parquet_to_vortex(
-                &file_path, dataset,
-            ))?
-        }
+    if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
+        let file_path = base_url
+            .to_file_path()
+            .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
+        tokio_runtime.block_on(bench_vortex::file::convert_parquet_to_vortex(
+            &file_path, dataset,
+        ))?
     }
 
     match engine_ctx {
