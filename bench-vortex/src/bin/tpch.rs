@@ -1,7 +1,9 @@
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
+use bench_vortex::df::write_execution_plan;
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
@@ -43,7 +45,7 @@ struct Args {
     )]
     targets: Vec<Target>,
     #[arg(long)]
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -180,6 +182,7 @@ fn main() -> ExitCode {
         url,
         args.all_metrics,
         args.export_spans,
+        args.emit_plan,
         &args.duckdb_path,
     ))
 }
@@ -298,7 +301,8 @@ async fn bench_main(
     url: Url,
     display_all_metrics: bool,
     export_spans: bool,
-    duckdb_path: &Option<std::path::PathBuf>,
+    emit_plan: bool,
+    duckdb_path: &Option<PathBuf>,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -379,6 +383,11 @@ async fn bench_main(
                             ],
                         );
                     }
+
+                    if emit_plan {
+                        write_execution_plan(query_idx, format, TPCH_DATASET, plan.as_ref());
+                    }
+
                     plans.push((query_idx, plan.clone()));
 
                     let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {

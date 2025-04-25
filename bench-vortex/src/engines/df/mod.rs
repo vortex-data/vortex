@@ -138,7 +138,7 @@ pub fn write_execution_plan(
     query_idx: usize,
     format: crate::Format,
     dataset_name: &str,
-    execution_plan: &Arc<dyn ExecutionPlan>,
+    execution_plan: &dyn ExecutionPlan,
 ) {
     fs::write(
         format!("{dataset_name}_{format}_q{query_idx:02}.plan"),
@@ -150,7 +150,7 @@ pub fn write_execution_plan(
         format!("{dataset_name}_{format}_q{query_idx:02}.short.plan"),
         format!(
             "{}",
-            DisplayableExecutionPlan::with_full_metrics(execution_plan.as_ref())
+            DisplayableExecutionPlan::with_full_metrics(execution_plan)
                 .set_show_schema(true)
                 .set_show_statistics(true)
                 .indent(true)

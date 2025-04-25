@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
+use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
 use clap::ValueEnum;
 use datafusion::datasource::file_format::FileFormat;
@@ -14,7 +15,7 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use datafusion_common::{Result, TableReference};
+use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::join_all;
 use futures::{StreamExt, TryStreamExt, stream};
 use humansize::{DECIMAL, format_size};
@@ -360,10 +361,12 @@ impl PBIData {
             session.sql(create_table).await?;
             let table_ref = TableReference::bare(&*table.name);
             let df_table = session.table(table_ref.clone()).await?;
+            let schema = replace_with_views(df_table.schema())?;
 
             // drop the temp table after getting the arrow schema.
-            let var_name = format!("DROP TABLE '{}';", &table.name);
-            session.sql(&var_name).await?;
+            session
+                .sql(&format!("DROP TABLE '{}';", &table.name))
+                .await?;
 
             let df_format: Arc<dyn FileFormat> = match file_type {
                 FileType::Csv => Arc::new(
@@ -380,7 +383,7 @@ impl PBIData {
             let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
             let config = ListingTableConfig::new(table_url)
                 .with_listing_options(ListingOptions::new(df_format))
-                .with_schema(df_table.schema().clone().into());
+                .with_schema(schema.into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_ref, listing_table)?;
@@ -421,6 +424,30 @@ impl Dataset for PBIBenchmark {
 
         ChunkedArray::from_iter(arrays).into_array()
     }
+}
+
+fn replace_with_views(schema: &DFSchema) -> Result<DFSchema> {
+    let fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .map(|f| match f.data_type() {
+            DataType::Binary => {
+                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::BinaryView))
+            }
+            DataType::Utf8 => {
+                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::Utf8View))
+            }
+            _ => f.clone(),
+        })
+        .collect();
+    let new_schema = Schema::new(fields);
+    let qualifiers = schema
+        .iter()
+        .map(|(qualifier, _)| qualifier.cloned())
+        .collect();
+    let df_schema =
+        DFSchema::from_field_specific_qualified_schema(qualifiers, &Arc::new(new_schema))?;
+    df_schema.with_functional_dependencies(schema.functional_dependencies().clone())
 }
 
 pub fn replace_decimals(create_table_sql: &str) -> Cow<'_, str> {
