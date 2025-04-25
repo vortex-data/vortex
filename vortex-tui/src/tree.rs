@@ -8,7 +8,7 @@ use crate::TOKIO_RUNTIME;
 
 pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
     let full = VortexOpenOptions::file()
-        .open_async(file)
+        .open(file)
         .await?
         .scan()?
         .with_tokio_executor(TOKIO_RUNTIME.handle().clone())

@@ -405,7 +405,7 @@ impl Dataset for PBIBenchmark {
         let arrays = stream::iter(dataset.list_files(FileType::Vortex))
             .map(|f| async move {
                 VortexOpenOptions::file()
-                    .open_async(f)
+                    .open(f)
                     .await?
                     .scan()?
                     // TODO(ngates): why do we spawn this on the tokio executor?

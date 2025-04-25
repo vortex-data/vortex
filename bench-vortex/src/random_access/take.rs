@@ -31,7 +31,7 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<Rec
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
     VortexOpenOptions::file()
-        .open_async(reader)
+        .open(reader)
         .await?
         .scan()?
         .with_tokio_executor(Handle::current())

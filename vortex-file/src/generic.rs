@@ -72,11 +72,11 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub fn open_blocking(self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
         // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
         // block-on the async call to open.
-        block_on(self.open_async(read))
+        block_on(self.open(read))
     }
 
     /// Open a Vortex file using the provided [`Path`].
-    pub async fn open_async(mut self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
+    pub async fn open(mut self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
         self.open_read_at(TokioFile::open(read)?).await
     }
@@ -324,7 +324,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         let local_path = Path::new("/").join(path);
         if local_path.exists() {
             // Local disk is too fast to justify prefetching.
-            self.open_async(local_path).await
+            self.open(local_path).await
         } else {
             self.open_read_at(ObjectStoreReadAt::new(
                 object_store.clone(),

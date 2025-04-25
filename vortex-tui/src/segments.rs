@@ -6,7 +6,7 @@ use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexOpenOptions;
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
-    let vxf = VortexOpenOptions::file().open_async(file).await?;
+    let vxf = VortexOpenOptions::file().open(file).await?;
 
     let segment_map = vxf.footer().segment_map();
 

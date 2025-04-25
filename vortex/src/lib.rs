@@ -97,7 +97,7 @@ mod test {
 
         // [read]
         let array = VortexOpenOptions::file()
-            .open_async("example.vortex")
+            .open("example.vortex")
             .await?
             .scan()?
             .with_filter(gt(ident(), lit(2u64)))
