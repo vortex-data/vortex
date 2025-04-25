@@ -19,7 +19,7 @@ pub struct BitPackedMetadata {
     pub(crate) bit_width: u32,
     #[prost(uint32, tag = "2")]
     pub(crate) offset: u32, // must be <1024
-    #[prost(message, tag = "3")]
+    #[prost(message, optional, tag = "3")]
     pub(crate) patches: Option<PatchesMetadata>,
 }
 

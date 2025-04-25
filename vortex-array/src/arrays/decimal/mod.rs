@@ -17,7 +17,7 @@ use crate::variants::DecimalArrayTrait;
 use crate::vtable::{ComputeVTable, VTableRef};
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayVisitorImpl, Canonical, Encoding, SerdeMetadata, try_from_array_ref,
+    ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 
 pub struct DecimalEncoding;
@@ -44,7 +44,7 @@ impl ComputeVTable for DecimalEncoding {
 
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;
-    type Metadata = SerdeMetadata<DecimalMetadata>;
+    type Metadata = ProstMetadata<DecimalMetadata>;
 }
 
 /// Type of decimal scalar values.
@@ -137,10 +137,10 @@ impl DecimalArray {
     }
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<DecimalMetadata>> for DecimalArray {
-    fn _metadata(&self) -> SerdeMetadata<DecimalMetadata> {
-        SerdeMetadata(DecimalMetadata {
-            values_type: self.values_type,
+impl ArrayVisitorImpl<ProstMetadata<DecimalMetadata>> for DecimalArray {
+    fn _metadata(&self) -> ProstMetadata<DecimalMetadata> {
+        ProstMetadata(DecimalMetadata {
+            values_type: self.values_type as i32,
         })
     }
 

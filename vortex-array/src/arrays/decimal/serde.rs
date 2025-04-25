@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -10,11 +9,11 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
-    Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, SerdeMetadata,
+    Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
 };
 
 /// Type of the decimal values.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum DecimalValueType {
@@ -26,9 +25,10 @@ pub enum DecimalValueType {
 }
 
 // The type of the values can be determined by looking at the type info...right?
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(prost::Message)]
 pub struct DecimalMetadata {
-    pub(super) values_type: DecimalValueType,
+    #[prost(enumeration = "DecimalValueType", tag = "1")]
+    pub(super) values_type: i32,
 }
 
 impl EncodingVTable for DecimalEncoding {
@@ -62,8 +62,8 @@ impl EncodingVTable for DecimalEncoding {
             _ => vortex_bail!("Expected Decimal dtype, got {:?}", dtype),
         };
 
-        let metadata = SerdeMetadata::<DecimalMetadata>::deserialize(parts.metadata())?;
-        match metadata.values_type {
+        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(parts.metadata())?;
+        match metadata.values_type() {
             DecimalValueType::I128 => {
                 check_and_build_decimal::<i128>(len, buffer, decimal_dtype, validity)
             }
