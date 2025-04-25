@@ -79,7 +79,9 @@ jobs:
         shell: bash
         run:
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet,datafusion:vortex,duckdb:vortex -i1
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1
+          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1
 
       - name: Upload data
         if: matrix.remote_storage != null
