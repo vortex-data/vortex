@@ -5966,6 +5966,7 @@ dependencies = [
  "object_store",
  "pin-project",
  "rand 0.9.1",
+ "rstest",
  "tempfile",
  "tokio",
  "tokio-stream",

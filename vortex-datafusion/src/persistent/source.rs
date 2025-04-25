@@ -32,6 +32,9 @@ pub struct VortexSource {
     pub(crate) arrow_schema: Option<SchemaRef>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
+    /// Shared layout readers, the source only lives as long as one scan.
+    ///
+    /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
 }
 
