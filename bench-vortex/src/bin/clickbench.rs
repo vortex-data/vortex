@@ -123,6 +123,13 @@ impl EngineCtx {
             tmp_dir: tempdir().vortex_expect("cannot open temp directory"),
         })
     }
+
+    fn to_engine(&self) -> Engine {
+        match &self {
+            EngineCtx::DuckDB(_) => Engine::DuckDB,
+            EngineCtx::DataFusion(_) => Engine::DataFusion,
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -368,61 +375,43 @@ fn init_data_source(
 ) -> anyhow::Result<()> {
     let dataset = BenchmarkDataset::ClickBench { single_file };
 
-    match file_format {
-        Format::Parquet => match engine_ctx {
-            EngineCtx::DataFusion(ctx) => {
-                let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
+    if file_format == Format::OnDiskVortex {
+        if base_url.scheme() == "file" {
+            let file_path = base_url
+                .to_file_path()
+                .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
+            tokio_runtime.block_on(bench_vortex::file::convert_parquet_to_vortex(
+                &file_path, dataset,
+            ))?
+        }
+    }
+
+    match engine_ctx {
+        EngineCtx::DataFusion(ctx) => match file_format {
+            Format::Parquet | Format::OnDiskVortex => {
                 dataset.register_tables(&ctx.session, base_url, file_format)?
             }
-            EngineCtx::DuckDB(ctx) => register_tables(
-                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
-                base_url,
-                file_format,
-                dataset,
-            )?,
-        },
-        Format::OnDiskVortex => {
-            tokio_runtime.block_on(async {
-                if base_url.scheme() == "file" {
-                    // Use the dataset to register tables.
-                    let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
-                    let file_path = base_url
-                        .to_file_path()
-                        .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
-
-                    bench_vortex::file::convert_parquet_to_vortex(&file_path, dataset).await?;
-                }
-
-                match engine_ctx {
-                    EngineCtx::DataFusion(ctx) => {
-                        // Use the dataset to register tables.
-                        let dataset = bench_vortex::BenchmarkDataset::ClickBench { single_file };
-                        dataset.register_tables(&ctx.session, base_url, file_format)?;
-                    }
-
-                    EngineCtx::DuckDB(ctx) => register_tables(
-                        &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
-                        base_url,
-                        file_format,
-                        dataset,
-                    )?,
-                }
-
-                Ok::<(), anyhow::Error>(())
-            })?;
-        }
-        Format::OnDiskDuckDB => match engine_ctx {
-            EngineCtx::DuckDB(ctx) => register_tables(
-                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
-                base_url,
-                file_format,
-                dataset,
-            )?,
-            EngineCtx::DataFusion(_) => {
-                vortex_panic!("Data fusion cannot run clickbench backed by duckdb files")
+            _ => {
+                vortex_panic!(
+                    "Engine {} Format {file_format} isn't supported on ClickBench",
+                    engine_ctx.to_engine()
+                )
             }
         },
-        _ => vortex_panic!("Format {file_format} isn't supported on ClickBench"),
+        EngineCtx::DuckDB(ctx) => match file_format {
+            Format::Parquet | Format::OnDiskVortex | Format::OnDiskDuckDB => register_tables(
+                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
+                base_url,
+                file_format,
+                dataset,
+            )?,
+            _ => {
+                vortex_panic!(
+                    "Engine {} Format {file_format} isn't supported on ClickBench",
+                    engine_ctx.to_engine()
+                )
+            }
+        },
     }
 
     Ok(())

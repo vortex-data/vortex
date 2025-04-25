@@ -406,16 +406,15 @@ async fn bench_main(
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
                 let duckdb_path = duckdb_resolved_path.as_ref().expect("created above");
-                let temp_dir = tempdir().expect("");
+                let temp_dir = tempdir().unwrap();
                 let duckdb_file = temp_dir
                     .path()
                     .join(format!("duckdb-file-{}.db", format.name()));
 
                 let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
-                {
-                    register_tables(&executor, &url, format, BenchmarkDataset::TpcH)
-                        .expect("failed to register tables");
-                }
+                register_tables(&executor, &url, format, BenchmarkDataset::TpcH)
+                    .expect("failed to register tables");
+
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let fastest_run =
                         benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
