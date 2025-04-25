@@ -65,7 +65,7 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
-        let layout_reader_cache = self.layout_readers.clone();
+        let layout_reader = self.layout_readers.clone();
 
         Ok(async move {
             let vxf = file_cache
@@ -73,7 +73,7 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             // We share out layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = layout_reader_cache
+            let layout_reader = layout_reader
                 .entry(file_meta.object_meta.location.clone())
                 .or_try_insert_with(|| vxf.layout_reader())?
                 .value()
