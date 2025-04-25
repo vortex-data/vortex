@@ -1,9 +1,12 @@
+mod timing;
+
 use std::path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use anyhow::bail;
 use log::{info, trace};
 use path::Path;
 use url::Url;
@@ -12,6 +15,7 @@ use {anyhow, log};
 
 use crate::Format;
 use crate::datasets::BenchmarkDataset;
+use crate::ddb::timing::parse_query_output;
 
 #[derive(Debug, Clone)]
 pub struct DuckDBExecutor {
@@ -247,25 +251,46 @@ pub fn execute_query(
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
 
-    for query in queries {
-        command.arg("-c").arg(query);
-    }
+    let query = queries.join(";") + ";";
+    command
+        .arg("-c")
+        .arg(".timer on")
+        .arg("-c")
+        .arg(".once /dev/null")
+        .arg("-c")
+        .arg(query);
 
     trace!("execute duckdb query with command: {:?}", command);
 
     let time_instant = Instant::now();
     let output = command.output()?;
-    let time = time_instant.elapsed();
+    let binary_runtime = time_instant.elapsed();
 
     // DuckDB does not return non-zero exit codes in case of failures.
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
-        anyhow::bail!(
+        bail!(
             "DuckDB query failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    Ok(time)
+
+    let output = String::from_utf8_lossy(&output.stdout);
+
+    println!("query output {output}");
+
+    let query_time = parse_query_output(&output)?;
+    println!(
+        "query ran with time real {}, user {}, sys {}",
+        query_time.real.as_secs_f64(),
+        query_time.user.as_secs_f64(),
+        query_time.sys.as_secs_f64()
+    );
+
+    // We know that the report runtime must be less than the total binary runtime.
+    assert!(binary_runtime >= query_time.real);
+
+    Ok(query_time.real)
 }
 
 /// Convenience wrapper for TPC-H benchmarks
