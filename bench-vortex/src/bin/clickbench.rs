@@ -85,7 +85,7 @@ struct DataFusionCtx {
     )>,
 
     session: SessionContext,
-    emit_execution_plan: bool,
+    emit_plan: bool,
 }
 
 struct DuckDBCtx {
@@ -108,12 +108,12 @@ enum EngineCtx {
 }
 
 impl EngineCtx {
-    fn new_with_datafusion(session_ctx: SessionContext, emit_execution_plan: bool) -> Self {
+    fn new_with_datafusion(session_ctx: SessionContext, emit_plan: bool) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
             execution_plans: Vec::new(),
             metrics: Vec::new(),
             session: session_ctx,
-            emit_execution_plan,
+            emit_plan,
         })
     }
 
@@ -438,11 +438,11 @@ fn execute_queries(
 ) -> Vec<QueryMeasurement> {
     let mut query_measurements = Vec::default();
 
-    for (query_idx, query_string) in queries {
+    for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 let (fastest_run, execution_plan) = benchmark_datafusion_query(
-                    *query_idx,
+                    query_idx,
                     query_string,
                     iterations,
                     &ctx.session,
@@ -450,25 +450,25 @@ fn execute_queries(
                 );
 
                 ctx.execution_plans
-                    .push((*query_idx, execution_plan.clone()));
+                    .push((query_idx, execution_plan.clone()));
 
-                if ctx.emit_execution_plan {
+                if ctx.emit_plan {
                     df::write_execution_plan(
-                        *query_idx,
+                        query_idx,
                         file_format,
                         CLICKBENCH_DATASET,
-                        &execution_plan,
+                        execution_plan.as_ref(),
                     );
                 }
 
                 ctx.metrics.push((
-                    *query_idx,
+                    query_idx,
                     file_format,
                     VortexMetricsFinder::find_all(execution_plan.as_ref()),
                 ));
 
                 query_measurements.push(QueryMeasurement {
-                    query_idx: *query_idx,
+                    query_idx,
                     target: Target::new(Engine::DataFusion, file_format),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
@@ -478,14 +478,14 @@ fn execute_queries(
 
             EngineCtx::DuckDB(args) => {
                 let fastest_run = benchmark_duckdb_query(
-                    *query_idx,
+                    query_idx,
                     query_string,
                     iterations,
                     &DuckDBExecutor::new(args.duckdb_path.clone(), args.duckdb_file(file_format)),
                 );
 
                 query_measurements.push(QueryMeasurement {
-                    query_idx: *query_idx,
+                    query_idx,
                     target: Target::new(Engine::DuckDB, file_format),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
