@@ -67,7 +67,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    /// Blocking call to open a Vortex file using the provided [`Path`].
+    /// Blocking call to open a Vortex file using the provided [`std::path::Path`].
     #[cfg(feature = "tokio")]
     pub fn open_blocking(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
@@ -75,7 +75,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         futures::executor::block_on(self.open(read))
     }
 
-    /// Open a Vortex file using the provided [`Path`].
+    /// Open a Vortex file using the provided [`std::path::Path`].
     #[cfg(feature = "tokio")]
     pub async fn open(mut self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
