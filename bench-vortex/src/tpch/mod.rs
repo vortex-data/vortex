@@ -255,6 +255,7 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
 
+// A few tpch queries have multiple statements, this handles that
 fn tpch_query(query_idx: usize) -> Vec<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
