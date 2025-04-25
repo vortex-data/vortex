@@ -40,9 +40,10 @@ fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> O
 where
     T: Into<ScalarValue> + NativePType,
 {
-    // this `compare` function provides a total ordering (even for NaN values)
+    // `total_compare` function provides a total ordering (even for NaN values).
+    // However, we exclude NaNs from min max as they're not useful for any purpose where min/max would be used
     match iter
-        .filter(|v| !v.is_nan() && !v.is_infinite())
+        .filter(|v| !v.is_nan())
         .minmax_by(|a, b| a.total_compare(**b))
     {
         itertools::MinMaxResult::NoElements => None,
