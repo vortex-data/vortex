@@ -33,12 +33,12 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
         default_values = vec![
-            "datafusion:parquet".to_string(),
-            "datafusion:vortex".to_string(),
-            "datafusion:arrow".to_string(),
-            "duckdb:parquet".to_string(),
-            "duckdb:vortex".to_string(),
-            "duckdb:duckdb".to_string()
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "datafusion:arrow",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
         ]
     )]
     targets: Vec<Target>,

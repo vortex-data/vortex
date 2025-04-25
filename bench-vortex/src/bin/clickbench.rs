@@ -9,7 +9,9 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df};
+use bench_vortex::{
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df,
+};
 use clap::{Parser, value_parser};
 use datafusion::physical_plan::execution_plan;
 use datafusion::prelude;
@@ -31,12 +33,12 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
-        default_values_t = vec![
-            "datafusion:parquet".to_string(),
-            "datafusion:vortex".to_string(),
-            "duckdb:parquet".to_string(),
-            "duckdb:vortex".to_string(),
-            "duckdb:duckdb".to_string()
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
         ]
     )]
     targets: Vec<Target>,
