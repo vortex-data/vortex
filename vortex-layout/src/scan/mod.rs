@@ -6,6 +6,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 pub use executor::*;
 use futures::executor::LocalPool;
+use futures::future::ok;
 use futures::task::LocalSpawnExt;
 use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
@@ -185,10 +186,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .filter(|mask| !mask.mask().all_false())
             .map(|row_mask| {
                 let row_range = row_mask.row_range();
-                (
-                    row_range,
-                    async move { Ok(row_mask.mask().clone()) }.boxed(),
-                )
+                (row_range, ok(row_mask.mask().clone()).boxed())
             })
             .collect_vec();
 
@@ -197,9 +195,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         //  explicitly polls a segment, it jumps to the front of the queue so this shouldn't
         //  impact the time-to-first-chunk latency.
 
-        // Map the row masks through the pruning evaluation
+        // If a filter expression is provided, then we setup pruning and filter evaluations.
         let row_masks = if let Some(filter) = &filter {
-            row_masks
+            // Map the row masks through the pruning evaluation
+            let row_masks: Vec<_> = row_masks
                 .into_iter()
                 .map(|(row_range, mask_fut)| {
                     let eval = layout_reader.pruning_evaluation(&row_range, filter)?;
@@ -214,13 +213,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     .boxed();
                     Ok::<_, VortexError>((row_range, mask_fut))
                 })
-                .try_collect()?
-        } else {
-            row_masks
-        };
+                .try_collect()?;
 
-        // Map the row masks through the filter evaluation
-        let row_masks = if let Some(filter) = &filter {
+            // Map the row masks through the filter evaluation
             row_masks
                 .into_iter()
                 .map(|(row_range, mask_fut)| {
@@ -254,11 +249,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     } else {
                         map_fn(eval.invoke(mask).await?).map(Some)
                     }
-                };
+                }
+                .boxed();
 
                 Ok(match &self.executor {
-                    None => Box::pin(array_fut),
-                    Some(executor) => executor.spawn(Box::pin(array_fut)),
+                    None => array_fut,
+                    Some(executor) => executor.spawn(array_fut),
                 })
             })
             .try_collect()
