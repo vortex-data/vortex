@@ -123,8 +123,8 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
     let average_row = total_size / row_count;
     assert!(average_row > 0, "A row must always have at least one byte");
 
-    let start_row = byte_range.start as u64 / average_row;
-    let end_row = byte_range.end as u64 / average_row;
+    let start_row = byte_range.start / average_row;
+    let end_row = byte_range.end / average_row;
 
     // We take the min here as `end_row` might overshoot
     start_row..u64::min(row_count, end_row)
