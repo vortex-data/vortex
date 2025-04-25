@@ -7,9 +7,9 @@ window.initAndRender = (function () {
             "datafusion:parquet": '#ef7f1d',
             "datafusion:vortex": '#19a508',
 
-            "duckdb:parquet": '#ef7f1d',
-            "duckdb:vortex": '#19a508',
-            "duckdb:duckdb": '#fada58',
+            "duckdb:parquet": '#985113',
+            "duckdb:vortex": '#0e5e04',
+            "duckdb:duckdb": '#87752e',
         };
 
         if (MAP[str]) {
