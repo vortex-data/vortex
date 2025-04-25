@@ -39,19 +39,17 @@ pub struct Footer {
 impl Footer {
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
-        flatbuffer: FlatBuffer,
+        footer_bytes: FlatBuffer,
+        layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
         array_registry: &ArrayRegistry,
         layout_registry: &LayoutRegistry,
     ) -> VortexResult<Self> {
-        let fb = root::<fb::FileLayout>(&flatbuffer)?;
-        let fb_root_layout = fb
-            .layout()
-            .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
+        let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
         // Create a LayoutContext from the registry.
-        let layout_specs = fb.layout_specs();
+        let layout_specs = fb_footer.layout_specs();
         let layout_ids = layout_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -59,22 +57,17 @@ impl Footer {
         let layout_ctx = layout_registry.new_context(layout_ids)?;
 
         // Create an ArrayContext from the registry.
-        let array_specs = fb.array_specs();
+        let array_specs = fb_footer.array_specs();
         let array_ids = array_specs
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_layout = Layout::try_new_viewed(
-            "".into(),
-            dtype,
-            flatbuffer.clone(),
-            fb_root_layout._tab.loc(),
-            layout_ctx.clone(),
-        )?;
+        let root_layout =
+            Layout::try_new_viewed("".into(), dtype, layout_bytes, 0, layout_ctx.clone())?;
 
-        let segments: Arc<[SegmentSpec]> = fb
+        let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
             .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
             .iter()

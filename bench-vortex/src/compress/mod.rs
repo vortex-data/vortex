@@ -10,9 +10,7 @@ use arrow_schema::Schema;
 
 pub fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, Arc<Schema>) {
     let chunks_vec = chunked.chunks();
-    if chunks_vec.is_empty() {
-        panic!("empty chunks");
-    }
+    assert!(!chunks_vec.is_empty(), "empty chunks");
     let batches = chunks_vec
         .iter()
         .map(|x| RecordBatch::try_from(x.as_ref()).unwrap())

@@ -47,7 +47,14 @@ impl VortexOpenOptions<InMemoryFileType> {
             .map(|segment| self.parse_file_statistics(0, &buffer, &segment))
             .transpose()?;
 
-        let footer = self.parse_footer(0, &buffer, &postscript.layout, dtype, file_stats)?;
+        let footer = self.parse_footer(
+            0,
+            &buffer,
+            &postscript.footer,
+            &postscript.layout,
+            dtype,
+            file_stats,
+        )?;
 
         let segment_source_factory = Arc::new(InMemorySegmentReader {
             buffer,

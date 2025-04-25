@@ -1,5 +1,3 @@
-use std::process::ExitCode;
-
 use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
@@ -13,6 +11,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
+use vortex::error::VortexUnwrap;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -32,7 +31,7 @@ struct Args {
     display_format: DisplayFormat,
 }
 
-fn main() -> ExitCode {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let runtime = new_tokio_runtime(args.threads);
 
@@ -54,7 +53,7 @@ fn random_access(
     display_format: DisplayFormat,
     verbose: bool,
     indices: Buffer<u64>,
-) -> ExitCode {
+) -> anyhow::Result<()> {
     // Capture `RUST_LOG` configuration
     let filter = default_env_filter(verbose);
     setup_logger(filter);
@@ -79,7 +78,11 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async { take_vortex_tokio(&taxi_vortex, indices).await.unwrap() },
+            |indices| async {
+                take_vortex_tokio(&taxi_vortex, indices)
+                    .await
+                    .vortex_unwrap()
+            },
         ),
     });
     progress.inc(1);
@@ -93,7 +96,7 @@ fn random_access(
                 &runtime,
                 iterations,
                 || indices.clone(),
-                |indices| async { take_parquet(&taxi_parquet, indices).await.unwrap() },
+                |indices| async { take_parquet(&taxi_parquet, indices).await.vortex_unwrap() },
             ),
         });
         progress.inc(1);
@@ -101,13 +104,13 @@ fn random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, RatioMode::Time, &targets).unwrap();
+            render_table(measurements, RatioMode::Time, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements).unwrap();
+            print_measurements_json(measurements)?;
         }
     }
 
     progress.finish();
-    ExitCode::SUCCESS
+    Ok(())
 }

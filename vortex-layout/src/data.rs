@@ -144,9 +144,12 @@ impl ViewedLayout {
         let opts = VerifierOptions::default();
         let mut v = Verifier::new(&opts, fb._tab.buf());
 
+        let offset = v.get_uoffset(fb._tab.loc())? as usize;
+        let next_pos = offset.saturating_add(fb._tab.loc());
+
         // The internals of [`layout::Layout::run_verifier`].
         let mut table_v = v
-            .visit_table(fb._tab.loc())?
+            .visit_table(next_pos)?
             .visit_field::<u16>("encoding", layout::Layout::VT_ENCODING, false)?
             .visit_field::<u64>("row_count", layout::Layout::VT_ROW_COUNT, false)?
             .visit_field::<ForwardsUOffset<flatbuffers::Vector<'_, u8>>>(
@@ -363,12 +366,11 @@ impl Layout {
     }
 
     /// Serialize the layout into a [`FlatBufferBuilder`].
-    pub fn write_flatbuffer<'fbb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fbb>,
-        ctx: &LayoutContext,
-    ) -> WIPOffset<layout::Layout<'fbb>> {
-        LayoutFlatBufferWriter { layout: self, ctx }.write_flatbuffer(fbb)
+    pub fn flatbuffer_writer<'a>(
+        &'a self,
+        ctx: &'a LayoutContext,
+    ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
+        LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
 
