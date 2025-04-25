@@ -472,12 +472,10 @@ dependencies = [
  "async-trait",
  "bytes",
  "bzip2",
- "cfg-if",
  "clap",
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
- "enum-iterator",
  "futures",
  "governor",
  "homedir",
@@ -511,7 +509,6 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-io",
- "vortex-metrics",
  "xshell",
 ]
 

@@ -366,8 +366,9 @@ impl<'a> flatbuffers::Follow<'a> for Postscript<'a> {
 
 impl<'a> Postscript<'a> {
   pub const VT_DTYPE: flatbuffers::VOffsetT = 4;
-  pub const VT_STATISTICS: flatbuffers::VOffsetT = 6;
-  pub const VT_LAYOUT: flatbuffers::VOffsetT = 8;
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 6;
+  pub const VT_STATISTICS: flatbuffers::VOffsetT = 8;
+  pub const VT_FOOTER: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -379,8 +380,9 @@ impl<'a> Postscript<'a> {
     args: &'args PostscriptArgs<'args>
   ) -> flatbuffers::WIPOffset<Postscript<'bldr>> {
     let mut builder = PostscriptBuilder::new(_fbb);
-    if let Some(x) = args.layout { builder.add_layout(x); }
+    if let Some(x) = args.footer { builder.add_footer(x); }
     if let Some(x) = args.statistics { builder.add_statistics(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
     if let Some(x) = args.dtype { builder.add_dtype(x); }
     builder.finish()
   }
@@ -394,6 +396,14 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_DTYPE, None)}
   }
+  /// Segment containing the root `Layout` flatbuffer (required).
+  #[inline]
+  pub fn layout(&self) -> Option<PostscriptSegment<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, None)}
+  }
   /// Segment containing the file-level `Statistics` flatbuffer.
   #[inline]
   pub fn statistics(&self) -> Option<PostscriptSegment<'a>> {
@@ -402,13 +412,13 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_STATISTICS, None)}
   }
-  /// Segment containing the `FileLayout` flatbuffer (required).
+  /// Segment containing the 'Footer' flatbuffer (required)
   #[inline]
-  pub fn layout(&self) -> Option<PostscriptSegment<'a>> {
+  pub fn footer(&self) -> Option<PostscriptSegment<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_FOOTER, None)}
   }
 }
 
@@ -420,24 +430,27 @@ impl flatbuffers::Verifiable for Postscript<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("dtype", Self::VT_DTYPE, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("layout", Self::VT_LAYOUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<PostscriptSegment>>("footer", Self::VT_FOOTER, false)?
      .finish();
     Ok(())
   }
 }
 pub struct PostscriptArgs<'a> {
     pub dtype: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
-    pub statistics: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
     pub layout: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+    pub statistics: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+    pub footer: Option<flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
   fn default() -> Self {
     PostscriptArgs {
       dtype: None,
-      statistics: None,
       layout: None,
+      statistics: None,
+      footer: None,
     }
   }
 }
@@ -452,12 +465,16 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_DTYPE, dtype);
   }
   #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, layout);
+  }
+  #[inline]
   pub fn add_statistics(&mut self, statistics: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_STATISTICS, statistics);
   }
   #[inline]
-  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_LAYOUT, layout);
+  pub fn add_footer(&mut self, footer: flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_FOOTER, footer);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
@@ -478,8 +495,9 @@ impl core::fmt::Debug for Postscript<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Postscript");
       ds.field("dtype", &self.dtype());
-      ds.field("statistics", &self.statistics());
       ds.field("layout", &self.layout());
+      ds.field("statistics", &self.statistics());
+      ds.field("footer", &self.footer());
       ds.finish()
   }
 }
@@ -750,103 +768,93 @@ impl core::fmt::Debug for FileStatistics<'_> {
       ds.finish()
   }
 }
-pub enum FileLayoutOffset {}
+pub enum FooterOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,
 /// compression schemes, encryption schemes, etc.
-pub struct FileLayout<'a> {
+pub struct Footer<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for FileLayout<'a> {
-  type Inner = FileLayout<'a>;
+impl<'a> flatbuffers::Follow<'a> for Footer<'a> {
+  type Inner = Footer<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: flatbuffers::Table::new(buf, loc) }
   }
 }
 
-impl<'a> FileLayout<'a> {
-  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
-  pub const VT_ARRAY_SPECS: flatbuffers::VOffsetT = 6;
-  pub const VT_LAYOUT_SPECS: flatbuffers::VOffsetT = 8;
-  pub const VT_SEGMENT_SPECS: flatbuffers::VOffsetT = 10;
-  pub const VT_COMPRESSION_SPECS: flatbuffers::VOffsetT = 12;
-  pub const VT_ENCRYPTION_SPECS: flatbuffers::VOffsetT = 14;
+impl<'a> Footer<'a> {
+  pub const VT_ARRAY_SPECS: flatbuffers::VOffsetT = 4;
+  pub const VT_LAYOUT_SPECS: flatbuffers::VOffsetT = 6;
+  pub const VT_SEGMENT_SPECS: flatbuffers::VOffsetT = 8;
+  pub const VT_COMPRESSION_SPECS: flatbuffers::VOffsetT = 10;
+  pub const VT_ENCRYPTION_SPECS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    FileLayout { _tab: table }
+    Footer { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args FileLayoutArgs<'args>
-  ) -> flatbuffers::WIPOffset<FileLayout<'bldr>> {
-    let mut builder = FileLayoutBuilder::new(_fbb);
+    args: &'args FooterArgs<'args>
+  ) -> flatbuffers::WIPOffset<Footer<'bldr>> {
+    let mut builder = FooterBuilder::new(_fbb);
     if let Some(x) = args.encryption_specs { builder.add_encryption_specs(x); }
     if let Some(x) = args.compression_specs { builder.add_compression_specs(x); }
     if let Some(x) = args.segment_specs { builder.add_segment_specs(x); }
     if let Some(x) = args.layout_specs { builder.add_layout_specs(x); }
     if let Some(x) = args.array_specs { builder.add_array_specs(x); }
-    if let Some(x) = args.layout { builder.add_layout(x); }
     builder.finish()
   }
 
 
   #[inline]
-  pub fn layout(&self) -> Option<Layout<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FileLayout::VT_LAYOUT, None)}
-  }
-  #[inline]
   pub fn array_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec>>>>(FileLayout::VT_ARRAY_SPECS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec>>>>(Footer::VT_ARRAY_SPECS, None)}
   }
   #[inline]
   pub fn layout_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec>>>>(FileLayout::VT_LAYOUT_SPECS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec>>>>(Footer::VT_LAYOUT_SPECS, None)}
   }
   #[inline]
   pub fn segment_specs(&self) -> Option<flatbuffers::Vector<'a, SegmentSpec>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(FileLayout::VT_SEGMENT_SPECS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(Footer::VT_SEGMENT_SPECS, None)}
   }
   #[inline]
   pub fn compression_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec>>>>(FileLayout::VT_COMPRESSION_SPECS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec>>>>(Footer::VT_COMPRESSION_SPECS, None)}
   }
   #[inline]
   pub fn encryption_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec>>>>(FileLayout::VT_ENCRYPTION_SPECS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec>>>>(Footer::VT_ENCRYPTION_SPECS, None)}
   }
 }
 
-impl flatbuffers::Verifiable for FileLayout<'_> {
+impl flatbuffers::Verifiable for Footer<'_> {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArraySpec>>>>("array_specs", Self::VT_ARRAY_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutSpec>>>>("layout_specs", Self::VT_LAYOUT_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segment_specs", Self::VT_SEGMENT_SPECS, false)?
@@ -856,19 +864,17 @@ impl flatbuffers::Verifiable for FileLayout<'_> {
     Ok(())
   }
 }
-pub struct FileLayoutArgs<'a> {
-    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
+pub struct FooterArgs<'a> {
     pub array_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>>>,
     pub layout_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec<'a>>>>>,
     pub segment_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, SegmentSpec>>>,
     pub compression_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>>>,
     pub encryption_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>>>,
 }
-impl<'a> Default for FileLayoutArgs<'a> {
+impl<'a> Default for FooterArgs<'a> {
   #[inline]
   fn default() -> Self {
-    FileLayoutArgs {
-      layout: None,
+    FooterArgs {
       array_specs: None,
       layout_specs: None,
       segment_specs: None,
@@ -878,54 +884,49 @@ impl<'a> Default for FileLayoutArgs<'a> {
   }
 }
 
-pub struct FileLayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+pub struct FooterBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileLayoutBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(FileLayout::VT_LAYOUT, layout);
-  }
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_array_specs(&mut self, array_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArraySpec<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_ARRAY_SPECS, array_specs);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_ARRAY_SPECS, array_specs);
   }
   #[inline]
   pub fn add_layout_specs(&mut self, layout_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<LayoutSpec<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_LAYOUT_SPECS, layout_specs);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_LAYOUT_SPECS, layout_specs);
   }
   #[inline]
   pub fn add_segment_specs(&mut self, segment_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , SegmentSpec>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_SEGMENT_SPECS, segment_specs);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_SEGMENT_SPECS, segment_specs);
   }
   #[inline]
   pub fn add_compression_specs(&mut self, compression_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<CompressionSpec<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_COMPRESSION_SPECS, compression_specs);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_COMPRESSION_SPECS, compression_specs);
   }
   #[inline]
   pub fn add_encryption_specs(&mut self, encryption_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<EncryptionSpec<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_ENCRYPTION_SPECS, encryption_specs);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_ENCRYPTION_SPECS, encryption_specs);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FileLayoutBuilder<'a, 'b, A> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    FileLayoutBuilder {
+    FooterBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<FileLayout<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<Footer<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl core::fmt::Debug for FileLayout<'_> {
+impl core::fmt::Debug for Footer<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("FileLayout");
-      ds.field("layout", &self.layout());
+    let mut ds = f.debug_struct("Footer");
       ds.field("array_specs", &self.array_specs());
       ds.field("layout_specs", &self.layout_specs());
       ds.field("segment_specs", &self.segment_specs());

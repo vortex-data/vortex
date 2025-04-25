@@ -22,6 +22,7 @@ use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::sparse::SparseArray;
 use vortex::encodings::zigzag::ZigZagEncoding;
+use vortex::error::{VortexExpect, VortexUnwrap};
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 use vortex::vtable::EncodingVTable;
@@ -29,10 +30,10 @@ use vortex::{Array, ArrayRef, IntoArray};
 
 fn fsst_array() -> ArrayRef {
     let input_array = varbin_array();
-    let compressor = fsst_train_compressor(&input_array).unwrap();
+    let compressor = fsst_train_compressor(&input_array).vortex_unwrap();
 
     fsst_compress(&input_array, &compressor)
-        .unwrap()
+        .vortex_unwrap()
         .into_array()
 }
 
@@ -60,7 +61,7 @@ fn varbinview_array() -> ArrayRef {
 fn enc_impls() -> Vec<ArrayRef> {
     vec![
         ALPArray::try_new(buffer![1].into_array(), Exponents { e: 1, f: 1 }, None)
-            .unwrap()
+            .vortex_unwrap()
             .into_array(),
         RDEncoder::new(&[1.123_848_f32.powi(-2)])
             .encode(&PrimitiveArray::new(
@@ -69,7 +70,7 @@ fn enc_impls() -> Vec<ArrayRef> {
             ))
             .into_array(),
         BitPackedArray::encode(&buffer![100u32].into_array(), 8)
-            .unwrap()
+            .vortex_unwrap()
             .into_array(),
         BoolArray::from_iter([false]).into_array(),
         ByteBoolArray::from(vec![false]).into_array(),
@@ -80,7 +81,7 @@ fn enc_impls() -> Vec<ArrayRef> {
             ],
             DType::Bool(Nullability::NonNullable),
         )
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         ConstantArray::new(10, 1).into_array(),
         DateTimePartsArray::try_new(
@@ -93,32 +94,32 @@ fn enc_impls() -> Vec<ArrayRef> {
             buffer![0].into_array(),
             buffer![0].into_array(),
         )
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
             buffer![0u32, 1],
             Validity::NonNullable,
         ))
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         DictArray::try_new(buffer![0u32, 1, 0].into_array(), buffer![1, 2].into_array())
-            .unwrap()
+            .vortex_unwrap()
             .into_array(),
         fsst_array(),
         FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into())
-            .unwrap()
+            .vortex_unwrap()
             .into_array(),
         ListArray::try_new(
             buffer![0, 1].into_array(),
             buffer![0, 1, 2].into_array(),
             Validity::NonNullable,
         )
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         NullArray::new(10).into_array(),
         buffer![0, 1].into_array(),
         RunEndArray::try_new(buffer![5u32, 8].into_array(), buffer![0, 1].into_array())
-            .unwrap()
+            .vortex_unwrap()
             .into_array(),
         SparseArray::try_new(
             buffer![5u64, 8].into_array(),
@@ -126,7 +127,7 @@ fn enc_impls() -> Vec<ArrayRef> {
             10,
             Scalar::null_typed::<u32>(),
         )
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         StructArray::try_new(
             ["a".into(), "b".into()].into(),
@@ -137,18 +138,20 @@ fn enc_impls() -> Vec<ArrayRef> {
             3,
             Validity::NonNullable,
         )
-        .unwrap()
+        .vortex_unwrap()
         .into_array(),
         varbin_array(),
         varbinview_array(),
         ZigZagEncoding
             .encode(
-                &buffer![-1, 1, -9, 9].into_array().to_canonical().unwrap(),
+                &buffer![-1, 1, -9, 9]
+                    .into_array()
+                    .to_canonical()
+                    .vortex_unwrap(),
                 None,
             )
-            .unwrap()
-            .unwrap()
-            .into_array(),
+            .vortex_unwrap()
+            .vortex_expect("Failed to encode"),
     ]
 }
 

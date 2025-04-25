@@ -41,12 +41,11 @@ impl DuckDBExecutor {
 /// Finds the path to the DuckDB executable
 pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
-        if !duckdb_path.as_path().exists() {
-            panic!(
-                "failed to find duckdb executable at: {}",
-                duckdb_path.display()
-            );
-        }
+        assert!(
+            duckdb_path.as_path().exists(),
+            "failed to find duckdb executable at: {}",
+            duckdb_path.display()
+        );
     };
 
     // User supplied path takes priority.
@@ -94,7 +93,7 @@ pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) 
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
 
     info!(

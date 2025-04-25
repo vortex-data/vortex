@@ -20,10 +20,12 @@ include "vortex-layout/layout.fbs";
 table Postscript {
     /// Segment containing the root `DType` flatbuffer.
     dtype: PostscriptSegment;
+    /// Segment containing the root `Layout` flatbuffer (required).
+    layout: PostscriptSegment;
     /// Segment containing the file-level `Statistics` flatbuffer.
     statistics: PostscriptSegment;
-    /// Segment containing the `FileLayout` flatbuffer (required).
-    layout: PostscriptSegment;
+    /// Segment containing the 'Footer' flatbuffer (required)
+    footer: PostscriptSegment;
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
@@ -47,10 +49,7 @@ table FileStatistics {
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,
 /// compression schemes, encryption schemes, etc.
-table FileLayout {
-    // The root [`Layout`] of the file.
-    layout: Layout;
-
+table Footer {
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];
     // Dictionary-encoded layout specs, up to u16::MAX.
@@ -111,5 +110,5 @@ table EncryptionSpec {
 // [footer]
 
 root_type FileStatistics;
-root_type FileLayout;
+root_type Footer;
 root_type Postscript;

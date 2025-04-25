@@ -170,15 +170,24 @@ impl<F: FileType> VortexOpenOptions<F> {
         &self,
         initial_offset: u64,
         initial_read: &[u8],
+        footer_segment: &PostscriptSegment,
         layout_segment: &PostscriptSegment,
         dtype: DType,
         file_stats: Option<FileStatistics>,
     ) -> VortexResult<Footer> {
-        let offset = usize::try_from(layout_segment.offset - initial_offset)?;
-        let bytes =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (layout_segment.length as usize)]);
+        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
+        let footer_bytes = FlatBuffer::copy_from(
+            &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
+        );
+
+        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
+        let layout_bytes = FlatBuffer::copy_from(
+            &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
+        );
+
         Footer::from_flatbuffer(
-            bytes,
+            footer_bytes,
+            layout_bytes,
             dtype,
             file_stats,
             &self.registry,

@@ -276,12 +276,11 @@ impl Layout {
     }
 
     /// Serialize the layout into a [`FlatBufferBuilder`].
-    pub fn write_flatbuffer<'fbb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fbb>,
-        ctx: &LayoutContext,
-    ) -> WIPOffset<layout::Layout<'fbb>> {
-        LayoutFlatBufferWriter { layout: self, ctx }.write_flatbuffer(fbb)
+    pub fn flatbuffer_writer<'a>(
+        &'a self,
+        ctx: &'a LayoutContext,
+    ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
+        LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
 
