@@ -20,9 +20,9 @@ use bench_vortex::{
     BenchmarkDataset, Engine, Format, Target, ddb, default_env_filter, vortex_panic,
 };
 use clap::{Parser, ValueEnum, value_parser};
+use datafusion::execution::context::SessionContext;
+use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
-use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::ExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
@@ -266,14 +266,16 @@ async fn benchmark_datafusion_query(
     query_string: &[String],
     iterations: usize,
     context: &SessionContext,
-) -> (Duration, Arc<dyn ExecutionPlan>) {
+) -> (usize, Duration, Arc<dyn ExecutionPlan>) {
+    let mut row_count = usize::MAX;
     let mut fastest_run = Duration::from_millis(u64::MAX);
     let mut plan_result = None;
 
     for _ in 0..iterations {
         let start = Instant::now();
-        let plan = run_tpch_query(context, query_string, query_idx).await.1;
+        let (q_row_count, plan) = run_tpch_query(context, query_string, query_idx).await;
         let elapsed = start.elapsed();
+        row_count = q_row_count;
 
         if plan_result.is_none() {
             plan_result = Some(plan.clone());
@@ -283,6 +285,7 @@ async fn benchmark_datafusion_query(
     }
 
     (
+        row_count,
         fastest_run,
         plan_result.vortex_expect("Execution plan must be set"),
     )
@@ -359,12 +362,10 @@ async fn bench_main(
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     // Run benchmark as an async function
-                    let (fastest_run, plan) =
+                    let (row_count, fastest_run, plan) =
                         benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
 
-                    // Row count verification
-                    let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await.0;
-                    row_counts.push((query_idx, format, first_row_count));
+                    row_counts.push((query_idx, format, row_count));
 
                     // Gather metrics.
                     for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
