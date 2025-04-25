@@ -150,10 +150,9 @@ pub fn write_execution_plan(
         format!("{dataset_name}_{format}_q{query_idx:02}.short.plan"),
         format!(
             "{}",
-            DisplayableExecutionPlan::with_full_metrics(execution_plan)
+            DisplayableExecutionPlan::with_metrics(execution_plan)
                 .set_show_schema(true)
-                .set_show_statistics(true)
-                .indent(true)
+                .indent(false)
         ),
     )
     .expect("Unable to write file");
