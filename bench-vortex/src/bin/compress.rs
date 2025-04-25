@@ -15,6 +15,7 @@ use regex::Regex;
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
+use vortex::error::VortexUnwrap;
 use vortex::{Array, ArrayExt};
 
 #[global_allocator]
@@ -37,7 +38,7 @@ struct Args {
     display_format: DisplayFormat,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let filter = default_env_filter(args.verbose);
@@ -48,10 +49,10 @@ fn main() {
     compress(
         runtime,
         args.iterations,
-        args.datasets.map(|d| Regex::new(&d).unwrap()),
+        args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
         args.display_format,
-    );
+    )
 }
 
 fn compress(
@@ -60,7 +61,7 @@ fn compress(
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
     display_format: DisplayFormat,
-) {
+) -> anyhow::Result<()> {
     let targets = formats
         .iter()
         .map(|f| Target::new(Engine::default(), *f))
@@ -117,7 +118,7 @@ fn compress(
                     ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
                         |chunk| {
                             let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                            chunk.append_to_builder(builder.as_mut()).unwrap();
+                            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
                             builder.finish()
                         },
                     ))
@@ -131,7 +132,7 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.throughputs, RatioMode::Throughput, &targets).unwrap();
+            render_table(measurements.throughputs, RatioMode::Throughput, &targets)?;
             render_table(
                 measurements.ratios,
                 RatioMode::Throughput,
@@ -141,11 +142,10 @@ fn compress(
                     vec![]
                 },
             )
-            .unwrap();
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.throughputs).unwrap();
-            print_measurements_json(measurements.ratios).unwrap();
+            print_measurements_json(measurements.throughputs)?;
+            print_measurements_json(measurements.ratios)
         }
     }
 }

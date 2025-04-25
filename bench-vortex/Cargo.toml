@@ -13,13 +13,8 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints.rust]
-unsafe_op_in_unsafe_fn = "deny"
-warnings = "deny"
-
-[lints.clippy]
-all = { level = "deny", priority = -1 }
-or_fun_call = "deny"
+[lints]
+workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
@@ -29,7 +24,6 @@ arrow-select = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
-cfg-if = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true, features = [
     "parquet",
@@ -37,7 +31,6 @@ datafusion = { workspace = true, features = [
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
-enum-iterator = { workspace = true }
 futures = { workspace = true }
 governor = { workspace = true }
 homedir = { workspace = true }
@@ -74,7 +67,6 @@ uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet", "files"] }
 vortex-datafusion = { workspace = true }
 vortex-io = { workspace = true, features = ["tokio"] }
-vortex-metrics = { workspace = true }
 xshell = { workspace = true }
 
 [features]

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rand::{Rng, SeedableRng};
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::FieldNames;
-use vortex::error::VortexResult;
+use vortex::error::{VortexResult, VortexUnwrap};
 use vortex::validity::Validity;
 use vortex::{Array, ArrayRef};
 
@@ -50,8 +50,9 @@ impl Dataset for StructListOfInts {
                         let elements = PrimitiveArray::from_iter(
                             (0..chunk_row_count).map(|_| rng.random::<i64>()),
                         );
-                        let offsets =
-                            PrimitiveArray::from_iter((0..=chunk_row_count).map(|i| i as u32));
+                        let offsets = PrimitiveArray::from_iter(
+                            (0..=chunk_row_count).map(|i| u32::try_from(i).vortex_unwrap()),
+                        );
                         ListArray::try_new(
                             elements.into_array(),
                             offsets.into_array(),
