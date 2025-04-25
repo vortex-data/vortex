@@ -46,6 +46,7 @@ rand = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
+rust-lapper = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
