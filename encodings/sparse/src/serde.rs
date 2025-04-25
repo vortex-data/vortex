@@ -5,7 +5,6 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
     ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
-use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -56,7 +55,7 @@ impl EncodingVTable for SparseEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
+        let fill_value = Scalar::new(dtype, ScalarValue::from_protobytes(&parts.buffer(0)?)?);
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
     }
@@ -87,11 +86,7 @@ impl EncodingVTable for SparseEncoding {
 
 impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = self
-            .fill_value
-            .value()
-            .to_flexbytes::<ByteBufferMut>()
-            .freeze();
+        let fill_value_buffer = self.fill_value.value().to_protobytes();
         visitor.visit_buffer(&fill_value_buffer);
     }
 

@@ -59,7 +59,7 @@ vortex-error = { workspace = true, features = [
 ] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
+vortex-scalar = { workspace = true }
 
 [features]
 arbitrary = [

@@ -3,8 +3,7 @@ use std::sync::Arc;
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_dtype::half::f16;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::decimal_value::Value;
@@ -75,31 +74,31 @@ impl From<&PValue> for pb::ScalarValue {
     fn from(value: &PValue) -> Self {
         match value {
             PValue::I8(v) => pb::ScalarValue {
-                kind: Some(Kind::Int32Value(*v as i32)),
+                kind: Some(Kind::Int64Value(*v as i64)),
             },
             PValue::I16(v) => pb::ScalarValue {
-                kind: Some(Kind::Int32Value(*v as i32)),
+                kind: Some(Kind::Int64Value(*v as i64)),
             },
             PValue::I32(v) => pb::ScalarValue {
-                kind: Some(Kind::Int32Value(*v)),
+                kind: Some(Kind::Int64Value(*v as i64)),
             },
             PValue::I64(v) => pb::ScalarValue {
                 kind: Some(Kind::Int64Value(*v)),
             },
             PValue::U8(v) => pb::ScalarValue {
-                kind: Some(Kind::Uint32Value(*v as u32)),
+                kind: Some(Kind::Uint64Value(*v as u64)),
             },
             PValue::U16(v) => pb::ScalarValue {
-                kind: Some(Kind::Uint32Value(*v as u32)),
+                kind: Some(Kind::Uint64Value(*v as u64)),
             },
             PValue::U32(v) => pb::ScalarValue {
-                kind: Some(Kind::Uint32Value(*v)),
+                kind: Some(Kind::Uint64Value(*v as u64)),
             },
             PValue::U64(v) => pb::ScalarValue {
                 kind: Some(Kind::Uint64Value(*v)),
             },
             PValue::F16(v) => pb::ScalarValue {
-                kind: Some(Kind::F16Value(v.to_bits() as u32)),
+                kind: Some(Kind::Uint64Value(v.to_bits() as u64)),
             },
             PValue::F32(v) => pb::ScalarValue {
                 kind: Some(Kind::F32Value(*v)),
@@ -122,8 +121,7 @@ impl TryFrom<&pb::Scalar> for Scalar {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing dtype"))?,
         )?;
 
-        let value = deserialize_scalar_value(
-            &dtype,
+        let value = ScalarValue::try_from(
             value
                 .value
                 .as_ref()
@@ -134,61 +132,36 @@ impl TryFrom<&pb::Scalar> for Scalar {
     }
 }
 
-fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexResult<ScalarValue> {
-    let kind = value
-        .kind
-        .as_ref()
-        .ok_or_else(|| vortex_err!(InvalidSerde: "ScalarValue missing kind"))?;
+impl TryFrom<&pb::ScalarValue> for ScalarValue {
+    type Error = VortexError;
 
-    match kind {
-        Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
-        Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
-        Kind::Int8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I8(
-            i8::try_from(*v)?,
-        )))),
-        Kind::Int16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I16(
-            i16::try_from(*v)?,
-        )))),
-        Kind::Int32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I32(*v)))),
-        Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
-        Kind::Uint8Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U8(
-            u8::try_from(*v)?,
-        )))),
-        Kind::Uint16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U16(
-            u16::try_from(*v)?,
-        )))),
-        Kind::Uint32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v)))),
-        Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
-        Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-            f16::from_bits(u16::try_from(*v)?),
-        )))),
-        Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
-        Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
-        Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
-            BufferString::from(v.clone()),
-        )))),
-        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-            ByteBuffer::from(v.clone()),
-        )))),
-        Kind::ListValue(v) => {
-            let mut values = Vec::with_capacity(v.values.len());
-            match dtype {
-                DType::Struct(structdt, _) => {
-                    for (elem, dtype) in v.values.iter().zip(structdt.fields()) {
-                        values.push(deserialize_scalar_value(&dtype, elem)?);
-                    }
+    fn try_from(value: &pb::ScalarValue) -> Result<Self, Self::Error> {
+        let kind = value
+            .kind
+            .as_ref()
+            .ok_or_else(|| vortex_err!(InvalidSerde: "ScalarValue missing kind"))?;
+
+        match kind {
+            Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
+            Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
+            Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
+            Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
+            Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
+            Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
+            Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
+                BufferString::from(v.clone()),
+            )))),
+            Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
+                ByteBuffer::from(v.clone()),
+            )))),
+            Kind::ListValue(v) => {
+                let mut values = Vec::with_capacity(v.values.len());
+                for elem in v.values.iter() {
+                    values.push(elem.try_into()?);
                 }
-                DType::List(elementdt, _) => {
-                    for elem in v.values.iter() {
-                        values.push(deserialize_scalar_value(elementdt, elem)?);
-                    }
-                }
-                _ => vortex_bail!("invalid dtype for list value {}", dtype),
+                Ok(ScalarValue(InnerScalarValue::List(values.into())))
             }
-            Ok(ScalarValue(InnerScalarValue::List(values.into())))
-        }
-        Kind::DecimalValue(v) => {
-            match v.clone().value {
+            Kind::DecimalValue(v) => match v.clone().value {
                 None => {
                     vortex_bail!("DecimalValue must be populated")
                 }
@@ -245,7 +218,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
                         ))))
                     }
                 },
-            }
+            },
         }
     }
 }

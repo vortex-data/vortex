@@ -4,13 +4,15 @@ mod list;
 mod primitive;
 mod utf8;
 
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_buffer::{BufferString, ByteBuffer};
+use prost::Message;
+use vortex_buffer::{BufferString, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_proto::scalar as pb;
 
 use crate::ScalarType;
 use crate::decimal::DecimalValue;
@@ -36,37 +38,31 @@ pub(crate) enum InnerScalarValue {
     List(Arc<[ScalarValue]>),
 }
 
-#[cfg(feature = "flatbuffers")]
 impl ScalarValue {
-    pub fn to_flexbytes<B: Default + for<'a> Extend<&'a u8>>(&self) -> B {
-        use serde::Serialize;
-        use vortex_error::VortexExpect;
+    pub fn to_protobytes(&self) -> ByteBuffer {
+        let pb_scalar = pb::ScalarValue::from(self);
 
-        let mut ser = flexbuffers::FlexbufferSerializer::new();
-        self.serialize(&mut ser)
-            .vortex_expect("Failed to serialize ScalarValue");
-        let view = ser.view();
-
-        let mut buf = B::default();
-        buf.extend(view);
-        buf
+        let mut buf = ByteBufferMut::empty();
+        pb_scalar
+            .encode(&mut buf)
+            .map_err(|e| vortex_err!("Failed to serialize protobuf {e}"))
+            .vortex_unwrap();
+        buf.freeze()
     }
 
-    pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
-        use serde::Deserialize;
-
-        Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
-            buf,
-        )?)?)
+    pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
+        ScalarValue::try_from(
+            &pb::ScalarValue::decode(buf)
+                .map_err(|e| vortex_err!("Failed to deserialize protobuf {e}"))?,
+        )
     }
 }
 
-fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {
-    let mut output = String::new();
-    for byte in slice {
-        write!(output, "{:02x}", byte)?;
-    }
-    Ok(output)
+fn to_hex(slice: &[u8]) -> String {
+    slice
+        .iter()
+        .format_with("", |f, b| b(&format_args!("{:02x}", f)))
+        .to_string()
 }
 
 impl Display for ScalarValue {
@@ -86,11 +82,11 @@ impl Display for InnerScalarValue {
                     write!(
                         f,
                         "{}..{}",
-                        to_hex(&buf[0..5])?,
-                        to_hex(&buf[buf.len() - 5..buf.len()])?,
+                        to_hex(&buf[0..5]),
+                        to_hex(&buf[buf.len() - 5..buf.len()]),
                     )
                 } else {
-                    write!(f, "{}", to_hex(buf)?)
+                    write!(f, "{}", to_hex(buf))
                 }
             }
             Self::BufferString(bufstr) => {
