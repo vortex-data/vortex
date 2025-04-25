@@ -39,7 +39,7 @@ vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dict = { workspace = true }
-vortex-dtype = { workspace = true, features = ["proto"] }
+vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }

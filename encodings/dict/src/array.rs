@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, IntoArray, RkyvMetadata, ToCanonical,
+    Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -26,7 +26,7 @@ pub struct DictArray {
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
     type Array = DictArray;
-    type Metadata = RkyvMetadata<DictMetadata>;
+    type Metadata = ProstMetadata<DictMetadata>;
 }
 
 impl DictArray {

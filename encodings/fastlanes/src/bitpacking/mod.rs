@@ -11,7 +11,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
@@ -43,7 +43,7 @@ try_from_array_ref!(BitPackedArray);
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
     type Array = BitPackedArray;
-    type Metadata = RkyvMetadata<BitPackedMetadata>;
+    type Metadata = ProstMetadata<BitPackedMetadata>;
 }
 
 /// NB: All non-null values in the patches array are considered patches

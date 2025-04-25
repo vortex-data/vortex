@@ -6,7 +6,7 @@ use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 
-use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
 
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
@@ -19,6 +19,9 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
         DType::Primitive(p, _) => Ok(ScalarValue(InnerScalarValue::Primitive(random_pvalue(
             u, p,
         )?))),
+        DType::Decimal(..) => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
+            u.arbitrary()?,
+        )))),
         DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
             BufferString::from(u.arbitrary::<String>()?),
         )))),

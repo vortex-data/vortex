@@ -1,5 +1,5 @@
+use std::path::Path;
 use std::process::ExitCode;
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
@@ -13,8 +13,8 @@ use bench_vortex::tpch::{
 };
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, ddb, default_env_filter, feature_flagged_allocator};
-use clap::{Parser, ValueEnum};
+use bench_vortex::{Engine, Format, Target, ddb, default_env_filter};
+use clap::{Parser, ValueEnum, value_parser};
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -24,13 +24,14 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', default_values_t = vec!["datafusion:parquet".to_string(), "datafusion:vortex".to_string()])]
-    targets: Vec<String>,
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target), default_values = vec!["datafusion:parquet", "datafusion:vortex"])]
+    targets: Vec<Target>,
     #[arg(long)]
     duckdb_path: Option<std::path::PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
@@ -72,12 +73,8 @@ pub enum DataGenerator {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    let targets = args
-        .targets
-        .iter()
-        .map(|t| Target::from_str(t).unwrap())
-        .collect_vec();
-    let engines = targets.iter().map(|t| t.engine()).collect_vec();
+
+    let engines = args.targets.iter().map(|t| t.engine()).collect_vec();
 
     validate_args(&engines, &args);
 
@@ -165,7 +162,7 @@ fn main() -> ExitCode {
         args.queries,
         args.exclude_queries,
         args.iterations,
-        targets,
+        args.targets,
         args.display_format,
         args.emulate_object_store,
         args.disable_datafusion_cache,
@@ -240,7 +237,7 @@ fn benchmark_duckdb_query(
     iterations: usize,
     file_format: Format,
     base_url: &Url,
-    duckdb_path: &std::path::Path,
+    duckdb_path: &Path,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
         let duration = ddb::execute_tpch_query(queries, base_url, file_format, duckdb_path)
@@ -334,6 +331,12 @@ async fn bench_main(
         panic!("No queries to run")
     }
 
+    let duckdb_resolved_path = if targets.iter().any(|t| t.engine() == Engine::DuckDB) {
+        Some(ddb::build_and_get_executable_path(duckdb_path))
+    } else {
+        None
+    };
+
     for target in &targets {
         let engine = target.engine();
         let format = target.format();
@@ -394,8 +397,6 @@ async fn bench_main(
             }
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let duckdb_executable = ddb::executable_path(duckdb_path);
-
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let fastest_run = benchmark_duckdb_query(
                         query_idx,
@@ -403,7 +404,7 @@ async fn bench_main(
                         iterations,
                         format,
                         &url,
-                        &duckdb_executable,
+                        duckdb_resolved_path.as_ref().expect("path resoloved above"),
                     );
 
                     let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {

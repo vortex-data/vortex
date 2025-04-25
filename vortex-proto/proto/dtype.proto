@@ -30,6 +30,12 @@ message Primitive {
   bool nullable = 2;
 }
 
+message Decimal {
+  uint32 precision = 1;
+  int32 scale = 2;
+  bool nullable = 3;
+}
+
 message Utf8 {
   bool nullable = 1;
 }
@@ -60,8 +66,7 @@ message DType {
     Null null = 1;
     Bool bool = 2;
     Primitive primitive = 3;
-    // DEPRECATED
-    // Decimal decimal = 4;
+    Decimal decimal = 4;
     Utf8 utf8 = 5;
     Binary binary = 6;
     Struct struct = 7;

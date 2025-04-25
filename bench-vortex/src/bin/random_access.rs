@@ -7,16 +7,15 @@ use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{
-    Engine, Format, Target, default_env_filter, feature_flagged_allocator, setup_logger,
-};
+use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

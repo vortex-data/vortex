@@ -2047,8 +2047,8 @@ version = "0.31.0"
 dependencies = [
  "itertools",
  "num-traits",
+ "prost",
  "rustc-hash",
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2157,7 +2157,7 @@ name = "vortex-datetime-parts"
 version = "0.31.0"
 dependencies = [
  "getrandom 0.2.15",
- "rkyv",
+ "prost",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2172,7 +2172,7 @@ version = "0.31.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
- "rkyv",
+ "prost",
  "rustc-hash",
  "vortex-array",
  "vortex-buffer",
@@ -2193,11 +2193,12 @@ dependencies = [
  "jiff",
  "num-traits",
  "num_enum 0.7.3",
- "rkyv",
+ "prost",
  "serde",
  "static_assertions",
  "vortex-error",
  "vortex-flatbuffers",
+ "vortex-proto",
 ]
 
 [[package]]
@@ -2238,7 +2239,7 @@ dependencies = [
  "itertools",
  "lending-iterator",
  "num-traits",
- "rkyv",
+ "prost",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2259,9 +2260,8 @@ dependencies = [
 name = "vortex-fsst"
 version = "0.31.0"
 dependencies = [
- "arrow-array",
  "fsst-rs",
- "serde",
+ "prost",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2290,7 +2290,9 @@ dependencies = [
 name = "vortex-layout"
 version = "0.31.0"
 dependencies = [
+ "arrow-array",
  "arrow-buffer",
+ "arrow-schema",
  "async-trait",
  "bit-vec",
  "bytes",
@@ -2345,7 +2347,7 @@ dependencies = [
  "arrow-buffer",
  "itertools",
  "num-traits",
- "serde",
+ "prost",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -2377,7 +2379,7 @@ name = "vortex-sparse"
 version = "0.31.0"
 dependencies = [
  "itertools",
- "rkyv",
+ "prost",
  "rstest_reuse",
  "vortex-array",
  "vortex-buffer",

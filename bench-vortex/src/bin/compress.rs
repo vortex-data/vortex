@@ -7,9 +7,7 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{
-    Engine, Format, Target, default_env_filter, feature_flagged_allocator, setup_logger,
-};
+use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -19,7 +17,8 @@ use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
 use vortex::{Array, ArrayExt};
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

@@ -29,7 +29,6 @@ arrow-string = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
-flexbuffers = { workspace = true }
 futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
@@ -43,16 +42,14 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
 prost = { workspace = true }
-prost-types = { workspace = true }
 rand = { workspace = true }
-rkyv = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
-vortex-dtype = { workspace = true, features = ["arrow", "rkyv", "serde"] }
+vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = [
     "flatbuffers",
     "flexbuffers",

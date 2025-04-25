@@ -6,7 +6,7 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, df, feature_flagged_allocator};
+use bench_vortex::{Engine, Format, Target, default_env_filter, df};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -15,7 +15,8 @@ use tracing_futures::Instrument;
 use vortex::error::vortex_panic;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

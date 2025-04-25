@@ -3,7 +3,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    EncodingId, ProstMetadata,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -11,12 +11,13 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use super::DeltaEncoding;
 use crate::DeltaArray;
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Clone, prost::Message)]
 #[repr(C)]
 pub struct DeltaMetadata {
-    // TODO(ngates): do we need any of this?
+    #[prost(uint64, tag = "1")]
     deltas_len: u64,
-    offset: u16, // must be <1024
+    #[prost(uint32, tag = "2")]
+    offset: u32, // must be <1024
 }
 
 impl EncodingVTable for DeltaEncoding {
@@ -31,7 +32,7 @@ impl EncodingVTable for DeltaEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<DeltaMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<DeltaMetadata>::deserialize(parts.metadata())?;
 
         let validity = if parts.nchildren() == 2 {
             Validity::from(dtype.nullability())
@@ -67,24 +68,24 @@ impl EncodingVTable for DeltaEncoding {
     }
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<DeltaMetadata>> for DeltaArray {
+impl ArrayVisitorImpl<ProstMetadata<DeltaMetadata>> for DeltaArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("bases", self.bases());
         visitor.visit_child("deltas", self.deltas());
         visitor.visit_validity(self.validity(), self.len());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DeltaMetadata> {
-        RkyvMetadata(DeltaMetadata {
+    fn _metadata(&self) -> ProstMetadata<DeltaMetadata> {
+        ProstMetadata(DeltaMetadata {
             deltas_len: self.deltas().len() as u64,
-            offset: self.offset() as u16,
+            offset: self.offset() as u32,
         })
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::RkyvMetadata;
+    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
 
     use super::DeltaMetadata;
@@ -94,8 +95,8 @@ mod test {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            RkyvMetadata(DeltaMetadata {
-                offset: u16::MAX,
+            ProstMetadata(DeltaMetadata {
+                offset: u32::MAX,
                 deltas_len: u64::MAX,
             }),
         );

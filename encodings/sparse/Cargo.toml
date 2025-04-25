@@ -18,7 +18,7 @@ workspace = true
 
 [dependencies]
 itertools = { workspace = true }
-rkyv = { workspace = true }
+prost = { workspace = true }
 rstest_reuse = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

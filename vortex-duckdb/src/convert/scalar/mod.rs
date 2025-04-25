@@ -15,6 +15,7 @@ impl ToDuckDBScalar for Scalar {
             DType::Null => Ok(Value::null()),
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
+            DType::Decimal(..) => todo!("implement for duckdb"),
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),

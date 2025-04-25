@@ -62,8 +62,6 @@ mod compio;
 mod r#const;
 mod debug;
 mod macros;
-#[cfg(feature = "rkyv")]
-mod rkyv;
 mod spec_extend;
 mod string;
 
