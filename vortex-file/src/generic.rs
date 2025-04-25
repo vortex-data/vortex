@@ -21,6 +21,7 @@ use crate::{
     VortexOpenOptions,
 };
 
+#[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
     std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
 
@@ -69,6 +70,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Blocking call to open a Vortex file using the provided [`Path`].
+    #[cfg(feature = "tokio")]
     pub fn open_blocking(self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
         // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
         // block-on the async call to open.
@@ -76,6 +78,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Open a Vortex file using the provided [`Path`].
+    #[cfg(feature = "tokio")]
     pub async fn open(mut self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
         self.open_read_at(TokioFile::open(read)?).await
@@ -354,7 +357,7 @@ impl Default for GenericFileOptions {
             initial_read_size: 0,
             initial_read_segments: Default::default(),
             io_concurrency: 8,
-            io_dispatcher: TOKIO_DISPATCHER.clone(),
+            io_dispatcher: IoDispatcher::shared(),
         }
     }
 }

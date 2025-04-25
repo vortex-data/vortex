@@ -27,7 +27,12 @@ simplelog = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "files", "proto"] }
+vortex = { workspace = true, features = [
+    "object_store",
+    "files",
+    "tokio",
+    "proto",
+] }
 
 [dev-dependencies]
 jni = { version = "0.21.1", features = ["invocation"] }

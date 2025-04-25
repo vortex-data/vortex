@@ -15,6 +15,7 @@ version = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
+cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }

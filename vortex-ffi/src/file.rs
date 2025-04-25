@@ -117,7 +117,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
             r.block_on(async move {
                 VortexWriteOptions::default()
                     .write(
-                        &mut File::open(&*path).await?,
+                        &mut File::open(path).await?,
                         array.inner.to_array_stream(),
                     )
                     .await?;
