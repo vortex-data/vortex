@@ -154,8 +154,8 @@ where
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
             parquet_compress_write(
-                batches.clone(),
-                schema.clone(),
+                batches,
+                schema,
                 Compression::ZSTD(ZstdLevel::default()),
                 &mut buf,
             );

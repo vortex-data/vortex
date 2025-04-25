@@ -14,6 +14,7 @@ use rand::distr::Distribution;
 use rand::rng;
 use rand_distr::LogNormal;
 use reqwest::Url;
+use vortex::error::VortexUnwrap;
 
 #[derive(Debug)]
 pub struct SlowObjectStore {
@@ -61,6 +62,7 @@ impl SlowObjectStore {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn wait_time(&self) -> Duration {
         let duration = (self.distribution.sample(&mut rng()) as u64).clamp(30, 1_000);
         Duration::from_millis(duration)
@@ -116,7 +118,12 @@ impl ObjectStore for SlowObjectStore {
 
         self.wait_with_size(r.meta.size).await;
         self.rate_limiter
-            .until_n_ready((r.meta.size as u32).try_into().unwrap())
+            .until_n_ready(
+                u32::try_from(r.meta.size)
+                    .vortex_unwrap()
+                    .try_into()
+                    .vortex_unwrap(),
+            )
             .await
             .unwrap();
 

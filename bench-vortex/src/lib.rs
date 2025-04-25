@@ -1,4 +1,6 @@
 #![feature(exit_status_error)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
 
 use std::clone::Clone;
 use std::fmt::Display;
@@ -39,7 +41,7 @@ impl FromStr for Target {
     fn from_str(target_string: &str) -> Result<Self, Self::Err> {
         let split = target_string.split(":").collect_vec();
         let [engine_str, format_str] = split.as_slice() else {
-            panic!("invalid target string {}", target_string);
+            vortex_panic!("invalid target string {}", target_string);
         };
 
         Ok(Self {
