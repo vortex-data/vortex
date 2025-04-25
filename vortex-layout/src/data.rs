@@ -3,7 +3,10 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{
+    FlatBufferBuilder, Follow, ForwardsUOffset, SIZE_UOFFSET, Verifiable, Verifier,
+    VerifierOptions, WIPOffset, root, root_unchecked,
+};
 use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
@@ -50,9 +53,135 @@ struct ViewedLayout {
 }
 
 impl ViewedLayout {
-    /// Return the flatbuffer layout message.
-    fn flatbuffer(&self) -> layout::Layout<'_> {
+    /// Creates a new viewed layout while validating the top-level flatbuffer only.
+    fn try_new(
+        name: Arc<str>,
+        vtable: LayoutVTableRef,
+        dtype: DType,
+        flatbuffer: FlatBuffer,
+        flatbuffer_loc: usize,
+        ctx: LayoutContext,
+    ) -> VortexResult<Self> {
+        // We perform manual flatbuffer verification of the top-level Layout message, deferring
+        // any recursive validation until we access a specific child.
+        Self::verify_root_layout_only(unsafe {
+            layout::Layout::follow(flatbuffer.as_slice(), flatbuffer_loc)
+        })?;
+
+        Ok(Self {
+            name,
+            vtable,
+            dtype,
+            flatbuffer,
+            flatbuffer_loc,
+            ctx,
+        })
+    }
+
+    /// Access the flatbuffer layout message.
+    ///
+    /// SAFETY: this flatbuffer has only been validated to the current layout. Child layouts
+    ///  have not been validated and should be accessed via the `child` method.
+    unsafe fn flatbuffer(&self) -> layout::Layout<'_> {
         unsafe { layout::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+    }
+
+    /// Return the row count from the flatbuffer.
+    fn metadata(&self) -> Option<&[u8]> {
+        unsafe { self.flatbuffer() }.metadata().map(|m| m.bytes())
+    }
+
+    /// Return the row count from the flatbuffer.
+    fn row_count(&self) -> u64 {
+        unsafe { self.flatbuffer() }.row_count()
+    }
+
+    /// Return the number of children from the flatbuffer.
+    fn nchildren(&self) -> usize {
+        unsafe { self.flatbuffer() }
+            .children()
+            .map_or(0, |children| children.len())
+    }
+
+    /// Return the segment IDs used by this layout.
+    fn segment_ids(&self) -> Option<flatbuffers::Vector<u32>> {
+        unsafe { self.flatbuffer() }.segments()
+    }
+
+    /// Return the child row count.
+    fn child_row_count(&self, i: usize) -> VortexResult<u64> {
+        let unverified_fb = unsafe { self.flatbuffer() }
+            .children()
+            .and_then(|children| (children.len() > i).then(|| children.get(i)))
+            .ok_or_else(|| vortex_err!("Child index out of bounds"))?;
+        let fb = Self::verify_root_layout_only(unverified_fb)?;
+        Ok(fb.row_count())
+    }
+
+    /// Return the i'th child layout.
+    fn child(&self, i: usize, dtype: DType, name: &str) -> VortexResult<Self> {
+        let unverified_fb = unsafe { self.flatbuffer() }
+            .children()
+            .and_then(|children| (children.len() > i).then(|| children.get(i)))
+            .ok_or_else(|| vortex_err!("Child index out of bounds"))?;
+        let fb = Self::verify_root_layout_only(unverified_fb)?;
+
+        let encoding = self
+            .ctx
+            .lookup_encoding(fb.encoding())
+            .ok_or_else(|| vortex_err!("Child layout encoding {} not found", fb.encoding()))?
+            .clone();
+
+        Ok(ViewedLayout {
+            name: format!("{}.{}", self.name, name).into(),
+            vtable: encoding,
+            dtype,
+            flatbuffer: self.flatbuffer.clone(),
+            flatbuffer_loc: fb._tab.loc(),
+            ctx: self.ctx.clone(),
+        })
+    }
+
+    fn verify_root_layout_only(fb: layout::Layout<'_>) -> VortexResult<layout::Layout<'_>> {
+        // We perform manual flatbuffer verification of the top-level Layout message, deferring
+        // any recursive validation until we access a specific child.
+        let opts = VerifierOptions::default();
+        let mut v = Verifier::new(&opts, fb._tab.buf());
+
+        // The internals of [`layout::Layout::run_verifier`].
+        let mut table_v = v
+            .visit_table(fb._tab.loc())?
+            .visit_field::<u16>("encoding", layout::Layout::VT_ENCODING, false)?
+            .visit_field::<u64>("row_count", layout::Layout::VT_ROW_COUNT, false)?
+            .visit_field::<ForwardsUOffset<flatbuffers::Vector<'_, u8>>>(
+                "metadata",
+                layout::Layout::VT_METADATA,
+                false,
+            )?
+            // .visit_field::<ForwardsUOffset<flatbuffers::Vector<'_, ForwardsUOffset<layout::Layout>>>>("children", layout::Layout::VT_CHILDREN, false)?
+            .visit_field::<ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "segments",
+                layout::Layout::VT_SEGMENTS,
+                false,
+            )?;
+
+        // Instead of recursively verifying the children, we manually verify that the vector is
+        // within bounds, but do not verify the contents of each element.
+
+        if let Some(field_pos) = table_v.deref(layout::Layout::VT_CHILDREN)? {
+            let offset = table_v.verifier().get_uoffset(field_pos)? as usize;
+            let next_pos = offset.saturating_add(field_pos);
+
+            // Now we verify the vector itself, based on flatbuffers::verifier::verify_vector_range
+            // which sadly isn't public.
+            let len = v.get_uoffset(next_pos)? as usize;
+            let start = next_pos.saturating_add(SIZE_UOFFSET);
+            v.is_aligned::<ForwardsUOffset<layout::Layout>>(start)?;
+            let size = len.saturating_mul(size_of::<ForwardsUOffset<layout::Layout>>());
+            v.range_in_buffer(start, size)?;
+        }
+
+        Ok(fb)
     }
 }
 
@@ -126,7 +255,7 @@ impl Layout {
     pub fn row_count(&self) -> u64 {
         match &self.0 {
             Inner::Owned(owned) => owned.row_count,
-            Inner::Viewed(viewed) => viewed.flatbuffer().row_count(),
+            Inner::Viewed(viewed) => viewed.row_count(),
         }
     }
 
@@ -142,10 +271,7 @@ impl Layout {
     pub fn nchildren(&self) -> usize {
         match &self.0 {
             Inner::Owned(owned) => owned.children.len(),
-            Inner::Viewed(viewed) => viewed
-                .flatbuffer()
-                .children()
-                .map_or(0, |children| children.len()),
+            Inner::Viewed(viewed) => viewed.nchildren(),
         }
     }
 
@@ -170,29 +296,7 @@ impl Layout {
                 }
                 Ok(child)
             }
-            Inner::Viewed(v) => {
-                let fb = v
-                    .flatbuffer()
-                    .children()
-                    .vortex_expect("child bounds already checked")
-                    .get(i);
-                let encoding = v
-                    .ctx
-                    .lookup_encoding(fb.encoding())
-                    .ok_or_else(|| {
-                        vortex_err!("Child layout encoding {} not found", fb.encoding())
-                    })?
-                    .clone();
-
-                Ok(Self(Inner::Viewed(ViewedLayout {
-                    name: format!("{}.{}", v.name, name.as_ref()).into(),
-                    vtable: encoding,
-                    dtype,
-                    flatbuffer: v.flatbuffer.clone(),
-                    flatbuffer_loc: fb._tab.loc(),
-                    ctx: v.ctx.clone(),
-                })))
-            }
+            Inner::Viewed(v) => Ok(Self(Inner::Viewed(v.child(i, dtype, name.as_ref())?))),
         }
     }
 
@@ -208,11 +312,8 @@ impl Layout {
         match &self.0 {
             Inner::Owned(o) => o.children[i].row_count(),
             Inner::Viewed(v) => v
-                .flatbuffer()
-                .children()
-                .vortex_expect("child bounds already checked")
-                .get(i)
-                .row_count(),
+                .child_row_count(i)
+                .vortex_expect("Failed to verify layout flatbuffer"),
         }
     }
 
@@ -220,10 +321,7 @@ impl Layout {
     pub fn nsegments(&self) -> usize {
         match &self.0 {
             Inner::Owned(owned) => owned.segments.len(),
-            Inner::Viewed(viewed) => viewed
-                .flatbuffer()
-                .segments()
-                .map_or(0, |segments| segments.len()),
+            Inner::Viewed(viewed) => viewed.segment_ids().map_or(0, |segments| segments.len()),
         }
     }
 
@@ -232,8 +330,7 @@ impl Layout {
         match &self.0 {
             Inner::Owned(owned) => owned.segments.get(i).copied(),
             Inner::Viewed(viewed) => viewed
-                .flatbuffer()
-                .segments()
+                .segment_ids()
                 .and_then(|segments| (i < segments.len()).then(|| segments.get(i)))
                 .map(SegmentId::from),
         }
@@ -248,9 +345,9 @@ impl Layout {
     pub fn metadata(&self) -> Option<Bytes> {
         match &self.0 {
             Inner::Owned(owned) => owned.metadata.clone(),
-            Inner::Viewed(viewed) => viewed.flatbuffer().metadata().map(|m| {
+            Inner::Viewed(viewed) => viewed.metadata().map(|m| {
                 // Return the metadata bytes zero-copy by finding them in the flatbuffer.
-                viewed.flatbuffer.as_ref().inner().slice_ref(m.bytes())
+                viewed.flatbuffer.as_ref().inner().slice_ref(m)
             }),
         }
     }
