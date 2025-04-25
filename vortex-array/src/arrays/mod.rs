@@ -17,6 +17,7 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+mod decimal;
 //#[cfg(test)]
 //mod test_compatibility;
 
@@ -24,6 +25,7 @@ pub use self::bool::*;
 pub use self::chunked::*;
 pub use self::constant::*;
 pub use self::datetime::*;
+pub use self::decimal::*;
 pub use self::extension::*;
 pub use self::list::*;
 pub use self::null::*;

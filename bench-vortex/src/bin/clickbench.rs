@@ -8,12 +8,11 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{
-    Engine, Format, IdempotentPath, ddb, default_env_filter, df, feature_flagged_allocator,
-};
-use clap::Parser;
+use bench_vortex::{Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df};
+use clap::{Parser, value_parser};
 use datafusion::physical_plan::execution_plan;
 use indicatif::ProgressBar;
+use itertools::Itertools;
 use log::warn;
 use tracing::{debug, info_span};
 use tracing_futures::Instrument;
@@ -21,28 +20,20 @@ use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Engine::DataFusion])]
-    engines: Vec<Engine>,
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target), default_values = vec!["datafusion:parquet", "datafusion:vortex"])]
+    targets: Vec<Target>,
     #[arg(long)]
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
-    #[arg(
-        long,
-        value_delimiter = ',',
-        value_enum,
-        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
-    )]
-    formats: Vec<Format>,
-    #[arg(long)]
-    only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
@@ -68,7 +59,7 @@ struct Args {
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
-    hide_metrics: bool,
+    show_metrics: bool,
 }
 
 struct DataFusionCtx {
@@ -84,7 +75,7 @@ struct DataFusionCtx {
 }
 
 struct DuckDBCtx {
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: PathBuf,
 }
 
 enum EngineCtx {
@@ -98,21 +89,37 @@ impl EngineCtx {
         emit_execution_plan: bool,
     ) -> Self {
         EngineCtx::DataFusion(DataFusionCtx {
-            execution_plans: std::vec::Vec::new(),
-            metrics: std::vec::Vec::new(),
+            execution_plans: Vec::new(),
+            metrics: Vec::new(),
             session: session_ctx,
             emit_execution_plan,
         })
     }
 
-    fn new_with_duckdb(duckdb_path: Option<std::path::PathBuf>) -> Self {
-        EngineCtx::DuckDB(DuckDBCtx { duckdb_path })
+    fn new_with_duckdb(duckdb_path: &Path) -> Self {
+        EngineCtx::DuckDB(DuckDBCtx {
+            duckdb_path: duckdb_path.to_path_buf(),
+        })
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    validate_args(&args);
+
+    let engines = args
+        .targets
+        .iter()
+        .map(|t| t.engine())
+        .unique()
+        .collect_vec();
+    let formats = args
+        .targets
+        .iter()
+        .map(|t| t.format())
+        .unique()
+        .collect_vec();
+
+    validate_args(&engines, &args);
 
     // Capture `RUST_LOG` configuration
     let filter = default_env_filter(args.verbose);
@@ -147,10 +154,6 @@ fn main() -> anyhow::Result<()> {
         _guard
     };
 
-    if args.only_vortex {
-        panic!("use `--formats vortex` instead of `--only-vortex`");
-    }
-
     let queries_filepath = args
         .queries_file
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"));
@@ -170,85 +173,93 @@ fn main() -> anyhow::Result<()> {
     let progress_bar = if args.hide_progress_bar {
         ProgressBar::hidden()
     } else {
-        ProgressBar::new((queries.len() * args.formats.len() * args.engines.len()) as u64)
+        ProgressBar::new((queries.len() * formats.len() * engines.len()) as u64)
     };
 
     let mut query_measurements = Vec::new();
 
-    for engine in &args.engines {
-        for file_format in &args.formats {
-            let session_ctx =
-                df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
+    let resolved_path = if args.targets.iter().any(|t| t.engine() == Engine::DuckDB) {
+        Some(ddb::build_and_get_executable_path(&args.duckdb_path))
+    } else {
+        None
+    };
 
-            // Register object store to the session.
-            df::make_object_store(&session_ctx, &base_url).expect("Failed to make object store");
+    for target in args.targets.iter() {
+        let engine = target.engine();
+        let file_format = target.format();
 
-            let mut engine_ctx = match engine {
-                Engine::DataFusion => EngineCtx::new_with_datafusion(session_ctx, args.emit_plan),
-                Engine::DuckDB => EngineCtx::new_with_duckdb(args.duckdb_path.clone()),
-                _ => unreachable!("engine not supported"),
-            };
+        let mut engine_ctx = match engine {
+            Engine::DataFusion => {
+                let session_ctx = df::get_session_context(
+                    args.emulate_object_store,
+                    args.disable_datafusion_cache,
+                );
+                // Register object store to the session.
+                df::make_object_store(&session_ctx, &base_url)
+                    .expect("Failed to make object store");
 
-            let tokio_runtime = new_tokio_runtime(args.threads);
+                EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
+            }
+            Engine::DuckDB => {
+                EngineCtx::new_with_duckdb(resolved_path.as_ref().expect("path resolved above"))
+            }
+            _ => unreachable!("engine not supported"),
+        };
 
-            init_data_source(
-                *file_format,
-                &base_url,
-                args.single_file,
-                &engine_ctx,
-                &tokio_runtime,
-            )
-            .expect("Failed to initialize data source");
+        let tokio_runtime = new_tokio_runtime(args.threads);
 
-            let bench_measurements = execute_queries(
-                &queries,
-                args.iterations,
-                args.single_file,
-                &tokio_runtime,
-                *file_format,
-                &base_url,
-                &progress_bar,
-                &mut engine_ctx,
-            );
+        init_data_source(
+            file_format,
+            &base_url,
+            args.single_file,
+            &engine_ctx,
+            &tokio_runtime,
+        )
+        .expect("Failed to initialize data source");
 
-            if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
-                if args.export_spans {
-                    if let Err(err) = tokio_runtime.block_on(async move {
-                        export_plan_spans(*file_format, &ctx.execution_plans).await
-                    }) {
-                        warn!("failed to export spans {err}");
-                    }
-                }
+        let bench_measurements = execute_queries(
+            &queries,
+            args.iterations,
+            args.single_file,
+            &tokio_runtime,
+            file_format,
+            &base_url,
+            &progress_bar,
+            &mut engine_ctx,
+        );
 
-                if !args.hide_metrics {
-                    print_metrics(&ctx.metrics);
+        if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
+            if args.export_spans {
+                if let Err(err) = tokio_runtime.block_on(async move {
+                    export_plan_spans(file_format, &ctx.execution_plans).await
+                }) {
+                    warn!("failed to export spans {err}");
                 }
             }
 
-            query_measurements.extend(bench_measurements);
+            if args.show_metrics {
+                print_metrics(&ctx.metrics);
+            }
         }
+
+        query_measurements.extend(bench_measurements);
     }
 
-    print_results(
-        &args.display_format,
-        query_measurements,
-        &args.formats,
-        &args.engines,
-    );
+    print_results(&args.display_format, query_measurements, &args.targets);
 
     Ok(())
 }
 
-fn validate_args(args: &Args) {
-    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
+fn validate_args(engines: &[Engine], args: &Args) {
+    if args.duckdb_path.is_some() && !engines.contains(&Engine::DuckDB) {
         panic!("--duckdb-path is only valid when DuckDB engine is used");
     }
 
-    if (args.emit_plan || args.export_spans || !args.hide_metrics || args.threads.is_some())
-        && !args.engines.contains(&Engine::DataFusion)
+    if (args.emit_plan || args.export_spans || args.show_metrics || args.threads.is_some())
+        && !engines.contains(&Engine::DataFusion)
     {
         panic!(
-            "--emit-plan, --export-spans, --hide-metrics, --threads are only valid if DataFusion is used"
+            "--emit-plan, --export-spans, --show_metrics, --threads are only valid if DataFusion is used"
         );
     }
 }
@@ -280,13 +291,10 @@ fn print_metrics(
 fn print_results(
     display_format: &DisplayFormat,
     query_measurements: Vec<QueryMeasurement>,
-    file_formats: &[Format],
-    engines: &[Engine],
+    targets: &[Target],
 ) {
     match display_format {
-        DisplayFormat::Table => {
-            render_table(query_measurements, file_formats, RatioMode::Time, engines).unwrap()
-        }
+        DisplayFormat::Table => render_table(query_measurements, RatioMode::Time, targets).unwrap(),
 
         DisplayFormat::GhJson => print_measurements_json(query_measurements).unwrap(),
     }
@@ -433,17 +441,14 @@ fn execute_queries(
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine: Engine::DataFusion,
+                    target: Target::new(Engine::DataFusion, file_format),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    format: file_format,
                     dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
 
             EngineCtx::DuckDB(args) => {
-                let duckdb_path = ddb::executable_path(&args.duckdb_path);
-
                 let fastest_run = benchmark_duckdb_query(
                     *query_idx,
                     query_string,
@@ -451,15 +456,14 @@ fn execute_queries(
                     file_format,
                     base_url,
                     single_file,
-                    &duckdb_path,
+                    &args.duckdb_path,
                 );
 
                 query_measurements.push(QueryMeasurement {
                     query_idx: *query_idx,
-                    engine: Engine::DuckDB,
+                    target: Target::new(Engine::DuckDB, file_format),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    format: file_format,
                     dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }

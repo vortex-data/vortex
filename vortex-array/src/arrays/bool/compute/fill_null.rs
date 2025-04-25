@@ -14,16 +14,19 @@ impl FillNullFn<&BoolArray> for BoolEncoding {
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
         Ok(match array.validity() {
-            Validity::NonNullable => array.to_array().into_array(),
-            Validity::AllValid => BoolArray::from(array.boolean_buffer().clone()).into_array(),
-            Validity::AllInvalid => ConstantArray::new(fill, array.len()).into_array(),
+            Validity::NonNullable | Validity::AllValid => BoolArray::new(
+                array.boolean_buffer().clone(),
+                fill_value.dtype().nullability().into(),
+            )
+            .into_array(),
+            Validity::AllInvalid => ConstantArray::new(fill_value, array.len()).into_array(),
             Validity::Array(v) => {
                 let bool_buffer = if fill {
                     array.boolean_buffer() | &!v.to_bool()?.boolean_buffer()
                 } else {
                     array.boolean_buffer() & v.to_bool()?.boolean_buffer()
                 };
-                BoolArray::from(bool_buffer).into_array()
+                BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
         })
     }

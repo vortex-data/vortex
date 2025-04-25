@@ -3,8 +3,8 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 
 use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
+    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::{Array, ArrayImpl};
 
@@ -17,6 +17,9 @@ pub trait ArrayVariants {
 
     /// Downcasts the array for primitive-specific behavior.
     fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait>;
+
+    /// Downcasts the array for decimal-specific behavior.
+    fn as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait>;
 
     /// Downcasts the array for utf8-specific behavior.
     fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait>;
@@ -45,6 +48,10 @@ impl ArrayVariants for Arc<dyn Array> {
 
     fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         self.as_ref().as_primitive_typed()
+    }
+
+    fn as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
+        self.as_ref().as_decimal_typed()
     }
 
     fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
@@ -82,6 +89,11 @@ pub trait ArrayVariantsImpl {
 
     /// Downcasts the array for primitive-specific behavior.
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        None
+    }
+
+    /// Downcasts the array for decimal-specific behavior.
+    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
         None
     }
 
@@ -130,6 +142,13 @@ impl<A: ArrayImpl> ArrayVariants for A {
     fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         matches!(self.dtype(), DType::Primitive(..))
             .then(|| ArrayVariantsImpl::_as_primitive_typed(self))
+            .flatten()
+    }
+
+    /// Downcasts the array for decimal-specific behavior.
+    fn as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
+        matches!(self.dtype(), DType::Decimal(..))
+            .then(|| ArrayVariantsImpl::_as_decimal_typed(self))
             .flatten()
     }
 

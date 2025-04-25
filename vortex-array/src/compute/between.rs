@@ -115,7 +115,7 @@ pub fn between(
         result.dtype(),
         &DType::Bool(
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability()
-        )
+        ),
     );
 
     Ok(result)

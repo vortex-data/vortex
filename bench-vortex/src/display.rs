@@ -1,13 +1,14 @@
 use std::iter;
 
 use clap::ValueEnum;
+use itertools::Itertools;
 use tabled::builder::Builder;
 use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::aliases::hash_map::HashMap;
 
+use crate::Target;
 use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};
-use crate::{Engine, Format};
 
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DisplayFormat {
@@ -24,31 +25,27 @@ pub enum RatioMode {
 
 pub fn render_table<T: ToTable>(
     all_measurements: Vec<T>,
-    formats: &[Format],
     mode: RatioMode,
-    engines: &[Engine],
+    targets: &[Target],
 ) -> anyhow::Result<()> {
-    let mut measurements: HashMap<Engine, HashMap<Format, Vec<TableValue>>> =
-        HashMap::with_capacity(all_measurements.len().div_ceil(formats.len()));
+    let mut measurements: HashMap<Target, Vec<TableValue>> =
+        HashMap::with_capacity(all_measurements.len().div_ceil(targets.len()));
+
+    let engines = targets.iter().map(|t| t.engine()).unique().collect_vec();
 
     for m in all_measurements.into_iter() {
         let generic = m.to_table();
         measurements
-            .entry(generic.engine)
-            .or_default()
-            .entry(generic.format)
+            .entry(generic.target)
             .or_default()
             .push(generic);
     }
 
-    measurements
-        .values_mut()
-        .for_each(|v| v.values_mut().for_each(|v| v.sort_unstable()));
+    measurements.values_mut().sorted_unstable();
 
     // The first format serves as the baseline
-    let baseline_format = &formats[0];
-    let baseline_engine = &engines[0];
-    let baseline = measurements[baseline_engine][baseline_format].clone();
+    let baseline_target = &targets[0];
+    let baseline = measurements[baseline_target].clone();
 
     let mut table_builder = Builder::default();
     let mut colors = vec![];
@@ -58,45 +55,35 @@ pub fn render_table<T: ToTable>(
     if engines.len() > 1 {
         table_builder.push_record(
             iter::once("".to_owned())
-                .chain(
-                    engines
-                        .iter()
-                        .flat_map(|e| formats.iter().map(move |_| format!("{}", e))),
-                )
+                .chain(targets.iter().map(move |t| format!("{}", t.engine())))
                 .collect::<Vec<String>>(),
         );
     }
 
     table_builder.push_record(
         iter::once("Benchmark".to_owned())
-            .chain(
-                engines
-                    .iter()
-                    .flat_map(|_| formats.iter().map(move |f| format!("{}", f))),
-            )
+            .chain(targets.iter().map(|t| format!("{}", t.format())))
             .collect::<Vec<String>>(),
     );
 
     for (idx, baseline_measure) in baseline.iter().enumerate() {
         let query_baseline = baseline_measure.value;
         let mut row = vec![baseline_measure.name.clone()];
-        for (col_idx1, engine) in engines.iter().enumerate() {
-            for (col_idx, format) in formats.iter().enumerate() {
-                let measurement = &measurements[engine][format][idx];
-                let value = measurement.value;
+        for (col_idx, target) in targets.iter().enumerate() {
+            let measurement = &measurements[target][idx];
+            let value = measurement.value;
 
-                if format != baseline_format || engine != baseline_engine {
-                    let color = color(query_baseline, value, mode);
+            if target != baseline_target {
+                let color = color(query_baseline, value, mode);
 
-                    colors.push(Colorization::exact(
-                        vec![color],
-                        (idx + header_count, (col_idx1 * engines.len()) + col_idx + 1),
-                    ))
-                }
-
-                let ratio = value / query_baseline;
-                row.push(format!("{value:.2} {} ({ratio:.2})", measurement.unit));
+                colors.push(Colorization::exact(
+                    vec![color],
+                    (idx + header_count, col_idx + 1),
+                ))
             }
+
+            let ratio = value / query_baseline;
+            row.push(format!("{value:.2} {} ({ratio:.2})", measurement.unit));
         }
         table_builder.push_record(row);
     }

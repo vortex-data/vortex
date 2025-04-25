@@ -7,7 +7,7 @@ use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, RkyvMetadata,
+    EncodingId, ProstMetadata,
 };
 
 impl EncodingVTable for ListEncoding {
@@ -22,7 +22,7 @@ impl EncodingVTable for ListEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<ListMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<ListMetadata>::deserialize(parts.metadata())?;
 
         let validity = if parts.nchildren() == 2 {
             Validity::from(dtype.nullability())
@@ -36,14 +36,15 @@ impl EncodingVTable for ListEncoding {
         let DType::List(element_dtype, _) = &dtype else {
             vortex_bail!("Expected List dtype, got {:?}", dtype);
         };
-        let elements =
-            parts
-                .child(0)
-                .decode(ctx, element_dtype.as_ref().clone(), metadata.elements_len)?;
+        let elements = parts.child(0).decode(
+            ctx,
+            element_dtype.as_ref().clone(),
+            usize::try_from(metadata.elements_len).vortex_expect("Too many elements"),
+        )?;
 
         let offsets = parts.child(1).decode(
             ctx,
-            DType::Primitive(metadata.offset_ptype, Nullability::NonNullable),
+            DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 
@@ -51,24 +52,27 @@ impl EncodingVTable for ListEncoding {
     }
 }
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Clone, prost::Message)]
 pub struct ListMetadata {
-    elements_len: usize,
-    offset_ptype: PType,
+    #[prost(uint64, tag = "1")]
+    elements_len: u64,
+    #[prost(enumeration = "PType", tag = "2")]
+    offset_ptype: i32,
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
+impl ArrayVisitorImpl<ProstMetadata<ListMetadata>> for ListArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("elements", self.elements());
         visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<ListMetadata> {
-        RkyvMetadata(ListMetadata {
-            elements_len: self.elements().len(),
+    fn _metadata(&self) -> ProstMetadata<ListMetadata> {
+        ProstMetadata(ListMetadata {
+            elements_len: u64::try_from(self.elements().len())
+                .vortex_expect("More elements than u64"),
             offset_ptype: PType::try_from(self.offsets().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
         })
     }
 }

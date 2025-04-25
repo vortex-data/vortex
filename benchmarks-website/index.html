@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes"/>
-    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" as="fetch" crossorigin>
-    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json" as="fetch" crossorigin>
+    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" as="fetch"
+          crossorigin>
+    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json" as="fetch"
+          crossorigin>
     <link rel="icon" type="image/x-icon" href="favicon.png">
     <link rel="stylesheet" href="style.css">
     <title>Benchmarks</title>
@@ -18,63 +20,91 @@
     <!-- <script src="data.js"></script> -->
     <script src="code.js"></script>
     <script id="main-script">
-      initAndRender([
-          ["Random Access", undefined],
-          ["Compression", {
-              "keptCharts": [
-                  "COMPRESS THROUGHPUT",
-                  "PARQUET RS-ZSTD COMPRESS THROUGHPUT",
-                  "DECOMPRESS THROUGHPUT",
-                  "PARQUET RS-ZSTD DECOMPRESS THROUGHPUT",
-                  "VORTEX COMPRESSION RATIO",
-                  "VORTEX:PARQUET-ZSTD SIZE",
-              ],
-              "hiddenDatasets": undefined,
-              "removedDatasets": new Set([
-                  "TPC-H l_comment canonical",
-                  "TPC-H l_comment chunked without fsst",
-              ]),
-              "renamedDatasets": undefined,
-          }],
-          ["Compression Size", {
-              "hiddenDatasets": undefined,
-          }],
-          ["TPC-H (NVME)", {
-              "keptCharts": undefined,
-              "hiddenDatasets": undefined,
-              "removedDatasets": new Set([
-                  "vortex-in-memory-no-pushdown",
-                  "vortex-in-memory-pushdown",
-                  "vortex-file-uncompressed",
-              ]),
-              "renamedDatasets": {
-                  "vortex-file-compressed": "vortex",
-              },
-          }],
-          ["TPC-H (S3)", {
-              "keptCharts": undefined,
-              "hiddenDatasets": undefined,
-              "renamedDatasets": {
-                  "vortex-file-compressed": "vortex",
-              },
-          }],
-          ["Clickbench", {
-             "renamedDatasets" : {
-                 "vortex-file-compressed": "vortex",
-             }
-          }],
-      ]);
-    </script>
-  </head>
+        initAndRender([
+            ["Random Access", undefined],
+            ["Compression", {
+                "keptCharts": [
+                    "COMPRESS THROUGHPUT",
+                    "PARQUET RS-ZSTD COMPRESS THROUGHPUT",
+                    "DECOMPRESS THROUGHPUT",
+                    "PARQUET RS-ZSTD DECOMPRESS THROUGHPUT",
+                    "VORTEX COMPRESSION RATIO",
+                    "VORTEX:PARQUET-ZSTD SIZE",
+                ],
+                "hiddenDatasets": undefined,
+                "removedDatasets": new Set([
+                    "TPC-H l_comment canonical",
+                    "TPC-H l_comment chunked without fsst",
+                ]),
+                "renamedDatasets": undefined,
+            }],
+            ["Compression Size", {
+                "hiddenDatasets": undefined,
+            }],
+            ["TPC-H (NVME)", {
+                "keptCharts": undefined,
+                "hiddenDatasets": undefined,
+                "removedDatasets": new Set([]),
+                "renamedDatasets": {
+                    "vortex-file-compressed": "datafusion:vortex",
+                    "parquet": "datafusion:parquet",
+                    "arrow": "datafusion:arrow",
 
-  <body>
-    <div class="header-item">
-      <strong class="header-label">Repository:</strong>
-      <a id="repository-link" rel="noopener" href="https://github.com/spiraldb/vortex">https://github.com/spiraldb/vortex</a>
-    </div>
-    <div id="main">
-      <ul id="toc"></ul>
-      <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" class="button">Download data as JSON</a>
-    </div>
-  </body>
+                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                    "DataFusion:parquet": "datafusion:parquet",
+                    "DataFusion:arrow": "datafusion:arrow",
+
+                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                    "DuckDB:parquet": "duckdb:parquet",
+                    "DuckDB:duckdb": "duckdb:duckdb",
+                },
+            }],
+            ["TPC-H (S3)", {
+                "keptCharts": undefined,
+                "hiddenDatasets": undefined,
+                "renamedDatasets": {
+                    "vortex-file-compressed": "datafusion:vortex",
+                    "parquet": "datafusion:parquet",
+                    "arrow": "datafusion:arrow",
+
+                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                    "DataFusion:parquet": "datafusion:parquet",
+                    "DataFusion:arrow": "datafusion:arrow",
+
+                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                    "DuckDB:parquet": "duckdb:parquet",
+                    "DuckDB:duckdb": "duckdb:duckdb",
+                },
+            }],
+            ["Clickbench", {
+                "renamedDatasets": {
+                    "vortex-file-compressed": "datafusion:vortex",
+                    "parquet": "datafusion:parquet",
+                    "arrow": "datafusion:arrow",
+
+                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                    "DataFusion:parquet": "datafusion:parquet",
+                    "DataFusion:arrow": "datafusion:arrow",
+
+                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                    "DuckDB:parquet": "duckdb:parquet",
+                    "DuckDB:duckdb": "duckdb:duckdb",
+                }
+            }],
+        ]);
+    </script>
+</head>
+
+<body>
+<div class="header-item">
+    <strong class="header-label">Repository:</strong>
+    <a id="repository-link" rel="noopener"
+       href="https://github.com/spiraldb/vortex">https://github.com/spiraldb/vortex</a>
+</div>
+<div id="main">
+    <ul id="toc"></ul>
+    <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" class="button">Download data as
+        JSON</a>
+</div>
+</body>
 </html>

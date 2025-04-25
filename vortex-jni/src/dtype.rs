@@ -24,6 +24,7 @@ pub const DTYPE_BINARY: jbyte = 14;
 pub const DTYPE_STRUCT: jbyte = 15;
 pub const DTYPE_LIST: jbyte = 16;
 pub const DTYPE_EXTENSION: jbyte = 17;
+pub const DTYPE_DECIMAL: jbyte = 18;
 
 static LONG_CLASS: &str = "java/lang/Long";
 
@@ -61,6 +62,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
             PType::F32 => DTYPE_PRIMITIVE_F32,
             PType::F64 => DTYPE_PRIMITIVE_F64,
         },
+        DType::Decimal(..) => DTYPE_DECIMAL,
         DType::Utf8(_) => DTYPE_UTF8,
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,

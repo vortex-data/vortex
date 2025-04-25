@@ -34,8 +34,9 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> VortexRe
         .open_async(reader)
         .await?
         .scan()?
+        .with_tokio_executor(Handle::current())
         .with_row_indices(indices)
-        .spawn_tokio(Handle::current())?
+        .into_array_stream()?
         .read_all()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.

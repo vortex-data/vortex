@@ -65,11 +65,18 @@ jobs:
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: DuckDB extension build
+        run: GEN=ninja make release
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
       - name: Generate data
         shell: bash
         run:
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --formats parquet,vortex -i1
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet,datafusion:vortex,duckdb:vortex -i1
 
       - name: Upload data
         if: matrix.remote_storage != null
@@ -81,7 +88,7 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.3.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
@@ -99,10 +106,11 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
+            --targets datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex \
             --export-spans \
           | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
         shell: bash
         env:
@@ -115,7 +123,7 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --formats parquet,vortex \
+              --targets datafusion:parquet,datafusion:vortex \
               --export-spans \
               -d gh-json \
             | tee results.json

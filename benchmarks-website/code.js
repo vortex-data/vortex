@@ -3,9 +3,14 @@ window.initAndRender = (function () {
     function stringToColor(str) {
         // Random colours are generally pretty disgusting...
         const MAP = {
-            "arrow": '#58067e',
-            "parquet": '#ef7f1d',
-            "vortex-file-compressed": '#23d100',
+            "datafusion:arrow": '#7a27b1',
+            "datafusion:parquet": '#ef7f1d',
+            "datafusionvortex": '#23d100',
+
+            "duckdb:parquet": '#ef1d24',
+            "duckdb:vortex": '#0062d1',
+            "duckdb:duckdb": '#000000',
+
         };
 
         if (MAP[str]) {
@@ -19,7 +24,7 @@ window.initAndRender = (function () {
         return `#${hexColor}`;
     }
 
-    function downloadAndGroupData(data, commit_metadata) {
+    function downloadAndGroupData(data, commit_metadata, seriesRenameFn) {
         // It's desirable for all our graphs to line up in terms of X-axis.
         // As such, we collect all unique {commit,entry} first, and then assign
         // data points to them for each graph. Commits are sorted by date.
@@ -61,34 +66,37 @@ window.initAndRender = (function () {
             let {name, unit, value, commit} = benchmark_result;
             let storage = benchmark_result.storage;
             let group = undefined;
+            let group_id = undefined;
+
 
             if (name.startsWith("random-access/")) {
-                group = groups["Random Access"];
+                group_id = "Random Access";
             } else if (name.includes("compress time/")) {
-                group = groups["Compression"];
+                group_id = "Compression";
             } else if (name.startsWith("vortex size/")) {
                 if (unit === null || unit === undefined) {
                     unit = "bytes"  // Unit information was missing before the commit that adds this comment.
                 }
-                group = groups["Compression Size"]
+                group_id = "Compression Size";
             } else if (name.startsWith("vortex:raw size/") ||
-                       name.startsWith("vortex:parquet-zstd size/")) {
+                name.startsWith("vortex:parquet-zstd size/")) {
                 if (unit === null || unit === undefined) {
-                    unit = "ratio"  // The unit becomes the y-axis label.
+                    unit = "ratio";  // The unit becomes the y-axis label.
                 }
-                group = groups["Compression Size"]
+                group_id = "Compression Size";
             } else if (name.startsWith("tpch_q")) {
                 if (storage === undefined || storage === "nvme") {
-                    group = groups["TPC-H (NVME)"];
+                    group_id = "TPC-H (NVME)";
                 } else {
-                    group = groups["TPC-H (S3)"];
+                    group_id = "TPC-H (S3)";
                 }
             } else if (name.startsWith("clickbench")) {
-                group = groups["Clickbench"];
+                group_id = "Clickbench";
             } else {
                 uncategorizable_names.add(name)
                 continue
             }
+            group = groups[group_id];
 
 
             // Normalize name and units
@@ -101,6 +109,16 @@ window.initAndRender = (function () {
                 q = q.replace("time", "throughput");
             }
 
+            // Rename old series names to new ones,
+            // e.g. vortex-file-compressed -> datafusion:vortex
+            // also new series DataFusion:vortex-file-compressed -> datafusion:vortex.
+            const renamer = seriesRenameFn?.find((n, v) => n[0] === group_id);
+            if (renamer !== undefined && renamer[1] !== undefined && renamer[1]['renamedDatasets'] !== undefined) {
+                const renameDict = renamer[1]['renamedDatasets']
+                seriesName = seriesName in renameDict ? renameDict[seriesName] : seriesName;
+            }
+
+
             let prettyQ = q.replace("_", " ")
                 .toUpperCase()
                 .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO")
@@ -108,6 +126,7 @@ window.initAndRender = (function () {
             if (prettyQ.includes("PARQUET-UNC")) {
                 return
             }
+
 
             const is_nanos = unit === "ns/iter" || unit === "ns";
             const is_bytes = unit === "bytes";
@@ -131,6 +150,7 @@ window.initAndRender = (function () {
                 arr.series.set(seriesName, new Array(commits.length).fill(null));
                 series = arr.series.get(seriesName);
             }
+
 
             series[commit.sortedIndex] = {
                 range: "this was the range",
@@ -182,8 +202,8 @@ window.initAndRender = (function () {
                 datasets: Array.from(dataset.series).filter(([name, benches]) => {
                     return removedDatasets === undefined || !removedDatasets.has(name)
                 }).map(([name, benches]) => {
-                    const color = stringToColor(name);
                     const renamedName = (renamedDatasets === undefined) ? name : (renamedDatasets[name] || name);
+                    const color = stringToColor(renamedName);
                     return {
                         label: renamedName,
                         data: benches.map(b => b ? b.value : null),
@@ -372,7 +392,7 @@ window.initAndRender = (function () {
                 }, {})
             })
             .catch(error => console.error('unable to load commits.json:', error));
-        Promise.all([data, commit_metadata]).then(pair => renderAllCharts(downloadAndGroupData(pair[0], pair[1]), keptGroups))
+        Promise.all([data, commit_metadata]).then(pair => renderAllCharts(downloadAndGroupData(pair[0], pair[1], keptGroups), keptGroups))
     }
 
     return initAndRender;

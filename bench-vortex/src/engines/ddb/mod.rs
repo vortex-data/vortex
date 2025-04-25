@@ -1,7 +1,11 @@
+use std::path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use log::info;
+use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
 use {anyhow, log};
@@ -10,8 +14,8 @@ use crate::Format;
 use crate::datasets::BenchmarkDataset;
 
 /// Finds the path to the DuckDB executable
-pub fn executable_path(user_supplied_path_flag: &Option<std::path::PathBuf>) -> std::path::PathBuf {
-    let validate_path = |duckdb_path: &std::path::PathBuf| {
+pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
+    let validate_path = |duckdb_path: &PathBuf| {
         if !duckdb_path.as_path().exists() {
             panic!(
                 "failed to find duckdb executable at: {}",
@@ -42,11 +46,38 @@ pub fn executable_path(user_supplied_path_flag: &Option<std::path::PathBuf>) -> 
         }
     }
 
-    let duckdb_path = std::path::PathBuf::from_str(&format!(
-        "{}/duckdb-vortex/build/release/duckdb",
-        repo_root.unwrap_or_default()
-    ))
-    .expect("failed to create DuckDB executable path");
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    let mut command = Command::new("make");
+    command
+        .current_dir(&duckdb_vortex_path)
+        .env("GEN", "ninja")
+        .arg("release");
+
+    info!(
+        "Building duckdb vortex extension at {}, with command {:?}",
+        duckdb_vortex_path.display(),
+        command
+    );
+
+    let output = command
+        .output()
+        .expect("Trying to build duckdb vortex extension");
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
+
+    info!(
+        "Built duckdb vortex extension at {}",
+        duckdb_vortex_path.display()
+    );
+
+    let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
 
     validate_path(&duckdb_path);
 
@@ -61,6 +92,7 @@ fn create_table_registration(base_url: &Url, extension: &str, dataset: Benchmark
     match dataset {
         BenchmarkDataset::TpcH => {
             let mut commands = String::new();
+            /* commands.push_str("install httpfs; load httpfs;"); */
             let tables = [
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
@@ -93,7 +125,7 @@ fn resolve_storage_url(base_url: &Url, file_format: Format, dataset: BenchmarkDa
             Ok(vortex_url) => {
                 // Check if the directory exists (for file:// URLs)
                 if vortex_url.scheme() == "file" {
-                    let path = std::path::Path::new(vortex_url.path());
+                    let path = Path::new(vortex_url.path());
                     if !path.exists() {
                         log::warn!(
                             "Vortex directory doesn't exist at: {}. Run with DataFusion engine first to generate Vortex files.",
@@ -121,7 +153,7 @@ pub fn execute_query(
     base_url: &Url,
     file_format: Format,
     dataset: BenchmarkDataset,
-    duckdb_path: &std::path::Path,
+    duckdb_path: &Path,
 ) -> anyhow::Result<Duration> {
     let extension = match file_format {
         Format::Parquet => "parquet",
@@ -156,7 +188,7 @@ pub fn execute_tpch_query(
     queries: &[String],
     base_url: &Url,
     file_format: Format,
-    duckdb_path: &std::path::Path,
+    duckdb_path: &Path,
 ) -> anyhow::Result<Duration> {
     execute_query(
         queries,
@@ -173,7 +205,7 @@ pub fn execute_clickbench_query(
     base_url: &Url,
     file_format: Format,
     single_file: bool,
-    duckdb_path: &std::path::Path,
+    duckdb_path: &Path,
 ) -> anyhow::Result<Duration> {
     let dataset = BenchmarkDataset::ClickBench { single_file };
 

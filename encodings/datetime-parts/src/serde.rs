@@ -3,7 +3,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    DeserializeMetadata, EncodingId, ProstMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -29,20 +29,20 @@ impl EncodingVTable for DateTimePartsEncoding {
             )
         }
 
-        let metadata = RkyvMetadata::<DateTimePartsMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<DateTimePartsMetadata>::deserialize(parts.metadata())?;
         let days = parts.child(0).decode(
             ctx,
-            DType::Primitive(metadata.days_ptype, dtype.nullability()),
+            DType::Primitive(metadata.days_ptype(), dtype.nullability()),
             len,
         )?;
         let seconds = parts.child(1).decode(
             ctx,
-            DType::Primitive(metadata.seconds_ptype, Nullability::NonNullable),
+            DType::Primitive(metadata.seconds_ptype(), Nullability::NonNullable),
             len,
         )?;
         let subseconds = parts.child(2).decode(
             ctx,
-            DType::Primitive(metadata.subseconds_ptype, Nullability::NonNullable),
+            DType::Primitive(metadata.subseconds_ptype(), Nullability::NonNullable),
             len,
         )?;
 
@@ -61,36 +61,41 @@ impl EncodingVTable for DateTimePartsEncoding {
     }
 }
 
-#[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Clone, prost::Message)]
 #[repr(C)]
 pub struct DateTimePartsMetadata {
     // Validity lives in the days array
     // TODO(ngates): we should actually model this with a Tuple array when we have one.
-    days_ptype: PType,
-    seconds_ptype: PType,
-    subseconds_ptype: PType,
+    #[prost(enumeration = "PType", tag = "1")]
+    days_ptype: i32,
+    #[prost(enumeration = "PType", tag = "2")]
+    seconds_ptype: i32,
+    #[prost(enumeration = "PType", tag = "3")]
+    subseconds_ptype: i32,
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
+impl ArrayVisitorImpl<ProstMetadata<DateTimePartsMetadata>> for DateTimePartsArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("days", self.days());
         visitor.visit_child("seconds", self.seconds());
         visitor.visit_child("subseconds", self.subseconds());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DateTimePartsMetadata> {
-        RkyvMetadata(DateTimePartsMetadata {
-            days_ptype: PType::try_from(self.days().dtype()).vortex_expect("Must be a valid PType"),
+    fn _metadata(&self) -> ProstMetadata<DateTimePartsMetadata> {
+        ProstMetadata(DateTimePartsMetadata {
+            days_ptype: PType::try_from(self.days().dtype()).vortex_expect("Must be a valid PType")
+                as i32,
             seconds_ptype: PType::try_from(self.seconds().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
             subseconds_ptype: PType::try_from(self.subseconds().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
         })
     }
 }
 
 #[cfg(test)]
 mod test {
+    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
@@ -101,10 +106,10 @@ mod test {
     fn test_datetimeparts_metadata() {
         check_metadata(
             "datetimeparts.metadata",
-            RkyvMetadata(DateTimePartsMetadata {
-                days_ptype: PType::I64,
-                seconds_ptype: PType::I64,
-                subseconds_ptype: PType::I64,
+            ProstMetadata(DateTimePartsMetadata {
+                days_ptype: PType::I64 as i32,
+                seconds_ptype: PType::I64 as i32,
+                subseconds_ptype: PType::I64 as i32,
             }),
         );
     }

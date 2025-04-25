@@ -18,14 +18,18 @@ pub use log::vx_log_level;
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
+#[cfg(not(miri))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 thread_local! {
-static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    // Using a new_multi_thread runtime since a current local runtime has a deadlock.
-    Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("building runtime")
-});
+    static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+        // Using a new_multi_thread runtime since a current local runtime has a deadlock.
+        Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .vortex_expect("building runtime")
+    });
 }
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {

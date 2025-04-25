@@ -3,17 +3,15 @@ use std::sync::Arc;
 use arrow::array::RecordBatchReader;
 use arrow::datatypes::SchemaRef;
 use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
-use futures::TryStreamExt;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::arrays::ChunkedArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, ident};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::stream::{ArrayStreamExt, SendableArrayStream};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
@@ -38,7 +36,10 @@ pub async fn read_array_from_reader(
     filter: Option<ExprRef>,
     indices: Option<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
-    let mut scan = vortex_file.scan()?.with_projection(projection);
+    let mut scan = vortex_file
+        .scan()?
+        .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
+        .with_projection(projection);
 
     if let Some(filter) = filter {
         scan = scan.with_filter(filter);
@@ -49,15 +50,7 @@ pub async fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    let stream = scan.spawn_tokio(TOKIO_RUNTIME.handle().clone())?;
-    let dtype = stream.dtype().clone();
-
-    let all_arrays = stream.try_collect::<Vec<_>>().await?;
-
-    match all_arrays.len() {
-        1 => Ok(all_arrays[0].clone()),
-        _ => Ok(ChunkedArray::try_new(all_arrays, dtype.clone())?.into_array()),
-    }
+    scan.into_array_stream()?.read_all().await
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -134,6 +127,7 @@ impl PyVortexDataset {
         let mut scan = self_
             .vxf
             .scan()?
+            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(row_filter));
 
@@ -142,9 +136,8 @@ impl PyVortexDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let iter = ArrayStreamToIterator::new(
-            scan.spawn_tokio(TOKIO_RUNTIME.handle().clone())?.boxed() as SendableArrayStream,
-        );
+        let iter =
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 

@@ -7,16 +7,18 @@ use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, r
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
+use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
 use vortex::{Array, ArrayExt};
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -59,6 +61,11 @@ fn compress(
     formats: Vec<Format>,
     display_format: DisplayFormat,
 ) {
+    let targets = formats
+        .iter()
+        .map(|f| Target::new(Engine::default(), *f))
+        .collect_vec();
+
     let structlistofints = vec![
         StructListOfInts::new(10, 1000, 1),
         StructListOfInts::new(100, 1000, 1),
@@ -124,22 +131,15 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(
-                measurements.throughputs,
-                &formats,
-                RatioMode::Throughput,
-                &[Engine::default()],
-            )
-            .unwrap();
+            render_table(measurements.throughputs, RatioMode::Throughput, &targets).unwrap();
             render_table(
                 measurements.ratios,
-                if formats.contains(&Format::OnDiskVortex) {
-                    &[Format::OnDiskVortex]
-                } else {
-                    &[]
-                },
                 RatioMode::Throughput,
-                &[Engine::default()],
+                &if formats.contains(&Format::OnDiskVortex) {
+                    vec![Target::new(Engine::default(), Format::OnDiskVortex)]
+                } else {
+                    vec![]
+                },
             )
             .unwrap();
         }

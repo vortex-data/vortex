@@ -7,13 +7,15 @@ use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
+use itertools::Itertools;
 use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
 
-feature_flagged_allocator!();
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -57,6 +59,11 @@ fn random_access(
     let filter = default_env_filter(verbose);
     setup_logger(filter);
 
+    let targets = formats
+        .iter()
+        .map(|f| Target::new(Engine::Vortex, *f))
+        .collect_vec();
+
     // Set up a progress bar
     let progress = ProgressBar::new(formats.len() as u64);
 
@@ -67,14 +74,13 @@ fn random_access(
     measurements.push(TimingMeasurement {
         name: "random-access/vortex-tokio-local-disk".to_string(),
         storage: STORAGE_NVME.to_owned(),
-        format: Format::OnDiskVortex,
+        target: Target::new(Engine::Vortex, Format::OnDiskVortex),
         time: run_with_setup(
             &runtime,
             iterations,
             || indices.clone(),
             |indices| async { take_vortex_tokio(&taxi_vortex, indices).await.unwrap() },
         ),
-        engine: Engine::Vortex,
     });
     progress.inc(1);
 
@@ -82,21 +88,20 @@ fn random_access(
         measurements.push(TimingMeasurement {
             name: "random-access/parquet-tokio-local-disk".to_string(),
             storage: STORAGE_NVME.to_owned(),
-            format: Format::Parquet,
+            target: Target::new(Engine::Arrow, Format::Parquet),
             time: run_with_setup(
                 &runtime,
                 iterations,
                 || indices.clone(),
                 |indices| async { take_parquet(&taxi_parquet, indices).await.unwrap() },
             ),
-            engine: Engine::Vortex,
         });
         progress.inc(1);
     }
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &formats, RatioMode::Time, &[Engine::Vortex]).unwrap();
+            render_table(measurements, RatioMode::Time, &targets).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();

@@ -10,6 +10,7 @@ impl Display for Scalar {
             DType::Null => write!(f, "null"),
             DType::Bool(_) => write!(f, "{}", self.as_bool()),
             DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
+            DType::Decimal(..) => write!(f, "{}", self.as_decimal()),
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),

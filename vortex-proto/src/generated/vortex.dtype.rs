@@ -14,6 +14,15 @@ pub struct Primitive {
     pub nullable: bool,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Decimal {
+    #[prost(uint32, tag = "1")]
+    pub precision: u32,
+    #[prost(int32, tag = "2")]
+    pub scale: i32,
+    #[prost(bool, tag = "3")]
+    pub nullable: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Utf8 {
     #[prost(bool, tag = "1")]
     pub nullable: bool,
@@ -50,7 +59,7 @@ pub struct Extension {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -63,8 +72,8 @@ pub mod d_type {
         Bool(super::Bool),
         #[prost(message, tag = "3")]
         Primitive(super::Primitive),
-        /// DEPRECATED
-        /// Decimal decimal = 4;
+        #[prost(message, tag = "4")]
+        Decimal(super::Decimal),
         #[prost(message, tag = "5")]
         Utf8(super::Utf8),
         #[prost(message, tag = "6")]

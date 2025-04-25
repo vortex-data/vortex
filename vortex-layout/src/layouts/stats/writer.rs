@@ -45,7 +45,7 @@ pub struct StatsLayoutWriter {
 }
 
 impl StatsLayoutWriter {
-    pub fn try_new(
+    pub fn new(
         ctx: ArrayContext,
         dtype: &DType,
         // TODO(ngates): we should arrive at a convention on this. I think we should maybe just
@@ -54,11 +54,11 @@ impl StatsLayoutWriter {
         child_writer: Box<dyn LayoutWriter>,
         stats_strategy: ArcRef<dyn LayoutStrategy>,
         options: StatsLayoutOptions,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
 
-        Ok(Self {
+        Self {
             ctx,
             options,
             child_writer,
@@ -67,7 +67,7 @@ impl StatsLayoutWriter {
             dtype: dtype.clone(),
             nblocks: 0,
             final_block: false,
-        })
+        }
     }
 }
 

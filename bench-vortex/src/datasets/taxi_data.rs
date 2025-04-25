@@ -42,7 +42,8 @@ pub async fn fetch_taxi_data() -> ArrayRef {
         .unwrap()
         .scan()
         .unwrap()
-        .spawn_tokio(Handle::current())
+        .with_tokio_executor(Handle::current())
+        .into_array_stream()
         .unwrap()
         .read_all()
         .await

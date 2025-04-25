@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use arrow_schema::DataType;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -12,12 +10,13 @@ use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, EncodingId, IntoArray, RkyvMetadata,
+    Canonical, DeserializeMetadata, EncodingId, IntoArray, ProstMetadata,
 };
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
-    pub(crate) offsets_ptype: PType,
+    #[prost(enumeration = "PType", tag = "1")]
+    pub(crate) offsets_ptype: i32,
 }
 
 impl EncodingVTable for VarBinEncoding {
@@ -32,7 +31,7 @@ impl EncodingVTable for VarBinEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
 
         let validity = if parts.nchildren() == 1 {
             Validity::from(dtype.nullability())
@@ -45,7 +44,7 @@ impl EncodingVTable for VarBinEncoding {
 
         let offsets = parts.child(0).decode(
             ctx,
-            DType::Primitive(metadata.offsets_ptype, Nullability::NonNullable),
+            DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 
@@ -75,7 +74,7 @@ impl EncodingVTable for VarBinEncoding {
     }
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
+impl ArrayVisitorImpl<ProstMetadata<VarBinMetadata>> for VarBinArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
     }
@@ -85,10 +84,10 @@ impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
         visitor.visit_validity(self.validity(), self.len());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<VarBinMetadata> {
-        RkyvMetadata(VarBinMetadata {
+    fn _metadata(&self) -> ProstMetadata<VarBinMetadata> {
+        ProstMetadata(VarBinMetadata {
             offsets_ptype: PType::try_from(self.offsets().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
         })
     }
 }
