@@ -108,6 +108,10 @@ impl DecimalArray {
         }
     }
 
+    pub fn values_type(&self) -> DecimalValueType {
+        self.values_type
+    }
+
     pub fn precision(&self) -> u8 {
         self.decimal_dtype().precision()
     }

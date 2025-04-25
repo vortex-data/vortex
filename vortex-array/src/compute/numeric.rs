@@ -158,9 +158,10 @@ impl ComputeFnVTable for Numeric {
 
     fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
         let NumericArgs { lhs, rhs, .. } = NumericArgs::try_from(args)?;
-        if !matches!(lhs.dtype(), DType::Primitive(_, _))
-            || !matches!(rhs.dtype(), DType::Primitive(_, _))
-            || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
+        if !matches!(
+            (lhs.dtype(), rhs.dtype()),
+            (DType::Primitive(..), DType::Primitive(..)) | (DType::Decimal(..), DType::Decimal(..))
+        ) || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
         {
             vortex_bail!(
                 "Numeric operations are only supported on two arrays sharing the same primitive-type: {} {}",

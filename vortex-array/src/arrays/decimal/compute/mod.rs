@@ -5,10 +5,12 @@ mod is_sorted;
 mod scalar_at;
 mod slice;
 mod sum;
+mod take;
 
 use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{
-    BetweenFn, FilterKernelAdapter, IsConstantFn, IsSortedFn, KernelRef, ScalarAtFn, SliceFn, SumFn,
+    BetweenFn, FilterKernelAdapter, IsConstantFn, IsSortedFn, KernelRef, ScalarAtFn, SliceFn,
+    SumFn, TakeFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayComputeImpl};
@@ -42,6 +44,7 @@ impl ComputeVTable for DecimalEncoding {
         Some(self)
     }
 
-    // TODO(aduffy): BinaryNumericFn
-    // TODO(aduffy): TakeFn
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
+        Some(self)
+    }
 }
