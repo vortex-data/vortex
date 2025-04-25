@@ -187,6 +187,8 @@ impl Stat {
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
                     // Unsupported types
                     DType::Null
+                    // TODO(aduffy): implement more stats for Decimal
+                    | DType::Decimal(..)
                     | DType::Utf8(_)
                     | DType::Binary(_)
                     | DType::Struct(..)

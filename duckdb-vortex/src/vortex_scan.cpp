@@ -153,20 +153,18 @@ static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> 
 
 const std::regex schema_prefix = std::regex("^[^/]*:\\/\\/.*$");
 
-std::string EnsureFileProtocol(const std::string &path) {
-	// Check if the path has a schema, if not prepend the file:// schema
+std::string EnsureFileProtocol(FileSystem &fs, const std::string &path) {
+	// If the path is a URL then don't change it, otherwise try to make the path an absolute path
 	if (std::regex_match(path, schema_prefix)) {
 		return path;
 	}
 
 	const std::string prefix = "file://";
-
-	auto fs = FileSystem::CreateLocal();
-	if (fs->IsPathAbsolute(path)) {
+	if (fs.IsPathAbsolute(path)) {
 		return prefix + path;
 	}
 
-	const auto absolute_path = fs->JoinPath(fs->GetWorkingDirectory(), path);
+	const auto absolute_path = fs.JoinPath(fs.GetWorkingDirectory(), path);
 	return prefix + absolute_path;
 }
 
@@ -209,13 +207,14 @@ static void VerifyNewFile(const VortexBindData &bind_data, vector<LogicalType> &
 	}
 }
 
-static unique_ptr<VortexFileReader> OpenFileAndVerify(const std::string &filename, const VortexBindData &bind_data) {
+static unique_ptr<VortexFileReader> OpenFileAndVerify(FileSystem &fs, const std::string &filename,
+                                                      const VortexBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
 	auto new_column_types = vector<LogicalType>();
 	new_column_names.reserve(bind_data.columns_types.size());
 
-	auto file = OpenFile(EnsureFileProtocol(filename), new_column_types, new_column_names);
+	auto file = OpenFile(EnsureFileProtocol(fs, filename), new_column_types, new_column_names);
 	VerifyNewFile(bind_data, new_column_types, new_column_names);
 	return file;
 }
@@ -268,7 +267,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				}
 
 				auto file_name = global_state.expanded_files[file_idx];
-				auto file = OpenFileAndVerify(file_name, bind_data);
+				auto file = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind_data);
 
 				slot.array_stream = OpenArrayStream(bind_data, global_state, file.get());
 			}
@@ -309,7 +308,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 	auto vec = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
 	result->file_list = make_shared_ptr<GlobMultiFileList>(context, vec, FileGlobOptions::DISALLOW_EMPTY);
 
-	auto filename = EnsureFileProtocol(result->file_list->GetFirstFile());
+	auto filename = EnsureFileProtocol(FileSystem::GetFileSystem(context), result->file_list->GetFirstFile());
 
 	result->initial_file = OpenFile(filename, column_types, column_names);
 

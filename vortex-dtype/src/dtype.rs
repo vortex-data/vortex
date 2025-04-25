@@ -6,6 +6,7 @@ use DType::*;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
 
+use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
 use crate::{ExtDType, PType, StructDType};
 
@@ -27,6 +28,8 @@ pub enum DType {
     Bool(Nullability),
     /// Primitive, fixed-width numeric types (e.g., `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `f32`, `f64`)
     Primitive(PType, Nullability),
+    /// Real numbers with fixed exact precision and scale.
+    Decimal(DecimalDType, Nullability),
     /// UTF-8 strings
     Utf8(Nullability),
     /// Binary data
@@ -60,13 +63,14 @@ impl DType {
 
         match self {
             Null => true,
-            Bool(n) => matches!(n, Nullable),
-            Primitive(_, n) => matches!(n, Nullable),
-            Utf8(n) => matches!(n, Nullable),
-            Binary(n) => matches!(n, Nullable),
-            Struct(_, n) => matches!(n, Nullable),
-            List(_, n) => matches!(n, Nullable),
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
+            Bool(n)
+            | Primitive(_, n)
+            | Decimal(_, n)
+            | Utf8(n)
+            | Binary(n)
+            | Struct(_, n)
+            | List(_, n) => matches!(n, Nullable),
         }
     }
 
@@ -86,6 +90,7 @@ impl DType {
             Null => Null,
             Bool(_) => Bool(nullability),
             Primitive(p, _) => Primitive(*p, nullability),
+            Decimal(d, _) => Decimal(*d, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
             Struct(st, _) => Struct(st.clone(), nullability),
@@ -98,17 +103,12 @@ impl DType {
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         match (self, other) {
             (Null, Null) => true,
-            (Null, _) => false,
             (Bool(_), Bool(_)) => true,
-            (Bool(_), _) => false,
             (Primitive(lhs_ptype, _), Primitive(rhs_ptype, _)) => lhs_ptype == rhs_ptype,
-            (Primitive(..), _) => false,
+            (Decimal(lhs, _), Decimal(rhs, _)) => lhs == rhs,
             (Utf8(_), Utf8(_)) => true,
-            (Utf8(_), _) => false,
             (Binary(_), Binary(_)) => true,
-            (Binary(_), _) => false,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
-            (List(..), _) => false,
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
@@ -116,11 +116,10 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
-            (Struct(..), _) => false,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
             }
-            (Extension(_), _) => false,
+            _ => false,
         }
     }
 
@@ -182,6 +181,7 @@ impl Display for DType {
             Null => write!(f, "null"),
             Bool(n) => write!(f, "bool{}", n),
             Primitive(pt, n) => write!(f, "{}{}", pt, n),
+            Decimal(dt, n) => write!(f, "decimal({},{}){}", dt.precision(), dt.scale(), n),
             Utf8(n) => write!(f, "utf8{}", n),
             Binary(n) => write!(f, "binary{}", n),
             Struct(sdt, n) => write!(

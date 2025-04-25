@@ -2,7 +2,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, EncodingId, RkyvMetadata,
+    DeserializeMetadata, EncodingId, ProstMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -10,11 +10,12 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding};
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[repr(C)]
+#[derive(Clone, prost::Message)]
 pub struct DictMetadata {
-    codes_ptype: PType,
+    #[prost(uint32, tag = "1")]
     values_len: u32,
+    #[prost(enumeration = "PType", tag = "2")]
+    codes_ptype: i32,
 }
 
 impl EncodingVTable for DictEncoding {
@@ -35,9 +36,9 @@ impl EncodingVTable for DictEncoding {
                 parts.nchildren()
             )
         }
-        let metadata = RkyvMetadata::<DictMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<DictMetadata>::deserialize(parts.metadata())?;
 
-        let codes_dtype = DType::Primitive(metadata.codes_ptype, dtype.nullability());
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), dtype.nullability());
         let codes = parts.child(0).decode(ctx, codes_dtype, len)?;
 
         let values = parts
@@ -56,16 +57,16 @@ impl EncodingVTable for DictEncoding {
     }
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
+impl ArrayVisitorImpl<ProstMetadata<DictMetadata>> for DictArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", self.codes());
         visitor.visit_child("values", self.values());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<DictMetadata> {
-        RkyvMetadata(DictMetadata {
+    fn _metadata(&self) -> ProstMetadata<DictMetadata> {
+        ProstMetadata(DictMetadata {
             codes_ptype: PType::try_from(self.codes().dtype())
-                .vortex_expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType") as i32,
             values_len: u32::try_from(self.values().len())
                 .vortex_expect("Values length cannot exceed u32"),
         })
@@ -74,7 +75,7 @@ impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::RkyvMetadata;
+    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
@@ -85,8 +86,8 @@ mod test {
     fn test_dict_metadata() {
         check_metadata(
             "dict.metadata",
-            RkyvMetadata(DictMetadata {
-                codes_ptype: PType::U64,
+            ProstMetadata(DictMetadata {
+                codes_ptype: PType::U64 as i32,
                 values_len: u32::MAX,
             }),
         );

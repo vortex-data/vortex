@@ -1,11 +1,13 @@
-use pyo3::prelude::PyDictMethods;
+use std::cmp::Ordering;
+
+use pyo3::prelude::{PyAnyMethods, PyDictMethods};
 use pyo3::types::{PyBytes, PyDict, PyList, PyString};
-use pyo3::{Bound, IntoPyObject, PyAny, PyErr, Python};
+use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
-use vortex::scalar::{ListScalar, Scalar, StructScalar};
+use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
 
 use crate::PyVortex;
 
@@ -34,6 +36,13 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 };
 
                 primitive_py.map_err(PyErr::from)
+            }
+            DType::Decimal(decimal_type, ..) => {
+                let decimal = self.0.as_decimal();
+                match decimal.decimal_value() {
+                    None => Ok(py.None().into_pyobject(py)?),
+                    Some(value) => decimal_value_to_py(py, decimal_type.scale(), *value),
+                }
             }
             DType::Utf8(_) => self.0.as_utf8().value().map(PyVortex).into_pyobject(py),
             DType::Binary(_) => self.0.as_binary().value().map(PyVortex).into_pyobject(py),
@@ -94,5 +103,73 @@ impl<'py> IntoPyObject<'py> for PyVortex<ListScalar<'_>> {
         };
 
         PyList::new(py, elements.iter().map(PyVortex)).map(|l| l.into_any())
+    }
+}
+
+trait DecimalIntoParts: Sized {
+    /// Split an integer encoding a decimal with the given `scale` into a
+    /// (whole number, decimal) parts.
+    ///
+    /// For example, for the number 123i128 and scale 2, this will return returns (1, 23).
+    fn decimal_parts(self, scale: i8) -> (Self, Self);
+}
+
+impl DecimalIntoParts for i128 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i128.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i128.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
+impl DecimalIntoParts for i256 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, i256::ZERO),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = i256::from_i128(10).wrapping_pow(-scale as u32);
+                (self * scale_factor, i256::ZERO)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = i256::from_i128(10).wrapping_pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
+fn decimal_value_to_py(
+    py: Python,
+    scale: i8,
+    decimal_value: DecimalValue,
+) -> PyResult<Bound<PyAny>> {
+    let m = py.import("decimal")?;
+    let decimal_class = m.getattr("Decimal")?;
+
+    match decimal_value {
+        DecimalValue::I128(v128) => {
+            let (whole, decimal) = v128.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
+        DecimalValue::I256(v256) => {
+            let (whole, decimal) = v256.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
     }
 }

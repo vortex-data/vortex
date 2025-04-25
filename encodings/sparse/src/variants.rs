@@ -1,6 +1,6 @@
 use vortex_array::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
+    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use vortex_array::{Array, ArrayVariants, ArrayVariantsImpl};
 use vortex_dtype::FieldName;
@@ -20,6 +20,10 @@ impl ArrayVariantsImpl for SparseArray {
     }
 
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
+    }
+
+    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
         Some(self)
     }
 
@@ -53,6 +57,8 @@ impl PrimitiveArrayTrait for SparseArray {}
 impl Utf8ArrayTrait for SparseArray {}
 
 impl BinaryArrayTrait for SparseArray {}
+
+impl DecimalArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
     fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {

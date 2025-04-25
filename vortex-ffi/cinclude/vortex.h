@@ -63,6 +63,8 @@ extern "C" {
 
 #define DTYPE_EXTENSION 17
 
+#define DTYPE_DECIMAL 18
+
 /**
  * Log levels for the Vortex library.
  */
@@ -102,19 +104,16 @@ typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
 
 /**
+ * The error structure populated by fallible Vortex C functions.
+ */
+typedef struct vx_error vx_error;
+
+/**
  * A file reader that can be used to read from a file.
  */
 typedef struct vx_file_reader vx_file_reader;
 
 typedef struct vx_file_writer vx_file_writer;
-
-/**
- * The error structure populated by fallible Vortex C functions.
- */
-typedef struct vx_error {
-  int code;
-  const char *message;
-} vx_error;
 
 /**
  * Options supplied for opening a file.
@@ -329,6 +328,17 @@ struct vx_conversion_cache *vx_conversion_cache_create(unsigned int id);
 #if defined(ENABLE_DUCKDB_FFI)
 void vx_conversion_cache_free(struct vx_conversion_cache *buffer);
 #endif
+
+/**
+ * Return the integer error code from the given Vortex error.
+ */
+int vx_error_get_code(struct vx_error *error);
+
+/**
+ * Passes out an unowned reference to the error message from the given Vortex error.
+ * Return value is the length of the message string.
+ */
+const char *vx_error_get_message(struct vx_error *error);
 
 void vx_error_free(struct vx_error *error);
 

@@ -187,6 +187,15 @@ impl WriteFlatBuffer for DType {
                 },
             )
             .as_union_value(),
+            Self::Decimal(dt, n) => fb::Decimal::create(
+                fbb,
+                &fb::DecimalArgs {
+                    precision: dt.precision(),
+                    scale: dt.scale(),
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
             Self::Utf8(n) => fb::Utf8::create(
                 fbb,
                 &fb::Utf8Args {
@@ -256,6 +265,7 @@ impl WriteFlatBuffer for DType {
             Self::Null => fb::Type::Null,
             Self::Bool(_) => fb::Type::Bool,
             Self::Primitive(..) => fb::Type::Primitive,
+            Self::Decimal(..) => fb::Type::Decimal,
             Self::Utf8(_) => fb::Type::Utf8,
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,

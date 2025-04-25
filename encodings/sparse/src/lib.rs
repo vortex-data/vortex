@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
-    RkyvMetadata, ToCanonical, try_from_array_ref,
+    ProstMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
@@ -35,7 +35,7 @@ try_from_array_ref!(SparseArray);
 pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     type Array = SparseArray;
-    type Metadata = RkyvMetadata<SparseMetadata>;
+    type Metadata = ProstMetadata<SparseMetadata>;
 }
 
 impl SparseArray {

@@ -48,6 +48,15 @@ impl Display for DTypePythonRepr<'_> {
                     )
                 }
             },
+            DType::Decimal(decimal_type, n) => {
+                write!(
+                    f,
+                    "decimal(precision={}, scale={}, nullable={})",
+                    decimal_type.precision(),
+                    decimal_type.scale(),
+                    n.python_repr()
+                )
+            }
             DType::Utf8(n) => write!(f, "utf8(nullable={})", n.python_repr()),
             DType::Binary(n) => write!(f, "binary(nullable={})", n.python_repr()),
             DType::Struct(st, n) => write!(

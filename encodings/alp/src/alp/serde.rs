@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, Encoding, EncodingId, SerdeMetadata,
+    DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
@@ -24,7 +23,7 @@ impl EncodingVTable for ALPEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = SerdeMetadata::<ALPMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<ALPMetadata>::deserialize(parts.metadata())?;
 
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
@@ -42,7 +41,15 @@ impl EncodingVTable for ALPEncoding {
             })
             .transpose()?;
 
-        Ok(ALPArray::try_new(encoded, metadata.exponents, patches)?.into_array())
+        Ok(ALPArray::try_new(
+            encoded,
+            Exponents {
+                e: u8::try_from(metadata.exp_e).vortex_expect("Exponent e overflow"),
+                f: u8::try_from(metadata.exp_f).vortex_expect("Exponent f overflow"),
+            },
+            patches,
+        )?
+        .into_array())
     }
 
     fn encode(
@@ -70,13 +77,17 @@ impl EncodingVTable for ALPEncoding {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
-    exponents: Exponents,
+    #[prost(uint32, tag = "1")]
+    exp_e: u32,
+    #[prost(uint32, tag = "2")]
+    exp_f: u32,
+    #[prost(message, optional, tag = "3")]
     patches: Option<PatchesMetadata>,
 }
 
-impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
+impl ArrayVisitorImpl<ProstMetadata<ALPMetadata>> for ALPArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", self.encoded());
         if let Some(patches) = self.patches() {
@@ -84,9 +95,11 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
         }
     }
 
-    fn _metadata(&self) -> SerdeMetadata<ALPMetadata> {
-        SerdeMetadata(ALPMetadata {
-            exponents: self.exponents(),
+    fn _metadata(&self) -> ProstMetadata<ALPMetadata> {
+        let exponents = self.exponents();
+        ProstMetadata(ALPMetadata {
+            exp_e: exponents.e as u32,
+            exp_f: exponents.f as u32,
             patches: self
                 .patches()
                 .map(|p| p.to_metadata(self.len(), self.dtype()))
@@ -98,12 +111,11 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPMetadata>> for ALPArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::SerdeMetadata;
+    use vortex_array::ProstMetadata;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
-    use crate::Exponents;
     use crate::alp::serde::ALPMetadata;
 
     #[cfg_attr(miri, ignore)]
@@ -111,12 +123,10 @@ mod tests {
     fn test_alp_metadata() {
         check_metadata(
             "alp.metadata",
-            SerdeMetadata(ALPMetadata {
+            ProstMetadata(ALPMetadata {
                 patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-                exponents: Exponents {
-                    e: u8::MAX,
-                    f: u8::MAX,
-                },
+                exp_e: u32::MAX,
+                exp_f: u32::MAX,
             }),
         );
     }
