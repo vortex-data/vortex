@@ -5,12 +5,11 @@ window.initAndRender = (function () {
         const MAP = {
             "datafusion:arrow": '#7a27b1',
             "datafusion:parquet": '#ef7f1d',
-            "datafusionvortex": '#23d100',
+            "datafusion:vortex": '#19a508',
 
-            "duckdb:parquet": '#ef1d24',
-            "duckdb:vortex": '#0062d1',
-            "duckdb:duckdb": '#000000',
-
+            "duckdb:parquet": '#ef7f1d',
+            "duckdb:vortex": '#19a508',
+            "duckdb:duckdb": '#fada58',
         };
 
         if (MAP[str]) {
