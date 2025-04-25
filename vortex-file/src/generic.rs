@@ -1,13 +1,11 @@
 use std::ops::Range;
-use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use futures::executor::block_on;
 use futures::{StreamExt, pin_mut};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, TokioFile, VortexReadAt};
+use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
@@ -71,17 +69,17 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     /// Blocking call to open a Vortex file using the provided [`Path`].
     #[cfg(feature = "tokio")]
-    pub fn open_blocking(self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
+    pub fn open_blocking(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
         // block-on the async call to open.
-        block_on(self.open(read))
+        futures::executor::block_on(self.open(read))
     }
 
     /// Open a Vortex file using the provided [`Path`].
     #[cfg(feature = "tokio")]
-    pub async fn open(mut self, read: impl AsRef<Path>) -> VortexResult<VortexFile> {
+    pub async fn open(mut self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
-        self.open_read_at(TokioFile::open(read)?).await
+        self.open_read_at(vortex_io::TokioFile::open(read)?).await
     }
 
     /// Internal API for opening a file.
