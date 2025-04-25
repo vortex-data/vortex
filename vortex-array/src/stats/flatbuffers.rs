@@ -49,6 +49,9 @@ impl WriteFlatBuffer for StatsSet {
             uncompressed_size_in_bytes: self
                 .get_as::<u64>(Stat::UncompressedSizeInBytes)
                 .and_then(Precision::as_exact),
+            nan_count: self
+                .get_as::<u64>(Stat::NaNCount)
+                .and_then(Precision::as_exact),
         };
 
         crate::flatbuffers::ArrayStats::create(fbb, stat_args)
@@ -110,6 +113,14 @@ impl ReadFlatBuffer for StatsSet {
                 Stat::Sum => {
                     if let Some(sum) = fb.sum() {
                         stats_set.set(Stat::Sum, Precision::Exact(ScalarValue::try_from(sum)?));
+                    }
+                }
+                Stat::NaNCount => {
+                    if let Some(nan_count) = fb.nan_count() {
+                        stats_set.set(
+                            Stat::NaNCount,
+                            Precision::Exact(ScalarValue::from(nan_count)),
+                        );
                     }
                 }
             }

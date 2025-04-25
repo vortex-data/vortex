@@ -601,6 +601,7 @@ impl<'a> ArrayStats<'a> {
   pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 14;
   pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 16;
   pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 18;
+  pub const VT_NAN_COUNT: flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -612,6 +613,7 @@ impl<'a> ArrayStats<'a> {
     args: &'args ArrayStatsArgs<'args>
   ) -> flatbuffers::WIPOffset<ArrayStats<'bldr>> {
     let mut builder = ArrayStatsBuilder::new(_fbb);
+    if let Some(x) = args.nan_count { builder.add_nan_count(x); }
     if let Some(x) = args.uncompressed_size_in_bytes { builder.add_uncompressed_size_in_bytes(x); }
     if let Some(x) = args.null_count { builder.add_null_count(x); }
     if let Some(x) = args.sum { builder.add_sum(x); }
@@ -680,6 +682,13 @@ impl<'a> ArrayStats<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, None)}
   }
+  #[inline]
+  pub fn nan_count(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ArrayStats::VT_NAN_COUNT, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ArrayStats<'_> {
@@ -697,6 +706,7 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
      .visit_field::<bool>("is_constant", Self::VT_IS_CONSTANT, false)?
      .visit_field::<u64>("null_count", Self::VT_NULL_COUNT, false)?
      .visit_field::<u64>("uncompressed_size_in_bytes", Self::VT_UNCOMPRESSED_SIZE_IN_BYTES, false)?
+     .visit_field::<u64>("nan_count", Self::VT_NAN_COUNT, false)?
      .finish();
     Ok(())
   }
@@ -710,6 +720,7 @@ pub struct ArrayStatsArgs<'a> {
     pub is_constant: Option<bool>,
     pub null_count: Option<u64>,
     pub uncompressed_size_in_bytes: Option<u64>,
+    pub nan_count: Option<u64>,
 }
 impl<'a> Default for ArrayStatsArgs<'a> {
   #[inline]
@@ -723,6 +734,7 @@ impl<'a> Default for ArrayStatsArgs<'a> {
       is_constant: None,
       null_count: None,
       uncompressed_size_in_bytes: None,
+      nan_count: None,
     }
   }
 }
@@ -765,6 +777,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, uncompressed_size_in_bytes);
   }
   #[inline]
+  pub fn add_nan_count(&mut self, nan_count: u64) {
+    self.fbb_.push_slot_always::<u64>(ArrayStats::VT_NAN_COUNT, nan_count);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayStatsBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ArrayStatsBuilder {
@@ -790,6 +806,7 @@ impl core::fmt::Debug for ArrayStats<'_> {
       ds.field("is_constant", &self.is_constant());
       ds.field("null_count", &self.null_count());
       ds.field("uncompressed_size_in_bytes", &self.uncompressed_size_in_bytes());
+      ds.field("nan_count", &self.nan_count());
       ds.finish()
   }
 }
