@@ -28,7 +28,7 @@ jobs:
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
-            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex"
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
