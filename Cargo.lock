@@ -5858,6 +5858,7 @@ dependencies = [
  "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",
+ "flatbuffers 25.2.10",
  "futures-util",
  "getrandom 0.3.2",
  "goldenfile",

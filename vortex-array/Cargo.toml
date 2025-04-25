@@ -28,6 +28,7 @@ arrow-select = { workspace = true }
 arrow-string = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
+flatbuffers = { workspace = true }
 futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
