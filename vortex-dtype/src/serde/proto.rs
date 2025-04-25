@@ -49,7 +49,7 @@ impl TryFrom<&pb::DType> for DType {
                     nullable,
                 ))
             }
-            DtypeType::Extension(e) => Ok(Self::Extension(
+            DtypeType::Extension(e) => Ok(
                 Arc::new(ExtDType::new(
                     ExtID::from(e.id.as_str()),
                     Arc::new(DType::try_from(e.storage_dtype
@@ -59,7 +59,7 @@ impl TryFrom<&pb::DType> for DType {
                     ).map_err(|e| vortex_err!("failed converting DType from proto message: {}", e))?),
                     e.metadata.as_ref().map(|m| ExtMetadata::from(m.as_ref())),
                 ),
-            ))),
+            ).dtype()),
         }
     }
 }
@@ -96,9 +96,9 @@ impl From<&DType> for pb::DType {
                     element_type: Some(Box::new(l.as_ref().into())),
                     nullable: (*n).into(),
                 })),
-                DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
+                DType::Extension(e, n) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
-                    storage_dtype: Some(Box::new(e.storage_dtype().into())),
+                    storage_dtype: Some(Box::new((&e.storage_dtype().with_nullability(*n)).into())),
                     metadata: e.metadata().map(|m| m.as_ref().into()),
                 })),
             }),

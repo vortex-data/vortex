@@ -105,9 +105,10 @@ impl FromArrowType<&Field> for DType {
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(Arc::new(
-                make_temporal_ext_dtype(field.data_type()).with_nullability(nullability),
-            )),
+            | DataType::Timestamp(..) => {
+                Arc::new(make_temporal_ext_dtype(field.data_type()).with_nullability(nullability))
+                    .dtype()
+            }
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
@@ -187,7 +188,7 @@ impl DType {
                 l.to_arrow_dtype()?,
                 l.nullability().into(),
             ))),
-            DType::Extension(ext_dtype) => {
+            DType::Extension(ext_dtype, _) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {
                     make_arrow_temporal_dtype(ext_dtype)
@@ -284,11 +285,12 @@ mod test {
     #[test]
     #[should_panic]
     fn test_dtype_conversion_panics() {
-        let _ = DType::Extension(Arc::new(ExtDType::new(
+        let _ = Arc::new(ExtDType::new(
             ExtID::from("my-fake-ext-dtype"),
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             None,
-        )))
+        ))
+        .dtype()
         .to_arrow_dtype()
         .unwrap();
     }

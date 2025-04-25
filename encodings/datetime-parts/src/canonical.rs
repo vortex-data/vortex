@@ -21,7 +21,7 @@ impl ArrayCanonicalImpl for DateTimePartsArray {
 ///
 /// Enforces that the passed array is actually a [DateTimePartsArray] with proper metadata.
 pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalArray> {
-    let DType::Extension(ext) = array.dtype().clone() else {
+    let DType::Extension(ext, _) = array.dtype().clone() else {
         vortex_bail!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 

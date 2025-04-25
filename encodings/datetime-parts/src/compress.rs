@@ -51,13 +51,13 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
     type Error = VortexError;
 
     fn try_from(array: TemporalArray) -> Result<Self, Self::Error> {
-        let ext_dtype = array.ext_dtype();
+        let dtype = array.dtype().clone();
         let TemporalParts {
             days,
             seconds,
             subseconds,
         } = split_temporal(array)?;
-        DateTimePartsArray::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
+        DateTimePartsArray::try_new(dtype, days, seconds, subseconds)
     }
 }
 

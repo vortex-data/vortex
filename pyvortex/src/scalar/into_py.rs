@@ -48,7 +48,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Binary(_) => self.0.as_binary().value().map(PyVortex).into_pyobject(py),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
             DType::List(..) => PyVortex(self.0.as_list()).into_pyobject(py),
-            DType::Extension(_) => PyVortex(&self.0.as_extension().storage()).into_pyobject(py),
+            DType::Extension(..) => PyVortex(&self.0.as_extension().storage()).into_pyobject(py),
         }
     }
 }

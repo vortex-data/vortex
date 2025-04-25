@@ -75,12 +75,13 @@ impl Display for DTypePythonRepr<'_> {
                 edt.python_repr(),
                 n.python_repr()
             ),
-            DType::Extension(ext) => {
+            DType::Extension(ext, n) => {
                 write!(
                     f,
-                    "ext(\"{}\", {}, ",
+                    "ext(\"{}\", {}, nullable={})",
                     ext.id().python_repr(),
-                    ext.storage_dtype().python_repr()
+                    ext.storage_dtype().python_repr(),
+                    n.python_repr(),
                 )?;
                 match ext.metadata() {
                     None => write!(f, "None")?,

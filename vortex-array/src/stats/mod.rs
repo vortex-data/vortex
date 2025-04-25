@@ -184,7 +184,7 @@ impl Stat {
                             DType::Primitive(PType::F64, NonNullable)
                         }
                     },
-                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
+                    DType::Extension(ext_dtype, _) => self.dtype(ext_dtype.storage_dtype())?,
                     // Unsupported types
                     DType::Null
                     // TODO(aduffy): implement more stats for Decimal

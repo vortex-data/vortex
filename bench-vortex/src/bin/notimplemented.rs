@@ -84,11 +84,12 @@ fn enc_impls() -> Vec<ArrayRef> {
         .into_array(),
         ConstantArray::new(10, 1).into_array(),
         DateTimePartsArray::try_new(
-            DType::Extension(Arc::new(ExtDType::new(
+            Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
                 Some(TemporalMetadata::Time(TimeUnit::S).into()),
-            ))),
+            ))
+            .dtype(),
             buffer![1].into_array(),
             buffer![0].into_array(),
             buffer![0].into_array(),

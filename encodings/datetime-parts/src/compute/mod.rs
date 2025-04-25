@@ -70,7 +70,7 @@ impl SliceFn<&DateTimePartsArray> for DateTimePartsEncoding {
 
 impl ScalarAtFn<&DateTimePartsArray> for DateTimePartsEncoding {
     fn scalar_at(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
-        let DType::Extension(ext) = array.dtype().clone() else {
+        let DType::Extension(ext, _) = array.dtype().clone() else {
             vortex_bail!(
                 "DateTimePartsArray must have extension dtype, found {}",
                 array.dtype()
@@ -82,7 +82,7 @@ impl ScalarAtFn<&DateTimePartsArray> for DateTimePartsEncoding {
         };
 
         if !array.is_valid(index)? {
-            return Ok(Scalar::null(DType::Extension(ext)));
+            return Ok(Scalar::null(ext.dtype()));
         }
 
         let days: i64 = scalar_at(array.days(), index)?

@@ -30,7 +30,7 @@ impl CompareFn<&DateTimePartsArray> for DateTimePartsEncoding {
             return Ok(None);
         };
 
-        let DType::Extension(ext_dtype) = rhs_const.dtype() else {
+        let DType::Extension(ext_dtype, _) = rhs_const.dtype() else {
             return Ok(None);
         };
 
@@ -240,7 +240,7 @@ mod test {
         );
 
         let lhs = DateTimePartsArray::try_new(
-            DType::Extension(temporal_array.ext_dtype()),
+            temporal_array.ext_dtype().dtype(),
             PrimitiveArray::new(buffer![0i32], Validity::NonNullable).into_array(),
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
             PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),

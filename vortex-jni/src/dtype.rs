@@ -67,7 +67,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
         DType::List(..) => DTYPE_LIST,
-        DType::Extension(_) => DTYPE_EXTENSION,
+        DType::Extension(..) => DTYPE_EXTENSION,
     }
 }
 
@@ -168,7 +168,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isDate(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
@@ -189,7 +189,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTime(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
@@ -210,7 +210,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTimestamp(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
@@ -231,7 +231,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
@@ -255,7 +255,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone<'local
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |env| {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 

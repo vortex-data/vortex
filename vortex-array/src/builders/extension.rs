@@ -23,7 +23,7 @@ impl ExtensionBuilder {
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
-            dtype: DType::Extension(ext_dtype),
+            dtype: ext_dtype.dtype(),
         }
     }
 
@@ -42,7 +42,7 @@ impl ExtensionBuilder {
     }
 
     fn ext_dtype(&self) -> Arc<ExtDType> {
-        if let DType::Extension(ext_dtype) = &self.dtype {
+        if let DType::Extension(ext_dtype, _) = &self.dtype {
             ext_dtype.clone()
         } else {
             unreachable!()

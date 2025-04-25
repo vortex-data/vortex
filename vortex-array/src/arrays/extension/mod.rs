@@ -36,7 +36,7 @@ impl ExtensionArray {
             "ExtensionArray: storage_dtype must match storage array DType",
         );
         Self {
-            dtype: DType::Extension(ext_dtype),
+            dtype: ext_dtype.dtype(),
             storage,
             stats_set: ArrayStats::default(),
         }

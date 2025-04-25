@@ -119,7 +119,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                     self.len(),
                 )?)
             }
-            DType::Extension(ext_dtype) => {
+            DType::Extension(ext_dtype, _) => {
                 let s = ExtScalar::try_from(scalar)?;
 
                 let storage_scalar = s.storage();

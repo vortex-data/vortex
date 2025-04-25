@@ -21,7 +21,7 @@ impl EncodingVTable for ExtensionEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             vortex_bail!("Not an extension DType");
         };
         let storage = parts

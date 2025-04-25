@@ -76,7 +76,7 @@ impl TryFrom<Scalar> for ScalarValue {
             DType::List(..) => {
                 todo!("list scalar conversion")
             }
-            DType::Extension(ext) => {
+            DType::Extension(ext, _) => {
                 let storage_scalar = scalar.as_extension().storage();
 
                 // Special handling: temporal extension types in Vortex correspond to Arrow's
@@ -187,7 +187,7 @@ impl From<ScalarValue> for Scalar {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type())
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype)),
+                    Arc::new(ext_dtype).dtype(),
                     v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))))
                         .unwrap_or_else(crate::ScalarValue::null),
                 )
@@ -201,7 +201,9 @@ impl From<ScalarValue> for Scalar {
             | ScalarValue::TimestampNanosecond(v, _) => {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
+                    Arc::new(ext_dtype)
+                        .dtype()
+                        .with_nullability(Nullability::Nullable),
                     v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))))
                         .unwrap_or_else(crate::ScalarValue::null),
                 )

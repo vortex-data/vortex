@@ -148,13 +148,14 @@ impl TryFrom<ViewedDType> for DType {
                 let storage_view =
                     ViewedDType::from_fb_loc(storage_dtype._tab.loc(), vfdt.buffer().clone());
 
-                Ok(Self::Extension(Arc::new(ExtDType::new(
+                let ext_dtype = ExtDType::new(
                     id,
                     Arc::new(DType::try_from(storage_view).map_err(|e| {
                         vortex_err!("failed to create DType from fbs message: {e}")
                     })?),
                     metadata,
-                ))))
+                );
+                Ok(Arc::new(ext_dtype).dtype())
             }
             _ => Err(vortex_err!("Unknown DType variant")),
         }
@@ -245,9 +246,13 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Extension(ext) => {
+            Self::Extension(ext, n) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
-                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
+                let storage_dtype = Some(
+                    ext.storage_dtype()
+                        .with_nullability(*n)
+                        .write_flatbuffer(fbb),
+                );
                 let metadata = ext.metadata().map(|m| fbb.create_vector(m.as_ref()));
                 fb::Extension::create(
                     fbb,
@@ -270,7 +275,7 @@ impl WriteFlatBuffer for DType {
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,
             Self::List(..) => fb::Type::List,
-            Self::Extension { .. } => fb::Type::Extension,
+            Self::Extension(..) => fb::Type::Extension,
         };
 
         fb::DType::create(

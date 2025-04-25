@@ -108,7 +108,7 @@ impl Scalar {
     }
 
     pub fn cast(&self, target: &DType) -> VortexResult<Self> {
-        if let DType::Extension(ext_dtype) = target {
+        if let DType::Extension(ext_dtype, _) = target {
             let storage_scalar = self.cast_to_non_extension(ext_dtype.storage_dtype())?;
             Ok(Scalar::extension(ext_dtype.clone(), storage_scalar))
         } else {
@@ -179,7 +179,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
+            DType::Extension(_ext_dtype, _) => self.as_extension().storage().nbytes(),
         }
     }
 }
@@ -265,7 +265,7 @@ impl PartialEq for Scalar {
             DType::Binary(_) => self.as_binary() == other.as_binary(),
             DType::Struct(..) => self.as_struct() == other.as_struct(),
             DType::List(..) => self.as_list() == other.as_list(),
-            DType::Extension(_) => self.as_extension() == other.as_extension(),
+            DType::Extension(..) => self.as_extension() == other.as_extension(),
         }
     }
 }
@@ -286,7 +286,7 @@ impl PartialOrd for Scalar {
             DType::Binary(_) => self.as_binary().partial_cmp(&other.as_binary()),
             DType::Struct(..) => self.as_struct().partial_cmp(&other.as_struct()),
             DType::List(..) => self.as_list().partial_cmp(&other.as_list()),
-            DType::Extension(_) => self.as_extension().partial_cmp(&other.as_extension()),
+            DType::Extension(..) => self.as_extension().partial_cmp(&other.as_extension()),
         }
     }
 }
@@ -302,7 +302,7 @@ impl Hash for Scalar {
             DType::Binary(_) => self.as_binary().hash(state),
             DType::Struct(..) => self.as_struct().hash(state),
             DType::List(..) => self.as_list().hash(state),
-            DType::Extension(_) => self.as_extension().hash(state),
+            DType::Extension(..) => self.as_extension().hash(state),
         }
     }
 }
@@ -401,32 +401,44 @@ mod test {
             DType::Null,
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
+            DType::Extension(
+                Arc::from(ExtDType::new(
+                    ExtID::from("a"),
+                    Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+                    None,
+                )),
+                Nullability::Nullable
+            ),
+            DType::Extension(
+                Arc::from(ExtDType::new(
+                    ExtID::from("b"),
+                    Arc::from(DType::Utf8(Nullability::Nullable)),
+                    None,
+                )),
+                Nullability::Nullable
+            )
         )]
         source_dtype: DType,
         #[values(
             DType::Null,
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
+            DType::Extension(
+                Arc::from(ExtDType::new(
+                    ExtID::from("a"),
+                    Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+                    None,
+                )),
+                Nullability::Nullable
+            ),
+            DType::Extension(
+                Arc::from(ExtDType::new(
+                    ExtID::from("b"),
+                    Arc::from(DType::Utf8(Nullability::Nullable)),
+                    None,
+                )),
+                Nullability::Nullable
+            )
         )]
         target_dtype: DType,
     ) {
@@ -508,7 +520,7 @@ mod test {
             Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
             None,
         );
-        let ext_dtype = DType::Extension(Arc::from(apples.clone()));
+        let ext_dtype = Arc::from(apples.clone()).dtype();
         let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
         let storage_scalar = Scalar::new(
             DType::clone(apples.storage_dtype()),
@@ -560,7 +572,7 @@ mod test {
             Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
             None,
         );
-        let expected_dtype = &DType::Extension(Arc::from(apples_u8));
+        let expected_dtype = &Arc::from(apples_u8).dtype();
         let result = storage_scalar.cast(expected_dtype);
         assert!(
             result.as_ref().is_err_and(|err| {

@@ -117,7 +117,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_get(dtype: *const DType) -> u8 {
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
         DType::List(..) => DTYPE_LIST,
-        DType::Extension(_) => DTYPE_EXTENSION,
+        DType::Extension(..) => DTYPE_EXTENSION,
     }
 }
 
@@ -213,7 +213,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIME_ID,
+        DType::Extension(ext_dtype, _) => ext_dtype.id() == &*TIME_ID,
         _ => false,
     }
 }
@@ -223,7 +223,7 @@ pub unsafe extern "C-unwind" fn vx_dype_is_date(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*DATE_ID,
+        DType::Extension(ext_dtype, _) => ext_dtype.id() == &*DATE_ID,
         _ => false,
     }
 }
@@ -233,7 +233,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bo
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIMESTAMP_ID,
+        DType::Extension(ext_dtype, _) => ext_dtype.id() == &*TIMESTAMP_ID,
         _ => false,
     }
 }
@@ -242,7 +242,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bo
 pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    let DType::Extension(ext_dtype) = dtype else {
+    let DType::Extension(ext_dtype, _) = dtype else {
         panic!("DType_time_unit: not a time dtype")
     };
 
@@ -260,7 +260,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 ) {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    let DType::Extension(ext_dtype) = dtype else {
+    let DType::Extension(ext_dtype, _) = dtype else {
         panic!("vx_dtype_time_unit: not a time dtype")
     };
 

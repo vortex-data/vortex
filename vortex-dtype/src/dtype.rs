@@ -39,7 +39,7 @@ pub enum DType {
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
     /// User-defined extension types
-    Extension(Arc<ExtDType>),
+    Extension(Arc<ExtDType>, Nullability),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -63,14 +63,14 @@ impl DType {
 
         match self {
             Null => true,
-            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
             Bool(n)
             | Primitive(_, n)
             | Decimal(_, n)
             | Utf8(n)
             | Binary(n)
             | Struct(_, n)
-            | List(_, n) => matches!(n, Nullable),
+            | List(_, n)
+            | Extension(_, n) => matches!(n, Nullable),
         }
     }
 
@@ -95,7 +95,7 @@ impl DType {
             Binary(_) => Binary(nullability),
             Struct(st, _) => Struct(st.clone(), nullability),
             List(c, _) => List(c.clone(), nullability),
-            Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
+            Extension(ext, _) => Extension(ext.clone(), nullability),
         }
     }
 
@@ -116,8 +116,8 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
-            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
-                lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
+            (Extension(lhs_extdtype, _), Extension(rhs_extdtype, _)) => {
+                lhs_extdtype == rhs_extdtype
             }
             _ => false,
         }
@@ -155,7 +155,7 @@ impl DType {
 
     /// Check if `self` is an extension type
     pub fn is_extension(&self) -> bool {
-        matches!(self, Extension(_))
+        matches!(self, Extension(_, _))
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
@@ -195,16 +195,15 @@ impl Display for DType {
                 n
             ),
             List(edt, n) => write!(f, "list({}){}", edt, n),
-            Extension(ext) => write!(
+            Extension(ext, n) => write!(
                 f,
                 "ext({}, {}{}){}",
                 ext.id(),
-                ext.storage_dtype()
-                    .with_nullability(Nullability::NonNullable),
+                ext.storage_dtype(),
                 ext.metadata()
                     .map(|m| format!(", {:?}", m))
                     .unwrap_or_else(|| "".to_string()),
-                ext.storage_dtype().nullability(),
+                n,
             ),
         }
     }

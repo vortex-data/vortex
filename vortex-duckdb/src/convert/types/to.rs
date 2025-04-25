@@ -41,7 +41,7 @@ impl ToDuckDBType for DType {
                 );
                 Ok(duckdb_type)
             }
-            DType::Extension(ext_dtype) => {
+            DType::Extension(ext_dtype, _) => {
                 if is_temporal_ext_type(ext_dtype.id()) {
                     Ok(ext_to_duckdb(ext_dtype))
                 } else {

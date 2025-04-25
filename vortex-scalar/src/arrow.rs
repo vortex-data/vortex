@@ -94,7 +94,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::List(..) => {
                 todo!("list scalar conversion")
             }
-            DType::Extension(ext) => {
+            DType::Extension(ext, _) => {
                 if is_temporal_ext_type(ext.id()) {
                     let metadata = TemporalMetadata::try_from(ext.as_ref())?;
                     let storage_scalar = value.as_extension().storage();

@@ -183,7 +183,7 @@ impl InnerScalarValue {
                 .zip(structdt.fields())
                 .all(|(v, dt)| v.is_instance_of(&dt)),
             (InnerScalarValue::Null, dtype) => dtype.is_nullable(),
-            (_, DType::Extension(ext_dtype)) => self.is_instance_of(ext_dtype.storage_dtype()),
+            (_, DType::Extension(ext_dtype, _)) => self.is_instance_of(ext_dtype.storage_dtype()),
             _ => false,
         }
     }

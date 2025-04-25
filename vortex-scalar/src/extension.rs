@@ -66,7 +66,7 @@ impl Hash for ExtScalar<'_> {
 
 impl<'a> ExtScalar<'a> {
     pub fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
-        let DType::Extension(ext_dtype) = dtype else {
+        let DType::Extension(ext_dtype, _) = dtype else {
             vortex_bail!("Expected extension scalar, found {}", dtype)
         };
 
@@ -97,7 +97,7 @@ impl<'a> ExtScalar<'a> {
             return Ok(Scalar::new(dtype.clone(), self.value.clone()));
         }
 
-        if let DType::Extension(ext_dtype) = dtype {
+        if let DType::Extension(ext_dtype, _) = dtype {
             if self.ext_dtype.eq_ignore_nullability(ext_dtype) {
                 return Ok(Scalar::new(dtype.clone(), self.value.clone()));
             }
@@ -123,7 +123,7 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 impl Scalar {
     pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
         Self {
-            dtype: DType::Extension(ext_dtype),
+            dtype: ext_dtype.dtype(),
             value: value.value().clone(),
         }
     }

@@ -15,7 +15,7 @@ impl Display for Scalar {
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::List(..) => write!(f, "{}", self.as_list()),
-            DType::Extension(_) => write!(f, "{}", self.as_extension()),
+            DType::Extension(..) => write!(f, "{}", self.as_extension()),
         }
     }
 }
@@ -175,11 +175,12 @@ mod tests {
     #[test]
     fn display_time() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+            Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::S))),
-            )))
+            ))
+            .dtype()
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -199,11 +200,12 @@ mod tests {
     #[test]
     fn display_date() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+            Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::D))),
-            )))
+            ))
+            .dtype()
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -245,14 +247,15 @@ mod tests {
     #[test]
     fn display_local_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+            Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
                     TimeUnit::S,
                     None,
                 ))),
-            )))
+            ))
+            .dtype()
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -275,14 +278,15 @@ mod tests {
     #[test]
     fn display_zoned_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+            Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
                     TimeUnit::S,
                     Some(String::from("Pacific/Guam")),
                 ))),
-            )))
+            ))
+            .dtype()
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");

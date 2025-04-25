@@ -389,10 +389,11 @@ pub(super) fn dtype_ext<'py>(
 ) -> PyResult<Bound<'py, PyDType>> {
     PyDType::init(
         py,
-        DType::Extension(Arc::new(ExtDType::new(
+        Arc::new(ExtDType::new(
             ExtID::new(id.into()),
             Arc::new(storage.into_inner()),
             metadata.map(|bytes| ExtMetadata::new(bytes.into())),
-        ))),
+        ))
+        .dtype(),
     )
 }

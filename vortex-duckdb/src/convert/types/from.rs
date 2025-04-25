@@ -36,24 +36,27 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
                 nullable,
             )),
             LogicalTypeId::List => Ok(DType::List(Arc::new(from_duckdb_list(type_)?), nullable)),
-            LogicalTypeId::Date => Ok(DType::Extension(Arc::new(ExtDType::new(
+            LogicalTypeId::Date => Ok(Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, nullable)),
                 Some(TemporalMetadata::Date(TimeUnit::D).into()),
-            )))),
-            LogicalTypeId::Time => Ok(DType::Extension(Arc::new(ExtDType::new(
+            ))
+            .dtype()),
+            LogicalTypeId::Time => Ok(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, nullable)),
                 Some(TemporalMetadata::Time(TimeUnit::Us).into()),
-            )))),
+            ))
+            .dtype()),
             LogicalTypeId::Timestamp
             | LogicalTypeId::TimestampS
             | LogicalTypeId::TimestampMs
-            | LogicalTypeId::TimestampNs => Ok(DType::Extension(Arc::new(ExtDType::new(
+            | LogicalTypeId::TimestampNs => Ok(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, nullable)),
                 Some(TemporalMetadata::Timestamp(timestamp_time_unit(type_.id())?, None).into()),
-            )))),
+            ))
+            .dtype()),
             LogicalTypeId::Interval
             | LogicalTypeId::Hugeint
             | LogicalTypeId::Decimal

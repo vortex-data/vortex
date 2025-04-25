@@ -99,10 +99,9 @@ impl ExtDType {
     /// ```
     pub fn new(id: ExtID, storage_dtype: Arc<DType>, metadata: Option<ExtMetadata>) -> Self {
         assert!(
-            !matches!(storage_dtype.as_ref(), &DType::Extension(_)),
+            !matches!(storage_dtype.as_ref(), &DType::Extension(_, _)),
             "ExtDType cannot have Extension storage_dtype"
         );
-
         Self {
             id,
             storage_dtype,
@@ -116,10 +115,16 @@ impl ExtDType {
         &self.id
     }
 
-    /// Returns the `ExtMetadata` for this extension type, if it exists
+    /// Returns the storage `DType` for this extension type.
     #[inline]
     pub fn storage_dtype(&self) -> &DType {
         self.storage_dtype.as_ref()
+    }
+
+    /// Returns the `DType` representation for this extension type.
+    #[inline]
+    pub fn dtype(self: Arc<Self>) -> DType {
+        DType::Extension(self.clone(), self.storage_dtype.nullability())
     }
 
     /// Returns a new `ExtDType` with the given nullability
