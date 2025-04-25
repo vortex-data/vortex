@@ -23,7 +23,7 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             local_dir: bench-vortex/data/tpch/1
-            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex"
+            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
