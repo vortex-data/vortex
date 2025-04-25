@@ -16,9 +16,7 @@ version = { workspace = true }
 [features]
 arrow = ["dep:arrow-buffer"]
 compio = ["dep:compio"]
-default = ["rkyv"]
 memmap2 = ["dep:memmap2"]
-rkyv = ["dep:rkyv"]
 warn-copy = ["dep:log"]
 
 [dependencies]
@@ -28,7 +26,6 @@ compio = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
 num-traits = { workspace = true }
-rkyv = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 
 [lints]
