@@ -35,7 +35,7 @@ pub struct VortexSource {
     /// Shared layout readers, the source only lives as long as one scan.
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
-    layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
+    layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
 }
 
 impl VortexSource {
@@ -49,7 +49,7 @@ impl VortexSource {
             arrow_schema: None,
             predicate: None,
             _unused_df_metrics: Default::default(),
-            layout_readers: DashMap::default(),
+            layout_readers: Arc::new(DashMap::default()),
         }
     }
 

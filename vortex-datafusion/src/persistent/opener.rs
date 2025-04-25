@@ -28,7 +28,7 @@ pub(crate) struct VortexFileOpener {
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
-    layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
+    layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
 }
 
 impl VortexFileOpener {
@@ -41,7 +41,7 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
-        layout_readers: DashMap<Path, Arc<dyn LayoutReader>>,
+        layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
     ) -> Self {
         Self {
             object_store,

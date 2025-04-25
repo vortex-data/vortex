@@ -71,7 +71,7 @@ impl CoalescedDriver {
 
             performance_hint,
             max_prefetch_bytes: 32 << 20, // 32 MB
-            max_prefetch_inflight_requests: 100,
+            max_prefetch_inflight_requests: 1,
             first_poll: false,
             state: Default::default(),
             requested: Default::default(),

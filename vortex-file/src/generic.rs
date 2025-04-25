@@ -135,7 +135,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
             .min(file_size);
         let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read: ByteBuffer = self
+        let mut initial_read = self
             .dispatched_read(read.clone(), initial_offset..file_size)
             .await?;
 
