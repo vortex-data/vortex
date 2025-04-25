@@ -111,7 +111,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
 ) {
     try_or(error, (), || {
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let path = CStr::from_ptr(path).to_string_lossy();
+        let path = CStr::from_ptr(path).to_str()?;
 
         RUNTIME.with(|r| {
             r.block_on(async move {
