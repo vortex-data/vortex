@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::{
-    FlatBufferBuilder, Follow, ForwardsUOffset, SIZE_UOFFSET, Verifiable, Verifier,
-    VerifierOptions, WIPOffset, root, root_unchecked,
+    FlatBufferBuilder, Follow, ForwardsUOffset, SIZE_UOFFSET, Verifier, VerifierOptions, WIPOffset,
 };
 use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask};
@@ -54,9 +53,9 @@ struct ViewedLayout {
 
 impl ViewedLayout {
     /// Creates a new viewed layout while validating the top-level flatbuffer only.
+    #[allow(dead_code)]
     fn try_new(
         name: Arc<str>,
-        vtable: LayoutVTableRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
@@ -64,9 +63,14 @@ impl ViewedLayout {
     ) -> VortexResult<Self> {
         // We perform manual flatbuffer verification of the top-level Layout message, deferring
         // any recursive validation until we access a specific child.
-        Self::verify_root_layout_only(unsafe {
+        let fb = Self::verify_root_layout_only(unsafe {
             layout::Layout::follow(flatbuffer.as_slice(), flatbuffer_loc)
         })?;
+
+        let vtable = ctx
+            .lookup_encoding(fb.encoding())
+            .ok_or_else(|| vortex_err!("Child layout encoding {} not found", fb.encoding()))?
+            .clone();
 
         Ok(Self {
             name,
@@ -124,22 +128,14 @@ impl ViewedLayout {
             .children()
             .and_then(|children| (children.len() > i).then(|| children.get(i)))
             .ok_or_else(|| vortex_err!("Child index out of bounds"))?;
-        let fb = Self::verify_root_layout_only(unverified_fb)?;
 
-        let encoding = self
-            .ctx
-            .lookup_encoding(fb.encoding())
-            .ok_or_else(|| vortex_err!("Child layout encoding {} not found", fb.encoding()))?
-            .clone();
-
-        Ok(ViewedLayout {
-            name: format!("{}.{}", self.name, name).into(),
-            vtable: encoding,
+        Self::try_new(
+            format!("{}.{}", self.name, name).into(),
             dtype,
-            flatbuffer: self.flatbuffer.clone(),
-            flatbuffer_loc: fb._tab.loc(),
-            ctx: self.ctx.clone(),
-        })
+            self.flatbuffer.clone(),
+            unverified_fb._tab.loc(),
+            self.ctx.clone(),
+        )
     }
 
     fn verify_root_layout_only(fb: layout::Layout<'_>) -> VortexResult<layout::Layout<'_>> {
@@ -208,26 +204,20 @@ impl Layout {
     }
 
     /// Create a new viewed layout from a flatbuffer root message.
-    ///
-    /// # SAFETY
-    ///
-    /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
-    pub unsafe fn new_viewed_unchecked(
+    pub fn try_new_viewed(
         name: Arc<str>,
-        encoding: LayoutVTableRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContext,
-    ) -> Self {
-        Self(Inner::Viewed(ViewedLayout {
+    ) -> VortexResult<Self> {
+        Ok(Self(Inner::Viewed(ViewedLayout::try_new(
             name,
-            vtable: encoding,
             dtype,
             flatbuffer,
             flatbuffer_loc,
             ctx,
-        }))
+        )?)))
     }
 
     /// Returns the human-readable name of the layout.
@@ -439,7 +429,10 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                     },
                 )
             }
-            Inner::Viewed(layout) => LayoutFlatBuffer(layout.flatbuffer()).write_flatbuffer(fbb),
+            Inner::Viewed(layout) => {
+                // FIXME(ngates): we should verify this?
+                LayoutFlatBuffer(unsafe { layout.flatbuffer() }).write_flatbuffer(fbb)
+            }
         }
     }
 }

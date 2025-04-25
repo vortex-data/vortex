@@ -66,27 +66,13 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_encoding = layout_ctx
-            .lookup_encoding(fb_root_layout.encoding())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Footer root layout encoding {} not found",
-                    fb_root_layout.encoding()
-                )
-            })?
-            .clone();
-
-        // SAFETY: We have validated the fb_root_layout at the beginning of this function
-        let root_layout = unsafe {
-            Layout::new_viewed_unchecked(
-                "".into(),
-                root_encoding,
-                dtype,
-                flatbuffer.clone(),
-                fb_root_layout._tab.loc(),
-                layout_ctx.clone(),
-            )
-        };
+        let root_layout = Layout::try_new_viewed(
+            "".into(),
+            dtype,
+            flatbuffer.clone(),
+            fb_root_layout._tab.loc(),
+            layout_ctx.clone(),
+        )?;
 
         let segments: Arc<[SegmentSpec]> = fb
             .segment_specs()

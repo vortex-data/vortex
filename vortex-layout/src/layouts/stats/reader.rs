@@ -27,6 +27,7 @@ pub struct StatsReader {
 
     /// Data layout reader
     pub(crate) data_child: Arc<dyn LayoutReader>,
+    data_child_row_count: u64,
     /// Stats table layout reader.
     pub(crate) stats_child: Arc<dyn LayoutReader>,
 
@@ -68,6 +69,7 @@ impl StatsReader {
         let data_child = layout
             .child(0, layout.dtype().clone(), "data")?
             .reader(segment_source, ctx)?;
+        let data_child_row_count = data_child.row_count();
 
         let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
         let stats_child = layout
@@ -77,6 +79,7 @@ impl StatsReader {
         Ok(Self {
             layout,
             data_child,
+            data_child_row_count,
             stats_child,
             nzones,
             zone_len,
@@ -172,7 +175,7 @@ impl StatsReader {
 
     /// Return the row offset of a given zone.
     pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
-        ((zone_idx * self.zone_len) as u64).min(self.layout.child_row_count(0))
+        ((zone_idx * self.zone_len) as u64).min(self.data_child_row_count)
     }
 }
 
