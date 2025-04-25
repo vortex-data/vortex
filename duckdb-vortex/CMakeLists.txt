@@ -4,13 +4,13 @@ set(TARGET_NAME vortex)
 project(${TARGET_NAME}_project)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)
 FetchContent_Declare(
     Corrosion
     GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-    GIT_TAG v0.5.1
+    GIT_TAG v0.5.2
 )
 
 FetchContent_MakeAvailable(Corrosion)
@@ -25,7 +25,8 @@ endif ()
 corrosion_import_crate(MANIFEST_PATH ../Cargo.toml
     CRATES vortex-ffi
     FEATURES duckdb
-    IMPORTED_CRATES vortex_ffi
+    CRATE_TYPES staticlib
+    FLAGS --crate-type=staticlib
 )
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
@@ -45,11 +46,6 @@ build_loadable_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${PROTO_SRCS})
 
 target_link_libraries(${EXTENSION_NAME}
     vortex_ffi-static
-    protobuf::libprotobuf
-    ${SECURITY_FRAMEWORK}
-)
-target_link_libraries(${LOADABLE_EXTENSION_NAME}
-    vortex_ffi-shared
     protobuf::libprotobuf
     ${SECURITY_FRAMEWORK}
 )
