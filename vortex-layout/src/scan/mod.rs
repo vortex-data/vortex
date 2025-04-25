@@ -6,8 +6,9 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 pub use executor::*;
 use futures::executor::LocalPool;
+use futures::future::ok;
 use futures::task::LocalSpawnExt;
-use futures::{Stream, StreamExt, stream};
+use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
@@ -20,7 +21,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
-use vortex_metrics::{VortexMetrics, instrument};
+use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
 use crate::{ExprEvaluator, LayoutReader};
@@ -183,62 +184,78 @@ impl<A: 'static + Send> ScanBuilder<A> {
             })
             .map(|row_range| self.selection.row_mask(&row_range))
             .filter(|mask| !mask.mask().all_false())
+            .map(|row_mask| {
+                let row_range = row_mask.row_range();
+                (row_range, ok(row_mask.mask().clone()).boxed())
+            })
             .collect_vec();
 
-        // Create a future to process each row split of the scan.
+        // NOTE(ngates): since segment prefetching occurs in insertion order, we construct
+        //  all pruning tasks, then all filter tasks, then all projection tasks. When a task
+        //  explicitly polls a segment, it jumps to the front of the queue so this shouldn't
+        //  impact the time-to-first-chunk latency.
+
+        // If a filter expression is provided, then we setup pruning and filter evaluations.
+        let row_masks = if let Some(filter) = &filter {
+            // Map the row masks through the pruning evaluation
+            let row_masks: Vec<_> = row_masks
+                .into_iter()
+                .map(|(row_range, mask_fut)| {
+                    let eval = layout_reader.pruning_evaluation(&row_range, filter)?;
+                    let mask_fut = async move {
+                        let mask = mask_fut.await?;
+                        if mask.all_false() {
+                            Ok(mask)
+                        } else {
+                            eval.invoke(mask).await
+                        }
+                    }
+                    .boxed();
+                    Ok::<_, VortexError>((row_range, mask_fut))
+                })
+                .try_collect()?;
+
+            // Map the row masks through the filter evaluation
+            row_masks
+                .into_iter()
+                .map(|(row_range, mask_fut)| {
+                    let eval = layout_reader.filter_evaluation(&row_range, filter)?;
+                    let mask_fut = async move {
+                        let mask = mask_fut.await?;
+                        if mask.all_false() {
+                            Ok(mask)
+                        } else {
+                            eval.invoke(mask).await
+                        }
+                    }
+                    .boxed();
+                    Ok::<_, VortexError>((row_range, mask_fut))
+                })
+                .try_collect()?
+        } else {
+            row_masks
+        };
+
+        // Finally, map the row masks through the projection evaluation
         row_masks
             .into_iter()
-            .enumerate()
-            .map(|(_i, row_mask)| {
-                let row_range = row_mask.row_range();
-
-                let approx_filter_eval = filter
-                    .as_ref()
-                    .map(|expr| layout_reader.pruning_evaluation(&row_range, expr))
-                    .transpose()?;
-                let exact_filter_eval = filter
-                    .as_ref()
-                    .map(|expr| layout_reader.filter_evaluation(&row_range, expr))
-                    .transpose()?;
-                let project_eval = layout_reader.projection_evaluation(&row_range, &projection)?;
+            .map(|(row_range, mask_fut)| {
                 let map_fn = self.map_fn.clone();
-
-                Ok::<_, VortexError>(instrument!("split", [split = _i], async move {
-                    let mut mask = row_mask.mask().clone();
+                let eval = layout_reader.projection_evaluation(&row_range, &projection)?;
+                let array_fut = async move {
+                    let mask = mask_fut.await?;
                     if mask.all_false() {
-                        return Ok(None);
+                        Ok(None)
+                    } else {
+                        map_fn(eval.invoke(mask).await?).map(Some)
                     }
+                }
+                .boxed();
 
-                    if let Some(approx_filter_eval) = approx_filter_eval {
-                        // First, we run an approximate evaluation to prune the row range.
-                        log::debug!("Pruning row range {:?}", row_range);
-                        mask = approx_filter_eval.invoke(mask).await?;
-                        if mask.all_false() {
-                            return Ok(None);
-                        }
-                    }
-
-                    if let Some(exact_filter_eval) = exact_filter_eval {
-                        // Then, we run the full evaluation.
-                        log::debug!("Filtering row range {:?}", row_range);
-                        mask = exact_filter_eval.invoke(mask).await?;
-                        if mask.all_false() {
-                            return Ok(None);
-                        }
-                    }
-
-                    log::debug!("Projecting row range {:?}", row_range);
-                    let array = project_eval.invoke(mask).await?;
-
-                    log::debug!("Mapping row range {:?}", row_range);
-                    let array = (map_fn)(array.clone())?;
-
-                    Ok(Some(array))
-                }))
-            })
-            .map_ok(|task| match &self.executor {
-                None => Box::pin(task),
-                Some(executor) => executor.spawn(Box::pin(task)),
+                Ok(match &self.executor {
+                    None => array_fut,
+                    Some(executor) => executor.spawn(array_fut),
+                })
             })
             .try_collect()
     }
