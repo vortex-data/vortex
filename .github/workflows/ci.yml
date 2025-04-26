@@ -294,8 +294,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Rust Test
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+      - name: Rust Tests
+        run: | 
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          # nextest doesn't support doc tests
+          cargo test --doc
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
