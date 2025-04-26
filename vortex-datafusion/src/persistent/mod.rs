@@ -74,6 +74,7 @@ mod tests {
         let f = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&filepath)
             .await?;
 
