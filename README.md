@@ -13,14 +13,14 @@
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data analytics. It provides:
 
 - **⚡️ Blazing Fast Performance**
-    - 100-200x faster random access reads than Apache Parquet
-    - 2-10x faster scans with similar compression ratios and write throughput
-    - Efficient support for wide tables with zero-copy/zero-parse metadata
+  - 100-200x faster random access reads than Apache Parquet
+  - 2-10x faster scans with similar compression ratios and write throughput
+  - Efficient support for wide tables with zero-copy/zero-parse metadata
 
 - **🔧 Extensible Architecture**
-    - Modeled after Apache DataFusion's extensible approach
-    - Pluggable encoding system
-    - Zero-copy compatibility with Apache Arrow
+  - Modeled after Apache DataFusion's extensible approach
+  - Pluggable encoding system
+  - Zero-copy compatibility with Apache Arrow
 
 > 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
 > features are still being implemented.
@@ -105,7 +105,7 @@ uv sync --all-packages
 
 For optimal performance, use [MiMalloc](https://github.com/microsoft/mimalloc):
 
-```rust
+```rust,ignore
 #[global_allocator]
 static GLOBAL_ALLOC: MiMalloc = MiMalloc;
 ```

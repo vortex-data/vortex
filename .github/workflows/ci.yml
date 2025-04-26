@@ -295,10 +295,10 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
-        run: | 
+        run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
           # nextest doesn't support doc tests
-          cargo test --doc
+          cargo test --doc --workspace --exclude pyvortex
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |

@@ -4,7 +4,7 @@
 # You can set these variables from the command line, and also
 # from the environment for the first two.
 SPHINXOPTS    ?= --fail-on-warning --keep-going
-SPHINXBUILD   ?= sphinx-build
+SPHINXBUILD   ?= uv run sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build
 
@@ -20,4 +20,4 @@ help:
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 serve:
-	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html"
+	uv run sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html"
