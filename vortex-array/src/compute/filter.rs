@@ -59,7 +59,6 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
 pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new(ArcRef::new_ref(&Filter));
     for kernel in inventory::iter::<FilterKernel> {
-        println!("Registering filter kernel");
         compute.register_kernel(kernel.0.clone());
     }
     compute
