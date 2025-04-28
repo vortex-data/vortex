@@ -1,4 +1,3 @@
-use arrow_buffer::NullBuffer;
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -74,23 +73,16 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VarBinArray {
-    let data_null_buffer = data_validity
-        .to_null_buffer()
-        .unwrap_or_else(|| NullBuffer::new_valid(data.len()));
-    let indices_null_buffer = indices_validity
-        .to_null_buffer()
-        .unwrap_or_else(|| NullBuffer::new_valid(indices.len()));
-
     let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
     for (idx, data_idx) in indices.iter().enumerate() {
-        if !indices_null_buffer.is_valid(idx) {
+        if !indices_validity.value(idx) {
             builder.append_null();
             continue;
         }
         let data_idx = data_idx
             .to_usize()
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-        if data_null_buffer.is_valid(data_idx) {
+        if data_validity.value(data_idx) {
             let start = offsets[data_idx].to_usize().unwrap_or_else(|| {
                 vortex_panic!("Failed to convert offset to usize: {}", offsets[data_idx])
             });
