@@ -1,7 +1,8 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, PType};
@@ -84,7 +85,6 @@ impl DictReader {
     pub(crate) fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
         self.values_evals
             .write()
-            .vortex_expect("poisoned lock")
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
