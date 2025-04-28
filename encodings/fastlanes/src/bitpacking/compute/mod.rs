@@ -1,12 +1,10 @@
-use vortex_array::compute::{
-    BetweenFn, BetweenOptions, IsConstantFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, between,
-};
+use vortex_array::Array;
+use vortex_array::compute::{IsConstantFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::BitPackedEncoding;
 
+mod between;
 mod filter;
 mod is_constant;
 mod scalar_at;
@@ -15,10 +13,6 @@ mod slice;
 mod take;
 
 impl ComputeVTable for BitPackedEncoding {
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
@@ -67,28 +61,6 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 
     if !indices_within_chunk.is_empty() {
         chunk_fn(current_chunk_idx, &indices_within_chunk);
-    }
-}
-
-impl BetweenFn<&BitPackedArray> for BitPackedEncoding {
-    fn between(
-        &self,
-        array: &BitPackedArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
-        options: &BetweenOptions,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if !lower.is_constant() || !upper.is_constant() {
-            return Ok(None);
-        };
-
-        between(
-            &array.clone().to_canonical()?.into_array(),
-            lower,
-            upper,
-            options,
-        )
-        .map(Some)
     }
 }
 

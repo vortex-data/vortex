@@ -1,19 +1,12 @@
 use crate::Array;
 use crate::compute::{
-    BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, FillForwardFn, FillNullFn, InvertFn,
-    IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn,
+    IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// A ternary operator, returning bool if the values are between the other two given values.
-    ///
-    /// See: [`BetweenFn`].
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        None
-    }
-
     /// Implementation of binary boolean logic operations.
     ///
     /// See: [`BinaryBooleanFn`].

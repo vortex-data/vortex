@@ -1,9 +1,8 @@
 use crate::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn,
-    ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
-    UncompressedSizeFn,
+    CastFn, FillForwardFn, FillNullFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -27,10 +26,6 @@ mod uncompressed_size;
 pub use is_constant::*;
 
 impl ComputeVTable for PrimitiveEncoding {
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }

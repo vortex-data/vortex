@@ -25,8 +25,7 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
             inputs: &[left.into(), right.into()],
             options: &operator,
         })?
-        .into_array()
-        .ok_or_else(|| vortex_err!("Failed to convert compare result to array"))
+        .unwrap_array()
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
@@ -127,37 +126,16 @@ impl ComputeFnVTable for Compare {
     ) -> VortexResult<Output> {
         let CompareArgs { lhs, rhs, operator } = CompareArgs::try_from(args)?;
 
-        if lhs.len() != rhs.len() {
-            vortex_bail!("Compare operations only support arrays of the same length");
-        }
-        if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
-            vortex_bail!(
-                "Cannot compare different DTypes {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            );
-        }
-
-        // TODO(ngates): no reason why not
-        if lhs.dtype().is_struct() {
-            vortex_bail!(
-                "Compare does not support arrays with Struct DType, got: {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            )
-        }
-
-        let result_dtype =
-            DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into());
+        let return_dtype = self.return_type(args)?;
 
         if lhs.is_empty() {
-            return Ok(Canonical::empty(&result_dtype).into_array().into());
+            return Ok(Canonical::empty(&return_dtype).into_array().into());
         }
 
         let left_constant_null = lhs.as_constant().map(|l| l.is_null()).unwrap_or(false);
         let right_constant_null = rhs.as_constant().map(|r| r.is_null()).unwrap_or(false);
         if left_constant_null || right_constant_null {
-            return Ok(ConstantArray::new(Scalar::null(result_dtype), lhs.len())
+            return Ok(ConstantArray::new(Scalar::null(return_dtype), lhs.len())
                 .into_array()
                 .into());
         }
@@ -170,23 +148,19 @@ impl ComputeFnVTable for Compare {
         }
 
         // First try lhs op rhs, then invert and try again.
-        let args = InvocationArgs {
-            inputs: &[lhs.into(), rhs.into()],
-            options: &operator,
-        };
         for kernel in kernels {
-            if let Some(output) = kernel.invoke(&args)? {
+            if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
         }
 
         // Try inverting the operator and swapping the arguments
-        let args = InvocationArgs {
+        let inverted_args = InvocationArgs {
             inputs: &[rhs.into(), lhs.into()],
             options: &operator.swap(),
         };
         for kernel in kernels {
-            if let Some(output) = kernel.invoke(&args)? {
+            if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
             }
         }
@@ -207,22 +181,40 @@ impl ComputeFnVTable for Compare {
     }
 
     fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
-        let args = CompareArgs::try_from(args)?;
+        let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
+
+        if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
+            vortex_bail!(
+                "Cannot compare different DTypes {} and {}",
+                lhs.dtype(),
+                rhs.dtype()
+            );
+        }
+
+        // TODO(ngates): no reason why not
+        if lhs.dtype().is_struct() {
+            vortex_bail!(
+                "Compare does not support arrays with Struct DType, got: {} and {}",
+                lhs.dtype(),
+                rhs.dtype()
+            )
+        }
+
         Ok(DType::Bool(
-            (args.lhs.dtype().is_nullable() || args.rhs.dtype().is_nullable()).into(),
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
         ))
     }
 
     fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
-        let args = CompareArgs::try_from(args)?;
-        if args.lhs.len() != args.rhs.len() {
+        let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
+        if lhs.len() != rhs.len() {
             vortex_bail!(
                 "Compare operations only support arrays of the same length, got {} and {}",
-                args.lhs.len(),
-                args.rhs.len()
+                lhs.len(),
+                rhs.len()
             );
         }
-        Ok(args.lhs.len())
+        Ok(lhs.len())
     }
 
     fn is_elementwise(&self) -> bool {

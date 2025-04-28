@@ -10,7 +10,7 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::RwLock;
 
-pub use between::{BetweenFn, BetweenOptions, StrictComparison, between};
+pub use between::*;
 pub use binary_numeric::{
     BinaryNumericFn, add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub,
     sub_scalar,
@@ -273,10 +273,10 @@ impl Output {
         }
     }
 
-    pub fn into_array(self) -> Option<ArrayRef> {
-        match self {
-            Output::Array(array) => Some(array),
-            _ => None,
+    pub fn unwrap_array(self) -> VortexResult<ArrayRef> {
+        match &self {
+            Output::Array(array) => Ok(array.clone()),
+            Output::Scalar(_) => vortex_bail!("Expected array output, got Scalar"),
         }
     }
 }

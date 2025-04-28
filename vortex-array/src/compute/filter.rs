@@ -50,8 +50,7 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
             inputs: &[array.into(), mask.into()],
             options: &(),
         })?
-        .into_array()
-        .ok_or_else(|| vortex_err!("Failed to convert filter result to array"))
+        .unwrap_array()
 }
 
 /// The filter [`ComputeFn`].
@@ -72,14 +71,6 @@ impl ComputeFnVTable for Filter {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
-
-        if mask.len() != array.len() {
-            vortex_bail!(
-                "mask.len() is {}, does not equal array.len() of {}",
-                mask.len(),
-                array.len()
-            );
-        }
 
         let true_count = mask.true_count();
 
@@ -136,7 +127,15 @@ impl ComputeFnVTable for Filter {
     }
 
     fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
-        Ok(FilterArgs::try_from(args)?.mask.true_count())
+        let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
+        if mask.len() != array.len() {
+            vortex_bail!(
+                "mask.len() is {}, does not equal array.len() of {}",
+                mask.len(),
+                array.len()
+            );
+        }
+        Ok(mask.true_count())
     }
 
     fn is_elementwise(&self) -> bool {
