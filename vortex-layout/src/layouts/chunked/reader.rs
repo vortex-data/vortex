@@ -2,6 +2,7 @@ use std::iter;
 use std::ops::Range;
 use std::sync::{Arc, Weak};
 
+use crossbeam_utils::CachePadded;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
@@ -19,7 +20,8 @@ pub struct ChunkedReader {
     ctx: ArrayContext,
 
     /// Shared lazy chunk scanners
-    chunk_readers: Arc<[Mutex<Option<Weak<dyn LayoutReader>>>]>,
+    #[allow(clippy::type_complexity)]
+    chunk_readers: Arc<[CachePadded<Mutex<Option<Weak<dyn LayoutReader>>>>]>,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
@@ -38,7 +40,9 @@ impl ChunkedReader {
         let nchunks = layout.nchildren();
 
         // Construct a lazy scan for each chunk of the layout.
-        let chunk_readers = (0..nchunks).map(|_| Mutex::new(None)).collect();
+        let chunk_readers = (0..nchunks)
+            .map(|_| CachePadded::new(Mutex::new(None)))
+            .collect();
 
         // Generate the cumulative chunk offsets, relative to the layout's row offset, with an
         // additional offset corresponding to the length.
@@ -66,16 +70,16 @@ impl ChunkedReader {
     pub(crate) fn child(&self, idx: usize) -> VortexResult<Arc<dyn LayoutReader>> {
         let mut child_guard = self.chunk_readers[idx].lock();
         if let Some(child) = child_guard.as_ref().and_then(|child| child.upgrade()) {
-            return Ok(child.clone());
+            Ok(child)
         } else {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
-            let strong = child_layout.reader(&self.segment_source, &self.ctx)?;
-            let weak_ref = Arc::downgrade(&strong);
+            let child_layout_reader = child_layout.reader(&self.segment_source, &self.ctx)?;
+            let weak_ref = Arc::downgrade(&child_layout_reader);
             *child_guard = Some(weak_ref);
 
-            Ok(strong)
+            Ok(child_layout_reader)
         }
     }
 

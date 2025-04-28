@@ -20,7 +20,6 @@ pub(crate) type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult
 pub struct DictReader {
     layout: Layout,
     /// Cached dict values array
-    #[allow(dead_code)]
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
     #[allow(dead_code)]
@@ -62,41 +61,41 @@ impl DictReader {
     }
 
     pub(crate) fn values_array(&self) -> SharedArrayFuture {
-        // self.values_array
-        //     .get_or_init(move || {
-        //         let values_len = self.values.row_count();
-        //         let eval = self
-        //             .values
-        //             .projection_evaluation(&(0..values_len), &Identity::new_expr())
-        //             .vortex_expect("must construct dict values array evaluation");
+        self.values_array
+            .get_or_init(move || {
+                let values_len = self.values.row_count();
+                let eval = self
+                    .values
+                    .projection_evaluation(&(0..values_len), &Identity::new_expr())
+                    .vortex_expect("must construct dict values array evaluation");
 
-        //         async move {
-        //             eval.invoke(Mask::new_true(
-        //                 usize::try_from(values_len)
-        //                     .vortex_expect("dict values length must fit in u32"),
-        //             ))
-        //             .await
-        //             .map_err(Arc::new)
-        //         }
-        //         .boxed()
-        //         .shared()
-        //     })
-        //     .clone()
-        let values_len = self.values.row_count();
-        let eval = self
-            .values
-            .projection_evaluation(&(0..values_len), &Identity::new_expr())
-            .vortex_expect("must construct dict values array evaluation");
+                async move {
+                    eval.invoke(Mask::new_true(
+                        usize::try_from(values_len)
+                            .vortex_expect("dict values length must fit in u32"),
+                    ))
+                    .await
+                    .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            })
+            .clone()
+        // let values_len = self.values.row_count();
+        // let eval = self
+        //     .values
+        //     .projection_evaluation(&(0..values_len), &Identity::new_expr())
+        //     .vortex_expect("must construct dict values array evaluation");
 
-        async move {
-            eval.invoke(Mask::new_true(
-                usize::try_from(values_len).vortex_expect("dict values length must fit in u32"),
-            ))
-            .await
-            .map_err(Arc::new)
-        }
-        .boxed()
-        .shared()
+        // async move {
+        //     eval.invoke(Mask::new_true(
+        //         usize::try_from(values_len).vortex_expect("dict values length must fit in u32"),
+        //     ))
+        //     .await
+        //     .map_err(Arc::new)
+        // }
+        // .boxed()
+        // .shared()
     }
 
     pub(crate) fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
