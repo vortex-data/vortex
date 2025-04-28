@@ -276,6 +276,7 @@ pub struct VarBinViewArray {
 
 try_from_array_ref!(VarBinViewArray);
 
+#[derive(Debug)]
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
     type Array = VarBinViewArray;

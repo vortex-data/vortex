@@ -13,6 +13,7 @@ mod canonical;
 mod compress;
 mod compute;
 mod serde;
-
+#[cfg(test)]
+mod tests;
 pub use array::*;
 pub use compress::*;

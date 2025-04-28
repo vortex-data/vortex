@@ -20,6 +20,7 @@ use crate::{
     ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 
+#[derive(Debug)]
 pub struct DecimalEncoding;
 
 impl ComputeVTable for DecimalEncoding {

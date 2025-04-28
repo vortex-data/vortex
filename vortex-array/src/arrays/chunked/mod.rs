@@ -34,6 +34,7 @@ pub struct ChunkedArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ChunkedEncoding;
 impl Encoding for ChunkedEncoding {
     type Array = ChunkedArray;

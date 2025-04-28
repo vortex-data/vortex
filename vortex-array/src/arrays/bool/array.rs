@@ -23,7 +23,9 @@ pub struct BoolArray {
     pub(crate) stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct BoolEncoding;
+
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = ProstMetadata<BoolMetadata>;

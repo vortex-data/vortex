@@ -34,6 +34,7 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
     type Array = ListArray;

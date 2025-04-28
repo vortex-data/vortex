@@ -311,7 +311,8 @@ impl Options for () {
 /// For example, if kernel doesn't support the `LTE` operator.
 ///
 /// If the kernel fails to compute a result, it should return a `Some` with the error.
-pub trait Kernel: 'static + Send + Sync {
+pub trait Kernel: 'static + Send + Sync + Debug {
+    /// Invokes the kernel with the given input arguments and options.
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>>;
 }
 

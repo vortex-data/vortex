@@ -107,6 +107,7 @@ impl ComputeFnVTable for Filter {
         };
 
         // Check each kernel for the array
+        println!("Filter kernels: {:?}", kernels);
         for kernel in kernels {
             if let Some(output) = kernel.invoke(&args)? {
                 return Ok(output);
@@ -179,6 +180,7 @@ pub trait FilterKernel: Encoding {
 }
 
 /// Adapter to convert a [`FilterKernel`] into a [`Kernel`].
+#[derive(Debug)]
 pub struct FilterKernelAdapter<E: Encoding>(pub E);
 
 impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {

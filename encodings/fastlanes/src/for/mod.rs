@@ -26,6 +26,7 @@ pub struct FoRArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct FoREncoding;
 impl Encoding for FoREncoding {
     type Array = FoRArray;

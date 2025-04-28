@@ -90,6 +90,7 @@ pub trait CompareKernel: Encoding {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+#[derive(Debug)]
 pub struct CompareKernelAdapter<E: Encoding>(pub E);
 
 impl<E: Encoding + CompareKernel> CompareKernelAdapter<E> {

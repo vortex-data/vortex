@@ -40,6 +40,7 @@ pub struct BitPackedArray {
 
 try_from_array_ref!(BitPackedArray);
 
+#[derive(Debug)]
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
     type Array = BitPackedArray;

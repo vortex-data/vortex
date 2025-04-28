@@ -20,6 +20,7 @@ pub struct ConstantArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ConstantEncoding;
 impl Encoding for ConstantEncoding {
     type Array = ConstantArray;

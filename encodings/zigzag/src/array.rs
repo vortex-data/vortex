@@ -20,6 +20,7 @@ pub struct ZigZagArray {
 
 try_from_array_ref!(ZigZagArray);
 
+#[derive(Debug)]
 pub struct ZigZagEncoding;
 impl Encoding for ZigZagEncoding {
     type Array = ZigZagArray;

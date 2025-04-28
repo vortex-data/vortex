@@ -28,6 +28,7 @@ pub struct ALPRDArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ALPRDEncoding;
 impl Encoding for ALPRDEncoding {
     type Array = ALPRDArray;
