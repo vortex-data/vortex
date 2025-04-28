@@ -10,7 +10,7 @@ mod to_arrow;
 
 use crate::Array;
 use crate::arrays::DecimalEncoding;
-use crate::compute::{IsConstantFn, IsSortedFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn};
+use crate::compute::{IsConstantFn, IsSortedFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for DecimalEncoding {

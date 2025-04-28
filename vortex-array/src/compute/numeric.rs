@@ -164,7 +164,7 @@ impl ComputeFnVTable for Numeric {
         ) || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
         {
             vortex_bail!(
-                "Numeric operations are only supported on two arrays sharing the same primitive-type: {} {}",
+                "Numeric operations are only supported on two arrays sharing the same numeric type: {} {}",
                 lhs.dtype(),
                 rhs.dtype()
             )

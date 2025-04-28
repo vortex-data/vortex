@@ -34,7 +34,6 @@ impl TakeFn<&DecimalArray> for DecimalEncoding {
     }
 }
 
-/// Convert the BufferMut<T> into a Buffer<T>.
 #[inline]
 fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(
     indices: &[I],
