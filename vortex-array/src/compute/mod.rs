@@ -39,7 +39,7 @@ pub use take_from::TakeFromFn;
 pub use to_arrow::*;
 pub use uncompressed_size::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -78,22 +78,24 @@ mod uncompressed_size;
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
 pub struct ComputeFn {
+    id: ArcRef<str>,
     vtable: ArcRef<dyn ComputeFnVTable>,
     kernels: RwLock<Vec<ArcRef<dyn Kernel>>>,
 }
 
 impl ComputeFn {
     /// Create a new compute function from the given [`ComputeFnVTable`].
-    pub fn new(vtable: ArcRef<dyn ComputeFnVTable>) -> Self {
+    pub fn new(id: ArcRef<str>, vtable: ArcRef<dyn ComputeFnVTable>) -> Self {
         Self {
+            id,
             vtable,
             kernels: Default::default(),
         }
     }
 
     /// Returns the string identifier of the compute function.
-    pub fn id(&self) -> ArcRef<str> {
-        self.vtable.id()
+    pub fn id(&self) -> &ArcRef<str> {
+        &self.id
     }
 
     /// Register a kernel for the compute function.
@@ -106,19 +108,24 @@ impl ComputeFn {
 
     /// Invokes the compute function with the given arguments.
     pub fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
-        self.vtable
-            .invoke(args, &self.kernels.read().vortex_expect("poisoned lock"))
+        let expected_dtype = self.vtable.return_type(args)?;
+        let output = self
+            .vtable
+            .invoke(args, &self.kernels.read().vortex_expect("poisoned lock"))?;
+        if output.dtype() != &expected_dtype {
+            vortex_bail!(
+                "Internal error: compute function {} returned a result of type {} but expected {}",
+                self.id,
+                output.dtype(),
+                &expected_dtype
+            );
+        }
+        Ok(output)
     }
 }
 
 /// VTable for the implementation of a compute function.
 pub trait ComputeFnVTable: 'static + Send + Sync {
-    /// The globally unique identifier for the compute function.
-    fn id(&self) -> ArcRef<str>;
-
-    /// Returns the function as the [`Any`] trait object.
-    fn as_any(&self) -> &dyn Any;
-
     /// Invokes the compute function entry-point with the given input arguments and options.
     ///
     /// The entry-point logic can short-circuit compute using statistics, update result array
@@ -208,6 +215,13 @@ pub enum Output {
 }
 
 impl Output {
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Output::Scalar(scalar) => scalar.dtype(),
+            Output::Array(array) => array.dtype(),
+        }
+    }
+
     pub fn into_scalar(self) -> Option<Scalar> {
         match self {
             Output::Scalar(scalar) => Some(scalar),

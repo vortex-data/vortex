@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::ops::BitAnd;
 use std::sync::LazyLock;
 
@@ -57,7 +56,7 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
 
 /// The filter [`ComputeFn`].
 pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new(ArcRef::new_ref(&Filter));
+    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
     for kernel in inventory::iter::<FilterKernel> {
         compute.register_kernel(kernel.0.clone());
     }
@@ -67,14 +66,6 @@ pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Filter;
 
 impl ComputeFnVTable for Filter {
-    fn id(&self) -> ArcRef<str> {
-        ArcRef::new_ref("filter")
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn invoke<'a>(
         &self,
         args: &'a InvocationArgs<'a>,
