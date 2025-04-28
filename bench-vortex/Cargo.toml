@@ -70,5 +70,4 @@ vortex-io = { workspace = true, features = ["tokio"] }
 xshell = { workspace = true }
 
 [features]
-mimalloc = []
 tracing = ["vortex-datafusion/tracing"]

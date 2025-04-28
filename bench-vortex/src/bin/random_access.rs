@@ -13,9 +13,6 @@ use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
 use vortex::error::VortexUnwrap;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

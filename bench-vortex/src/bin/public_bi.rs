@@ -15,9 +15,6 @@ use tracing_futures::Instrument;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

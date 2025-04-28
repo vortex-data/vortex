@@ -29,6 +29,10 @@ pub use datasets::{BenchmarkDataset, file};
 pub use engines::{ddb, df};
 pub use vortex::error::vortex_panic;
 
+// All benchmarks run with mimalloc for consistency.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {
     engine: Engine,

@@ -18,9 +18,6 @@ use vortex::builders::builder_with_capacity;
 use vortex::error::VortexUnwrap;
 use vortex::{Array, ArrayExt};
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

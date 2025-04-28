@@ -32,9 +32,6 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
