@@ -264,10 +264,10 @@ impl Output {
         }
     }
 
-    pub fn into_scalar(self) -> Option<Scalar> {
-        match self {
-            Output::Scalar(scalar) => Some(scalar),
-            _ => None,
+    pub fn unwrap_scalar(self) -> VortexResult<Scalar> {
+        match &self {
+            Output::Array(_) => vortex_bail!("Expected array output, got Array"),
+            Output::Scalar(scalar) => Ok(scalar.clone()),
         }
     }
 

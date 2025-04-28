@@ -9,9 +9,9 @@ use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     CastFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
-    MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
-    is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at, slice, sum, take,
-    uncompressed_size,
+    MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn, ToArrowFn,
+    UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
+    slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -38,10 +38,6 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 
@@ -92,11 +88,13 @@ impl SliceFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl SumFn<&ExtensionArray> for ExtensionEncoding {
+impl SumKernel for ExtensionEncoding {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
         sum(array.storage())
     }
 }
+
+register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
 
 impl TakeFn<&ExtensionArray> for ExtensionEncoding {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

@@ -1,8 +1,8 @@
 use crate::Array;
 use crate::compute::{
     BinaryNumericFn, CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn,
-    MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn,
-    TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
+    MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn,
+    TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -108,13 +108,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`SliceFn`].
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        None
-    }
-
-    /// Perform a sum of an array.
-    ///
-    /// See: [SumFn].
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         None
     }
 

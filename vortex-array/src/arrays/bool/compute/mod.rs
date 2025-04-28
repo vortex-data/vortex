@@ -2,7 +2,7 @@ use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
     CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn,
-    ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -61,10 +61,6 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 

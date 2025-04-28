@@ -1,29 +1,133 @@
-use vortex_dtype::PType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use std::sync::LazyLock;
+
+use vortex_dtype::{DType, PType};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::arcref::ArcRef;
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProvider};
 
-pub trait SumFn<A> {
+/// Sum an array.
+///
+/// If the sum overflows, a null scalar will be returned.
+/// If the sum is not supported for the array's dtype, an error will be raised.
+/// If the array is all-invalid, the sum will be zero.
+pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
+    SUM_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into()],
+            options: &(),
+        })?
+        .unwrap_scalar()
+}
+
+struct Sum;
+
+impl ComputeFnVTable for Sum {
+    fn invoke<'a>(
+        &self,
+        args: &'a InvocationArgs<'a>,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
+        let SumArgs { array } = SumArgs::try_from(args)?;
+
+        // Compute the expected dtype of the sum.
+        let sum_dtype = self.return_type(args)?;
+
+        // Short-circuit using array statistics.
+        if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
+            return Ok(Scalar::new(sum_dtype, sum).into());
+        }
+
+        let sum_scalar = sum_impl(array, sum_dtype, kernels)?;
+
+        // Update the statistics with the computed sum.
+        array
+            .statistics()
+            .set(Stat::Sum, Precision::Exact(sum_scalar.value().clone()));
+
+        Ok(sum_scalar.into())
+    }
+
+    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+        let SumArgs { array } = SumArgs::try_from(args)?;
+        Stat::Sum
+            .dtype(array.dtype())
+            .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))
+    }
+
+    fn return_len<'a>(&self, _args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+        // The sum function always returns a single scalar value.
+        Ok(1)
+    }
+
+    fn is_elementwise(&self) -> bool {
+        false
+    }
+}
+
+struct SumArgs<'a> {
+    array: &'a dyn Array,
+}
+
+impl<'a> TryFrom<&'a InvocationArgs<'a>> for SumArgs<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 1 {
+            vortex_bail!(
+                "Sum function requires exactly one argument, got {}",
+                value.inputs.len()
+            );
+        }
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Invalid argument type for sum function"))?;
+
+        Ok(SumArgs { array })
+    }
+}
+
+pub static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
+    for kernel in inventory::iter::<SumKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub struct SumKernelRef(ArcRef<dyn Kernel>);
+inventory::collect!(SumKernelRef);
+
+pub trait SumKernel: Encoding {
     /// # Preconditions
     ///
     /// * The array's DType is summable
     /// * The array is not all-null
-    fn sum(&self, array: A) -> VortexResult<Scalar>;
+    fn sum(&self, array: &Self::Array) -> VortexResult<Scalar>;
 }
 
-impl<E: Encoding> SumFn<&dyn Array> for E
-where
-    E: for<'a> SumFn<&'a E::Array>,
-{
-    fn sum(&self, array: &dyn Array) -> VortexResult<Scalar> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SumFn::sum(self, array_ref)
+#[derive(Debug)]
+pub struct SumKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + SumKernel> SumKernelAdapter<E> {
+    pub const fn lift(&'static self) -> SumKernelRef {
+        SumKernelRef(ArcRef::new_ref(self))
+    }
+}
+
+impl<E: Encoding + SumKernel> Kernel for SumKernelAdapter<E> {
+    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+        let SumArgs { array } = SumArgs::try_from(args)?;
+        let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
+        Ok(Some(E::sum(&self.0, array)?.into()))
     }
 }
 
@@ -32,17 +136,11 @@ where
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
 /// If the array is all-invalid, the sum will be zero.
-pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
-    // Compute the expected dtype of the sum.
-    let sum_dtype = Stat::Sum
-        .dtype(array.dtype())
-        .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
-
-    // Short-circuit using array statistics.
-    if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-        return Ok(Scalar::new(sum_dtype, sum));
-    }
-
+pub fn sum_impl(
+    array: &dyn Array,
+    sum_dtype: DType,
+    kernels: &[ArcRef<dyn Kernel>],
+) -> VortexResult<Scalar> {
     if array.is_empty() {
         return if sum_dtype.is_float() {
             Ok(Scalar::new(sum_dtype, 0.0.into()))
@@ -61,6 +159,8 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
                 Ok(Scalar::new(sum_dtype, 0.into()))
             };
         }
+
+        // TODO(ngates): I think we should delegate these to kernels, rather than hard-code.
 
         // If it's an extension array, then unwrap it into the storage scalar.
         if let Some(extension) = constant.as_extension_opt() {
@@ -123,38 +223,27 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         unreachable!("Unsupported sum constant: {}", constant.dtype());
     }
 
-    // Try to use the sum function from the vtable.
-    let sum = if let Some(f) = array.vtable().sum_fn() {
-        f.sum(array)?
-    } else {
-        // Otherwise, canonicalize and try again.
-        log::debug!("No sum implementation found for {}", array.encoding());
-
-        let array = array.to_canonical()?;
-        if let Some(f) = array.as_ref().vtable().sum_fn() {
-            f.sum(array.as_ref())?
-        } else {
-            vortex_bail!(
-                "No sum function for canonical array: {}",
-                array.as_ref().encoding(),
-            )
-        }
+    // Try to find a sum kernel
+    let args = InvocationArgs {
+        inputs: &[array.into()],
+        options: &(),
     };
-
-    if sum.dtype() != &sum_dtype {
-        vortex_panic!(
-            "Sum function of {} returned scalar with wrong dtype: {:?}",
-            array.encoding(),
-            sum.dtype()
-        );
+    for kernel in kernels {
+        if let Some(output) = kernel.invoke(&args)? {
+            return output.unwrap_scalar();
+        }
     }
 
-    // Update the statistics with the computed sum.
-    array
-        .statistics()
-        .set(Stat::Sum, Precision::Exact(sum.value().clone()));
-
-    Ok(sum)
+    // Otherwise, canonicalize and try again.
+    log::debug!("No sum implementation found for {}", array.encoding());
+    if array.is_canonical() {
+        // Panic to avoid recursion, but it should never be hit.
+        vortex_panic!(
+            "No sum implementation found for canonical array: {}",
+            array.encoding()
+        );
+    }
+    sum(array.to_canonical()?.as_ref())
 }
 
 #[cfg(test)]

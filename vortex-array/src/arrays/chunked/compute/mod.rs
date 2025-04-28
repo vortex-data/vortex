@@ -5,7 +5,7 @@ use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
     BinaryNumericFn, CastFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn,
-    ScalarAtFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn, try_cast,
+    ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn, try_cast,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
@@ -72,10 +72,6 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 }
