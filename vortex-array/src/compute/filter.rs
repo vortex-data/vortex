@@ -107,7 +107,6 @@ impl ComputeFnVTable for Filter {
         };
 
         // Check each kernel for the array
-        println!("Filter kernels: {:?}", kernels);
         for kernel in kernels {
             if let Some(output) = kernel.invoke(&args)? {
                 return Ok(output);
