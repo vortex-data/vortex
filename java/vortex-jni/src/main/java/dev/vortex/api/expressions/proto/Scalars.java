@@ -53,7 +53,7 @@ final class Scalars {
     static ScalarProtos.Scalar int8(byte value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt8Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.int8(false))
                 .build();
@@ -71,7 +71,7 @@ final class Scalars {
     static ScalarProtos.Scalar int16(short value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt16Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.int16(false))
                 .build();
@@ -89,7 +89,7 @@ final class Scalars {
     static ScalarProtos.Scalar int32(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt32Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.int32(false))
                 .build();
@@ -195,7 +195,7 @@ final class Scalars {
     static ScalarProtos.Scalar dateDays(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt32Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.dateDays(false))
                 .build();
@@ -231,7 +231,7 @@ final class Scalars {
     static ScalarProtos.Scalar timeSeconds(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt32Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.timeSeconds(false))
                 .build();
@@ -249,7 +249,7 @@ final class Scalars {
     static ScalarProtos.Scalar timeMillis(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setInt32Value(value)
+                        .setInt64Value(value)
                         .build())
                 .setDtype(DTypes.timeMillis(false))
                 .build();
