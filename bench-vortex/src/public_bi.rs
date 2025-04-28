@@ -45,7 +45,7 @@ pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
 });
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, ValueEnum)]
-#[clap(rename_all = "PascalCase")]
+#[clap(rename_all = "LowerCase")]
 pub enum PBIDataset {
     Arade,
     Bimbo,

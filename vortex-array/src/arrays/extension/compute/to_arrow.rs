@@ -24,7 +24,9 @@ impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
         // NOTE(ngates): this is really gross... but I guess it's ok given how tightly integrated
         //  we are with Arrow.
         if is_temporal_ext_type(array.id()) {
-            temporal_to_arrow(TemporalArray::try_from(array.to_array())?).map(Some)
+            // TODO(joe): push this cast into `temporal_to_arrow`
+            let arrow = temporal_to_arrow(TemporalArray::try_from(array.to_array())?)?;
+            Ok(arrow_cast::cast(&arrow, data_type).map(Some)?)
         } else {
             // Convert storage array directly into arrow, losing type information
             // that will let us round-trip.
