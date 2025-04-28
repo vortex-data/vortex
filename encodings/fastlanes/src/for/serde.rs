@@ -72,7 +72,7 @@ pub struct ScalarValueMetadata(ScalarValue);
 
 impl SerializeMetadata for ScalarValueMetadata {
     fn serialize(&self) -> Option<Vec<u8>> {
-        Some(self.0.to_protobytes().to_vec())
+        Some(self.0.to_protobytes())
     }
 }
 

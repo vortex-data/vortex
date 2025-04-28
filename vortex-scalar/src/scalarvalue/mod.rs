@@ -7,9 +7,10 @@ mod utf8;
 use std::fmt::Display;
 use std::sync::Arc;
 
+use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
-use vortex_buffer::{BufferString, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
 use vortex_proto::scalar as pb;
@@ -39,15 +40,15 @@ pub(crate) enum InnerScalarValue {
 }
 
 impl ScalarValue {
-    pub fn to_protobytes(&self) -> ByteBuffer {
+    pub fn to_protobytes<B: BufMut + Default>(&self) -> B {
         let pb_scalar = pb::ScalarValue::from(self);
 
-        let mut buf = ByteBufferMut::empty();
+        let mut buf = B::default();
         pb_scalar
             .encode(&mut buf)
             .map_err(|e| vortex_err!("Failed to serialize protobuf {e}"))
             .vortex_unwrap();
-        buf.freeze()
+        buf
     }
 
     pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {

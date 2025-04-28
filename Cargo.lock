@@ -6695,6 +6695,7 @@ dependencies = [
  "arbitrary",
  "arrow-array 55.0.0",
  "arrow-buffer 55.0.0",
+ "bytes",
  "datafusion-common",
  "getrandom 0.2.16",
  "itertools 0.14.0",

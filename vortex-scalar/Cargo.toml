@@ -17,6 +17,7 @@ version = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
+bytes = { workspace = true }
 datafusion-common = { workspace = true, optional = true }
 getrandom_v02 = { workspace = true }
 itertools = { workspace = true }

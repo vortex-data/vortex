@@ -18,17 +18,17 @@ impl WriteFlatBuffer for StatsSet {
         let min = self
             .get(Stat::Min)
             .and_then(Precision::as_exact)
-            .map(|min| fbb.create_vector(&min.to_protobytes()));
+            .map(|min| fbb.create_vector(&min.to_protobytes::<Vec<u8>>()));
 
         let max = self
             .get(Stat::Max)
             .and_then(Precision::as_exact)
-            .map(|max| fbb.create_vector(&max.to_protobytes()));
+            .map(|max| fbb.create_vector(&max.to_protobytes::<Vec<u8>>()));
 
         let sum = self
             .get(Stat::Sum)
             .and_then(Precision::as_exact)
-            .map(|sum| fbb.create_vector(&sum.to_protobytes()));
+            .map(|sum| fbb.create_vector(&sum.to_protobytes::<Vec<u8>>()));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,

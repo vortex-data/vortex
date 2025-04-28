@@ -1,3 +1,4 @@
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -50,7 +51,11 @@ impl EncodingVTable for ConstantEncoding {
 
 impl ArrayVisitorImpl for ConstantArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let buffer = self.scalar.value().to_protobytes();
+        let buffer = self
+            .scalar
+            .value()
+            .to_protobytes::<ByteBufferMut>()
+            .freeze();
         visitor.visit_buffer(&buffer);
     }
 

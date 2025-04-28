@@ -5,6 +5,7 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
     ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -86,7 +87,11 @@ impl EncodingVTable for SparseEncoding {
 
 impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = self.fill_value.value().to_protobytes();
+        let fill_value_buffer = self
+            .fill_value
+            .value()
+            .to_protobytes::<ByteBufferMut>()
+            .freeze();
         visitor.visit_buffer(&fill_value_buffer);
     }
 
