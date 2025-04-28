@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
@@ -90,9 +90,9 @@ impl DictReader {
                 self.values_array()
                     .map(move |array| {
                         expr.evaluate(&array?)
-                            .and_then(|result| result.to_canonical())
-                            // TODO(os): not all expressions would benefit from a canonical array
-                            .map(|canonical| canonical.into_array())
+                            // .and_then(|result| result.to_canonical())
+                            // // TODO(os): not all expressions would benefit from a canonical array
+                            // .map(|canonical| vortex_array::IntoArray::into_array(canonical))
                             .map_err(Arc::new)
                     })
                     .boxed()
