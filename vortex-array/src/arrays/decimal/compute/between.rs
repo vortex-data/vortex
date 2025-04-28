@@ -5,8 +5,8 @@ use vortex_scalar::{DecimalValue, i256};
 
 use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{BoolArray, DecimalArray, DecimalEncoding, NativeDecimalType};
-use crate::compute::{BetweenKernel, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef};
+use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
+use crate::{Array, ArrayRef, register_kernel};
 
 impl BetweenKernel for DecimalEncoding {
     // Determine if the values are between the lower and upper bounds
@@ -90,6 +90,8 @@ impl BetweenKernel for DecimalEncoding {
         }
     }
 }
+
+register_kernel!(BetweenKernelAdapter(DecimalEncoding).lift());
 
 fn between_impl<T: NativeDecimalType>(
     arr: &DecimalArray,

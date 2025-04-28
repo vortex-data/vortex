@@ -10,16 +10,10 @@ mod to_arrow;
 
 use crate::Array;
 use crate::arrays::DecimalEncoding;
-use crate::compute::{
-    BetweenFn, IsConstantFn, IsSortedFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
-};
+use crate::compute::{IsConstantFn, IsSortedFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for DecimalEncoding {
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
