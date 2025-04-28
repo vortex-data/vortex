@@ -1,8 +1,9 @@
 use std::iter;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Weak};
 
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
@@ -18,7 +19,7 @@ pub struct ChunkedReader {
     ctx: ArrayContext,
 
     /// Shared lazy chunk scanners
-    chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    chunk_readers: Arc<[Mutex<Option<Weak<dyn LayoutReader>>>]>,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
@@ -37,7 +38,7 @@ impl ChunkedReader {
         let nchunks = layout.nchildren();
 
         // Construct a lazy scan for each chunk of the layout.
-        let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
+        let chunk_readers = (0..nchunks).map(|_| Mutex::new(None)).collect();
 
         // Generate the cumulative chunk offsets, relative to the layout's row offset, with an
         // additional offset corresponding to the length.
@@ -62,13 +63,16 @@ impl ChunkedReader {
     }
 
     /// Return the child reader for the chunk.
-    pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
-        self.chunk_readers[idx].get_or_try_init(|| {
+    pub(crate) fn child(&self, idx: usize) -> VortexResult<Arc<dyn LayoutReader>> {
+        let child_guard = self.chunk_readers[idx].lock();
+        if let Some(child) = child_guard.as_ref().and_then(|child| child.upgrade()) {
+            return Ok(child.clone());
+        } else {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
             child_layout.reader(&self.segment_source, &self.ctx)
-        })
+        }
     }
 
     pub(crate) fn chunk_offset(&self, idx: usize) -> u64 {
@@ -126,7 +130,7 @@ impl LayoutReader for ChunkedReader {
 
     fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
         (0..self.layout.nchildren())
-            .map(|idx| self.child(idx).cloned())
+            .map(|idx| self.child(idx))
             .try_collect()
     }
 }
