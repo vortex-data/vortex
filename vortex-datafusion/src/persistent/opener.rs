@@ -76,14 +76,17 @@ impl FileOpener for VortexFileOpener {
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
+                        log::trace!("reusing layout reader for {}", occupied_entry.key());
                         reader
                     } else {
+                        log::trace!("creating layout reader for {}", occupied_entry.key());
                         let reader = vxf.layout_reader()?;
                         occupied_entry.insert(Arc::downgrade(&reader));
                         reader
                     }
                 }
                 Entry::Vacant(vacant_entry) => {
+                    log::trace!("creating layout reader for {}", vacant_entry.key());
                     let reader = vxf.layout_reader()?;
                     vacant_entry.insert(Arc::downgrade(&reader));
 
