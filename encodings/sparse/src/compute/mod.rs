@@ -1,7 +1,7 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BinaryNumericFn, FilterKernel, FilterKernelAdapter, InvertFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn,
+    FilterKernel, FilterKernelAdapter, InvertFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn,
+    SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -18,10 +18,6 @@ mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
@@ -77,7 +73,7 @@ register_kernel!(FilterKernelAdapter(SparseEncoding).lift());
 mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric;
+    use vortex_array::compute::conformance::binary_numeric::test_numeric;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{filter, try_cast};
     use vortex_array::validity::Validity;
@@ -138,7 +134,7 @@ mod test {
 
     #[rstest]
     fn test_sparse_binary_numeric(array: ArrayRef) {
-        test_binary_numeric::<i32>(array)
+        test_numeric::<i32>(array)
     }
 
     #[test]

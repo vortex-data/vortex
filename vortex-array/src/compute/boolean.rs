@@ -17,34 +17,30 @@ use crate::{Array, ArrayRef};
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
 pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs, rhs, BooleanOperator::And)
+    boolean(lhs, rhs, BooleanOperator::And)
 }
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs, rhs, BooleanOperator::AndKleene)
+    boolean(lhs, rhs, BooleanOperator::AndKleene)
 }
 
 /// Point-wise logical _or_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
 pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs, rhs, BooleanOperator::Or)
+    boolean(lhs, rhs, BooleanOperator::Or)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
 pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs, rhs, BooleanOperator::OrKleene)
+    boolean(lhs, rhs, BooleanOperator::OrKleene)
 }
 
 /// Point-wise logical operator between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
-pub fn binary_boolean(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
-    op: BooleanOperator,
-) -> VortexResult<ArrayRef> {
+pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexResult<ArrayRef> {
     BOOLEAN_FN
         .invoke(&InvocationArgs {
             inputs: &[lhs.into(), rhs.into()],
@@ -57,7 +53,7 @@ pub struct BooleanKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(BooleanKernelRef);
 
 pub trait BooleanKernel: Encoding {
-    fn binary_boolean(
+    fn boolean(
         &self,
         array: &Self::Array,
         other: &dyn Array,
@@ -80,10 +76,7 @@ impl<E: Encoding + BooleanKernel> Kernel for BooleanKernelAdapter<E> {
         let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
         };
-        Ok(
-            E::binary_boolean(&self.0, array, inputs.rhs, inputs.operator)?
-                .map(|array| array.into()),
-        )
+        Ok(E::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
 
@@ -109,7 +102,7 @@ impl ComputeFnVTable for Boolean {
 
         // If LHS is constant, then we make sure it's on the RHS.
         if lhs.is_constant() && !rhs_is_constant {
-            return Ok(binary_boolean(rhs, lhs, operator)?.into());
+            return Ok(boolean(rhs, lhs, operator)?.into());
         }
 
         // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.

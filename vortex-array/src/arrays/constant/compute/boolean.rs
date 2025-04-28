@@ -7,7 +7,7 @@ use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
 use crate::{Array, ArrayRef, register_kernel};
 
 impl BooleanKernel for ConstantEncoding {
-    fn binary_boolean(
+    fn boolean(
         &self,
         lhs: &ConstantArray,
         rhs: &dyn Array,
