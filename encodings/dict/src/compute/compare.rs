@@ -1,8 +1,8 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::compute::{CompareFn, Operator, compare, try_cast};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare, try_cast};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
-impl CompareFn<&DictArray> for DictEncoding {
+impl CompareKernel for DictEncoding {
     fn compare(
         &self,
         lhs: &DictArray,
@@ -44,6 +44,8 @@ impl CompareFn<&DictArray> for DictEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(DictEncoding).lift());
 
 fn dict_equal_to(
     values_compare: ArrayRef,

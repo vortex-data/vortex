@@ -4,9 +4,7 @@ mod filter;
 mod is_constant;
 mod take;
 
-use vortex_array::compute::{
-    CastFn, CompareFn, IsConstantFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice,
-};
+use vortex_array::compute::{CastFn, IsConstantFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
@@ -20,10 +18,6 @@ use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 

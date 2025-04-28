@@ -5,14 +5,14 @@ use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{FilterKernelAdapter, FilterKernelImpl};
+use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernelImpl for PrimitiveEncoding {
+impl FilterKernel for PrimitiveEncoding {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

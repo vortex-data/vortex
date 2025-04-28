@@ -8,8 +8,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
-    FilterKernelAdapter, FilterKernelImpl, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn,
-    TakeFn, ToArrowFn, UncompressedSizeFn,
+    FilterKernel, FilterKernelAdapter, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
@@ -46,7 +46,7 @@ impl ComputeVTable for NullEncoding {
     }
 }
 
-impl FilterKernelImpl for NullEncoding {
+impl FilterKernel for NullEncoding {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(mask.true_count()).into_array())
     }

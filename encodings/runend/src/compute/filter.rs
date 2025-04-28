@@ -4,7 +4,7 @@ use std::ops::AddAssign;
 use arrow_buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernelAdapter, FilterKernelImpl, filter};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, Canonical, ToCanonical, register_kernel};
@@ -18,7 +18,7 @@ use crate::{RunEndArray, RunEndEncoding};
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
-impl FilterKernelImpl for RunEndEncoding {
+impl FilterKernel for RunEndEncoding {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
         match mask {
             Mask::AllTrue(_) => Ok(array.to_array()),

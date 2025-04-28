@@ -3,9 +3,8 @@ mod is_constant;
 
 use num_traits::WrappingSub;
 use vortex_array::compute::{
-    CompareFn, FilterKernelAdapter, FilterKernelImpl, IsConstantFn, ScalarAtFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at, search_sorted, slice,
-    take,
+    FilterKernel, FilterKernelAdapter, IsConstantFn, ScalarAtFn, SearchResult, SearchSortedFn,
+    SearchSortedSide, SliceFn, TakeFn, filter, scalar_at, search_sorted, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -18,10 +17,6 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ComputeVTable for FoREncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
@@ -53,7 +48,7 @@ impl TakeFn<&FoRArray> for FoREncoding {
     }
 }
 
-impl FilterKernelImpl for FoREncoding {
+impl FilterKernel for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             filter(array.encoded(), mask)?,

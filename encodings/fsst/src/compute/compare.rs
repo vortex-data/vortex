@@ -1,8 +1,10 @@
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
-use vortex_array::compute::{CompareFn, Operator, compare, compare_lengths_to_empty};
+use vortex_array::compute::{
+    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
+};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -10,7 +12,7 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl CompareFn<&FSSTArray> for FSSTEncoding {
+impl CompareKernel for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,
@@ -26,6 +28,8 @@ impl CompareFn<&FSSTArray> for FSSTEncoding {
         }
     }
 }
+
+register_kernel!(CompareKernelAdapter(FSSTEncoding).lift());
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(

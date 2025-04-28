@@ -1,6 +1,8 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareFn, Operator, and, compare, or, try_cast};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{
+    CompareKernel, CompareKernelAdapter, Operator, and, compare, or, try_cast,
+};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -8,7 +10,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
 use crate::timestamp;
 
-impl CompareFn<&DateTimePartsArray> for DateTimePartsEncoding {
+impl CompareKernel for DateTimePartsEncoding {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported.
     fn compare(
@@ -53,6 +55,8 @@ impl CompareFn<&DateTimePartsArray> for DateTimePartsEncoding {
         }
     }
 }
+
+register_kernel!(CompareKernelAdapter(DateTimePartsEncoding).lift());
 
 fn compare_eq(
     lhs: &DateTimePartsArray,

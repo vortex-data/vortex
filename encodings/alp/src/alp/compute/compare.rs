@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareFn, Operator, compare};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::NativePType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{PrimitiveScalar, Scalar};
@@ -11,7 +11,7 @@ use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 // TODO(joe): add fuzzing.
 
-impl CompareFn<&ALPArray> for ALPEncoding {
+impl CompareKernel for ALPEncoding {
     fn compare(
         &self,
         lhs: &ALPArray,
@@ -41,6 +41,8 @@ impl CompareFn<&ALPArray> for ALPEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(ALPEncoding).lift());
 
 // We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
 // the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't

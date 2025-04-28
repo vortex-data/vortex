@@ -8,9 +8,8 @@ mod min_max;
 mod optimize;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FillNullFn, FilterKernelAdapter, FilterKernelImpl, IsConstantFn,
-    IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at,
-    slice, take,
+    BinaryNumericFn, FillNullFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsSortedFn,
+    LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -22,10 +21,6 @@ use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
@@ -80,7 +75,7 @@ impl TakeFn<&DictArray> for DictEncoding {
     }
 }
 
-impl FilterKernelImpl for DictEncoding {
+impl FilterKernel for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())

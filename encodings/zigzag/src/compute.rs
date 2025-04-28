@@ -1,6 +1,5 @@
 use vortex_array::compute::{
-    FilterKernelAdapter, FilterKernelImpl, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice,
-    take,
+    FilterKernel, FilterKernelAdapter, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -27,7 +26,7 @@ impl ComputeVTable for ZigZagEncoding {
     }
 }
 
-impl FilterKernelImpl for ZigZagEncoding {
+impl FilterKernel for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let encoded = filter(array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())

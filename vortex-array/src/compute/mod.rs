@@ -19,7 +19,7 @@ pub use boolean::{
     BinaryBooleanFn, BinaryOperator, and, and_kleene, binary_boolean, or, or_kleene,
 };
 pub use cast::{CastFn, try_cast};
-pub use compare::{CompareFn, Operator, compare, compare_lengths_to_empty, scalar_cmp};
+pub use compare::*;
 pub use fill_forward::{FillForwardFn, fill_forward};
 pub use fill_null::{FillNullFn, fill_null};
 pub use filter::*;
@@ -109,9 +109,12 @@ impl ComputeFn {
     /// Invokes the compute function with the given arguments.
     pub fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
         let expected_dtype = self.vtable.return_type(args)?;
+        let expected_len = self.vtable.return_len(args)?;
+
         let output = self
             .vtable
             .invoke(args, &self.kernels.read().vortex_expect("poisoned lock"))?;
+
         if output.dtype() != &expected_dtype {
             vortex_bail!(
                 "Internal error: compute function {} returned a result of type {} but expected {}",
@@ -120,6 +123,15 @@ impl ComputeFn {
                 &expected_dtype
             );
         }
+        if output.len() != expected_len {
+            vortex_bail!(
+                "Internal error: compute function {} returned a result of length {} but expected {}",
+                self.id,
+                output.len(),
+                expected_len
+            );
+        }
+
         Ok(output)
     }
 }
@@ -142,6 +154,12 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
     /// All kernel implementations will be validated to return the [`DType`] as computed here.
     fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType>;
 
+    /// Computes the return length of the function given the input arguments.
+    ///
+    /// All kernel implementations will be validated to return the len as computed here.
+    /// Scalars are considered to have length 1.
+    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize>;
+
     /// Returns whether the function operates elementwise, i.e. the output is the same shape as the
     /// input and no information is shared between elements.
     ///
@@ -153,7 +171,7 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
 /// Arguments to a compute function invocation.
 pub struct InvocationArgs<'a> {
     pub inputs: &'a [Input<'a>],
-    pub options: Option<&'a dyn Options>,
+    pub options: &'a dyn Options,
 }
 
 /// Input to a compute function.
@@ -174,6 +192,24 @@ impl Debug for Input<'_> {
             Input::Builder(builder) => f.field("Builder", &builder.len()),
         };
         f.finish()
+    }
+}
+
+impl<'a> From<&'a dyn Array> for Input<'a> {
+    fn from(value: &'a dyn Array) -> Self {
+        Input::Array(value)
+    }
+}
+
+impl<'a> From<&'a Scalar> for Input<'a> {
+    fn from(value: &'a Scalar) -> Self {
+        Input::Scalar(value)
+    }
+}
+
+impl<'a> From<&'a Mask> for Input<'a> {
+    fn from(value: &'a Mask) -> Self {
+        Input::Mask(value)
     }
 }
 
@@ -214,11 +250,19 @@ pub enum Output {
     Array(ArrayRef),
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Output {
     pub fn dtype(&self) -> &DType {
         match self {
             Output::Scalar(scalar) => scalar.dtype(),
             Output::Array(array) => array.dtype(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Output::Scalar(_) => 1,
+            Output::Array(array) => array.len(),
         }
     }
 
@@ -252,6 +296,12 @@ impl From<Scalar> for Output {
 /// Options for a compute function invocation.
 pub trait Options {
     fn as_any(&self) -> &dyn Any;
+}
+
+impl Options for () {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 /// Compute functions can ask arrays for compute kernels for a given invocation.

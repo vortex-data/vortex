@@ -2,6 +2,7 @@ mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
+mod filter;
 mod invert;
 mod search_sorted;
 mod take;
@@ -9,18 +10,17 @@ mod take;
 use num_traits::{CheckedMul, ToPrimitive};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_mask::Mask;
 use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterKernelAdapter, FilterKernelImpl,
-    InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, SumFn,
+    TakeFn, UncompressedSizeFn,
 };
 use crate::stats::Stat;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
@@ -32,10 +32,6 @@ impl ComputeVTable for ConstantEncoding {
     }
 
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
@@ -79,14 +75,6 @@ impl SliceFn<&ConstantArray> for ConstantEncoding {
         Ok(ConstantArray::new(array.scalar().clone(), stop - start).into_array())
     }
 }
-
-impl FilterKernelImpl for ConstantEncoding {
-    fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array())
-    }
-}
-
-register_kernel!(FilterKernelAdapter(ConstantEncoding).lift());
 
 impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
     fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {

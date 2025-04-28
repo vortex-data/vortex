@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BinaryNumericFn, FilterKernelAdapter, FilterKernelImpl, InvertFn, ScalarAtFn, SearchSortedFn,
+    BinaryNumericFn, FilterKernel, FilterKernelAdapter, InvertFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
@@ -56,7 +56,7 @@ impl ScalarAtFn<&SparseArray> for SparseEncoding {
     }
 }
 
-impl FilterKernelImpl for SparseEncoding {
+impl FilterKernel for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 
