@@ -3,23 +3,19 @@ mod is_constant;
 
 use num_traits::WrappingSub;
 use vortex_array::compute::{
-    CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, KernelRef, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at,
-    search_sorted, slice, take,
+    CompareFn, FilterKernelAdapter, FilterKernelImpl, IsConstantFn, ScalarAtFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, filter, scalar_at, search_sorted, slice,
+    take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar};
 
 use crate::{FoRArray, FoREncoding};
-
-impl ArrayComputeImpl for FoRArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(FoREncoding).some();
-}
 
 impl ComputeVTable for FoREncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
@@ -57,7 +53,7 @@ impl TakeFn<&FoRArray> for FoREncoding {
     }
 }
 
-impl FilterKernel for FoREncoding {
+impl FilterKernelImpl for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             filter(array.encoded(), mask)?,
@@ -66,6 +62,8 @@ impl FilterKernel for FoREncoding {
         .map(|a| a.into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(FoREncoding).lift());
 
 impl ScalarAtFn<&FoRArray> for FoREncoding {
     fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {

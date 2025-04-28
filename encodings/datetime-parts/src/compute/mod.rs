@@ -5,11 +5,10 @@ mod is_constant;
 mod take;
 
 use vortex_array::compute::{
-    CastFn, CompareFn, FilterKernelAdapter, IsConstantFn, KernelRef, ScalarAtFn, SliceFn, TakeFn,
-    scalar_at, slice,
+    CastFn, CompareFn, IsConstantFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, PType};
@@ -18,10 +17,6 @@ use vortex_scalar::Scalar;
 
 use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
-
-impl ArrayComputeImpl for DateTimePartsArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(DateTimePartsEncoding).some();
-}
 
 impl ComputeVTable for DateTimePartsEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

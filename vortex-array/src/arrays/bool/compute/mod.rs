@@ -1,11 +1,10 @@
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::Array;
+use crate::arrays::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterKernelAdapter, InvertFn,
-    IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn,
-    ToArrowFn, UncompressedSizeFn,
+    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn,
+    MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl};
 
 mod cast;
 mod fill_forward;
@@ -23,10 +22,6 @@ mod sum;
 mod take;
 mod to_arrow;
 mod uncompressed_size;
-
-impl ArrayComputeImpl for BoolArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(BoolEncoding).some();
-}
 
 impl ComputeVTable for BoolEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {

@@ -1,10 +1,10 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BinaryNumericFn, FilterKernel, FilterKernelAdapter, InvertFn, KernelRef, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn,
+    BinaryNumericFn, FilterKernelAdapter, FilterKernelImpl, InvertFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -17,9 +17,6 @@ mod search_sorted;
 mod slice;
 mod take;
 
-impl ArrayComputeImpl for SparseArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(SparseEncoding).some();
-}
 impl ComputeVTable for SparseEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)
@@ -59,7 +56,7 @@ impl ScalarAtFn<&SparseArray> for SparseEncoding {
     }
 }
 
-impl FilterKernel for SparseEncoding {
+impl FilterKernelImpl for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 
@@ -73,6 +70,8 @@ impl FilterKernel for SparseEncoding {
         )
     }
 }
+
+register_kernel!(FilterKernelAdapter(SparseEncoding).lift());
 
 #[cfg(test)]
 mod test {

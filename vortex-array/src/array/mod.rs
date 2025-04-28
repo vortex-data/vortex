@@ -1,5 +1,4 @@
 mod canonical;
-mod compute;
 mod convert;
 mod implementation;
 mod statistics;
@@ -12,7 +11,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 pub use canonical::*;
-pub use compute::*;
 pub use convert::*;
 pub use implementation::*;
 pub use statistics::*;
@@ -28,7 +26,6 @@ use crate::arrays::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, KernelRef};
 use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
@@ -69,9 +66,6 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Returns the encoding VTable.
     fn vtable(&self) -> VTableRef;
-
-    /// Attempts to find a kernel for the given compute invocation.
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -172,10 +166,6 @@ impl Array for Arc<dyn Array> {
 
     fn vtable(&self) -> VTableRef {
         self.as_ref().vtable()
-    }
-
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
-        self.as_ref().find_kernel(compute_fn)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {

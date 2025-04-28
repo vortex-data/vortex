@@ -1,5 +1,5 @@
-use std::any::Any;
 use std::ops::BitAnd;
+use std::sync::LazyLock;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
@@ -11,7 +11,7 @@ use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{
-    ComputeFn, Input, InvocationArgs, Kernel, KernelRef, Output, fill_null, scalar_at,
+    ComputeFn, ComputeFnVTable, Input, InvocationArgs, Kernel, Output, fill_null, scalar_at,
 };
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
@@ -40,16 +40,12 @@ use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical}
 /// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));
 /// ```
 ///
-/// # Performance
-///
-/// This function attempts to amortize the cost of copying
-///
 /// # Panics
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    Ok(Filter
+    Ok(FILTER_FN
         .invoke(&InvocationArgs {
             inputs: &[Input::Array(array), Input::Mask(mask)],
             options: None,
@@ -58,19 +54,23 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         .vortex_expect("Expected filter to return an array"))
 }
 
-/// Keep only the elements for which the corresponding mask value is true.
-pub struct Filter;
-
-impl ComputeFn for Filter {
-    fn id(&self) -> ArcRef<str> {
-        ArcRef::new_ref("filter")
+/// The filter [`ComputeFn`].
+pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
+    for kernel in inventory::iter::<FilterKernel> {
+        compute.register_kernel(kernel.0.clone());
     }
+    compute
+});
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+struct Filter;
 
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
+impl ComputeFnVTable for Filter {
+    fn invoke<'a>(
+        &self,
+        args: &'a InvocationArgs<'a>,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
         let FilterInputs { array, mask } = FilterInputs::try_from(args)?;
 
         if mask.len() != array.len() {
@@ -93,7 +93,7 @@ impl ComputeFn for Filter {
             return Ok(array.to_array().into());
         }
 
-        let filtered = filter_impl(array, mask)?;
+        let filtered = filter_impl(array, mask, kernels)?;
 
         assert_eq!(
             filtered.len(),
@@ -120,7 +120,6 @@ impl ComputeFn for Filter {
     }
 }
 
-#[allow(dead_code)]
 pub struct FilterInputs<'a> {
     pub array: &'a dyn Array,
     pub mask: &'a Mask,
@@ -143,7 +142,11 @@ impl<'a> TryFrom<&'a InvocationArgs<'a>> for FilterInputs<'a> {
     }
 }
 
-pub trait FilterKernel: Encoding {
+/// A kernel that implements the filter function.
+pub struct FilterKernel(pub ArcRef<dyn Kernel>);
+inventory::collect!(FilterKernel);
+
+pub trait FilterKernelImpl: Encoding {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
@@ -151,29 +154,31 @@ pub trait FilterKernel: Encoding {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-/// Adapter to convert a [`FilterKernel`] into a [`Kernel`].
+/// Adapter to convert a [`FilterKernelImpl`] into a [`Kernel`].
 pub struct FilterKernelAdapter<E: Encoding>(pub E);
 
-impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {
-    pub const fn some(&'static self) -> Option<KernelRef> {
-        Some(ArcRef::new_ref(self))
+impl<E: Encoding + FilterKernelImpl> FilterKernelAdapter<E> {
+    pub const fn lift(&'static self) -> FilterKernel {
+        FilterKernel(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + FilterKernel> Kernel for FilterKernelAdapter<E> {
+impl<E: Encoding + FilterKernelImpl> Kernel for FilterKernelAdapter<E> {
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
         let inputs = FilterInputs::try_from(args)?;
-        let array = inputs
-            .array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
+        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
         let filtered = E::filter(&self.0, array, inputs.mask)?;
         Ok(Some(filtered.into()))
     }
 }
 
-fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+fn filter_impl(
+    array: &dyn Array,
+    mask: &Mask,
+    kernels: &[ArcRef<dyn Kernel>],
+) -> VortexResult<ArrayRef> {
     // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
     // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
@@ -187,9 +192,9 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         options: None,
     };
 
-    // Check if the array has a kernel for FilterKernel.
-    if let Some(filter_fn) = array.find_kernel(&Filter) {
-        if let Some(output) = filter_fn.invoke(&args)? {
+    // Check each kernel for the array
+    for kernel in kernels {
+        if let Some(output) = kernel.invoke(&args)? {
             return output
                 .into_array()
                 .ok_or_else(|| vortex_err!("Expected FilterKernel to return an array"));
