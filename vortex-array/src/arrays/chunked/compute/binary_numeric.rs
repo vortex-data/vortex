@@ -1,23 +1,23 @@
 use vortex_error::VortexResult;
-use vortex_scalar::BinaryNumericOperator;
+use vortex_scalar::NumericOperator;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{BinaryNumericFn, binary_numeric, slice};
-use crate::{Array, ArrayRef};
+use crate::compute::{NumericKernel, NumericKernelAdapter, numeric, slice};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BinaryNumericFn<&ChunkedArray> for ChunkedEncoding {
-    fn binary_numeric(
+impl NumericKernel for ChunkedEncoding {
+    fn numeric(
         &self,
         array: &ChunkedArray,
         rhs: &dyn Array,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let mut start = 0;
 
         let mut new_chunks = Vec::with_capacity(array.nchunks());
         for chunk in array.non_empty_chunks() {
             let end = start + chunk.len();
-            new_chunks.push(binary_numeric(chunk, &slice(rhs, start, end)?, op)?);
+            new_chunks.push(numeric(chunk, &slice(rhs, start, end)?, op)?);
             start = end;
         }
 
@@ -26,3 +26,5 @@ impl BinaryNumericFn<&ChunkedArray> for ChunkedEncoding {
             .map(Some)
     }
 }
+
+register_kernel!(NumericKernelAdapter(ChunkedEncoding).lift());

@@ -11,10 +11,6 @@ use std::fmt::{Debug, Formatter};
 use std::sync::RwLock;
 
 pub use between::*;
-pub use binary_numeric::{
-    BinaryNumericFn, add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub,
-    sub_scalar,
-};
 pub use boolean::*;
 pub use cast::{CastFn, try_cast};
 pub use compare::*;
@@ -27,6 +23,7 @@ pub use is_sorted::*;
 pub use like::{LikeFn, LikeOptions, like};
 pub use mask::{MaskFn, mask};
 pub use min_max::{MinMaxFn, MinMaxResult, min_max};
+pub use numeric::*;
 pub use optimize::*;
 pub use scalar_at::{ScalarAtFn, scalar_at};
 pub use search_sorted::*;
@@ -48,7 +45,6 @@ use crate::{Array, ArrayRef};
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 mod between;
-mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
@@ -63,6 +59,7 @@ mod is_sorted;
 mod like;
 mod mask;
 mod min_max;
+mod numeric;
 mod optimize;
 mod scalar_at;
 mod search_sorted;

@@ -15,18 +15,13 @@ use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
-    BinaryNumericFn, CastFn, InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, SumFn, TakeFn,
-    UncompressedSizeFn,
+    CastFn, InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn,
 };
 use crate::stats::Stat;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ConstantEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }

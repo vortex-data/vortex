@@ -63,7 +63,7 @@ mod primitive {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -85,7 +85,7 @@ mod primitive {
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-            binary_boolean(
+            boolean(
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
@@ -132,7 +132,7 @@ mod bitpack {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -154,7 +154,7 @@ mod bitpack {
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-            binary_boolean(
+            boolean(
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
@@ -200,7 +200,7 @@ mod alp {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -222,7 +222,7 @@ mod alp {
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-            binary_boolean(
+            boolean(
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
