@@ -30,10 +30,6 @@ impl ComputeVTable for DecimalEncoding {
         Some(self)
     }
 
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }

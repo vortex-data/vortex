@@ -3,10 +3,10 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, i256};
 
-use crate::Array;
 use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding};
-use crate::compute::SumFn;
+use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::{Array, register_kernel};
 
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{
@@ -27,7 +27,7 @@ macro_rules! sum_decimal {
     }};
 }
 
-impl SumFn<&DecimalArray> for DecimalEncoding {
+impl SumKernel for DecimalEncoding {
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();
@@ -70,3 +70,5 @@ impl SumFn<&DecimalArray> for DecimalEncoding {
         }
     }
 }
+
+register_kernel!(SumKernelAdapter(DecimalEncoding).lift());
