@@ -34,7 +34,7 @@ impl FileType for GenericVortexFile {
 }
 
 impl VortexOpenOptions<GenericVortexFile> {
-    const INITIAL_READ_SIZE: u64 = 4 << 20; // 1 MB
+    const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     /// Open a file using the provided [`VortexReadAt`] implementation.
     pub fn file() -> Self {
@@ -135,7 +135,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
             .min(file_size);
         let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read = self
+        let mut initial_read: ByteBuffer = self
             .dispatched_read(read.clone(), initial_offset..file_size)
             .await?;
 
