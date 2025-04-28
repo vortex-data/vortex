@@ -22,6 +22,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
+    #[allow(dead_code)]
     values_evals: RwLock<HashMap<ExprRef, SharedArrayFuture>>,
     pub(crate) values: Arc<dyn LayoutReader>,
     pub(crate) codes: Arc<dyn LayoutReader>,
@@ -83,22 +84,16 @@ impl DictReader {
     }
 
     pub(crate) fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
-        self.values_evals
-            .write()
-            .entry(expr.clone())
-            .or_insert_with(|| {
-                self.values_array()
-                    .map(move |array| {
-                        expr.evaluate(&array?)
-                            // .and_then(|result| result.to_canonical())
-                            // // TODO(os): not all expressions would benefit from a canonical array
-                            // .map(|canonical| vortex_array::IntoArray::into_array(canonical))
-                            .map_err(Arc::new)
-                    })
-                    .boxed()
-                    .shared()
+        self.values_array()
+            .map(move |array| {
+                expr.evaluate(&array?)
+                    // .and_then(|result| result.to_canonical())
+                    // // TODO(os): not all expressions would benefit from a canonical array
+                    // .map(|canonical| vortex_array::IntoArray::into_array(canonical))
+                    .map_err(Arc::new)
             })
-            .clone()
+            .boxed()
+            .shared()
     }
 }
 
