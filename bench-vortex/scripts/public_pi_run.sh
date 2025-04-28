@@ -1,7 +1,11 @@
 #!/bin/bash
 
 # List files in the current directory
-files=$(ls ../public_bi/benchmark)
+dir=$(dirname ${BASH_SOURCE[0]})
+files=$(ls $dir/../public_bi/benchmark)
+
+echo $dir
+echo $files
 
 # Loop through each file
 for file in $files; do
