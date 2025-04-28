@@ -123,7 +123,7 @@ impl CoalescedDriver {
     }
 
     fn on_requested(&mut self, request: SegmentRequest) {
-        self.requested.insert(request.id());
+        self.requested.insert_if_absent(request.id());
         self.state.insert(
             request.id(),
             PendingSegment {
@@ -144,7 +144,7 @@ impl CoalescedDriver {
 
         let state = self.segment_state_mut(id);
         state.polled = true;
-        self.polled.insert(id);
+        self.polled.insert_if_absent(id);
         self.polled_counter.inc();
     }
 
