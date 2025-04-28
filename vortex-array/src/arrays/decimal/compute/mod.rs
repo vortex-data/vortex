@@ -8,17 +8,12 @@ mod sum;
 mod take;
 mod to_arrow;
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::Array;
+use crate::arrays::DecimalEncoding;
 use crate::compute::{
-    BetweenFn, FilterKernelAdapter, IsConstantFn, IsSortedFn, KernelRef, ScalarAtFn, SliceFn,
-    SumFn, TakeFn, ToArrowFn,
+    BetweenFn, IsConstantFn, IsSortedFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl};
-
-impl ArrayComputeImpl for DecimalArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(DecimalEncoding).some();
-}
 
 impl ComputeVTable for DecimalEncoding {
     fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
