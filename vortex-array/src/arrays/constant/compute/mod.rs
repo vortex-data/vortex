@@ -15,16 +15,12 @@ use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterKernel, FilterKernelAdapter,
-    InvertFn, KernelRef, ScalarAtFn, SearchSortedFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn,
+    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FilterKernelAdapter, FilterKernelImpl,
+    InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, SumFn, TakeFn, UncompressedSizeFn,
 };
 use crate::stats::Stat;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
-
-impl ArrayComputeImpl for ConstantArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(ConstantEncoding).some();
-}
+use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
@@ -84,11 +80,13 @@ impl SliceFn<&ConstantArray> for ConstantEncoding {
     }
 }
 
-impl FilterKernel for ConstantEncoding {
+impl FilterKernelImpl for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(ConstantEncoding).lift());
 
 impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
     fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {

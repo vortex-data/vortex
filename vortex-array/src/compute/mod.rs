@@ -8,6 +8,7 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::sync::RwLock;
 
 pub use between::{BetweenFn, BetweenOptions, StrictComparison, between};
 pub use binary_numeric::{
@@ -38,7 +39,7 @@ pub use take_from::TakeFromFn;
 pub use to_arrow::*;
 pub use uncompressed_size::*;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -74,7 +75,44 @@ mod take_from;
 mod to_arrow;
 mod uncompressed_size;
 
-pub trait ComputeFn {
+/// An instance of a compute function holding the implementation vtable and a set of registered
+/// compute kernels.
+pub struct ComputeFn {
+    vtable: ArcRef<dyn ComputeFnVTable>,
+    kernels: RwLock<Vec<ArcRef<dyn Kernel>>>,
+}
+
+impl ComputeFn {
+    /// Create a new compute function from the given [`ComputeFnVTable`].
+    pub fn new(vtable: ArcRef<dyn ComputeFnVTable>) -> Self {
+        Self {
+            vtable,
+            kernels: Default::default(),
+        }
+    }
+
+    /// Returns the string identifier of the compute function.
+    pub fn id(&self) -> ArcRef<str> {
+        self.vtable.id()
+    }
+
+    /// Register a kernel for the compute function.
+    pub fn register_kernel(&self, kernel: ArcRef<dyn Kernel>) {
+        self.kernels
+            .write()
+            .vortex_expect("poisoned lock")
+            .push(kernel);
+    }
+
+    /// Invokes the compute function with the given arguments.
+    pub fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
+        self.vtable
+            .invoke(args, &self.kernels.read().vortex_expect("poisoned lock"))
+    }
+}
+
+/// VTable for the implementation of a compute function.
+pub trait ComputeFnVTable: 'static + Send + Sync {
     /// The globally unique identifier for the compute function.
     fn id(&self) -> ArcRef<str>;
 
@@ -86,7 +124,11 @@ pub trait ComputeFn {
     /// The entry-point logic can short-circuit compute using statistics, update result array
     /// statistics, search for relevant compute kernels, and canonicalize the inputs in order
     /// to successfully compute a result.
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output>;
+    fn invoke<'a>(
+        &self,
+        args: &'a InvocationArgs<'a>,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output>;
 
     /// Computes the return type of the function given the input arguments.
     ///
@@ -100,8 +142,6 @@ pub trait ComputeFn {
     /// Examples that are not elementwise include `sum`, `count`, `min`, `fill_forward` etc.
     fn is_elementwise(&self) -> bool;
 }
-
-pub type ComputeFnRef = ArcRef<dyn ComputeFn>;
 
 /// Arguments to a compute function invocation.
 pub struct InvocationArgs<'a> {
@@ -207,8 +247,15 @@ pub trait Options {
 /// For example, if kernel doesn't support the `LTE` operator.
 ///
 /// If the kernel fails to compute a result, it should return a `Some` with the error.
-pub trait Kernel {
+pub trait Kernel: 'static + Send + Sync {
     fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>>;
 }
 
-pub type KernelRef = ArcRef<dyn Kernel>;
+/// Register a kernel for a compute function.
+/// See each compute function for the correct type of kernel to register.
+#[macro_export]
+macro_rules! register_kernel {
+    ($T:expr) => {
+        $crate::aliases::inventory::submit!($T);
+    };
+}

@@ -9,16 +9,12 @@ use vortex_scalar::Scalar;
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    CastFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, KernelRef, MaskFn,
-    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
+    CastFn, FilterKernelAdapter, FilterKernelImpl, IsConstantFn, IsConstantOpts, MaskFn, MinMaxFn,
+    MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
     is_constant_opts, scalar_at, slice, take, try_cast, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef, ArrayVisitor};
-
-impl ArrayComputeImpl for StructArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(StructEncoding).some();
-}
+use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
@@ -139,7 +135,7 @@ impl SliceFn<&StructArray> for StructEncoding {
     }
 }
 
-impl FilterKernel for StructEncoding {
+impl FilterKernelImpl for StructEncoding {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -157,6 +153,8 @@ impl FilterKernel for StructEncoding {
             .map(|a| a.into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
 impl MaskFn<&StructArray> for StructEncoding {
     fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<ArrayRef> {

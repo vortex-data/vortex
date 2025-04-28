@@ -5,12 +5,12 @@ use vortex_scalar::i256;
 
 use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding};
-use crate::compute::FilterKernel;
-use crate::{Array, ArrayRef};
+use crate::compute::{FilterKernelAdapter, FilterKernelImpl};
+use crate::{Array, ArrayRef, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for DecimalEncoding {
+impl FilterKernelImpl for DecimalEncoding {
     fn filter(&self, array: &DecimalArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -51,6 +51,8 @@ impl FilterKernel for DecimalEncoding {
         }
     }
 }
+
+register_kernel!(FilterKernelAdapter(DecimalEncoding).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],

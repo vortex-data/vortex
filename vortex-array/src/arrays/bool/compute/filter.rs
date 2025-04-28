@@ -3,13 +3,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::FilterKernel;
-use crate::{Array, ArrayRef};
+use crate::compute::{FilterKernelAdapter, FilterKernelImpl};
+use crate::{Array, ArrayRef, register_kernel};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for BoolEncoding {
+impl FilterKernelImpl for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -33,6 +33,8 @@ impl FilterKernel for BoolEncoding {
         Ok(BoolArray::new(buffer, validity).into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(BoolEncoding).lift());
 
 /// Select indices from a boolean buffer.
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to

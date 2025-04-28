@@ -12,3 +12,6 @@ pub mod paste {
     //! Re-export of [`paste`](https://docs.rs/paste/latest/paste/).
     pub use paste::paste;
 }
+
+// Re-export of [`inventory`](https://docs.rs/inventory/latest/inventory/).
+pub use inventory;

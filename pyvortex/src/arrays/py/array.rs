@@ -10,8 +10,8 @@ use vortex::mask::Mask;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
-    ArrayCanonicalImpl, ArrayComputeImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
 use crate::arrays::py::PyEncodingClass;
@@ -55,8 +55,6 @@ impl ArrayCanonicalImpl for PyArrayInstance {
         todo!()
     }
 }
-
-impl ArrayComputeImpl for PyArrayInstance {}
 
 impl ArrayStatisticsImpl for PyArrayInstance {
     fn _stats_ref(&self) -> StatsSetRef<'_> {

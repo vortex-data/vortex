@@ -8,21 +8,17 @@ mod min_max;
 mod optimize;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, FillNullFn, FilterKernel, FilterKernelAdapter, IsConstantFn,
-    IsSortedFn, KernelRef, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter,
-    scalar_at, slice, take,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterKernelAdapter, FilterKernelImpl, IsConstantFn,
+    IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at,
+    slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayRef};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
-
-impl ArrayComputeImpl for DictArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(DictEncoding).some();
-}
 
 impl ComputeVTable for DictEncoding {
     fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
@@ -84,12 +80,14 @@ impl TakeFn<&DictArray> for DictEncoding {
     }
 }
 
-impl FilterKernel for DictEncoding {
+impl FilterKernelImpl for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(DictEncoding).lift());
 
 impl SliceFn<&DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
