@@ -2,15 +2,15 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{BinaryBooleanFn, BinaryOperator, binary_boolean, slice};
-use crate::{Array, ArrayRef};
+use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator, binary_boolean, slice};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BinaryBooleanFn<&ChunkedArray> for ChunkedEncoding {
+impl BooleanKernel for ChunkedEncoding {
     fn binary_boolean(
         &self,
         lhs: &ChunkedArray,
         rhs: &dyn Array,
-        op: BinaryOperator,
+        op: BooleanOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let mut idx = 0;
         let mut chunks = Vec::with_capacity(lhs.nchunks());
@@ -28,6 +28,8 @@ impl BinaryBooleanFn<&ChunkedArray> for ChunkedEncoding {
     }
 }
 
+register_kernel!(BooleanKernelAdapter(ChunkedEncoding).lift());
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::{DType, Nullability};
@@ -35,7 +37,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{BoolArray, BooleanBuffer, ChunkedArray};
     use crate::canonical::ToCanonical;
-    use crate::compute::{BinaryOperator, binary_boolean};
+    use crate::compute::{BooleanOperator, binary_boolean};
 
     #[test]
     fn test_bin_bool_chunked() {
@@ -49,7 +51,7 @@ mod tests {
         let chunked2 =
             ChunkedArray::try_new(vec![arr2, arr3], DType::Bool(Nullability::Nullable)).unwrap();
 
-        let result = binary_boolean(&chunked1, &chunked2, BinaryOperator::Or)
+        let result = binary_boolean(&chunked1, &chunked2, BooleanOperator::Or)
             .unwrap()
             .to_bool()
             .unwrap();

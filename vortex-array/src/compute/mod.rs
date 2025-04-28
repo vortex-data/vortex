@@ -15,9 +15,7 @@ pub use binary_numeric::{
     BinaryNumericFn, add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub,
     sub_scalar,
 };
-pub use boolean::{
-    BinaryBooleanFn, BinaryOperator, and, and_kleene, binary_boolean, or, or_kleene,
-};
+pub use boolean::*;
 pub use cast::{CastFn, try_cast};
 pub use compare::*;
 pub use fill_forward::{FillForwardFn, fill_forward};

@@ -3,15 +3,15 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::compute::{BinaryBooleanFn, BinaryOperator};
-use crate::{Array, ArrayRef};
+use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
+impl BooleanKernel for ConstantEncoding {
     fn binary_boolean(
         &self,
         lhs: &ConstantArray,
         rhs: &dyn Array,
-        op: BinaryOperator,
+        op: BooleanOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
@@ -31,10 +31,10 @@ impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
             .value();
 
         let result = match op {
-            BinaryOperator::And => and(lhs, rhs),
-            BinaryOperator::AndKleene => kleene_and(lhs, rhs),
-            BinaryOperator::Or => or(lhs, rhs),
-            BinaryOperator::OrKleene => kleene_or(lhs, rhs),
+            BooleanOperator::And => and(lhs, rhs),
+            BooleanOperator::AndKleene => kleene_and(lhs, rhs),
+            BooleanOperator::Or => or(lhs, rhs),
+            BooleanOperator::OrKleene => kleene_or(lhs, rhs),
         };
 
         let scalar = result
@@ -44,6 +44,8 @@ impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
         Ok(Some(ConstantArray::new(scalar, length).into_array()))
     }
 }
+
+register_kernel!(BooleanKernelAdapter(ConstantEncoding).lift());
 
 fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l & r)

@@ -63,7 +63,7 @@ mod primitive {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -89,7 +89,7 @@ mod primitive {
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
+                BooleanOperator::And,
             )
             .vortex_expect("")
         })
@@ -132,7 +132,7 @@ mod bitpack {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -158,7 +158,7 @@ mod bitpack {
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
+                BooleanOperator::And,
             )
         })
     }
@@ -200,7 +200,7 @@ mod alp {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BinaryOperator, Operator, between, binary_boolean, compare,
+        BetweenOptions, BooleanOperator, Operator, between, binary_boolean, compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
@@ -226,7 +226,7 @@ mod alp {
                 &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
                     .vortex_expect(""),
                 &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
+                BooleanOperator::And,
             )
         })
     }

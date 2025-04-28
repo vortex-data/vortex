@@ -1,8 +1,8 @@
 use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn,
-    MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn,
+    ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -24,14 +24,6 @@ mod to_arrow;
 mod uncompressed_size;
 
 impl ComputeVTable for BoolEncoding {
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
-        // We only implement this when other is a constant value, otherwise we fall back to the
-        // default implementation that canonicalizes to Arrow.
-        // TODO(ngates): implement this for constants.
-        // other.is_constant().then_some(self)
-        None
-    }
-
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }

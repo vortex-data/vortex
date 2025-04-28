@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 use crate::arcref::ArcRef;
 use crate::arrays::ConstantArray;
 use crate::compute::{
-    BinaryOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
+    BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
     binary_boolean, compare,
 };
 use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
@@ -19,7 +19,7 @@ use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 /// This semantics is equivalent to:
 /// ```
 /// use vortex_array::{Array, ArrayRef};
-/// use vortex_array::compute::{binary_boolean, compare, BetweenOptions, BinaryOperator, Operator};///
+/// use vortex_array::compute::{binary_boolean, compare, BetweenOptions, BooleanOperator, Operator};///
 /// use vortex_error::VortexResult;
 ///
 /// fn between(
@@ -31,7 +31,7 @@ use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 ///     binary_boolean(
 ///         &compare(lower, arr, options.lower_strict.to_operator())?,
 ///         &compare(arr, upper,  options.upper_strict.to_operator())?,
-///         BinaryOperator::And
+///         BooleanOperator::And
 ///     )
 /// }
 ///  ```
@@ -142,7 +142,7 @@ impl ComputeFnVTable for Between {
         Ok(binary_boolean(
             &compare(lower, array, options.lower_strict.to_operator())?,
             &compare(array, upper, options.upper_strict.to_operator())?,
-            BinaryOperator::And,
+            BooleanOperator::And,
         )?
         .into())
     }
