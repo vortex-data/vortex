@@ -159,7 +159,6 @@ fn compute_funcs(encodings: &[ArrayRef]) {
     table_builder.push_record(vec![
         "Encoding",
         "cast",
-        "compare",
         "fill_forward",
         "fill_null",
         "scalar_at",
@@ -175,7 +174,6 @@ fn compute_funcs(encodings: &[ArrayRef]) {
         let mut impls = vec![id.as_ref()];
         for (j, func) in [
             encoding.cast_fn().is_some(),
-            encoding.compare_fn().is_some(),
             encoding.fill_forward_fn().is_some(),
             encoding.fill_null_fn().is_some(),
             encoding.scalar_at_fn().is_some(),
