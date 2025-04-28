@@ -170,14 +170,6 @@ impl<E: Encoding + FilterKernelImpl> FilterKernelAdapter<E> {
     pub const fn lift(&'static self) -> FilterKernel {
         FilterKernel(ArcRef::new_ref(self))
     }
-
-    pub const fn adapt(&'static self) -> ArcRef<dyn Kernel> {
-        ArcRef::new_ref(self)
-    }
-
-    pub const fn some(&'static self) -> Option<ArcRef<dyn Kernel>> {
-        Some(ArcRef::new_ref(self))
-    }
 }
 
 impl<E: Encoding + FilterKernelImpl> Kernel for FilterKernelAdapter<E> {
