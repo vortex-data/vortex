@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use arrow_schema::SchemaRef;
 use dashmap::DashMap;
@@ -35,7 +35,7 @@ pub struct VortexSource {
     /// Shared layout readers, the source only lives as long as one scan.
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
-    layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
+    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl VortexSource {

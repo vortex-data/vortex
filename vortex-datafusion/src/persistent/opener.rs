@@ -1,8 +1,8 @@
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use arrow_schema::{ArrowError, SchemaRef};
-use dashmap::DashMap;
+use dashmap::{DashMap, Entry};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
@@ -28,7 +28,7 @@ pub(crate) struct VortexFileOpener {
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
-    layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
+    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl VortexFileOpener {
@@ -41,7 +41,7 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
-        layout_readers: Arc<DashMap<Path, Arc<dyn LayoutReader>>>,
+        layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     ) -> Self {
         Self {
             object_store,
@@ -73,11 +73,23 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             // We share out layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = layout_reader
-                .entry(file_meta.object_meta.location.clone())
-                .or_try_insert_with(|| vxf.layout_reader())?
-                .value()
-                .clone();
+            let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
+                Entry::Occupied(mut occupied_entry) => {
+                    if let Some(reader) = occupied_entry.get().upgrade() {
+                        reader
+                    } else {
+                        let reader = vxf.layout_reader()?;
+                        occupied_entry.insert(Arc::downgrade(&reader));
+                        reader
+                    }
+                }
+                Entry::Vacant(vacant_entry) => {
+                    let reader = vxf.layout_reader()?;
+                    vacant_entry.insert(Arc::downgrade(&reader));
+
+                    reader
+                }
+            };
 
             let scan_builder = ScanBuilder::new(layout_reader);
             let scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
