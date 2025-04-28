@@ -34,6 +34,8 @@ struct Args {
     targets: Vec<Target>,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    display_metrics: bool,
     #[arg(long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
@@ -166,7 +168,7 @@ fn main() -> anyhow::Result<()> {
 
     match args.display_format {
         DisplayFormat::Table => {
-            if false {
+            if args.display_metrics {
                 for (query, format, metric_sets) in metrics {
                     println!("\nmetrics for query={query}, {format}:");
                     for (idx, metric_set) in metric_sets.into_iter().enumerate() {

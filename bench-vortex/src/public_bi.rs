@@ -315,7 +315,9 @@ impl PBIData {
                     public_bi_csv_to_parquet_file(table, csv, &output_path).await
                 })
                 .await
-                .vortex_expect("failed to create parquet file");
+                .vortex_expect(
+                    "failed to create parquet file, either the file or duckdb is missing",
+                );
                 let pq_size = parquet_file.metadata().unwrap().size();
                 info!(
                     "Parquet size: {}, {}B",
