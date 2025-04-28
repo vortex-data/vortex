@@ -5,16 +5,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bytes::Bytes;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
+use rust_lapper::{Interval, Lapper};
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
-use vortex::nbytes::NBytes;
-use vortex::{ArrayExt, ArrayRef};
+use vortex::builders::builder_with_capacity;
+use vortex::error::VortexUnwrap;
+use vortex::{Array, ArrayExt, ArrayVisitorExt};
 
 use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
+use crate::datasets::Dataset;
 use crate::measurements::{CustomUnitMeasurement, ThroughputMeasurement};
 
 #[derive(Default)]
@@ -45,20 +48,26 @@ impl FromIterator<CompressMeasurements> for CompressMeasurements {
     }
 }
 
-pub fn benchmark_compress<F>(
+pub fn benchmark_compress(
     runtime: &Runtime,
     progress: &ProgressBar,
     formats: &[Format],
     iterations: usize,
-    bench_name: &str,
-    make_uncompressed: F,
-) -> CompressMeasurements
-where
-    F: Fn() -> ArrayRef,
-{
+    dataset_handle: &dyn Dataset,
+) -> CompressMeasurements {
+    let bench_name = dataset_handle.name();
     tracing::info!("Running {bench_name} benchmark");
-    let uncompressed = make_uncompressed();
-    let uncompressed_size = uncompressed.nbytes();
+
+    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await });
+    let uncompressed =
+        ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(|chunk| {
+            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+            builder.finish()
+        }))
+        .into_array();
+
+    let uncompressed_size = uncompressed_bytes(&vx_array);
     let compressed_size = AtomicU64::default();
 
     let mut ratios = Vec::new();
@@ -161,6 +170,7 @@ where
             );
             Bytes::from(buf)
         });
+        LazyCell::force(&buffer);
 
         throughputs.push(ThroughputMeasurement {
             name: format!("decompress time/{}", bench_name),
@@ -177,4 +187,23 @@ where
         throughputs,
         ratios,
     }
+}
+
+// Count total bytes all buffers use for the array, only
+// counting unique memory regions once.
+fn uncompressed_bytes(vx_array: &dyn Array) -> usize {
+    let mut intervals = Vec::new();
+
+    for array in vx_array.depth_first_traversal() {
+        for buffer in array.buffers() {
+            let slice: &[u8] = buffer.inner().as_ref();
+            let start = slice.as_ptr() as usize;
+            intervals.push(Interval {
+                start,
+                stop: start + slice.len(),
+                val: true,
+            });
+        }
+    }
+    Lapper::new(intervals).cov()
 }

@@ -13,10 +13,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
-use vortex::arrays::ChunkedArray;
-use vortex::builders::builder_with_capacity;
-use vortex::error::VortexUnwrap;
-use vortex::{Array, ArrayExt};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -103,25 +99,7 @@ fn compress(
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(
-                &runtime,
-                &progress,
-                &formats,
-                iterations,
-                dataset_handle.name(),
-                || {
-                    let vx_array =
-                        runtime.block_on(async { dataset_handle.to_vortex_array().await });
-                    ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
-                        |chunk| {
-                            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
-                            builder.finish()
-                        },
-                    ))
-                    .into_array()
-                },
-            )
+            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
         })
         .collect::<CompressMeasurements>();
 
