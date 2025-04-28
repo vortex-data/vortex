@@ -8,7 +8,6 @@ mod search_sorted;
 mod sum;
 mod take;
 
-use num_traits::ToPrimitive;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
