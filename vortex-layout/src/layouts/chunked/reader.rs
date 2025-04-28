@@ -64,14 +64,18 @@ impl ChunkedReader {
 
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, idx: usize) -> VortexResult<Arc<dyn LayoutReader>> {
-        let child_guard = self.chunk_readers[idx].lock();
+        let mut child_guard = self.chunk_readers[idx].lock();
         if let Some(child) = child_guard.as_ref().and_then(|child| child.upgrade()) {
             return Ok(child.clone());
         } else {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
-            child_layout.reader(&self.segment_source, &self.ctx)
+            let strong = child_layout.reader(&self.segment_source, &self.ctx)?;
+            let weak_ref = Arc::downgrade(&strong);
+            *child_guard = Some(weak_ref);
+
+            Ok(strong)
         }
     }
 
