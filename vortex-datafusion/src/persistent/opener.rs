@@ -96,7 +96,7 @@ impl FileOpener for VortexFileOpener {
             let scan_builder = ScanBuilder::new(layout_reader);
             let scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
-            Ok(scan_builder
+            let stream = scan_builder
                 .with_tokio_executor(Handle::current())
                 .with_metrics(metrics)
                 .with_projection(projection)
@@ -104,25 +104,31 @@ impl FileOpener for VortexFileOpener {
                 .map_to_record_batch(projected_arrow_schema.clone())
                 .into_stream()?
                 .map_ok(move |rb| {
-                    let mut results = vec![];
-                    for block_idx in 0..rb.num_rows().div_ceil(batch_size) {
-                        let offset = block_idx * batch_size;
+                    // We try and slice the stream into respecting datafusion's configured batch size.
+                    futures::stream::iter(
+                        (0..rb.num_rows().div_ceil(batch_size * 2))
+                            .flat_map(move |block_idx| {
+                                let offset = block_idx * batch_size * 2;
 
-                        // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                        if rb.num_rows() - offset < 2 * batch_size {
-                            let length = rb.num_rows() - offset;
-                            results.push(Ok(rb.slice(offset, length)));
-                            break;
-                        } else {
-                            results.push(Ok(rb.slice(offset, batch_size)));
-                        }
-                    }
-
-                    futures::stream::iter(results)
+                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
+                                if rb.num_rows() - offset < 2 * batch_size {
+                                    let length = rb.num_rows() - offset;
+                                    [Some(rb.slice(offset, length)), None].into_iter()
+                                } else {
+                                    let first = rb.slice(offset, batch_size);
+                                    let second = rb.slice(offset + batch_size, batch_size);
+                                    [Some(first), Some(second)].into_iter()
+                                }
+                            })
+                            .flatten()
+                            .map(Ok),
+                    )
                 })
                 .map_err(|e: VortexError| ArrowError::from(e))
                 .try_flatten()
-                .boxed())
+                .boxed();
+
+            Ok(stream)
         }
         .boxed())
     }
