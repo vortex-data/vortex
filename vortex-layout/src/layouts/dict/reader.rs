@@ -1,27 +1,26 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use parking_lot::{Mutex, RwLock};
+use vortex_array::aliases::hash_map::{Entry, HashMap};
+use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, PType};
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use super::DictLayout;
 use super::writer::DictLayoutMetadata;
+use crate::layouts::{SharedArrayFuture, WeakSharedArrayFuture};
 use crate::segments::SegmentSource;
 use crate::{Layout, LayoutReader, LayoutVTable};
-
-pub(crate) type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 pub struct DictReader {
     layout: Layout,
     /// Cached dict values array
-    values_array: OnceLock<SharedArrayFuture>,
+    values_array: Mutex<Option<WeakSharedArrayFuture>>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: RwLock<HashMap<ExprRef, SharedArrayFuture>>,
+    values_evals: RwLock<HashMap<ExprRef, Option<WeakSharedArrayFuture>>>,
     pub(crate) values: Arc<dyn LayoutReader>,
     pub(crate) codes: Arc<dyn LayoutReader>,
 }
@@ -59,46 +58,77 @@ impl DictReader {
     }
 
     pub(crate) fn values_array(&self) -> SharedArrayFuture {
-        self.values_array
-            .get_or_init(move || {
-                let values_len = self.values.row_count();
-                let eval = self
-                    .values
-                    .projection_evaluation(&(0..values_len), &Identity::new_expr())
-                    .vortex_expect("must construct dict values array evaluation");
+        let mut guard = self.values_array.lock();
 
-                async move {
-                    eval.invoke(Mask::new_true(
-                        usize::try_from(values_len)
-                            .vortex_expect("dict values length must fit in u32"),
-                    ))
-                    .await
-                    .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone()
+        if let Some(shared_array) = guard.as_ref().and_then(|v| v.upgrade()) {
+            shared_array
+        } else {
+            let values_len = self.values.row_count();
+            let eval = self
+                .values
+                .projection_evaluation(&(0..values_len), &Identity::new_expr())
+                .vortex_expect("must construct dict values array evaluation");
+
+            let shared_array_future = async move {
+                eval.invoke(Mask::new_true(
+                    usize::try_from(values_len).vortex_expect("dict values length must fit in u32"),
+                ))
+                .await
+                .map_err(Arc::new)
+            }
+            .boxed()
+            .shared();
+
+            *guard = Some(
+                shared_array_future
+                    .downgrade()
+                    .vortex_expect("Future was never polled"),
+            );
+            shared_array_future
+        }
     }
 
     pub(crate) fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
-        self.values_evals
-            .write()
-            .vortex_expect("poisoned lock")
-            .entry(expr.clone())
-            .or_insert_with(|| {
-                self.values_array()
+        let mut guard = self.values_evals.write();
+
+        match guard.entry(expr.clone()) {
+            Entry::Occupied(mut occupied) => {
+                if let Some(f) = occupied.get().clone().and_then(|v| v.upgrade()) {
+                    f
+                } else {
+                    let f = self
+                        .values_array()
+                        .map(move |array| {
+                            expr.evaluate(&array?)
+                                // .and_then(|result| result.to_canonical())
+                                // TODO(os): not all expressions would benefit from a canonical array
+                                // .map(|canonical| canonical.into_array())
+                                .map_err(Arc::new)
+                        })
+                        .boxed()
+                        .shared();
+
+                    occupied.insert(f.downgrade());
+                    f
+                }
+            }
+            Entry::Vacant(vacant) => {
+                let f = self
+                    .values_array()
                     .map(move |array| {
-                        expr.evaluate(&array?)
-                            .and_then(|result| result.to_canonical())
+                        expr.evaluate(array?.as_ref())
+                            // .and_then(|result| result.to_canonical())
                             // TODO(os): not all expressions would benefit from a canonical array
-                            .map(|canonical| canonical.into_array())
+                            // .map(|canonical| canonical.into_array())
                             .map_err(Arc::new)
                     })
                     .boxed()
-                    .shared()
-            })
-            .clone()
+                    .shared();
+
+                vacant.insert(f.downgrade());
+                f
+            }
+        }
     }
 }
 

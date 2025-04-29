@@ -1,23 +1,22 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
+use parking_lot::Mutex;
+use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
-use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::{SharedArrayFuture, WeakSharedArrayFuture};
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{Layout, LayoutVTable};
-
-pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 pub struct FlatReader {
     pub(crate) layout: Layout,
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     pub(crate) ctx: ArrayContext,
-    pub(crate) array: OnceLock<SharedArray>,
+    pub(crate) array: Mutex<Option<WeakSharedArrayFuture>>,
 }
 
 impl FlatReader {
@@ -45,7 +44,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    pub(crate) fn array_future(&self) -> VortexResult<SharedArray> {
+    pub(crate) fn array_future(&self) -> VortexResult<SharedArrayFuture> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -57,21 +56,29 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(segment_id, self.layout.name());
 
-        Ok(self
-            .array
-            .get_or_init(|| {
-                let ctx = self.ctx.clone();
-                let dtype = self.layout.dtype().clone();
-                async move {
-                    let segment = segment_fut.await?;
-                    ArrayParts::try_from(segment)?
-                        .decode(&ctx, dtype.clone(), row_count)
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone())
+        let mut guard = self.array.lock();
+
+        if let Some(shared_array) = guard.as_ref().and_then(|v| v.upgrade()) {
+            Ok(shared_array)
+        } else {
+            let ctx = self.ctx.clone();
+            let dtype = self.layout.dtype().clone();
+            let shared_array = async move {
+                let segment = segment_fut.await?;
+                ArrayParts::try_from(segment)?
+                    .decode(&ctx, dtype.clone(), row_count)
+                    .map_err(Arc::new)
+            }
+            .boxed()
+            .shared();
+
+            *guard = Some(
+                shared_array
+                    .downgrade()
+                    .vortex_expect("Future was never polled"),
+            );
+            Ok(shared_array)
+        }
     }
 }
 
