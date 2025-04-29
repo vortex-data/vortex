@@ -7,6 +7,225 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.31.0...vortex-tui-v0.32.0) - 2025-04-29
+
+### Other
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+- dict layout ([#2981](https://github.com/spiraldb/vortex/pull/2981))
+- Refactor scan API to make it easier to correctly spawn tasks ([#3077](https://github.com/spiraldb/vortex/pull/3077))
+
+## `vortex-datafusion` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.31.0...vortex-datafusion-v0.32.0) - 2025-04-29
+
+### Other
+- Spawn file reads in infer_schema ([#3158](https://github.com/spiraldb/vortex/pull/3158))
+- Fallback to datafusion's repartitioning logic ([#3099](https://github.com/spiraldb/vortex/pull/3099))
+- Fix datafusion example and also make it a test ([#3134](https://github.com/spiraldb/vortex/pull/3134))
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+- Stop reporting sum stats to datafusion ([#3088](https://github.com/spiraldb/vortex/pull/3088))
+- Spawn VortexFormat::infer_stats calls ([#3078](https://github.com/spiraldb/vortex/pull/3078))
+- Refactor scan API to make it easier to correctly spawn tasks ([#3077](https://github.com/spiraldb/vortex/pull/3077))
+- less cloning in repartition call ([#3079](https://github.com/spiraldb/vortex/pull/3079))
+
+## `vortex` - [0.32.0](https://github.com/spiraldb/vortex/compare/0.31.0...0.32.0) - 2025-04-29
+
+### Other
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+
+## `vortex-file` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.31.0...vortex-file-v0.32.0) - 2025-04-29
+
+### Other
+- Fallback to datafusion's repartitioning logic ([#3099](https://github.com/spiraldb/vortex/pull/3099))
+- Pull out layout flatbuffer ([#3127](https://github.com/spiraldb/vortex/pull/3127))
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+- dict layout ([#2981](https://github.com/spiraldb/vortex/pull/2981))
+- Prevent compression from converging into low-quality compressions ([#3092](https://github.com/spiraldb/vortex/pull/3092))
+- Refactor scan API to make it easier to correctly spawn tasks ([#3077](https://github.com/spiraldb/vortex/pull/3077))
+
+## `vortex-layout` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.31.0...vortex-layout-v0.32.0) - 2025-04-29
+
+### Other
+- Minor layouts refactoring ([#3163](https://github.com/spiraldb/vortex/pull/3163))
+- Fallback to datafusion's repartitioning logic ([#3099](https://github.com/spiraldb/vortex/pull/3099))
+- Pull out layout flatbuffer ([#3127](https://github.com/spiraldb/vortex/pull/3127))
+- Construct the scan in a different order ([#3101](https://github.com/spiraldb/vortex/pull/3101))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+- dict layout ([#2981](https://github.com/spiraldb/vortex/pull/2981))
+- Refactor scan API to make it easier to correctly spawn tasks ([#3077](https://github.com/spiraldb/vortex/pull/3077))
+- Short circuit nchunks == 1 ([#3073](https://github.com/spiraldb/vortex/pull/3073))
+
+## `vortex-expr` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.31.0...vortex-expr-v0.32.0) - 2025-04-29
+
+### Other
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-bytebool` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.31.0...vortex-bytebool-v0.32.0) - 2025-04-29
+
+### Other
+- Port MaskFn to MaskKernel ([#3160](https://github.com/spiraldb/vortex/pull/3160))
+- Remove unused fill_forward ([#3151](https://github.com/spiraldb/vortex/pull/3151))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+
+## `vortex-btrblocks` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-btrblocks-v0.31.0...vortex-btrblocks-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+## `vortex-zigzag` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.31.0...vortex-zigzag-v0.32.0) - 2025-04-29
+
+### Other
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+
+## `vortex-sparse` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.31.0...vortex-sparse-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Port InvertFn to InvertKernel ([#3152](https://github.com/spiraldb/vortex/pull/3152))
+- Port CastFn to CastKernel ([#3150](https://github.com/spiraldb/vortex/pull/3150))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-runend` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.31.0...vortex-runend-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Port InvertFn to InvertKernel ([#3152](https://github.com/spiraldb/vortex/pull/3152))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-dict` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.31.0...vortex-dict-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Port MaskFn to MaskKernel ([#3160](https://github.com/spiraldb/vortex/pull/3160))
+- Port CastFn to CastKernel ([#3150](https://github.com/spiraldb/vortex/pull/3150))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+- dict layout ([#2981](https://github.com/spiraldb/vortex/pull/2981))
+
+## `vortex-fsst` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.31.0...vortex-fsst-v0.32.0) - 2025-04-29
+
+### Other
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-datetime-parts` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.31.0...vortex-datetime-parts-v0.32.0) - 2025-04-29
+
+### Other
+- Port CastFn to CastKernel ([#3150](https://github.com/spiraldb/vortex/pull/3150))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-alp` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.31.0...vortex-alp-v0.32.0) - 2025-04-29
+
+### Other
+- Port MaskFn to MaskKernel ([#3160](https://github.com/spiraldb/vortex/pull/3160))
+- NaN cannot be a min/max value of a primitive array ([#3104](https://github.com/spiraldb/vortex/pull/3104))
+- Port BetweenFn to BetweenKernel ([#3146](https://github.com/spiraldb/vortex/pull/3146))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+- Use target as a benchmark parameter instead of format and engine ([#3069](https://github.com/spiraldb/vortex/pull/3069))
+
+## `vortex-fastlanes` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.31.0...vortex-fastlanes-v0.32.0) - 2025-04-29
+
+### Other
+- Remove unused fill_forward ([#3151](https://github.com/spiraldb/vortex/pull/3151))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Port BinaryBooleanFn to BooleanKernel ([#3147](https://github.com/spiraldb/vortex/pull/3147))
+- Port BetweenFn to BetweenKernel ([#3146](https://github.com/spiraldb/vortex/pull/3146))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-array` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.31.0...vortex-array-v0.32.0) - 2025-04-29
+
+### Added
+- Implement all of the compute fns for DecimalArray ([#3116](https://github.com/spiraldb/vortex/pull/3116))
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Port MaskFn to MaskKernel ([#3160](https://github.com/spiraldb/vortex/pull/3160))
+- NaN cannot be a min/max value of a primitive array ([#3104](https://github.com/spiraldb/vortex/pull/3104))
+- Add decimal with storage size i8..i64 to vortex ([#3161](https://github.com/spiraldb/vortex/pull/3161))
+- Dynamic compute kernels ([#3153](https://github.com/spiraldb/vortex/pull/3153))
+- Port InvertFn to InvertKernel ([#3152](https://github.com/spiraldb/vortex/pull/3152))
+- Remove unused fill_forward ([#3151](https://github.com/spiraldb/vortex/pull/3151))
+- Port CastFn to CastKernel ([#3150](https://github.com/spiraldb/vortex/pull/3150))
+- Port SumFn to SumKernel ([#3149](https://github.com/spiraldb/vortex/pull/3149))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Port BinaryBooleanFn to BooleanKernel ([#3147](https://github.com/spiraldb/vortex/pull/3147))
+- Port BetweenFn to BetweenKernel ([#3146](https://github.com/spiraldb/vortex/pull/3146))
+- Compare kernel ([#3144](https://github.com/spiraldb/vortex/pull/3144))
+- Slight improvement for `VTableRegistry::register_many` ([#3142](https://github.com/spiraldb/vortex/pull/3142))
+- ComputeFn to hold own registry ([#3139](https://github.com/spiraldb/vortex/pull/3139))
+- varbin take to work with nullable indices ([#3138](https://github.com/spiraldb/vortex/pull/3138))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+- Bool shrink to fit to take len into account ([#3111](https://github.com/spiraldb/vortex/pull/3111))
+- dict layout ([#2981](https://github.com/spiraldb/vortex/pull/2981))
+- Use target as a benchmark parameter instead of format and engine ([#3069](https://github.com/spiraldb/vortex/pull/3069))
+- Refactor scan API to make it easier to correctly spawn tasks ([#3077](https://github.com/spiraldb/vortex/pull/3077))
+- Short circuit nchunks == 1 ([#3073](https://github.com/spiraldb/vortex/pull/3073))
+- Move bool array over to ProstMetadata ([#3052](https://github.com/spiraldb/vortex/pull/3052))
+
+## `vortex-scalar` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.31.0...vortex-scalar-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Add decimal with storage size i8..i64 to vortex ([#3161](https://github.com/spiraldb/vortex/pull/3161))
+- Numeric kernel ([#3148](https://github.com/spiraldb/vortex/pull/3148))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-dtype` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.31.0...vortex-dtype-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- NaN cannot be a min/max value of a primitive array ([#3104](https://github.com/spiraldb/vortex/pull/3104))
+- Add decimal with storage size i8..i64 to vortex ([#3161](https://github.com/spiraldb/vortex/pull/3161))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
+## `vortex-proto` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.31.0...vortex-proto-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Add decimal with storage size i8..i64 to vortex ([#3161](https://github.com/spiraldb/vortex/pull/3161))
+
+## `vortex-flatbuffers` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.31.0...vortex-flatbuffers-v0.32.0) - 2025-04-29
+
+### Added
+- Decimal types ([#3058](https://github.com/spiraldb/vortex/pull/3058))
+
+### Other
+- Pull out layout flatbuffer ([#3127](https://github.com/spiraldb/vortex/pull/3127))
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+
+## `vortex-buffer` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.31.0...vortex-buffer-v0.32.0) - 2025-04-29
+
+### Other
+- Move initial read logic into generic file ([#3022](https://github.com/spiraldb/vortex/pull/3022))
+- Use Protobuf for array metadata ([#3090](https://github.com/spiraldb/vortex/pull/3090))
+
 ## `vortex-tui` - [0.31.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.30.0...vortex-tui-v0.31.0) - 2025-04-17
 
 ### Other
