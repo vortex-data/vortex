@@ -287,7 +287,6 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      # - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         run: cargo install grcov
