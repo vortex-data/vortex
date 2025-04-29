@@ -19,6 +19,7 @@ pub use filter::*;
 pub use invert::*;
 pub use is_constant::*;
 pub use is_sorted::*;
+use itertools::Itertools;
 pub use like::{LikeFn, LikeOptions, like};
 pub use mask::{MaskFn, mask};
 pub use min_max::{MinMaxFn, MinMaxResult, min_max};
@@ -101,6 +102,23 @@ impl ComputeFn {
 
     /// Invokes the compute function with the given arguments.
     pub fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output> {
+        // Perform some pre-condition checks against the arguments and the function properties.
+        if self.is_elementwise() {
+            // For element-wise functions, all input arrays must be the same length.
+            if !args
+                .inputs
+                .iter()
+                .filter_map(|input| input.array())
+                .map(|array| array.len())
+                .all_equal()
+            {
+                vortex_bail!(
+                    "Compute function {} is elementwise but input arrays have different lengths",
+                    self.id
+                );
+            }
+        }
+
         let expected_dtype = self.vtable.return_dtype(args)?;
         let expected_len = self.vtable.return_len(args)?;
 
@@ -171,6 +189,8 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
     ///
     /// Examples include `add`, `subtract`, `and`, `cast`, `fill_null` etc.
     /// Examples that are not elementwise include `sum`, `count`, `min`, `fill_forward` etc.
+    ///
+    /// All input arrays to an elementwise function *must* have the same length.
     fn is_elementwise(&self) -> bool;
 }
 
