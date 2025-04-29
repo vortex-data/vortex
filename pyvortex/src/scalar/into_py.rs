@@ -115,95 +115,32 @@ trait DecimalIntoParts: Sized {
     fn decimal_parts(self, scale: i8) -> (Self, Self);
 }
 
-impl DecimalIntoParts for i8 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i8.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i8.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
+macro_rules! impl_decimal_into_parts {
+    ($ty:ident, $ten:expr) => {
+        impl DecimalIntoParts for $ty {
+            fn decimal_parts(self, scale: i8) -> (Self, Self) {
+                let scale_factor = $ten.pow(scale.abs() as u32);
+                match scale.cmp(&0) {
+                    Ordering::Equal => (self, 0),
+                    Ordering::Less => {
+                        // Negative scale -> apply the given number of trailing zeros
+                        (self * scale_factor, 0)
+                    }
+                    Ordering::Greater => {
+                        // Positive scale -> extract the leading/trailing digits separately.
+                        (self / scale_factor, self % scale_factor)
+                    }
+                }
             }
         }
-    }
+    };
 }
 
-impl DecimalIntoParts for i16 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i16.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i16.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
-            }
-        }
-    }
-}
-
-impl DecimalIntoParts for i32 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i32.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i32.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
-            }
-        }
-    }
-}
-
-impl DecimalIntoParts for i64 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i64.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i64.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
-            }
-        }
-    }
-}
-
-impl DecimalIntoParts for i128 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i128.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i128.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
-            }
-        }
-    }
-}
+impl_decimal_into_parts!(i8, 10i8);
+impl_decimal_into_parts!(i16, 10i16);
+impl_decimal_into_parts!(i32, 10i32);
+impl_decimal_into_parts!(i64, 10i64);
+impl_decimal_into_parts!(i128, 10i128);
 
 impl DecimalIntoParts for i256 {
     fn decimal_parts(self, scale: i8) -> (Self, Self) {
