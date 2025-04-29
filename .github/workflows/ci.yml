@@ -287,7 +287,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
+      # - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         run: cargo install grcov
@@ -296,6 +296,7 @@ jobs:
           tool: nextest
       - name: Rust Tests
         run: |
+          df -h .
           cargo nextest run --locked --workspace --all-features --no-fail-fast
           # nextest doesn't support doc tests
           cargo test --doc --workspace --exclude pyvortex
