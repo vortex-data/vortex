@@ -21,7 +21,7 @@ pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
 pub use like::{LikeFn, LikeOptions, like};
-pub use mask::{MaskFn, mask};
+pub use mask::*;
 pub use min_max::{MinMaxFn, MinMaxResult, min_max};
 pub use numeric::*;
 pub use optimize::*;

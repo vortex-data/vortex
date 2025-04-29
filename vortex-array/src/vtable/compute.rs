@@ -1,8 +1,7 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
-    UncompressedSizeFn,
+    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -29,15 +28,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`LikeFn`].
     fn like_fn(&self) -> Option<&dyn LikeFn<&dyn Array>> {
-        None
-    }
-
-    /// Replace masked values with null.
-    ///
-    /// This operation does not change the length of the array.
-    ///
-    /// See: [`MaskFn`].
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         None
     }
 

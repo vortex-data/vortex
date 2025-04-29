@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -33,7 +33,7 @@ use crate::{Array, ArrayRef};
 /// )
 /// .unwrap();
 ///
-/// let masked = mask(&array, mask_array).unwrap();
+/// let masked = mask(&array, &mask_array).unwrap();
 /// assert_eq!(masked.len(), 5);
 /// assert!(!masked.is_valid(0).unwrap());
 /// assert!(!masked.is_valid(1).unwrap());
@@ -42,19 +42,21 @@ use crate::{Array, ArrayRef};
 /// assert!(!masked.is_valid(4).unwrap());
 /// ```
 ///
-pub fn mask(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {}
+pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+    MASK_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into(), mask.into()],
+            options: &(),
+        })?
+        .unwrap_array()
+}
 
 pub struct MaskKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MaskKernelRef);
 
 pub trait MaskKernel: Encoding {
-    fn between(
-        &self,
-        arr: &Self::Array,
-        lower: &dyn Array,
-        upper: &dyn Array,
-        options: &MaskOptions,
-    ) -> VortexResult<Option<ArrayRef>>;
+    /// Replace masked values with null in array.
+    fn mask(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
@@ -67,20 +69,17 @@ impl<E: Encoding + MaskKernel> MaskKernelAdapter<E> {
 }
 
 impl<E: Encoding + MaskKernel> Kernel for MaskKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = MaskArgs::try_from(args)?;
         let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
         };
-        Ok(
-            E::between(&self.0, array, inputs.lower, inputs.upper, inputs.options)?
-                .map(|array| array.into()),
-        )
+        Ok(Some(E::mask(&self.0, array, inputs.mask)?.into()))
     }
 }
 
-pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Mask));
+pub static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("mask".into(), ArcRef::new_ref(&MaskFn));
     for kernel in inventory::iter::<MaskKernelRef> {
         compute.register_kernel(kernel.0.clone());
     }
@@ -90,9 +89,9 @@ pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct MaskFn;
 
 impl ComputeFnVTable for MaskFn {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
@@ -117,10 +116,8 @@ impl ComputeFnVTable for MaskFn {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke
-
-        if let Some(mask_fn) = array.vtable().mask_fn() {
-            return mask_fn.mask(array, mask);
+        if let Some(output) = array.invoke(&MASK_FN, args)? {
+            return Ok(output);
         }
 
         // Fallback: implement using Arrow kernels.
@@ -131,15 +128,15 @@ impl ComputeFnVTable for MaskFn {
 
         let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-        Ok(ArrayRef::from_arrow(masked, true))
+        Ok(ArrayRef::from_arrow(masked, true).into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let MaskArgs { array, .. } = MaskArgs::try_from(args)?;
         Ok(array.dtype().as_nullable())
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
 
         if mask.len() != array.len() {
@@ -154,8 +151,7 @@ impl ComputeFnVTable for MaskFn {
     }
 
     fn is_elementwise(&self) -> bool {
-        // I suppose if the input was an Array and not a Mask, then this would be elementwise?
-        false
+        true
     }
 }
 
@@ -179,23 +175,5 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for MaskArgs<'a> {
             .ok_or_else(|| vortex_err!("Expected input 1 to be a mask"))?;
 
         Ok(MaskArgs { array, mask })
-    }
-}
-
-pub trait MaskFn<A> {
-    /// Replace masked values with null in array.
-    fn mask(&self, array: A, mask: Mask) -> VortexResult<ArrayRef>;
-}
-
-impl<E: Encoding> MaskFn<&dyn Array> for E
-where
-    E: for<'a> MaskFn<&'a E::Array>,
-{
-    fn mask(&self, array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        MaskFn::mask(self, array_ref, mask)
     }
 }
