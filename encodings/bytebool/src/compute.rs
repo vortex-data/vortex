@@ -1,21 +1,16 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{FillForwardFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
-use vortex_array::validity::Validity;
+use vortex_array::compute::{MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical};
-use vortex_dtype::{Nullability, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {
-        None
-    }
-
     fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
@@ -101,46 +96,6 @@ impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
         };
 
         Ok(arr)
-    }
-}
-
-impl FillForwardFn<&ByteBoolArray> for ByteBoolEncoding {
-    fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayRef> {
-        let validity = array.validity_mask()?;
-        if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.to_array().into_array());
-        }
-        // all valid, but we need to convert to non-nullable
-        if validity.all_true() {
-            return Ok(ByteBoolArray::new(array.buffer().clone(), Validity::AllValid).into_array());
-        }
-        // all invalid => fill with default value (false)
-        if validity.all_false() {
-            return Ok(
-                ByteBoolArray::from_vec(vec![false; array.len()], Validity::AllValid).into_array(),
-            );
-        }
-
-        let validity = validity
-            .to_null_buffer()
-            .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
-
-        let bools = array.as_slice();
-        let mut last_value = bool::default();
-
-        let filled = bools
-            .iter()
-            .zip(validity.inner().iter())
-            .map(|(&v, is_valid)| {
-                if is_valid {
-                    last_value = v
-                }
-
-                last_value
-            })
-            .collect::<Vec<_>>();
-
-        Ok(ByteBoolArray::from_vec(filled, Validity::AllValid).into_array())
     }
 }
 

@@ -14,7 +14,6 @@ pub use between::*;
 pub use boolean::*;
 pub use cast::*;
 pub use compare::*;
-pub use fill_forward::{FillForwardFn, fill_forward};
 pub use fill_null::{FillNullFn, fill_null};
 pub use filter::*;
 pub use invert::{InvertFn, invert};
@@ -50,7 +49,6 @@ mod cast;
 mod compare;
 #[cfg(feature = "test-harness")]
 pub mod conformance;
-mod fill_forward;
 mod fill_null;
 mod filter;
 mod invert;
