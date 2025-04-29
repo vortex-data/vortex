@@ -20,7 +20,6 @@ arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
-crossbeam-utils = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }

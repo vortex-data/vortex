@@ -6317,7 +6317,6 @@ dependencies = [
  "async-trait",
  "bit-vec",
  "bytes",
- "crossbeam-utils",
  "dashmap",
  "flatbuffers 25.2.10",
  "flume",
