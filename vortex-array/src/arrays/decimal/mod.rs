@@ -67,8 +67,8 @@ pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueTy
         10..=18 => DecimalValueType::I64,
         19..=38 => DecimalValueType::I128,
         39..=76 => DecimalValueType::I256,
-        0 => unreachable!("invalid precision"),
-        p => todo!("unsupported precision {p}"),
+        0 => unreachable!("precision must be greater than 0"),
+        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
     }
 }
 
@@ -175,9 +175,12 @@ impl ArrayImpl for DecimalArray {
     #[inline]
     fn _len(&self) -> usize {
         let divisor = match self.values_type {
+            DecimalValueType::I8 => 1,
+            DecimalValueType::I16 => 2,
+            DecimalValueType::I32 => 4,
+            DecimalValueType::I64 => 8,
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
-            _ => todo!(),
         };
         self.values.len() / divisor
     }

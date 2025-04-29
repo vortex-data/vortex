@@ -17,7 +17,6 @@ use crate::{
 #[repr(u8)]
 #[non_exhaustive]
 pub enum DecimalValueType {
-    // TODO(aduffy): add I32, I64 once arrow-rs adds support for Decimal32/Decimal64.
     I8 = 0,
     I16 = 1,
     I32 = 2,
