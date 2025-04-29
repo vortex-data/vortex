@@ -13,8 +13,8 @@ use vortex::arrow::FromArrowArray;
 use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
-use crate::Format;
 use crate::engines::df::{get_session_context, make_object_store};
+use crate::{Format, datasets};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -46,55 +46,35 @@ pub async fn load_datasets(
 
     let object_store = make_object_store(&context, base_dir)?;
 
-    let customer = base_dir.join("customer.tbl")?;
-    let lineitem = base_dir.join("lineitem.tbl")?;
-    let nation = base_dir.join("nation.tbl")?;
-    let orders = base_dir.join("orders.tbl")?;
-    let part = base_dir.join("part.tbl")?;
-    let partsupp = base_dir.join("partsupp.tbl")?;
-    let region = base_dir.join("region.tbl")?;
-    let supplier = base_dir.join("supplier.tbl")?;
+    let files = [
+        ("customer", &schema::CUSTOMER),
+        ("lineitem", &schema::LINEITEM),
+        ("nation", &schema::NATION),
+        ("orders", &schema::ORDERS),
+        ("part", &schema::PART),
+        ("partsupp", &schema::PARTSUPP),
+        ("region", &schema::REGION),
+        ("supplier", &schema::SUPPLIER),
+    ];
 
-    macro_rules! register_table {
-        ($name:ident, $schema:expr) => {
-            match format {
-                Format::Csv => register_csv(&context, stringify!($name), &$name, $schema).await,
-                Format::Arrow => register_arrow(&context, stringify!($name), &$name, $schema).await,
-                Format::Parquet => {
-                    register_parquet(
-                        &context,
-                        object_store.clone(),
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                    )
-                    .await
-                }
-                Format::InMemoryVortex => {
-                    register_vortex(&context, stringify!($name), &$name, $schema).await
-                }
-                Format::OnDiskVortex => {
-                    register_vortex_file(
-                        &context,
-                        object_store.clone(),
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                    )
-                    .await
-                }
+    for (name, path, schema) in files
+        .into_iter()
+        .map(|(name, schema)| (name, base_dir.join(&format!("{name}.tbl")), schema))
+    {
+        let path = path?;
+        match format {
+            Format::Csv => register_csv(&context, name, &path, schema).await?,
+            Format::Arrow => register_arrow(&context, name, &path, schema).await?,
+            Format::Parquet => {
+                register_parquet(&context, object_store.clone(), name, &path, schema).await?
             }
-        };
+            Format::InMemoryVortex => register_vortex(&context, name, &path, schema).await?,
+            Format::OnDiskVortex => {
+                register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
+            }
+            Format::OnDiskDuckDB => todo!(),
+        }
     }
-
-    register_table!(customer, &schema::CUSTOMER)?;
-    register_table!(lineitem, &schema::LINEITEM)?;
-    register_table!(nation, &schema::NATION)?;
-    register_table!(orders, &schema::ORDERS)?;
-    register_table!(part, &schema::PART)?;
-    register_table!(partsupp, &schema::PARTSUPP)?;
-    register_table!(region, &schema::REGION)?;
-    register_table!(supplier, &schema::SUPPLIER)?;
 
     Ok(context)
 }
@@ -181,7 +161,7 @@ async fn register_parquet(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    crate::datasets::file::register_parquet_files(
+    datasets::file::register_parquet_files(
         session,
         object_store,
         name,
@@ -199,7 +179,7 @@ async fn register_vortex_file(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    crate::datasets::file::register_vortex_files(
+    datasets::file::register_vortex_files(
         session,
         object_store,
         table_name,
@@ -274,6 +254,7 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
 
+// A few tpch queries have multiple statements, this handles that
 fn tpch_query(query_idx: usize) -> Vec<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")

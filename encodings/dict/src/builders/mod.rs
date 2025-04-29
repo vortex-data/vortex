@@ -12,6 +12,7 @@ use crate::DictArray;
 mod bytes;
 mod primitive;
 
+#[derive(Clone)]
 pub struct DictConstraints {
     pub max_bytes: usize,
     pub max_len: usize,

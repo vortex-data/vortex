@@ -6,7 +6,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::ToCanonical;
-use vortex::compute::try_cast;
+use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexError;
@@ -14,7 +14,6 @@ use vortex::expr::{ExprRef, ident, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;
@@ -38,12 +37,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = TOKIO_RUNTIME.block_on(
-        VortexOpenOptions::file()
-            // TODO(ngates): use a globally shared segment cache for all files
-            .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
-            .open(TokioFile::open(path)?),
-    )?;
+    let vxf = VortexOpenOptions::file()
+        // TODO(ngates): use a globally shared segment cache for all files
+        .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
+        .open_blocking(path)?;
     Ok(PyVortexFile { vxf })
 }
 
@@ -154,11 +151,12 @@ impl PyVortexFile {
             .get()
             .vxf
             .scan()?
+            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
         if let Some(indices) = indices {
-            let indices = try_cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
+            let indices = cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
                 .to_primitive()?
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);
@@ -168,9 +166,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(
-            builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
-        ));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -188,7 +184,7 @@ impl PyVortexFile {
         let stream = slf.py().allow_threads(|| {
             let mut builder = vxf
                 .scan()?
-                .with_canonicalize(true)
+                .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
@@ -196,9 +192,8 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            Ok::<_, VortexError>(ArrayStreamExt::boxed(
-                builder.spawn_tokio(TOKIO_RUNTIME.handle().clone())?,
-            ))
+            // TODO(ngates): use ScanBuilder::map_to_record_batch
+            Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
         })?;
 
         let iter = ArrayStreamToIterator::new(stream);

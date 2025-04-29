@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
 
+use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
@@ -18,31 +19,18 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::io::VortexWrite;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::vx_array;
-use crate::error::{try_or, try_or_else, vx_error};
+use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
-
-#[allow(non_camel_case_types)]
-pub struct vx_file_writer {
-    inner: File,
-}
 
 /// A file reader that can be used to read from a file.
 #[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
-}
-
-/// Options supplied for opening a file.
-#[repr(C)]
-pub struct vx_file_create_options {
-    /// path of the file to be created.
-    pub path: *const c_char,
 }
 
 /// Options supplied for opening a file.
@@ -82,7 +70,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
-    try_or_else(error, ptr::null_mut, || {
+    try_or(error, ptr::null_mut(), || {
         {
             let options = unsafe {
                 options
@@ -116,39 +104,23 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_create(
-    options: *const vx_file_create_options,
-    error: *mut *mut vx_error,
-) -> *mut vx_file_writer {
-    try_or_else(error, ptr::null_mut, || {
-        let options = options.as_ref().vortex_expect("null options");
-        assert!(!options.path.is_null(), "null path");
-
-        let path = CStr::from_ptr(options.path).to_string_lossy();
-
-        let inner =
-            RUNTIME.with(|r| r.block_on(async move { File::create(path.to_string()).await }))?;
-        Ok(Box::into_raw(Box::new(vx_file_writer { inner })))
-    })
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_write_array(
-    file: *mut vx_file_writer,
+    path: *const c_char,
     ffi_array: *mut vx_array,
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let file = unsafe { file.as_mut().vortex_expect("null file") };
+        let path = CStr::from_ptr(path).to_str()?;
 
         RUNTIME.with(|r| {
             r.block_on(async move {
-                let file = VortexWriteOptions::default()
-                    .write(&mut file.inner, array.inner.to_array_stream())
+                VortexWriteOptions::default()
+                    .write(
+                        &mut File::create(path).await?,
+                        array.inner.to_array_stream(),
+                    )
                     .await?;
-
-                file.flush().await?;
                 Ok(())
             })
         })
@@ -197,7 +169,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
-    try_or_else(error, ptr::null_mut, || {
+    try_or(error, ptr::null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
@@ -249,11 +221,6 @@ pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
     drop(Box::from_raw(file));
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_writer_free(file: *mut vx_file_writer) {
-    drop(Box::from_raw(file));
-}
-
 fn make_object_store(
     url: &Url,
     property_keys: &[String],
@@ -261,6 +228,14 @@ fn make_object_store(
 ) -> VortexResult<Arc<dyn ObjectStore>> {
     let (scheme, _) =
         ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
+
+    if property_vals.len() != property_keys.len() {
+        vortex_bail!(
+            "property_vals len: {}, != property_keys len {}",
+            property_vals.len(),
+            property_keys.len()
+        )
+    }
 
     // Configure extra properties on that scheme instead.
     match scheme {
@@ -271,11 +246,18 @@ fn make_object_store(
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
             let mut builder = AmazonS3Builder::new().with_url(url.to_string());
-            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
+            for (key, val) in property_keys.iter().zip_eq(property_vals.iter()) {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
                     log::warn!("Skipping unknown Amazon S3 config key: {}", key);
+                }
+            }
+
+            if property_keys.is_empty() {
+                builder = AmazonS3Builder::from_env();
+                if let Some(domain) = url.domain() {
+                    builder = builder.with_bucket_name(domain);
                 }
             }
 

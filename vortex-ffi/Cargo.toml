@@ -19,17 +19,21 @@ categories = { workspace = true }
 [dependencies]
 duckdb = { workspace = true, optional = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 log = { workspace = true }
+mimalloc = { workspace = true, optional = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["object_store", "proto", "tokio"] }
+vortex = { workspace = true, features = ["object_store", "proto"] }
 vortex-duckdb = { workspace = true, optional = true }
 
 [features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
 duckdb = ["dep:vortex-duckdb", "dep:duckdb"]
 
 [lib]

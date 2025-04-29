@@ -22,7 +22,7 @@ use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, TryFromArrayRef,
+    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -34,10 +34,11 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
     type Array = ListArray;
-    type Metadata = RkyvMetadata<ListMetadata>;
+    type Metadata = ProstMetadata<ListMetadata>;
 }
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}

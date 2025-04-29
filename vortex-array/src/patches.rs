@@ -15,43 +15,34 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, slice, take, try_cast,
+    SearchResult, SearchSortedSide, cast, filter, scalar_at, search_sorted, search_sorted_usize,
+    search_sorted_usize_many, slice, take,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    rkyv::bytecheck::CheckBytes,
-)]
-#[bytecheck(crate = rkyv::bytecheck)]
-#[repr(C)]
+#[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
 pub struct PatchesMetadata {
-    len: usize,
-    offset: usize,
-    indices_ptype: PType,
+    #[prost(uint64, tag = "1")]
+    len: u64,
+    #[prost(uint64, tag = "2")]
+    offset: u64,
+    #[prost(enumeration = "PType", tag = "3")]
+    indices_ptype: i32,
 }
 
 impl PatchesMetadata {
     pub fn new(len: usize, offset: usize, indices_ptype: PType) -> Self {
         Self {
-            len,
-            offset,
-            indices_ptype,
+            len: len as u64,
+            offset: offset as u64,
+            indices_ptype: indices_ptype as i32,
         }
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        usize::try_from(self.len).vortex_expect("len is a valid usize")
     }
 
     #[inline]
@@ -61,16 +52,16 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn offset(&self) -> usize {
-        self.offset
+        usize::try_from(self.offset).vortex_expect("offset is a valid usize")
     }
 
     #[inline]
     pub fn indices_dtype(&self) -> DType {
         assert!(
-            self.indices_ptype.is_unsigned_int(),
+            self.indices_ptype().is_unsigned_int(),
             "Patch indices must be unsigned integers"
         );
-        DType::Primitive(self.indices_ptype, NonNullable)
+        DType::Primitive(self.indices_ptype(), NonNullable)
     }
 }
 
@@ -201,9 +192,10 @@ impl Patches {
             );
         }
         Ok(PatchesMetadata {
-            len: self.indices.len(),
-            offset: self.offset,
-            indices_ptype: PType::try_from(self.indices.dtype()).vortex_expect("primitive indices"),
+            len: self.indices.len() as u64,
+            offset: self.offset as u64,
+            indices_ptype: PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
+                as i32,
         })
     }
 
@@ -212,7 +204,7 @@ impl Patches {
             self.array_len,
             self.offset,
             self.indices,
-            try_cast(&self.values, values_dtype)?,
+            cast(&self.values, values_dtype)?,
         ))
     }
 

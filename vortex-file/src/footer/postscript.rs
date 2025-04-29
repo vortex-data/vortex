@@ -7,8 +7,9 @@ use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer
 /// reading a Vortex file.
 pub(crate) struct Postscript {
     pub(crate) dtype: Option<PostscriptSegment>,
-    pub(crate) statistics: Option<PostscriptSegment>,
     pub(crate) layout: PostscriptSegment,
+    pub(crate) statistics: Option<PostscriptSegment>,
+    pub(crate) footer: PostscriptSegment,
 }
 
 impl FlatBufferRoot for Postscript {}
@@ -21,14 +22,16 @@ impl WriteFlatBuffer for Postscript {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let dtype = self.dtype.as_ref().map(|ps| ps.write_flatbuffer(fbb));
-        let statistics = self.statistics.as_ref().map(|ps| ps.write_flatbuffer(fbb));
         let layout = self.layout.write_flatbuffer(fbb);
+        let statistics = self.statistics.as_ref().map(|ps| ps.write_flatbuffer(fbb));
+        let footer = self.footer.write_flatbuffer(fbb);
         fb::Postscript::create(
             fbb,
             &fb::PostscriptArgs {
                 dtype,
-                statistics,
                 layout: Some(layout),
+                statistics,
+                footer: Some(footer),
             },
         )
     }
@@ -46,13 +49,17 @@ impl ReadFlatBuffer for Postscript {
                 .dtype()
                 .map(|ps| PostscriptSegment::read_flatbuffer(&ps))
                 .transpose()?,
+            layout: PostscriptSegment::read_flatbuffer(
+                &fb.layout()
+                    .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?,
+            )?,
             statistics: fb
                 .statistics()
                 .map(|ps| PostscriptSegment::read_flatbuffer(&ps))
                 .transpose()?,
-            layout: PostscriptSegment::read_flatbuffer(
-                &fb.layout()
-                    .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?,
+            footer: PostscriptSegment::read_flatbuffer(
+                &fb.footer()
+                    .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
             )?,
         })
     }

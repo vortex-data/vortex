@@ -3,7 +3,7 @@ use std::sync::Arc;
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, ExtDType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructDType};
 use vortex_error::{VortexResult, vortex_bail};
 
 pub trait FromDuckDBType<A> {
@@ -31,37 +31,41 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
             LogicalTypeId::Double => Ok(DType::Primitive(PType::F64, nullable)),
             LogicalTypeId::Varchar => Ok(DType::Utf8(nullable)),
             LogicalTypeId::Blob => Ok(DType::Binary(nullable)),
-            LogicalTypeId::Struct => Ok(DType::Struct(Arc::new(from_duckdb_struct(type_)?), nullable)),
+            LogicalTypeId::Struct => Ok(DType::Struct(
+                Arc::new(from_duckdb_struct(type_)?),
+                nullable,
+            )),
             LogicalTypeId::List => Ok(DType::List(Arc::new(from_duckdb_list(type_)?), nullable)),
-            LogicalTypeId::Date => Ok(DType::Extension(
-                Arc::new(ExtDType::new(DATE_ID.clone(),
-                                       Arc::new(DType::Primitive(PType::I32, nullable)),
-                                       Some(TemporalMetadata::Date(TimeUnit::D).into())))
+            LogicalTypeId::Date => Ok(DType::Extension(Arc::new(ExtDType::new(
+                DATE_ID.clone(),
+                Arc::new(DType::Primitive(PType::I32, nullable)),
+                Some(TemporalMetadata::Date(TimeUnit::D).into()),
+            )))),
+            LogicalTypeId::Time => Ok(DType::Extension(Arc::new(ExtDType::new(
+                TIME_ID.clone(),
+                Arc::new(DType::Primitive(PType::I32, nullable)),
+                Some(TemporalMetadata::Time(TimeUnit::Us).into()),
+            )))),
+            LogicalTypeId::Timestamp
+            | LogicalTypeId::TimestampS
+            | LogicalTypeId::TimestampMs
+            | LogicalTypeId::TimestampNs => Ok(DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(PType::I64, nullable)),
+                Some(TemporalMetadata::Timestamp(timestamp_time_unit(type_.id())?, None).into()),
+            )))),
+            LogicalTypeId::Decimal => Ok(DType::Decimal(
+                DecimalDType::new(type_.decimal_width(), type_.decimal_scale().try_into()?),
+                nullable,
             )),
-            LogicalTypeId::Time => Ok(DType::Extension(
-                Arc::new(ExtDType::new(TIME_ID.clone(),
-                                       Arc::new(DType::Primitive(PType::I32, nullable)),
-                                       Some(TemporalMetadata::Time(TimeUnit::Us).into())))
-            )),
-                LogicalTypeId::Timestamp
-                | LogicalTypeId::TimestampS
-                | LogicalTypeId::TimestampMs
-                | LogicalTypeId::TimestampNs
-                => Ok(DType::Extension(
-                    Arc::new(ExtDType::new(TIMESTAMP_ID.clone(),
-                                           Arc::new(DType::Primitive(PType::I64, nullable)),
-                                           Some(TemporalMetadata::Timestamp(timestamp_time_unit(type_.id())?, None).into())))
-                )),
-            | LogicalTypeId::Interval
-            // Hugeint is a i128
+            LogicalTypeId::Interval
             | LogicalTypeId::Hugeint
-            | LogicalTypeId::Decimal
             | LogicalTypeId::Enum
             | LogicalTypeId::Map
             | LogicalTypeId::Uuid
             | LogicalTypeId::Union
             | LogicalTypeId::TimestampTZ => vortex_bail!("missing type: {:?}", type_),
-            LogicalTypeId::Invalid => vortex_bail!("cannot handle invalid type")
+            LogicalTypeId::Invalid => vortex_bail!("cannot handle invalid type"),
         }
     }
 }

@@ -23,7 +23,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb};
+use vortex_flatbuffers::{FlatBuffer, footer as fb, layout as fbl};
 use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
@@ -39,19 +39,18 @@ pub struct Footer {
 impl Footer {
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
-        flatbuffer: FlatBuffer,
+        footer_bytes: FlatBuffer,
+        layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
         array_registry: &ArrayRegistry,
         layout_registry: &LayoutRegistry,
     ) -> VortexResult<Self> {
-        let fb = root::<fb::FileLayout>(&flatbuffer)?;
-        let fb_root_layout = fb
-            .layout()
-            .ok_or_else(|| vortex_err!("Footer missing root layout"))?;
+        let fb_footer = root::<fb::Footer>(&footer_bytes)?;
+        let fb_layout = root::<fbl::Layout>(&layout_bytes)?;
 
         // Create a LayoutContext from the registry.
-        let layout_specs = fb.layout_specs();
+        let layout_specs = fb_footer.layout_specs();
         let layout_ids = layout_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -59,7 +58,7 @@ impl Footer {
         let layout_ctx = layout_registry.new_context(layout_ids)?;
 
         // Create an ArrayContext from the registry.
-        let array_specs = fb.array_specs();
+        let array_specs = fb_footer.array_specs();
         let array_ids = array_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -67,11 +66,11 @@ impl Footer {
         let array_ctx = array_registry.new_context(array_ids)?;
 
         let root_encoding = layout_ctx
-            .lookup_encoding(fb_root_layout.encoding())
+            .lookup_encoding(fb_layout.encoding())
             .ok_or_else(|| {
                 vortex_err!(
                     "Footer root layout encoding {} not found",
-                    fb_root_layout.encoding()
+                    fb_layout.encoding()
                 )
             })?
             .clone();
@@ -82,13 +81,13 @@ impl Footer {
                 "".into(),
                 root_encoding,
                 dtype,
-                flatbuffer.clone(),
-                fb_root_layout._tab.loc(),
+                layout_bytes.clone(),
+                fb_layout._tab.loc(),
                 layout_ctx.clone(),
             )
         };
 
-        let segments: Arc<[SegmentSpec]> = fb
+        let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
             .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
             .iter()

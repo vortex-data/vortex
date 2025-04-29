@@ -8,23 +8,15 @@ use vortex_scalar::Scalar;
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, KernelRef, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
-    SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxFn, MinMaxResult,
+    ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef, ToCanonical};
-
-impl ArrayComputeImpl for NullArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(NullEncoding).some();
-}
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl ComputeVTable for NullEncoding {
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -56,11 +48,15 @@ impl FilterKernel for NullEncoding {
     }
 }
 
-impl MaskFn<&NullArray> for NullEncoding {
-    fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<ArrayRef> {
+register_kernel!(FilterKernelAdapter(NullEncoding).lift());
+
+impl MaskKernel for NullEncoding {
+    fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(array.to_array().into_array())
     }
 }
+
+register_kernel!(MaskKernelAdapter(NullEncoding).lift());
 
 impl SliceFn<&NullArray> for NullEncoding {
     fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

@@ -23,7 +23,9 @@ pub struct BoolArray {
     pub(crate) stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct BoolEncoding;
+
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = ProstMetadata<BoolMetadata>;
@@ -220,7 +222,9 @@ impl BooleanBufferExt for BooleanBuffer {
         let byte_offset = self.offset() / 8;
         let bit_offset = self.offset() % 8;
         let len = self.len();
-        let buffer = self.into_inner().slice(byte_offset);
+        let buffer = self
+            .into_inner()
+            .slice_with_length(byte_offset, (len + bit_offset).div_ceil(8));
         BooleanBuffer::new(buffer, bit_offset, len)
     }
 }

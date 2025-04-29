@@ -1,66 +1,15 @@
 use crate::Array;
 use crate::compute::{
-    BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
-    InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, TakeFromFn, ToArrowFn,
-    UncompressedSizeFn,
+    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// A ternary operator, returning bool if the values are between the other two given values.
-    ///
-    /// See: [`BetweenFn`].
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        None
-    }
-
-    /// Implementation of binary boolean logic operations.
-    ///
-    /// See: [`BinaryBooleanFn`].
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
-        None
-    }
-
-    /// Implementation of binary numeric operations.
-    ///
-    /// See: [`BinaryNumericFn`].
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
-        None
-    }
-
-    /// Implemented for arrays that can be casted to different types.
-    ///
-    /// See: [`CastFn`].
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        None
-    }
-
-    /// Binary operator implementation for arrays against other arrays.
-    ///
-    /// See: [`CompareFn`].
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        None
-    }
-
-    /// Array function that returns new arrays a non-null value is repeated across runs of nulls.
-    ///
-    /// See: [`FillForwardFn`].
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {
-        None
-    }
-
     /// Fill null values with given desired value. Resulting array is NonNullable
     ///
     /// See: [`FillNullFn`]
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
-    /// Invert a boolean array. Converts true -> false, false -> true, null -> null.
-    ///
-    /// See [`InvertFn`]
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         None
     }
 
@@ -79,15 +28,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`LikeFn`].
     fn like_fn(&self) -> Option<&dyn LikeFn<&dyn Array>> {
-        None
-    }
-
-    /// Replace masked values with null.
-    ///
-    /// This operation does not change the length of the array.
-    ///
-    /// See: [`MaskFn`].
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         None
     }
 
@@ -130,13 +70,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`SliceFn`].
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        None
-    }
-
-    /// Perform a sum of an array.
-    ///
-    /// See: [SumFn].
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         None
     }
 

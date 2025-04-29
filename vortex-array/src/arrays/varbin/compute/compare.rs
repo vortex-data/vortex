@@ -7,12 +7,12 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{Datum, from_arrow_array_with_len};
-use crate::compute::{CompareFn, Operator, compare_lengths_to_empty};
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare_lengths_to_empty};
 use crate::variants::PrimitiveArrayTrait as _;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareFn<&VarBinArray> for VarBinEncoding {
+impl CompareKernel for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,
@@ -90,6 +90,8 @@ impl CompareFn<&VarBinArray> for VarBinEncoding {
         }
     }
 }
+
+register_kernel!(CompareKernelAdapter(VarBinEncoding).lift());
 
 fn compare_offsets_to_empty<P: NativePType>(
     offsets: PrimitiveArray,

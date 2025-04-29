@@ -5,11 +5,11 @@ use vortex_array::compute::{
     SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
 };
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, IntoArray, SerdeMetadata, ToCanonical,
+    ArrayVariantsImpl, Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
     try_from_array_ref,
 };
 use vortex_buffer::Buffer;
@@ -31,10 +31,11 @@ pub struct RunEndArray {
 
 try_from_array_ref!(RunEndArray);
 
+#[derive(Debug)]
 pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
     type Array = RunEndArray;
-    type Metadata = SerdeMetadata<RunEndMetadata>;
+    type Metadata = ProstMetadata<RunEndMetadata>;
 }
 
 impl RunEndArray {
@@ -170,11 +171,17 @@ impl ArrayVariantsImpl for RunEndArray {
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         Some(self)
     }
+
+    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
+        Some(self)
+    }
 }
 
 impl PrimitiveArrayTrait for RunEndArray {}
 
 impl BoolArrayTrait for RunEndArray {}
+
+impl DecimalArrayTrait for RunEndArray {}
 
 impl ArrayValidityImpl for RunEndArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {

@@ -5,9 +5,9 @@ use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::FilterKernel;
+use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -36,6 +36,8 @@ impl FilterKernel for PrimitiveEncoding {
         }
     }
 }
+
+register_kernel!(FilterKernelAdapter(PrimitiveEncoding).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],

@@ -44,6 +44,8 @@ pub trait Utf8ArrayTrait {}
 
 pub trait BinaryArrayTrait {}
 
+pub trait DecimalArrayTrait: Array {}
+
 pub trait StructArrayTrait: Array {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {

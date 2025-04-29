@@ -27,6 +27,7 @@
 //! ```
 
 mod bool;
+mod decimal;
 mod extension;
 mod lazy_validity_builder;
 mod list;
@@ -38,6 +39,7 @@ mod varbinview;
 use std::any::Any;
 
 pub use bool::*;
+pub use decimal::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
@@ -138,6 +140,9 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 Box::new(PrimitiveBuilder::<$P>::with_capacity(*n, capacity))
             })
         }
+        DType::Decimal(..) => {
+            todo!("(aduffy): implement Decimal builder")
+        }
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
         DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
             DType::Binary(*n),
@@ -201,6 +206,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                     .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<$P>())
                 })
             }
+            DType::Decimal(..) => todo!("(aduffy): implement Decimal builder"),
             DType::Utf8(_) => self
                 .as_any_mut()
                 .downcast_mut::<VarBinViewBuilder>()

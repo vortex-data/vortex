@@ -18,7 +18,7 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, RkyvMetadata, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, ProstMetadata, try_from_array_ref,
 };
 
 mod accessor;
@@ -39,10 +39,11 @@ pub struct VarBinArray {
 
 try_from_array_ref!(VarBinArray);
 
+#[derive(Debug)]
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
     type Array = VarBinArray;
-    type Metadata = RkyvMetadata<VarBinMetadata>;
+    type Metadata = ProstMetadata<VarBinMetadata>;
 }
 
 impl VarBinArray {

@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 
-use ::serde::{Deserialize, Serialize};
 use itertools::Itertools;
 use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
 
@@ -14,10 +13,11 @@ pub use array::*;
 pub use compress::*;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
+use vortex_scalar::PValue;
 
 const SAMPLE_SIZE: usize = 32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Exponents {
     pub e: u8,
     pub f: u8,
@@ -37,7 +37,7 @@ mod private {
 }
 
 pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
-    type ALPInt: PrimInt + Display + ToPrimitive + Copy;
+    type ALPInt: PrimInt + Display + ToPrimitive + Copy + NativePType + Into<PValue>;
 
     const FRACTIONAL_BITS: u8;
     const MAX_EXPONENT: u8;

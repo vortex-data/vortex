@@ -4,11 +4,8 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use object_store::ObjectStore;
-use object_store::local::LocalFileSystem;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
-use url::Url;
 use vortex_array::arrays::{ChunkedArray, StructArray, VarBinArray};
 use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
@@ -40,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         Validity::NonNullable,
     )?;
 
-    let filepath = temp_dir.path().join("a.vtx");
+    let filepath = temp_dir.path().join("a.vortex");
 
     let f = OpenOptions::new()
         .write(true)
@@ -54,11 +51,6 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let ctx = SessionContext::new();
-
-    let object_store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
-    let url: Url = Url::try_from("file://")?;
-    ctx.register_object_store(&url, object_store);
-
     let format = Arc::new(VortexFormat::default());
     let table_url = ListingTableUrl::parse(
         filepath
@@ -66,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
     )?;
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
+        .with_listing_options(ListingOptions::new(format))
         .infer_schema(&ctx.state())
         .await?;
 

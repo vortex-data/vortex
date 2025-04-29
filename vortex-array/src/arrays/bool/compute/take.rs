@@ -1,5 +1,5 @@
 use arrow_buffer::BooleanBuffer;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;

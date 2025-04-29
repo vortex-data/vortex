@@ -7,10 +7,10 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::datetime::arrow::make_temporal_ext_dtype;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::VortexError;
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability, PType};
+use vortex_error::{VortexError, vortex_bail};
 
-use crate::{InnerScalarValue, PValue, Scalar};
+use crate::{DecimalValue, InnerScalarValue, PValue, Scalar};
 
 impl TryFrom<Scalar> for ScalarValue {
     type Error = VortexError;
@@ -33,6 +33,35 @@ impl TryFrom<Scalar> for ScalarValue {
                     PType::F16 => ScalarValue::Float16(pscalar.typed_value::<f16>()),
                     PType::F32 => ScalarValue::Float32(pscalar.typed_value::<f32>()),
                     PType::F64 => ScalarValue::Float64(pscalar.typed_value::<f64>()),
+                }
+            }
+            DType::Decimal(decimal_type, _) => {
+                let dscalar = scalar.as_decimal();
+                let precision = decimal_type.precision();
+                let scale = decimal_type.scale();
+
+                if precision <= DECIMAL128_MAX_PRECISION {
+                    match dscalar.decimal_value() {
+                        None => ScalarValue::Decimal128(None, precision, scale),
+                        Some(DecimalValue::I128(v128)) => {
+                            ScalarValue::Decimal128(Some(*v128), precision, scale)
+                        }
+                        _ => vortex_bail!(
+                            "invalid ScalarValue for decimal with precision {}",
+                            precision
+                        ),
+                    }
+                } else {
+                    match dscalar.decimal_value() {
+                        None => ScalarValue::Decimal256(None, precision, scale),
+                        Some(DecimalValue::I256(v256)) => {
+                            ScalarValue::Decimal256(Some((*v256).into()), precision, scale)
+                        }
+                        _ => vortex_bail!(
+                            "invalid ScalarValue for decimal with precision {}",
+                            precision
+                        ),
+                    }
                 }
             }
             DType::Utf8(_) => {

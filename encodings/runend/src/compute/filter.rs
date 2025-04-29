@@ -4,10 +4,10 @@ use std::ops::AddAssign;
 use arrow_buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernel, filter};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, Canonical, ToCanonical};
+use vortex_array::{Array, ArrayRef, Canonical, ToCanonical, register_kernel};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -49,6 +49,8 @@ impl FilterKernel for RunEndEncoding {
         }
     }
 }
+
+register_kernel!(FilterKernelAdapter(RunEndEncoding).lift());
 
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {

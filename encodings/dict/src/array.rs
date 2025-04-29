@@ -2,13 +2,13 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{scalar_at, take, take_into, try_cast};
+use vortex_array::compute::{cast, scalar_at, take, take_into};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, IntoArray, RkyvMetadata, ToCanonical,
+    Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -23,10 +23,11 @@ pub struct DictArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
     type Array = DictArray;
-    type Metadata = RkyvMetadata<DictMetadata>;
+    type Metadata = ProstMetadata<DictMetadata>;
 }
 
 impl DictArray {
@@ -38,7 +39,7 @@ impl DictArray {
         let dtype = values.dtype();
         if dtype.is_nullable() {
             // If the values are nullable, we force codes to be nullable as well.
-            codes = try_cast(&codes, &codes.dtype().as_nullable())?;
+            codes = cast(&codes, &codes.dtype().as_nullable())?;
         } else {
             // If the values are non-nullable, we assert the codes are non-nullable as well.
             if codes.dtype().is_nullable() {

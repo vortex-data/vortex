@@ -15,7 +15,7 @@ pub fn test_mask(array: &dyn Array) {
 fn test_heterogenous_mask(array: &dyn Array) {
     let mask_array =
         Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).vortex_unwrap();
-    let masked = mask(array, mask_array).vortex_unwrap();
+    let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
     assert!(!masked.is_valid(0).vortex_unwrap());
     assert_eq!(
@@ -33,7 +33,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
 fn test_empty_mask(array: &dyn Array) {
     let all_unmasked =
         Mask::try_from(&BoolArray::from_iter([false, false, false, false, false])).vortex_unwrap();
-    let masked = mask(array, all_unmasked).vortex_unwrap();
+    let masked = mask(array, &all_unmasked).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
     assert_eq!(
         scalar_at(&masked, 0).vortex_unwrap(),
@@ -60,7 +60,7 @@ fn test_empty_mask(array: &dyn Array) {
 fn test_full_mask(array: &dyn Array) {
     let all_masked =
         Mask::try_from(&BoolArray::from_iter([true, true, true, true, true])).vortex_unwrap();
-    let masked = mask(array, all_masked).vortex_unwrap();
+    let masked = mask(array, &all_masked).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
     assert!(!masked.is_valid(0).vortex_unwrap());
     assert!(!masked.is_valid(1).vortex_unwrap());
@@ -72,8 +72,8 @@ fn test_full_mask(array: &dyn Array) {
         Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).vortex_unwrap();
     let mask2 =
         Mask::try_from(&BoolArray::from_iter([false, true, false, false, true])).vortex_unwrap();
-    let first = mask(array, mask1).vortex_unwrap();
-    let double_masked = mask(&first, mask2).vortex_unwrap();
+    let first = mask(array, &mask1).vortex_unwrap();
+    let double_masked = mask(&first, &mask2).vortex_unwrap();
     assert_eq!(double_masked.len(), array.len());
     assert!(!double_masked.is_valid(0).vortex_unwrap());
     assert!(!double_masked.is_valid(1).vortex_unwrap());

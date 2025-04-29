@@ -18,6 +18,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+dashmap = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-datasource = { workspace = true }
@@ -43,9 +44,9 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
-vortex-file = { workspace = true, features = ["object_store", "tokio"] }
+vortex-file = { workspace = true, features = ["object_store"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
-vortex-layout = { workspace = true }
+vortex-layout = { workspace = true, features = ["tokio"] }
 vortex-metrics = { workspace = true }
 
 [features]
@@ -59,6 +60,7 @@ tracing = [
 
 [dev-dependencies]
 anyhow = { workspace = true }
+rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }

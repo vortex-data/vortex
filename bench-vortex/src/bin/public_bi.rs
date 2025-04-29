@@ -1,21 +1,19 @@
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, default_env_filter, df, feature_flagged_allocator};
+use bench_vortex::{Engine, Format, Target, default_env_filter, df};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tracing::info_span;
 use tracing_futures::Instrument;
-use vortex::error::vortex_panic;
+use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
-
-feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -26,11 +24,9 @@ struct Args {
     threads: Option<usize>,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
-    #[arg(long)]
-    only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
-    #[arg(short, long, default_value_t, value_enum)]
+    #[arg(long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
     disable_datafusion_cache: bool,
@@ -78,6 +74,12 @@ fn main() -> anyhow::Result<()> {
 
     let runtime = new_tokio_runtime(args.threads);
 
+    let targets = args
+        .formats
+        .iter()
+        .map(|f| Target::new(Engine::DataFusion, *f))
+        .collect_vec();
+
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
         None => pbi_dataset.queries()?,
@@ -92,13 +94,15 @@ fn main() -> anyhow::Result<()> {
     let mut all_measurements = Vec::default();
     let mut metrics = Vec::new();
 
-    let dataset = pbi_dataset.dataset().expect("failed to parse data urls");
+    let dataset = pbi_dataset.dataset()?;
     tracing::info!("preparing files");
     // download csvs, unzip, convert to parquet, and convert that to vortex
     runtime.block_on(dataset.write_as_vortex());
 
-    for format in &args.formats {
+    for target in &targets {
+        let format = target.format();
         let session = df::get_session_context(args.disable_datafusion_cache);
+
         let file_type = match format {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,
@@ -106,9 +110,7 @@ fn main() -> anyhow::Result<()> {
             other => vortex_panic!("Format {other} isn't supported on Public BI"),
         };
 
-        runtime
-            .block_on(dataset.register_tables(&session, file_type))
-            .expect("failed to register");
+        runtime.block_on(dataset.register_tables(&session, file_type))?;
 
         for (query_idx, query) in queries.clone().into_iter() {
             let mut fastest_run = Duration::from_millis(u64::MAX);
@@ -119,22 +121,25 @@ fn main() -> anyhow::Result<()> {
                     let context = session.clone();
                     let query = query.clone();
                     last_plan = tokio::task::spawn(async move {
-                        let plan = df::execute_query(&context, &query)
-                            .instrument(info_span!("execute_query", query_idx, iteration))
-                            .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"))
-                            .1;
-                        Some(plan.clone())
+                        Some(
+                            df::execute_query(&context, &query)
+                                .instrument(info_span!("execute_query", query_idx, iteration))
+                                .await
+                                .unwrap_or_else(|e| {
+                                    vortex_panic!("executing query {query_idx}: {e}")
+                                })
+                                .1,
+                        )
                     })
                     .await
-                    .unwrap();
+                    .vortex_expect("Failed to spawn query");
 
                     start.elapsed()
                 });
                 fastest_run = fastest_run.min(exec_duration);
             }
 
-            let plan = last_plan.expect("must have at least one iteration");
+            let plan = last_plan.vortex_expect("must have at least one iteration");
 
             metrics.push((
                 query_idx,
@@ -144,10 +149,9 @@ fn main() -> anyhow::Result<()> {
 
             all_measurements.push(QueryMeasurement {
                 query_idx,
-                engine: Engine::DataFusion,
+                target: *target,
                 storage: STORAGE_NVME.to_owned(),
                 fastest_run,
-                format: *format,
                 dataset: pbi_dataset.name.to_owned(),
             });
 
@@ -158,8 +162,7 @@ fn main() -> anyhow::Result<()> {
     match args.display_format {
         DisplayFormat::Table => {
             for (query, format, metric_sets) in metrics {
-                println!();
-                println!("metrics for query={query}, {format}:");
+                println!("\nmetrics for query={query}, {format}:");
                 for (idx, metric_set) in metric_sets.into_iter().enumerate() {
                     println!("scan[{idx}]:");
                     for m in metric_set
@@ -172,16 +175,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(
-                all_measurements,
-                &args.formats,
-                RatioMode::Time,
-                &[Engine::DataFusion],
-            )
-            .unwrap()
+            render_table(all_measurements, &targets)
         }
-        DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
+        DisplayFormat::GhJson => print_measurements_json(all_measurements),
     }
-
-    Ok(())
 }

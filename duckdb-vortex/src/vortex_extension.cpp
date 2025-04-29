@@ -5,8 +5,6 @@
 #include "duckdb/main/extension_util.hpp"
 #include "vortex_extension.hpp"
 
-#include <filesystem>
-
 #include "vortex_write.hpp"
 #include "vortex_scan.hpp"
 

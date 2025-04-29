@@ -1,15 +1,13 @@
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::Array;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterKernelAdapter, IsConstantFn, IsSortedFn,
-    KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn,
-    TakeFn, ToArrowFn, UncompressedSizeFn,
+    FillNullFn, IsConstantFn, IsSortedFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl};
 
 mod between;
 mod cast;
-mod fill;
 mod fill_null;
 mod filter;
 mod is_constant;
@@ -26,23 +24,7 @@ mod uncompressed_size;
 
 pub use is_constant::*;
 
-impl ArrayComputeImpl for PrimitiveArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(PrimitiveEncoding).some();
-}
-
 impl ComputeVTable for PrimitiveEncoding {
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
@@ -52,10 +34,6 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
@@ -76,10 +54,6 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 

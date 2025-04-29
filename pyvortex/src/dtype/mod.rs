@@ -1,5 +1,6 @@
 mod binary;
 mod bool;
+mod decimal;
 mod extension;
 mod factory;
 mod list;
@@ -25,6 +26,7 @@ use vortex::dtype::arrow::FromArrowType;
 
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
+use crate::dtype::decimal::PyDecimalDType;
 use crate::dtype::extension::PyExtensionDType;
 use crate::dtype::list::PyListDType;
 use crate::dtype::null::PyNullDType;
@@ -46,6 +48,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyNullDType>()?;
     m.add_class::<PyBoolDType>()?;
     m.add_class::<PyPrimitiveDType>()?;
+    m.add_class::<PyDecimalDType>()?;
     m.add_class::<PyUtf8DType>()?;
     m.add_class::<PyBinaryDType>()?;
     m.add_class::<PyStructDType>()?;
@@ -56,6 +59,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_null, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_bool, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_int, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_decimal, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_uint, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_float, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_utf8, &m)?)?;
@@ -94,6 +98,7 @@ impl PyDType {
             DType::Null => Self::with_subclass(py, dtype, PyNullDType),
             DType::Bool(_) => Self::with_subclass(py, dtype, PyBoolDType),
             DType::Primitive(..) => Self::with_subclass(py, dtype, PyPrimitiveDType),
+            DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),

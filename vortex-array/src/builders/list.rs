@@ -5,12 +5,12 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::{BinaryNumericOperator, ListScalar};
+use vortex_scalar::{ListScalar, NumericOperator};
 
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
-use crate::compute::{binary_numeric, slice, try_cast};
+use crate::compute::{cast, numeric, slice};
 use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -129,13 +129,13 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             )
         })?;
 
-        let offsets = binary_numeric(
-            &try_cast(
+        let offsets = numeric(
+            &cast(
                 &slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(cursor, list.len()),
-            BinaryNumericOperator::Add,
+            NumericOperator::Add,
         )?;
         self.index_builder.extend_from_array(&offsets)?;
 

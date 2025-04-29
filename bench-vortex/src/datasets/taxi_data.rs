@@ -7,7 +7,6 @@ use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
@@ -38,12 +37,13 @@ pub async fn taxi_data_parquet() -> PathBuf {
 pub async fn fetch_taxi_data() -> ArrayRef {
     let vortex_data = taxi_data_vortex().await;
     VortexOpenOptions::file()
-        .open(TokioFile::open(vortex_data).unwrap())
+        .open(vortex_data)
         .await
         .unwrap()
         .scan()
         .unwrap()
-        .spawn_tokio(Handle::current())
+        .with_tokio_executor(Handle::current())
+        .into_array_stream()
         .unwrap()
         .read_all()
         .await

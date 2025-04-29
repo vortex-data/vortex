@@ -6,9 +6,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
-use vortex_layout::{LayoutStrategy, LayoutWriter};
+use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
 
-use crate::footer::{FileLayoutFlatBufferWriter, FileStatistics, Postscript, PostscriptSegment};
+use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -112,6 +112,11 @@ impl VortexWriteOptions {
             Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
         };
 
+        let layout_ctx = LayoutContext::empty();
+        let layout_segment = self
+            .write_flatbuffer(&mut write, &layout.flatbuffer_writer(&layout_ctx))
+            .await?;
+
         let statistics_segment = if self.file_statistics.is_empty() {
             None
         } else {
@@ -119,12 +124,12 @@ impl VortexWriteOptions {
             Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
         };
 
-        let layout_segment = self
+        let footer_segment = self
             .write_flatbuffer(
                 &mut write,
-                &FileLayoutFlatBufferWriter {
+                &FooterFlatBufferWriter {
                     ctx,
-                    layout,
+                    layout_ctx,
                     segment_specs: segment_specs.into(),
                 },
             )
@@ -133,8 +138,9 @@ impl VortexWriteOptions {
         // Assemble the postscript, and write it manually to avoid any framing.
         let postscript = Postscript {
             dtype: dtype_segment,
-            statistics: statistics_segment,
             layout: layout_segment,
+            statistics: statistics_segment,
+            footer: footer_segment,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes();
         if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {

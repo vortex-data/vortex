@@ -20,6 +20,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct NullEncoding;
 impl Encoding for NullEncoding {
     type Array = NullArray;

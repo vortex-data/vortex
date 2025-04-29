@@ -25,6 +25,7 @@ pub struct ByteBoolArray {
 
 try_from_array_ref!(ByteBoolArray);
 
+#[derive(Debug)]
 pub struct ByteBoolEncoding;
 impl Encoding for ByteBoolEncoding {
     type Array = ByteBoolArray;

@@ -2,9 +2,8 @@ use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::Array;
-use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
+use crate::{Array, IntoArray};
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A> {
@@ -83,9 +82,7 @@ pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowAr
     }
 
     // Fall back to canonicalizing and then converting.
-    let mut builder = builder_with_capacity(array.dtype(), array.len());
-    array.append_to_builder(builder.as_mut())?;
-    let canonical_array = builder.finish();
+    let canonical_array = array.to_canonical()?.into_array();
     let arrow_array = canonical_array
         .vtable()
         .to_arrow_fn()

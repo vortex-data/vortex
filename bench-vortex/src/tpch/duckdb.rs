@@ -4,10 +4,10 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::Result;
-use url::Url;
 use xshell::Shell;
 
-use crate::{BenchmarkDataset, Format, IdempotentPath};
+use crate::IdempotentPath;
+use crate::ddb::DuckDBExecutor;
 
 pub struct DuckdbTpchOptions {
     /// Scale factor of the data in GB.
@@ -70,7 +70,7 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
         .arg(format!("install tpch; load tpch; call dbgen(sf={scale_factor}); export database '.' (format csv, delimiter '|', header false);"))
         .output()?;
 
-    if !output.status.success() {
+    if !output.status.success() || !output.stderr.is_empty() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
@@ -91,15 +91,7 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
 /// Convenience wrapper for TPC-H benchmarks
 pub fn execute_duckdb_tpch_query(
     queries: &[String],
-    base_url: &Url,
-    file_format: Format,
-    duckdb_path: &std::path::Path,
-) -> anyhow::Result<Duration> {
-    crate::engines::ddb::execute_query(
-        queries,
-        base_url,
-        file_format,
-        BenchmarkDataset::TpcH,
-        duckdb_path,
-    )
+    duckdb_executor: &DuckDBExecutor,
+) -> Result<Duration> {
+    crate::engines::ddb::execute_query(queries, duckdb_executor)
 }

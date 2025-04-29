@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
-    RkyvMetadata, ToCanonical, try_from_array_ref,
+    ProstMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
@@ -32,10 +32,11 @@ pub struct SparseArray {
 
 try_from_array_ref!(SparseArray);
 
+#[derive(Debug)]
 pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     type Array = SparseArray;
-    type Metadata = RkyvMetadata<SparseMetadata>;
+    type Metadata = ProstMetadata<SparseMetadata>;
 }
 
 impl SparseArray {
@@ -313,7 +314,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{slice, try_cast};
+    use vortex_array::compute::{cast, slice};
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -333,7 +334,7 @@ mod test {
     fn sparse_array(fill_value: Scalar) -> ArrayRef {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
         let mut values = buffer![100i32, 200, 300].into_array();
-        values = try_cast(&values, fill_value.dtype()).unwrap();
+        values = cast(&values, fill_value.dtype()).unwrap();
 
         SparseArray::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()

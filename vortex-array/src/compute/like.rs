@@ -86,13 +86,13 @@ pub fn like(
             arrow_like(array, pattern, options)
         })?;
 
-    debug_assert_eq!(
+    assert_eq!(
         result.len(),
         pattern.len(),
         "Like length mismatch {}",
         array_encoding
     );
-    debug_assert_eq!(
+    assert_eq!(
         result.dtype(),
         &expected_dtype,
         "Like dtype mismatch {}",
@@ -108,7 +108,7 @@ pub(crate) fn arrow_like(
     pattern: &dyn Array,
     options: LikeOptions,
 ) -> VortexResult<ArrayRef> {
-    let nullable = array.dtype().is_nullable();
+    let nullable = array.dtype().is_nullable() | pattern.dtype().is_nullable();
     let len = array.len();
     assert_eq!(
         array.len(),

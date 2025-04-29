@@ -1,35 +1,24 @@
+mod cast;
+mod mask;
 mod to_arrow;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    CastFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, KernelRef, MaskFn,
-    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
-    is_constant_opts, scalar_at, slice, take, try_cast, uncompressed_size,
+    FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, MinMaxFn, MinMaxResult,
+    ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts,
+    scalar_at, slice, take, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef, ArrayVisitor};
-
-impl ArrayComputeImpl for StructArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(StructEncoding).some();
-}
+use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
@@ -55,41 +44,6 @@ impl ComputeVTable for StructEncoding {
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl CastFn<&StructArray> for StructEncoding {
-    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
-        let Some(target_sdtype) = dtype.as_struct() else {
-            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
-        };
-
-        let source_sdtype = array
-            .dtype()
-            .as_struct()
-            .vortex_expect("struct array must have struct dtype");
-
-        if target_sdtype.names() != source_sdtype.names() {
-            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
-        }
-
-        let validity = array
-            .validity()
-            .clone()
-            .cast_nullability(dtype.nullability())?;
-
-        StructArray::try_new(
-            target_sdtype.names().clone(),
-            array
-                .fields()
-                .iter()
-                .zip_eq(target_sdtype.fields())
-                .map(|(field, dtype)| try_cast(field, &dtype))
-                .try_collect()?,
-            array.len(),
-            validity,
-        )
-        .map(|a| a.into_array())
     }
 }
 
@@ -158,19 +112,7 @@ impl FilterKernel for StructEncoding {
     }
 }
 
-impl MaskFn<&StructArray> for StructEncoding {
-    fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().mask(&filter_mask)?;
-
-        StructArray::try_new_with_dtype(
-            array.fields().to_vec(),
-            array.struct_dtype().clone(),
-            array.len(),
-            validity,
-        )
-        .map(|a| a.into_array())
-    }
-}
+register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
 impl MinMaxFn<&StructArray> for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
@@ -221,7 +163,7 @@ mod tests {
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{filter, try_cast};
+    use crate::compute::{cast, filter};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
 
@@ -291,14 +233,14 @@ mod tests {
             Arc::from(StructDType::new([].into(), vec![])),
             Nullability::NonNullable,
         );
-        let casted = try_cast(&array, &non_nullable_dtype).unwrap();
+        let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
         let nullable_dtype = DType::Struct(
             Arc::from(StructDType::new([].into(), vec![])),
             Nullability::Nullable,
         );
-        let casted = try_cast(&array, &nullable_dtype).unwrap();
+        let casted = cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
 
@@ -318,7 +260,7 @@ mod tests {
 
         let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
 
-        let result = try_cast(
+        let result = cast(
             &array,
             &DType::Struct(
                 Arc::from(StructDType::new(
@@ -370,7 +312,7 @@ mod tests {
         .into_array();
 
         let top_level_non_nullable = fully_nullable_array.dtype().as_nonnullable();
-        let casted = try_cast(&fully_nullable_array, &top_level_non_nullable).unwrap();
+        let casted = cast(&fully_nullable_array, &top_level_non_nullable).unwrap();
         assert_eq!(casted.dtype(), &top_level_non_nullable);
 
         let non_null_xs_right = DType::Struct(
@@ -393,7 +335,7 @@ mod tests {
             )),
             Nullability::Nullable,
         );
-        let casted = try_cast(&fully_nullable_array, &non_null_xs_right).unwrap();
+        let casted = cast(&fully_nullable_array, &non_null_xs_right).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs_right);
 
         let non_null_xs = DType::Struct(
@@ -416,7 +358,7 @@ mod tests {
             )),
             Nullability::Nullable,
         );
-        let casted = try_cast(&fully_nullable_array, &non_null_xs).unwrap();
+        let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs);
     }
 }

@@ -1,17 +1,17 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{BinaryNumericFn, binary_numeric};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
-use vortex_scalar::BinaryNumericOperator;
+use vortex_scalar::NumericOperator;
 
 use crate::{DictArray, DictEncoding};
 
-impl BinaryNumericFn<&DictArray> for DictEncoding {
-    fn binary_numeric(
+impl NumericKernel for DictEncoding {
+    fn numeric(
         &self,
         array: &DictArray,
         rhs: &dyn Array,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         // if we have more values than codes, it is faster to canonicalise first.
         if array.values().len() > array.codes().len() {
@@ -26,18 +26,20 @@ impl BinaryNumericFn<&DictArray> for DictEncoding {
         Ok(Some(
             DictArray::try_new(
                 array.codes().clone(),
-                binary_numeric(array.values(), &rhs_const_array, op)?,
+                numeric(array.values(), &rhs_const_array, op)?,
             )?
             .into_array(),
         ))
     }
 }
 
+register_kernel!(NumericKernelAdapter(DictEncoding).lift());
+
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric;
+    use vortex_array::compute::conformance::binary_numeric::test_numeric;
     use vortex_array::compute::slice;
 
     use crate::builders::dict_encode;
@@ -58,6 +60,6 @@ mod tests {
     #[test]
     fn test_dict_binary_numeric() {
         let array = sliced_dict_array();
-        test_binary_numeric::<i32>(array)
+        test_numeric::<i32>(array)
     }
 }

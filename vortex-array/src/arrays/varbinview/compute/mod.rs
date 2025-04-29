@@ -1,13 +1,13 @@
 mod cast;
 mod is_constant;
 mod is_sorted;
+mod mask;
 mod min_max;
 mod optimize;
 mod take;
 mod to_arrow;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::BinaryView;
@@ -15,31 +15,17 @@ use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::compute::{
-    CastFn, IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
-    ToArrowFn, UncompressedSizeFn,
+    IsConstantFn, IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
-
-impl ArrayComputeImpl for VarBinViewArray {
-    // No filter implementation because we can trivially fall back to Arrow.
-    const FILTER: Option<KernelRef> = None;
-}
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
@@ -83,18 +69,6 @@ impl SliceFn<&VarBinViewArray> for VarBinViewEncoding {
             array.buffers().to_vec(),
             array.dtype().clone(),
             array.validity().slice(start, stop)?,
-        )?
-        .into_array())
-    }
-}
-
-impl MaskFn<&VarBinViewArray> for VarBinViewEncoding {
-    fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<ArrayRef> {
-        Ok(VarBinViewArray::try_new(
-            array.views().clone(),
-            array.buffers().to_vec(),
-            array.dtype().as_nullable(),
-            array.validity().mask(&mask)?,
         )?
         .into_array())
     }

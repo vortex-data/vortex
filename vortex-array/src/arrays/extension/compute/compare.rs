@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
-use crate::compute::{CompareFn, Operator, compare};
-use crate::{Array, ArrayRef};
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl CompareFn<&ExtensionArray> for ExtensionEncoding {
+impl CompareKernel for ExtensionEncoding {
     fn compare(
         &self,
         lhs: &ExtensionArray,
@@ -31,3 +31,5 @@ impl CompareFn<&ExtensionArray> for ExtensionEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(ExtensionEncoding).lift());
