@@ -2,6 +2,7 @@ mod array_ref;
 mod cache;
 mod chunked;
 mod data_chunk_adaptor;
+mod decimal;
 mod dict;
 mod run_end;
 mod table;
