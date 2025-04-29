@@ -118,24 +118,21 @@ fn check_and_build_decimal<T: NativeDecimalType>(
     Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
 }
 
-// macro_rules! sum_decimal {
-//     ($ty:ty, $values:expr) => {{
-//         let mut sum: $ty = <$ty>::default();
-//         for v in $values {
-//             sum = num_traits::CheckedAdd::checked_add(&sum, &v).expect("overflow");
-//         }
-//         sum
-//     }};
-//     ($ty:ty, $values:expr, $validity:expr) => {{
-//         let mut sum: $ty = <$ty>::default();
-//         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
-//             if valid {
-//                 sum = num_traits::CheckedAdd::checked_add(&sum, &v).expect("overflow");
-//             }
-//         }
-//         sum
-//     }};
-// }
+#[macro_export]
+macro_rules! match_each_decimal_value {
+    ($self:expr, | $_:tt $value:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
+        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
+        match $self {
+            DecimalValue::I8(v) => __with__! { v },
+            DecimalValue::I16(v) => __with__! { v },
+            DecimalValue::I32(v) => __with__! { v },
+            DecimalValue::I64(v) => __with__! { v },
+            DecimalValue::I128(v) => __with__! { v },
+            DecimalValue::I256(v) => __with__! { v },
+        }
+    });
+}
 
 /// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
 #[macro_export]

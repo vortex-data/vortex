@@ -4,19 +4,19 @@ use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, i256,
+    StructScalar, Utf8Scalar,
 };
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, DecimalArray, DecimalValueType, ExtensionArray, ListArray, NullArray,
-    StructArray, VarBinViewArray, precision_to_storage_size,
+    BinaryView, BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, StructArray,
+    VarBinViewArray, precision_to_storage_size,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -60,74 +60,23 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let size = precision_to_storage_size(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
-                    let all_null = match size {
-                        DecimalValueType::I8 => DecimalArray::new(
-                            Buffer::<i8>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                        DecimalValueType::I16 => DecimalArray::new(
-                            Buffer::<i16>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                        DecimalValueType::I32 => DecimalArray::new(
-                            Buffer::<i32>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                        DecimalValueType::I64 => DecimalArray::new(
-                            Buffer::<i64>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                        DecimalValueType::I128 => DecimalArray::new(
-                            Buffer::<i128>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                        DecimalValueType::I256 => DecimalArray::new(
-                            Buffer::<i256>::zeroed(self.len()),
-                            *decimal_type,
-                            Validity::AllInvalid,
-                        ),
-                    };
+                    let all_null = match_each_decimal_value_type!(size, |$D| {
+                       DecimalArray::new(
+                                Buffer::<$D>::zeroed(self.len()),
+                                *decimal_type,
+                                Validity::AllInvalid,
+                            )
+                    });
                     return Ok(Canonical::Decimal(all_null));
                 };
 
-                let decimal_array = match value {
-                    DecimalValue::I8(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
+                let decimal_array = match_each_decimal_value!(value, |$V| {
+                   DecimalArray::new(
+                        Buffer::full(*$V, self.len()),
                         *decimal_type,
                         Validity::AllValid,
-                    ),
-                    DecimalValue::I16(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
-                        *decimal_type,
-                        Validity::AllValid,
-                    ),
-                    DecimalValue::I32(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
-                        *decimal_type,
-                        Validity::AllValid,
-                    ),
-                    DecimalValue::I64(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
-                        *decimal_type,
-                        Validity::AllValid,
-                    ),
-                    DecimalValue::I128(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
-                        *decimal_type,
-                        Validity::AllValid,
-                    ),
-                    DecimalValue::I256(v) => DecimalArray::new(
-                        Buffer::full(*v, self.len()),
-                        *decimal_type,
-                        Validity::AllValid,
-                    ),
-                };
-
+                    )
+                });
                 Canonical::Decimal(decimal_array)
             }
             DType::Utf8(_) => {
