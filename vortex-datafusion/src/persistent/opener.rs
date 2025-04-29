@@ -14,7 +14,6 @@ use vortex_error::VortexError;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::scan::ScanBuilder;
 use vortex_layout::LayoutReader;
-use vortex_layout::scan::SplitBy;
 use vortex_metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
