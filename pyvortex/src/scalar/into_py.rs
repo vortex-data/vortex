@@ -119,7 +119,7 @@ macro_rules! impl_decimal_into_parts {
     ($ty:ident, $ten:expr) => {
         impl DecimalIntoParts for $ty {
             fn decimal_parts(self, scale: i8) -> (Self, Self) {
-                let scale_factor = $ten.pow(scale.abs() as u32);
+                let scale_factor = $ten.pow(scale.unsigned_abs() as u32);
                 match scale.cmp(&0) {
                     Ordering::Equal => (self, 0),
                     Ordering::Less => {
