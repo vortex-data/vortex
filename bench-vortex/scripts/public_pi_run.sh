@@ -1,8 +1,10 @@
 #!/bin/bash
 
+set -Eeu -o pipefail -x
+
 # List files in the current directory
-dir=$(dirname ${BASH_SOURCE[0]})
-files=$(ls $dir/../public_bi/benchmark)
+readonly dir=$(dirname ${BASH_SOURCE[0]})
+readonly files=$(ls $dir/../public_bi/benchmark)
 
 for file in $files; do
     echo "Running public BI: $file"
