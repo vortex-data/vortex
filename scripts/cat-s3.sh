@@ -23,10 +23,12 @@ while (( n_failures < 2 )); do
     }
 
     if [[ "$key" =~ \.gz$ ]]; then
-        local_uncompressed=$(mktemp)
+        local_decompressed=$(mktemp)
+        local_decompressed_concat=$(mktemp)
         gzip -d -c "$local_copy" > "$local_decompressed"
-        cat "$local_decompressed" "$local_file_to_concatenate" > "$local_uncompressed"
-        gzip -c "$local_uncompressed" > "$local_concatenated"
+        cat "$local_decompressed" "$local_file_to_concatenate" > "$local_decompressed_concat"
+        gzip -c "$local_decompressed_concat" > "$local_concatenated"
+        rm "$local_decompressed" "$local_decompressed_concat"
     else
         cat $local_copy $local_file_to_concatenate > $local_concatenated
     fi
