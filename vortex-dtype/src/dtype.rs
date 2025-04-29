@@ -163,6 +163,14 @@ impl DType {
         matches!(self, Decimal(..))
     }
 
+    /// Check returns the inner decimal type if the dtype is a decimal
+    pub fn as_decimal(&self) -> Option<&DecimalDType> {
+        match self {
+            Decimal(decimal, _) => Some(decimal),
+            _ => None,
+        }
+    }
+
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct(&self) -> Option<&Arc<StructDType>> {
         match self {
