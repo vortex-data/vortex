@@ -24,11 +24,10 @@
             ["Random Access", undefined],
             ["Compression", {
                 "keptCharts": [
-                    "COMPRESS",
-                    "PARQUET RS-ZSTD COMPRESS",
-                    "DECOMPRESS",
-                    "PARQUET RS-ZSTD DECOMPRESS",
-                    "VORTEX:PARQUET-ZSTD SIZE",
+                    "COMPRESS TIME",
+                    "PARQUET RS-ZSTD COMPRESS TIME",
+                    "DECOMPRESS TIME",
+                    "PARQUET RS-ZSTD DECOMPRESS TIME",
                 ],
                 "hiddenDatasets": undefined,
                 "removedDatasets": new Set([
@@ -38,6 +37,10 @@
                 "renamedDatasets": undefined,
             }],
             ["Compression Size", {
+                "keptCharts": [
+                    "VORTEX SIZE",
+                    "VORTEX:PARQUET-ZSTD SIZE RATIO",
+                ],
                 "hiddenDatasets": undefined,
             }],
             ["TPC-H (NVME)", {
