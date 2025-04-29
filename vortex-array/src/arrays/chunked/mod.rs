@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::ArrayValidityImpl;
-use crate::compute::{SearchSorted, SearchSortedSide};
+use crate::compute::{ComputeFn, InvocationArgs, Output, SearchSorted, SearchSortedSide};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -205,6 +205,17 @@ impl ArrayImpl for ChunkedArray {
             children[1..].to_vec(),
             self.dtype.clone(),
         ))
+    }
+
+    fn _invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        if compute_fn.is_elementwise() {
+            return self.invoke_elementwise(compute_fn, args);
+        }
+        Ok(None)
     }
 }
 

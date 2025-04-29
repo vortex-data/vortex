@@ -10,6 +10,7 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
@@ -42,6 +43,15 @@ pub trait ArrayImpl:
     ///
     /// - The number of given children matches the current number of children of the array.
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
+
+    /// Dynamically invoke a kernel for the given compute function.
+    fn _invoke(
+        &self,
+        _compute_fn: &ComputeFn,
+        _args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        Ok(None)
+    }
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -202,5 +212,13 @@ impl<A: ArrayImpl + 'static> Array for A {
         }
 
         Ok(self._with_children(children)?.into_array())
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        self._invoke(compute_fn, args)
     }
 }

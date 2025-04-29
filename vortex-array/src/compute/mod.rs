@@ -100,8 +100,8 @@ impl ComputeFn {
     }
 
     /// Invokes the compute function with the given arguments.
-    pub fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Output> {
-        let expected_dtype = self.vtable.return_type(args)?;
+    pub fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output> {
+        let expected_dtype = self.vtable.return_dtype(args)?;
         let expected_len = self.vtable.return_len(args)?;
 
         let output = self
@@ -127,6 +127,22 @@ impl ComputeFn {
 
         Ok(output)
     }
+
+    /// Compute the return type of the function given the input arguments.
+    pub fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        self.vtable.return_dtype(args)
+    }
+
+    /// Compute the return length of the function given the input arguments.
+    pub fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+        self.vtable.return_len(args)
+    }
+
+    /// Returns whether the compute function is elementwise, i.e. the output is the same shape as
+    pub fn is_elementwise(&self) -> bool {
+        // TODO(ngates): should this just be a constant passed in the constructor?
+        self.vtable.is_elementwise()
+    }
 }
 
 /// VTable for the implementation of a compute function.
@@ -136,22 +152,19 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
     /// The entry-point logic can short-circuit compute using statistics, update result array
     /// statistics, search for relevant compute kernels, and canonicalize the inputs in order
     /// to successfully compute a result.
-    fn invoke<'a>(
-        &self,
-        args: &'a InvocationArgs<'a>,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output>;
+    fn invoke(&self, args: &InvocationArgs, kernels: &[ArcRef<dyn Kernel>])
+    -> VortexResult<Output>;
 
     /// Computes the return type of the function given the input arguments.
     ///
     /// All kernel implementations will be validated to return the [`DType`] as computed here.
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType>;
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType>;
 
     /// Computes the return length of the function given the input arguments.
     ///
     /// All kernel implementations will be validated to return the len as computed here.
     /// Scalars are considered to have length 1.
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize>;
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize>;
 
     /// Returns whether the function operates elementwise, i.e. the output is the same shape as the
     /// input and no information is shared between elements.
@@ -162,6 +175,7 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
 }
 
 /// Arguments to a compute function invocation.
+#[derive(Clone)]
 pub struct InvocationArgs<'a> {
     pub inputs: &'a [Input<'a>],
     pub options: &'a dyn Options,
@@ -321,7 +335,7 @@ impl Options for () {
 /// If the kernel fails to compute a result, it should return a `Some` with the error.
 pub trait Kernel: 'static + Send + Sync + Debug {
     /// Invokes the kernel with the given input arguments and options.
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>>;
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>>;
 }
 
 /// Register a kernel for a compute function.

@@ -65,9 +65,9 @@ pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Filter;
 
 impl ComputeFnVTable for Filter {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
@@ -122,11 +122,11 @@ impl ComputeFnVTable for Filter {
         Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()).into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         Ok(FilterArgs::try_from(args)?.array.dtype().clone())
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
         if mask.len() != array.len() {
             vortex_bail!(
@@ -148,10 +148,10 @@ struct FilterArgs<'a> {
     mask: &'a Mask,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for FilterArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for FilterArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
         if value.inputs.len() != 2 {
             vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
         }
@@ -188,7 +188,7 @@ impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {
 }
 
 impl<E: Encoding + FilterKernel> Kernel for FilterKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = FilterArgs::try_from(args)?;
         let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
