@@ -1,6 +1,7 @@
 //! List-related compute operations.
 
 use arrow_buffer::BooleanBuffer;
+use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
@@ -11,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ConstantArray, ListArray};
 use crate::compute::{Operator, compare};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 
 /// Get a `Mask` representing the positions in `array` that contains the scalar `value`.
 ///
@@ -46,6 +47,15 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<Mask> {
     let ends = list_array.offsets().to_primitive()?;
     let matches = matching_elements.to_bool()?;
 
+    // Fast path: all elements match or none match.
+    if let Some(pred) = matches.as_constant() {
+        return match pred.as_bool().value() {
+            // TODO(aduffy): how do we handle null?
+            None | Some(false) => Ok(Mask::new_false(matches.len())),
+            Some(true) => Ok(Mask::new_true(matches.len())),
+        };
+    }
+
     match_each_integer_ptype!(ends.ptype(), |$T| {
         Ok(reduce_with_ends(ends.as_slice::<$T>(), &matches.boolean_buffer()))
     })
@@ -57,27 +67,12 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
     ends: &[T],
     matches: &BooleanBuffer,
 ) -> Mask {
-    if ends.len() == 1 {
-        // The array is empty. Ignore the request.
-        return Mask::new_false(0);
-    }
-
-    let match_count = matches.count_set_bits();
-
-    // Fast paths: all match or none match.
-    if match_count == 0 {
-        return Mask::new_false(matches.len());
-    }
-    if match_count == matches.len() {
-        return Mask::new_true(matches.len());
-    }
-
     let mask: BooleanBuffer = ends
         .windows(2)
         .map(|window| {
             let len = window[1].as_() - window[0].as_();
-            let segment = matches.slice(window[0].as_(), len);
-            segment.count_set_bits() > 0
+            let mut set_bits = BitIndexIterator::new(matches.values(), window[0].as_(), len);
+            set_bits.next().is_some()
         })
         .collect();
 
