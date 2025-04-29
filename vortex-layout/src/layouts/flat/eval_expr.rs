@@ -7,7 +7,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::flat::reader::{FlatReader, SharedArray};
+use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::reader::FlatReader;
 use crate::{
     ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -67,7 +68,7 @@ impl ExprEvaluator for FlatReader {
 
 struct FlatEvaluation {
     layout: Layout,
-    array: SharedArray,
+    array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
 }

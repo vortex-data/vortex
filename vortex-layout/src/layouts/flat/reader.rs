@@ -1,23 +1,21 @@
 use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
+use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
-use vortex_array::{ArrayContext, ArrayRef};
-use vortex_error::{SharedVortexResult, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_err, vortex_panic};
 
+use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{Layout, LayoutVTable};
 
-pub(crate) type SharedArray = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
-
 pub struct FlatReader {
     pub(crate) layout: Layout,
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     pub(crate) ctx: ArrayContext,
-    pub(crate) array: OnceLock<SharedArray>,
+    pub(crate) array: OnceLock<SharedArrayFuture>,
 }
 
 impl FlatReader {
@@ -45,7 +43,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    pub(crate) fn array_future(&self) -> VortexResult<SharedArray> {
+    pub(crate) fn array_future(&self) -> VortexResult<SharedArrayFuture> {
         let segment_id = self
             .layout
             .segment_id(0)

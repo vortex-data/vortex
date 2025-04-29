@@ -1,20 +1,18 @@
 use std::sync::{Arc, OnceLock, RwLock};
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{ArrayContext, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, PType};
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use super::DictLayout;
 use super::writer::DictLayoutMetadata;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{Layout, LayoutReader, LayoutVTable};
-
-pub(crate) type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 pub struct DictReader {
     layout: Layout,
@@ -33,7 +31,7 @@ impl DictReader {
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != DictLayout.id() {
-            vortex_panic!("Mitmatched layout ID")
+            vortex_panic!("Mismatched layout ID")
         }
         let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
             layout.metadata().as_ref().map(|b| b.as_ref()),
@@ -88,13 +86,7 @@ impl DictReader {
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
-                    .map(move |array| {
-                        expr.evaluate(&array?)
-                            .and_then(|result| result.to_canonical())
-                            // TODO(os): not all expressions would benefit from a canonical array
-                            .map(|canonical| canonical.into_array())
-                            .map_err(Arc::new)
-                    })
+                    .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
                     .boxed()
                     .shared()
             })
