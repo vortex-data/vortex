@@ -116,7 +116,7 @@ impl ArrayCanonicalImpl for DictArray {
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             // TODO(joe): is the above still true?, investigate this.
-            DType::Utf8(_) | DType::Binary(_) => {
+            DType::Utf8(_) | DType::Binary(_) if self.values().len() < self.codes().len() => {
                 let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
                 take_into(&canonical_values, self.codes(), builder)
             }
