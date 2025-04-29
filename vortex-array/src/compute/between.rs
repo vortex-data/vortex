@@ -131,13 +131,13 @@ impl ComputeFnVTable for Between {
         }
 
         // Try each kernel
-        if let Some(output) = array.invoke(&BETWEEN_FN, args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&BETWEEN_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, fall back to the default Arrow implementation

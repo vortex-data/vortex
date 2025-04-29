@@ -111,26 +111,26 @@ impl ComputeFnVTable for Boolean {
         }
 
         // Check if either LHS or RHS supports the operation directly.
-        if let Some(output) = lhs.invoke(&BOOLEAN_FN, args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = lhs.invoke(&BOOLEAN_FN, args)? {
+            return Ok(output);
         }
 
         let inverse_args = InvocationArgs {
             inputs: &[rhs.into(), lhs.into()],
             options: &operator,
         };
-        if let Some(output) = rhs.invoke(&BOOLEAN_FN, &inverse_args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(&inverse_args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = rhs.invoke(&BOOLEAN_FN, &inverse_args)? {
+            return Ok(output);
         }
 
         log::debug!(

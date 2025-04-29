@@ -228,13 +228,13 @@ pub fn sum_impl(
         inputs: &[array.into()],
         options: &(),
     };
-    if let Some(output) = array.invoke(&SUM_FN, &args)? {
-        return output.unwrap_scalar();
-    }
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_scalar();
         }
+    }
+    if let Some(output) = array.invoke(&SUM_FN, &args)? {
+        return output.unwrap_scalar();
     }
 
     // Otherwise, canonicalize and try again.

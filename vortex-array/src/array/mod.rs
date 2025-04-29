@@ -138,12 +138,14 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     /// Optionally invoke a kernel for the given compute function.
     ///
     /// These encoding-specific kernels are independent of kernels registered directly with
-    /// compute functions using [`ComputeFn::register_kernel`], and are typically attempted prior
-    /// to those function-specific kernels.
+    /// compute functions using [`ComputeFn::register_kernel`], and are attempted only if none of
+    /// the function-specific kernels returns a result.
     ///
     /// This allows encodings the opportunity to generically implement many compute functions
     /// that share some property, for example [`ComputeFn::is_elementwise`], without prior
-    /// knowledge of the function itself. For an example, see the implementation for chunked arrays.
+    /// knowledge of the function itself, while still allowing users to override the implementation
+    /// of compute functions for built-in encodings. For an example, see the implementation for
+    /// chunked arrays.
     ///
     /// The first input in the [`InvocationArgs`] is always the array itself.
     ///

@@ -6,8 +6,6 @@ use crate::compute::{
 };
 use crate::vtable::ComputeVTable;
 
-mod binary_numeric;
-mod boolean;
 mod cast;
 mod compare;
 mod elementwise;

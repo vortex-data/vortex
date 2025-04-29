@@ -44,13 +44,13 @@ impl ComputeFnVTable for Cast {
 
         // TODO(ngates): check for null_count if dtype is non-nullable
 
-        if let Some(output) = array.invoke(&CAST_FN, args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&CAST_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, we fall back to the canonical implementations.

@@ -28,13 +28,13 @@ impl ComputeFnVTable for Invert {
     ) -> VortexResult<Output> {
         let InvertArgs { array } = InvertArgs::try_from(args)?;
 
-        if let Some(output) = array.invoke(&INVERT_FN, args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&INVERT_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, we canonicalize into a boolean array and invert.

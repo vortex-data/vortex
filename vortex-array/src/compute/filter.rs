@@ -93,13 +93,13 @@ impl ComputeFnVTable for Filter {
         };
 
         // Check each kernel for the array
-        if let Some(output) = array.invoke(&FILTER_FN, args)? {
-            return Ok(output);
-        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&FILTER_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, we can use scalar_at if the mask has length 1.
