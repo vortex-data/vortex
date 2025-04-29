@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
-use crate::compute::{IsConstantFn, IsConstantOpts};
-use crate::match_each_decimal_value_type;
+use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::{match_each_decimal_value_type, register_kernel};
 
-impl IsConstantFn<&DecimalArray> for DecimalEncoding {
+impl IsConstantKernel for DecimalEncoding {
     fn is_constant(
         &self,
         array: &DecimalArray,
@@ -16,6 +16,8 @@ impl IsConstantFn<&DecimalArray> for DecimalEncoding {
         Ok(Some(constant))
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(DecimalEncoding).lift());
 
 fn compute_is_constant<T: NativeDecimalType>(values: &[T]) -> bool {
     // We know that the top-level `is_constant` ensures that the array is all_valid or non-null.

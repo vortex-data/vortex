@@ -1,10 +1,10 @@
-use vortex_array::ArrayStatistics;
-use vortex_array::compute::{IsConstantFn, IsConstantOpts};
+use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use vortex_array::{ArrayStatistics, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-impl IsConstantFn<&DateTimePartsArray> for DateTimePartsEncoding {
+impl IsConstantKernel for DateTimePartsEncoding {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,
@@ -17,3 +17,5 @@ impl IsConstantFn<&DateTimePartsArray> for DateTimePartsEncoding {
         ))
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(DateTimePartsEncoding).lift());

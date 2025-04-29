@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 
 mod array;
 mod datum;
-mod dtype;
 mod record_batch;
 pub use datum::*;
 
