@@ -1,6 +1,6 @@
 use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::utils::constants::STORAGE_NVME;
@@ -101,7 +101,7 @@ fn random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, RatioMode::Time, &targets)?;
+            render_table(measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements)?;

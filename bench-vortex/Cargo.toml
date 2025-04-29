@@ -49,7 +49,6 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
-rust-lapper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tabled = { workspace = true, features = ["std"] }

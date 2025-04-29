@@ -3,7 +3,7 @@ use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
@@ -107,10 +107,9 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.throughputs, RatioMode::Throughput, &targets)?;
+            render_table(measurements.timings, &targets)?;
             render_table(
                 measurements.ratios,
-                RatioMode::Throughput,
                 &if formats.contains(&Format::OnDiskVortex) {
                     vec![Target::new(Engine::default(), Format::OnDiskVortex)]
                 } else {
@@ -119,7 +118,7 @@ fn compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.throughputs)?;
+            print_measurements_json(measurements.timings)?;
             print_measurements_json(measurements.ratios)
         }
     }

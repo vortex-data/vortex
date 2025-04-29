@@ -419,7 +419,6 @@ impl Dataset for PBIBenchmark {
                 .open(&path)
                 .await?
                 .scan()?
-                .with_tokio_executor(tokio::runtime::Handle::current())
                 .into_array_stream()?
                 .read_all()
                 .await

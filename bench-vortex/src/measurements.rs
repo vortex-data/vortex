@@ -232,42 +232,43 @@ impl ToTable for QueryMeasurement {
 }
 
 #[derive(Clone, Debug)]
-pub struct ThroughputMeasurement {
+pub struct CompressionTimingMeasurement {
     pub name: String,
     pub format: Format,
     pub time: Duration,
-    pub bytes: u64,
 }
 
-impl ToJson for ThroughputMeasurement {
+impl ToJson for CompressionTimingMeasurement {
     fn to_json(&self) -> JsonValue {
         let name = match self.format {
             Format::OnDiskVortex => format!("{} throughput", self.name),
             Format::Parquet => format!("parquet_rs-zstd {} throughput", self.name),
-            _ => vortex_panic!("Throughput only supports vortex and parquet formats"),
+            _ => vortex_panic!(
+                "CompressionTimingMeasurement only supports vortex and parquet formats"
+            ),
         };
 
         JsonValue {
             name,
             storage: None,
-            unit: Some(Cow::from("bytes/ns")),
-            value: MeasurementValue::Float((self.bytes as f64) / self.time.as_nanos() as f64),
+            unit: Some(Cow::from("ns")),
+            value: MeasurementValue::Float(self.time.as_nanos() as f64),
             time: Some(self.time.as_nanos()),
-            bytes: Some(self.bytes),
+            bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: Target::new(Engine::Vortex, self.format),
         }
     }
 }
 
-impl ToTable for ThroughputMeasurement {
+impl ToTable for CompressionTimingMeasurement {
     fn to_table(&self) -> TableValue {
         TableValue {
             id: None,
             name: self.name.clone(),
             target: Target::new(Engine::default(), self.format),
-            unit: Cow::from("bytes / μs"),
-            value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
+            unit: Cow::from("μs"),
+            value: MeasurementValue::Float(self.time.as_micros() as f64),
         }
     }
 }

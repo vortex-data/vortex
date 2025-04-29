@@ -5,12 +5,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bytes::Bytes;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
-use rust_lapper::{Interval, Lapper};
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
 use vortex::error::VortexUnwrap;
-use vortex::{Array, ArrayExt, ArrayVisitorExt};
+use vortex::{Array, ArrayExt};
 
 use crate::Format;
 use crate::bench_run::run;
@@ -18,18 +17,18 @@ use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
 use crate::datasets::Dataset;
-use crate::measurements::{CustomUnitMeasurement, ThroughputMeasurement};
+use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
-    pub throughputs: Vec<ThroughputMeasurement>,
+    pub timings: Vec<CompressionTimingMeasurement>,
     pub ratios: Vec<CustomUnitMeasurement>,
 }
 
 impl Extend<CompressMeasurements> for CompressMeasurements {
     fn extend<T: IntoIterator<Item = CompressMeasurements>>(&mut self, iter: T) {
         iter.into_iter().for_each(|measurement| {
-            self.throughputs.extend(measurement.throughputs);
+            self.timings.extend(measurement.timings);
             self.ratios.extend(measurement.ratios);
         })
     }
@@ -67,16 +66,14 @@ pub fn benchmark_compress(
         }))
         .into_array();
 
-    let uncompressed_size = uncompressed_bytes(&vx_array);
     let compressed_size = AtomicU64::default();
 
     let mut ratios = Vec::new();
-    let mut throughputs = Vec::new();
+    let mut timings = Vec::new();
 
     if formats.contains(&Format::OnDiskVortex) {
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 compressed_size.store(
                     vortex_compress_write(&uncompressed, &mut Vec::new())
@@ -91,12 +88,6 @@ pub fn benchmark_compress(
 
         let compressed_size_f64 = compressed_size.load(Ordering::SeqCst) as f64;
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:raw size/{}", bench_name),
-            format: Format::OnDiskVortex,
-            unit: Cow::from("ratio"),
-            value: compressed_size_f64 / (uncompressed_size as f64),
-        });
-        ratios.push(CustomUnitMeasurement {
             name: format!("vortex size/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("bytes"),
@@ -108,9 +99,8 @@ pub fn benchmark_compress(
         let parquet_compressed_size = AtomicU64::default();
         let chunked = uncompressed.as_::<ChunkedArray>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_compressed_size.store(
                     parquet_compress_write(
@@ -126,12 +116,19 @@ pub fn benchmark_compress(
         });
 
         progress.inc(1);
+        let parquet_compressed_size = parquet_compressed_size.into_inner();
+        ratios.push(CustomUnitMeasurement {
+            name: format!("parquet-zstd size/{}", bench_name),
+            // unlike timings, ratios have a single column vortex
+            format: Format::OnDiskVortex,
+            unit: Cow::from("bytes"),
+            value: parquet_compressed_size as f64,
+        });
         ratios.push(CustomUnitMeasurement {
             name: format!("vortex:parquet-zstd size/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
-            value: compressed_size.load(Ordering::SeqCst) as f64
-                / parquet_compressed_size.into_inner() as f64,
+            value: compressed_size.load(Ordering::SeqCst) as f64 / parquet_compressed_size as f64,
         });
     }
 
@@ -146,9 +143,8 @@ pub fn benchmark_compress(
         // Force materialization of the lazy cell so it's not invoked from within the async benchmark function
         LazyCell::force(&buffer);
 
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 vortex_decompress_read(buffer.clone()).await.unwrap()
             }),
@@ -172,9 +168,8 @@ pub fn benchmark_compress(
         });
         LazyCell::force(&buffer);
 
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_decompress_read(buffer.clone());
             }),
@@ -183,27 +178,5 @@ pub fn benchmark_compress(
         progress.inc(1);
     }
 
-    CompressMeasurements {
-        throughputs,
-        ratios,
-    }
-}
-
-// Count total bytes all buffers use for the array, only
-// counting unique memory regions once.
-fn uncompressed_bytes(vx_array: &dyn Array) -> usize {
-    let mut intervals = Vec::new();
-
-    for array in vx_array.depth_first_traversal() {
-        for buffer in array.buffers() {
-            let slice: &[u8] = buffer.inner().as_ref();
-            let start = slice.as_ptr() as usize;
-            intervals.push(Interval {
-                start,
-                stop: start + slice.len(),
-                val: true,
-            });
-        }
-    }
-    Lapper::new(intervals).cov()
+    CompressMeasurements { timings, ratios }
 }
