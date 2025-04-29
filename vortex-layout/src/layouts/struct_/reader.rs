@@ -1,7 +1,6 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use crossbeam_utils::CachePadded;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
@@ -19,7 +18,7 @@ pub struct StructReader {
     segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
 
-    field_readers: Vec<CachePadded<OnceLock<Arc<dyn LayoutReader>>>>,
+    field_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>,
 }
@@ -39,9 +38,7 @@ impl StructReader {
             vortex_panic!("Mismatched dtype {} for struct layout", dtype);
         };
 
-        let field_readers = (0..layout.nchildren())
-            .map(|_| CachePadded::new(OnceLock::new()))
-            .collect();
+        let field_readers = (0..layout.nchildren()).map(|_| OnceLock::new()).collect();
 
         // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
         let field_lookup = (layout.nchildren() > 80).then(|| {
