@@ -22,7 +22,7 @@ while (( n_failures < 2 )); do
         continue
     }
 
-    if [[ "key" =~ \.gz$ ]]; then
+    if [[ "$key" =~ \.gz$ ]]; then
         local_uncompressed=$(mktemp)
         gzip -d -c "$local_copy" > "$local_decompressed"
         cat "$local_decompressed" "$local_file_to_concatenate" > "$local_uncompressed"
