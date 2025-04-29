@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, RatioMode::Time, &targets)
+            render_table(all_measurements, &targets)
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements),
     }

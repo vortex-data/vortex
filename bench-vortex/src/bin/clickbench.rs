@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
@@ -317,7 +317,7 @@ fn print_results(
     targets: &[Target],
 ) -> anyhow::Result<()> {
     match display_format {
-        DisplayFormat::Table => render_table(query_measurements, RatioMode::Time, targets),
+        DisplayFormat::Table => render_table(query_measurements, targets),
 
         DisplayFormat::GhJson => print_measurements_json(query_measurements),
     }

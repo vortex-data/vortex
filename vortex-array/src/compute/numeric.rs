@@ -100,7 +100,7 @@ impl<E: Encoding + NumericKernel> NumericKernelAdapter<E> {
 }
 
 impl<E: Encoding + NumericKernel> Kernel for NumericKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = NumericArgs::try_from(args)?;
         let Some(lhs) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
@@ -120,9 +120,9 @@ pub static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Numeric;
 
 impl ComputeFnVTable for Numeric {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let NumericArgs { lhs, rhs, operator } = NumericArgs::try_from(args)?;
@@ -132,6 +132,9 @@ impl ComputeFnVTable for Numeric {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = lhs.invoke(&NUMERIC_FN, args)? {
+            return Ok(output);
         }
 
         // Check if RHS supports the operation directly.
@@ -143,6 +146,9 @@ impl ComputeFnVTable for Numeric {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = rhs.invoke(&NUMERIC_FN, &inverted_args)? {
+            return Ok(output);
         }
 
         log::debug!(
@@ -156,7 +162,7 @@ impl ComputeFnVTable for Numeric {
         Ok(arrow_numeric(lhs, rhs, operator)?.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let NumericArgs { lhs, rhs, .. } = NumericArgs::try_from(args)?;
         if !matches!(
             (lhs.dtype(), rhs.dtype()),
@@ -174,7 +180,7 @@ impl ComputeFnVTable for Numeric {
             .with_nullability((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()))
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let NumericArgs { lhs, rhs, .. } = NumericArgs::try_from(args)?;
         if lhs.len() != rhs.len() {
             vortex_bail!(
@@ -197,10 +203,10 @@ struct NumericArgs<'a> {
     operator: NumericOperator,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for NumericArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for NumericArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(args: &'a InvocationArgs<'a>) -> VortexResult<Self> {
+    fn try_from(args: &InvocationArgs<'a>) -> VortexResult<Self> {
         if args.inputs.len() != 2 {
             vortex_bail!("Numeric operations require exactly 2 inputs");
         }

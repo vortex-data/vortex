@@ -27,6 +27,7 @@ futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+parking_lot = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }

@@ -21,9 +21,9 @@ pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
 struct Invert;
 
 impl ComputeFnVTable for Invert {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let InvertArgs { array } = InvertArgs::try_from(args)?;
@@ -32,6 +32,9 @@ impl ComputeFnVTable for Invert {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&INVERT_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, we canonicalize into a boolean array and invert.
@@ -45,7 +48,7 @@ impl ComputeFnVTable for Invert {
         Ok(invert(&array.to_bool()?.into_array())?.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let InvertArgs { array } = InvertArgs::try_from(args)?;
         if !matches!(array.dtype(), DType::Bool(..)) {
             vortex_bail!("Expected boolean array, got {}", array.dtype());
@@ -53,7 +56,7 @@ impl ComputeFnVTable for Invert {
         Ok(array.dtype().clone())
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let InvertArgs { array } = InvertArgs::try_from(args)?;
         Ok(array.len())
     }
@@ -67,10 +70,10 @@ struct InvertArgs<'a> {
     array: &'a dyn Array,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for InvertArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for InvertArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
         if value.inputs.len() != 1 {
             vortex_bail!("Invert expects exactly one argument",);
         }
@@ -99,7 +102,7 @@ impl<E: Encoding + InvertKernel> InvertKernelAdapter<E> {
 }
 
 impl<E: Encoding + InvertKernel> Kernel for InvertKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = InvertArgs::try_from(args)?;
         let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);

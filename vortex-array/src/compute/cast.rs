@@ -31,9 +31,9 @@ pub static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Cast;
 
 impl ComputeFnVTable for Cast {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let CastArgs { array, dtype } = CastArgs::try_from(args)?;
@@ -48,6 +48,9 @@ impl ComputeFnVTable for Cast {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = array.invoke(&CAST_FN, args)? {
+            return Ok(output);
         }
 
         // Otherwise, we fall back to the canonical implementations.
@@ -68,12 +71,12 @@ impl ComputeFnVTable for Cast {
         Ok(cast(array.to_canonical()?.as_ref(), dtype)?.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let CastArgs { dtype, .. } = CastArgs::try_from(args)?;
         Ok(dtype.clone())
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let CastArgs { array, .. } = CastArgs::try_from(args)?;
         Ok(array.len())
     }
@@ -88,10 +91,10 @@ struct CastArgs<'a> {
     dtype: &'a DType,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for CastArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for CastArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(args: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+    fn try_from(args: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
         if args.inputs.len() != 2 {
             vortex_bail!(
                 "Cast function requires 2 arguments, but got {}",
@@ -126,7 +129,7 @@ impl<E: Encoding + CastKernel> CastKernelAdapter<E> {
 }
 
 impl<E: Encoding + CastKernel> Kernel for CastKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let CastArgs { array, dtype } = CastArgs::try_from(args)?;
         let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);

@@ -18,20 +18,17 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::join_all;
-use futures::{StreamExt, TryStreamExt, stream};
 use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
-use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
+use vortex::ArrayRef;
 use vortex::aliases::hash_map::HashMap;
-use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;
-use vortex::{Array, ArrayRef};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
@@ -406,31 +403,28 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    // TODO(osatici): compress benchmarks use this, but this relies on all
-    //                tables in a benchmark to have the same schema.
-    //                That is not the case for some PBI datasets.
     async fn to_vortex_array(&self) -> ArrayRef {
         let dataset = self.dataset().expect("failed to parse tables");
         dataset.write_as_vortex().await;
+        // reading only the first table, each table in a PBI benchmark
+        // has its own schema.
+        let path = dataset
+            .list_files(FileType::Vortex)
+            .first()
+            .expect("must have at least one table")
+            .clone();
 
-        let arrays = stream::iter(dataset.list_files(FileType::Vortex))
-            .map(|f| async move {
-                VortexOpenOptions::file()
-                    .open(f)
-                    .await?
-                    .scan()?
-                    // TODO(ngates): why do we spawn this on the tokio executor?
-                    .with_tokio_executor(Handle::current())
-                    .into_array_stream()?
-                    .read_all()
-                    .await
-            })
-            .buffered(10)
-            .try_collect::<Vec<_>>()
-            .await
-            .unwrap();
-
-        ChunkedArray::from_iter(arrays).into_array()
+        async move {
+            VortexOpenOptions::file()
+                .open(&path)
+                .await?
+                .scan()?
+                .into_array_stream()?
+                .read_all()
+                .await
+        }
+        .await
+        .expect("must be able to read table")
     }
 }
 

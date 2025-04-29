@@ -71,7 +71,7 @@ impl<E: Encoding + BooleanKernel> BooleanKernelAdapter<E> {
 }
 
 impl<E: Encoding + BooleanKernel> Kernel for BooleanKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BooleanArgs::try_from(args)?;
         let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
@@ -91,9 +91,9 @@ pub static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Boolean;
 
 impl ComputeFnVTable for Boolean {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let BooleanArgs { lhs, rhs, operator } = BooleanArgs::try_from(args)?;
@@ -116,6 +116,9 @@ impl ComputeFnVTable for Boolean {
                 return Ok(output);
             }
         }
+        if let Some(output) = lhs.invoke(&BOOLEAN_FN, args)? {
+            return Ok(output);
+        }
 
         let inverse_args = InvocationArgs {
             inputs: &[rhs.into(), lhs.into()],
@@ -125,6 +128,9 @@ impl ComputeFnVTable for Boolean {
             if let Some(output) = kernel.invoke(&inverse_args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = rhs.invoke(&BOOLEAN_FN, &inverse_args)? {
+            return Ok(output);
         }
 
         log::debug!(
@@ -138,7 +144,7 @@ impl ComputeFnVTable for Boolean {
         Ok(arrow_boolean(lhs.to_array(), rhs.to_array(), operator)?.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let BooleanArgs { lhs, rhs, .. } = BooleanArgs::try_from(args)?;
 
         if !lhs.dtype().is_boolean()
@@ -157,7 +163,7 @@ impl ComputeFnVTable for Boolean {
         ))
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let BooleanArgs { lhs, rhs, .. } = BooleanArgs::try_from(args)?;
 
         if lhs.len() != rhs.len() {
@@ -199,10 +205,10 @@ struct BooleanArgs<'a> {
     operator: BooleanOperator,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for BooleanArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for BooleanArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> VortexResult<Self> {
+    fn try_from(value: &InvocationArgs<'a>) -> VortexResult<Self> {
         if value.inputs.len() != 2 {
             vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
         }

@@ -76,7 +76,7 @@ impl<E: Encoding + BetweenKernel> BetweenKernelAdapter<E> {
 }
 
 impl<E: Encoding + BetweenKernel> Kernel for BetweenKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BetweenArgs::try_from(args)?;
         let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
@@ -99,9 +99,9 @@ pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Between;
 
 impl ComputeFnVTable for Between {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let BetweenArgs {
@@ -111,7 +111,7 @@ impl ComputeFnVTable for Between {
             options,
         } = BetweenArgs::try_from(args)?;
 
-        let return_dtype = self.return_type(args)?;
+        let return_dtype = self.return_dtype(args)?;
 
         // A quick check to see if either array might is a null constant array.
         if lower.is_invalid(0)? || upper.is_invalid(0)? {
@@ -136,6 +136,9 @@ impl ComputeFnVTable for Between {
                 return Ok(output);
             }
         }
+        if let Some(output) = array.invoke(&BETWEEN_FN, args)? {
+            return Ok(output);
+        }
 
         // Otherwise, fall back to the default Arrow implementation
         // TODO(joe): should we try to canonicalize the array and try between
@@ -147,7 +150,7 @@ impl ComputeFnVTable for Between {
         .into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let BetweenArgs {
             array,
             lower,
@@ -175,7 +178,7 @@ impl ComputeFnVTable for Between {
         ))
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let BetweenArgs {
             array,
             lower,
@@ -205,10 +208,10 @@ struct BetweenArgs<'a> {
     options: &'a BetweenOptions,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for BetweenArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for BetweenArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> VortexResult<Self> {
+    fn try_from(value: &InvocationArgs<'a>) -> VortexResult<Self> {
         if value.inputs.len() != 3 {
             vortex_bail!("Expected 3 inputs, found {}", value.inputs.len());
         }

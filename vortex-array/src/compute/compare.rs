@@ -99,7 +99,7 @@ impl<E: Encoding + CompareKernel> CompareKernelAdapter<E> {
 }
 
 impl<E: Encoding + CompareKernel> Kernel for CompareKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = CompareArgs::try_from(args)?;
         let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
@@ -119,14 +119,14 @@ pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 struct Compare;
 
 impl ComputeFnVTable for Compare {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let CompareArgs { lhs, rhs, operator } = CompareArgs::try_from(args)?;
 
-        let return_dtype = self.return_type(args)?;
+        let return_dtype = self.return_dtype(args)?;
 
         if lhs.is_empty() {
             return Ok(Canonical::empty(&return_dtype).into_array().into());
@@ -153,6 +153,9 @@ impl ComputeFnVTable for Compare {
                 return Ok(output);
             }
         }
+        if let Some(output) = lhs.invoke(&COMPARE_FN, args)? {
+            return Ok(output);
+        }
 
         // Try inverting the operator and swapping the arguments
         let inverted_args = InvocationArgs {
@@ -163,6 +166,9 @@ impl ComputeFnVTable for Compare {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
             }
+        }
+        if let Some(output) = rhs.invoke(&COMPARE_FN, &inverted_args)? {
+            return Ok(output);
         }
 
         // Only log missing compare implementation if there's possibly better one than arrow,
@@ -180,7 +186,7 @@ impl ComputeFnVTable for Compare {
         Ok(arrow_compare(lhs, rhs, operator)?.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
 
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
@@ -205,7 +211,7 @@ impl ComputeFnVTable for Compare {
         ))
     }
 
-    fn return_len<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
         let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
         if lhs.len() != rhs.len() {
             vortex_bail!(
@@ -234,10 +240,10 @@ impl Options for Operator {
     }
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for CompareArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for CompareArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
         if value.inputs.len() != 2 {
             vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
         }

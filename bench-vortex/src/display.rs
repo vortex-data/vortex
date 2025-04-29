@@ -17,15 +17,8 @@ pub enum DisplayFormat {
     GhJson,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum RatioMode {
-    Time,
-    Throughput,
-}
-
 pub fn render_table<T: ToTable>(
     all_measurements: Vec<T>,
-    mode: RatioMode,
     targets: &[Target],
 ) -> anyhow::Result<()> {
     let mut measurements: HashMap<Target, Vec<TableValue>> =
@@ -74,7 +67,7 @@ pub fn render_table<T: ToTable>(
             let value = measurement.value;
 
             if target != baseline_target {
-                let color = color(query_baseline, value, mode);
+                let color = color(query_baseline, value);
 
                 colors.push(Colorization::exact(
                     vec![color],
@@ -109,25 +102,12 @@ pub fn print_measurements_json<T: ToJson>(all_measurements: Vec<T>) -> anyhow::R
     Ok(())
 }
 
-fn color(baseline: MeasurementValue, value: MeasurementValue, mode: RatioMode) -> Color {
-    match mode {
-        RatioMode::Time => {
-            if value > (baseline + baseline / 2) {
-                Color::BG_RED | Color::FG_BLACK
-            } else if value > (baseline + baseline / 10) {
-                Color::BG_YELLOW | Color::FG_BLACK
-            } else {
-                Color::BG_BRIGHT_GREEN | Color::FG_BLACK
-            }
-        }
-        RatioMode::Throughput => {
-            if value < (baseline - baseline / 2) {
-                Color::BG_RED | Color::FG_BLACK
-            } else if value < (baseline - baseline / 10) {
-                Color::BG_YELLOW | Color::FG_BLACK
-            } else {
-                Color::BG_BRIGHT_GREEN | Color::FG_BLACK
-            }
-        }
+fn color(baseline: MeasurementValue, value: MeasurementValue) -> Color {
+    if value > (baseline + baseline / 2) {
+        Color::BG_RED | Color::FG_BLACK
+    } else if value > (baseline + baseline / 10) {
+        Color::BG_YELLOW | Color::FG_BLACK
+    } else {
+        Color::BG_BRIGHT_GREEN | Color::FG_BLACK
     }
 }

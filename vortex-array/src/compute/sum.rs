@@ -29,15 +29,15 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
 struct Sum;
 
 impl ComputeFnVTable for Sum {
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: &'a InvocationArgs<'a>,
+        args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let SumArgs { array } = SumArgs::try_from(args)?;
 
         // Compute the expected dtype of the sum.
-        let sum_dtype = self.return_type(args)?;
+        let sum_dtype = self.return_dtype(args)?;
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
@@ -54,14 +54,14 @@ impl ComputeFnVTable for Sum {
         Ok(sum_scalar.into())
     }
 
-    fn return_type<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<DType> {
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let SumArgs { array } = SumArgs::try_from(args)?;
         Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))
     }
 
-    fn return_len<'a>(&self, _args: &'a InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
         // The sum function always returns a single scalar value.
         Ok(1)
     }
@@ -75,10 +75,10 @@ struct SumArgs<'a> {
     array: &'a dyn Array,
 }
 
-impl<'a> TryFrom<&'a InvocationArgs<'a>> for SumArgs<'a> {
+impl<'a> TryFrom<&InvocationArgs<'a>> for SumArgs<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a InvocationArgs<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
         if value.inputs.len() != 1 {
             vortex_bail!(
                 "Sum function requires exactly one argument, got {}",
@@ -122,7 +122,7 @@ impl<E: Encoding + SumKernel> SumKernelAdapter<E> {
 }
 
 impl<E: Encoding + SumKernel> Kernel for SumKernelAdapter<E> {
-    fn invoke<'a>(&self, args: &'a InvocationArgs<'a>) -> VortexResult<Option<Output>> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let SumArgs { array } = SumArgs::try_from(args)?;
         let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
@@ -232,6 +232,9 @@ pub fn sum_impl(
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_scalar();
         }
+    }
+    if let Some(output) = array.invoke(&SUM_FN, &args)? {
+        return output.unwrap_scalar();
     }
 
     // Otherwise, canonicalize and try again.
