@@ -1,26 +1,24 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::i256;
 
-use crate::Array;
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::{IsSortedFn, IsSortedIteratorExt};
+use crate::{Array, match_each_decimal_value_type};
 
 impl IsSortedFn<&DecimalArray> for DecimalEncoding {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
-        match array.values_type {
-            DecimalValueType::I128 => compute_is_sorted::<i128>(array, false),
-            DecimalValueType::I256 => compute_is_sorted::<i256>(array, false),
-        }
+        is_decimal_sorted(array, false)
     }
 
     fn is_strict_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
-        match array.values_type {
-            DecimalValueType::I128 => compute_is_sorted::<i128>(array, true),
-            DecimalValueType::I256 => compute_is_sorted::<i256>(array, true),
-        }
+        is_decimal_sorted(array, true)
     }
+}
+
+fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
+    match_each_decimal_value_type!(array.values_type, |$S| {
+       compute_is_sorted::<$S>(array, strict)
+    })
 }
 
 fn compute_is_sorted<T: NativeDecimalType>(array: &DecimalArray, strict: bool) -> VortexResult<bool>

@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use vortex_scalar::i256;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::arrays::decimal::serde::{DecimalMetadata, DecimalValueType};
+use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
@@ -22,6 +22,8 @@ use crate::{
 #[derive(Debug)]
 pub struct DecimalEncoding;
 
+pub use crate::arrays::decimal::serde::DecimalValueType;
+
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;
     type Metadata = ProstMetadata<DecimalMetadata>;
@@ -32,12 +34,42 @@ pub trait NativeDecimalType: Copy + Eq + Ord {
     const VALUES_TYPE: DecimalValueType;
 }
 
+impl NativeDecimalType for i8 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
+}
+
+impl NativeDecimalType for i16 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
+}
+
+impl NativeDecimalType for i32 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
+}
+
+impl NativeDecimalType for i64 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
+}
+
 impl NativeDecimalType for i128 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
 }
 
 impl NativeDecimalType for i256 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
+}
+
+/// Maps a decimal precision into the small type that can represent it.
+pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueType {
+    match decimal_dtype.precision() {
+        1..=2 => DecimalValueType::I8,
+        3..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        39..=76 => DecimalValueType::I256,
+        0 => unreachable!("invalid precision"),
+        p => todo!("unsupported precision {p}"),
+    }
 }
 
 /// Array for decimal-typed real numbers
@@ -145,6 +177,7 @@ impl ArrayImpl for DecimalArray {
         let divisor = match self.values_type {
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
+            _ => todo!(),
         };
         self.values.len() / divisor
     }

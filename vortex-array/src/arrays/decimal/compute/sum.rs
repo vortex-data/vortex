@@ -1,12 +1,11 @@
 use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, i256};
+use vortex_scalar::Scalar;
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{SumKernel, SumKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::{Array, match_each_decimal_value_type, register_kernel};
 
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{
@@ -32,41 +31,32 @@ impl SumKernel for DecimalEncoding {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();
 
-        match (array.values_type, array.validity_mask()?) {
-            (_, Mask::AllFalse(_)) => {
+        match array.validity_mask()? {
+            Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
-
-            // fast paths: no validity checks needed
-            (DecimalValueType::I128, Mask::AllTrue(_)) => Ok(Scalar::decimal(
-                DecimalValue::I128(sum_decimal!(i128, array.buffer::<i128>())),
-                decimal_dtype,
-                nullability,
-            )),
-            (DecimalValueType::I256, Mask::AllTrue(_)) => Ok(Scalar::decimal(
-                DecimalValue::I256(sum_decimal!(i256, array.buffer::<i256>())),
-                decimal_dtype,
-                nullability,
-            )),
-            // Variant that requires validity checks
-            (DecimalValueType::I128, Mask::Values(mask_values)) => Ok(Scalar::decimal(
-                DecimalValue::I128(sum_decimal!(
-                    i128,
-                    array.buffer::<i128>(),
-                    mask_values.boolean_buffer()
-                )),
-                decimal_dtype,
-                nullability,
-            )),
-            (DecimalValueType::I256, Mask::Values(mask_values)) => Ok(Scalar::decimal(
-                DecimalValue::I256(sum_decimal!(
-                    i256,
-                    array.buffer::<i256>(),
-                    mask_values.boolean_buffer()
-                )),
-                decimal_dtype,
-                nullability,
-            )),
+            Mask::AllTrue(_) => {
+                match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
+                   Ok(Scalar::decimal(
+                    $CTor(sum_decimal!($D, array.buffer::<$D>())),
+                    decimal_dtype,
+                    nullability,
+                    ))
+                })
+            }
+            Mask::Values(mask_values) => {
+                match_each_decimal_value_type!(array.values_type(), |($D, $CTor)|{
+                    Ok(Scalar::decimal(
+                        $CTor(sum_decimal!(
+                            $D,
+                            array.buffer::<$D>(),
+                            mask_values.boolean_buffer()
+                        )),
+                        decimal_dtype,
+                        nullability,
+                    ))
+                })
+            }
         }
     }
 }

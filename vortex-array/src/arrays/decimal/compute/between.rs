@@ -1,12 +1,11 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{DecimalValue, i256};
+use vortex_scalar::{DecimalValue, Scalar};
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{BoolArray, DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
 impl BetweenKernel for DecimalEncoding {
     // Determine if the values are between the lower and upper bounds
@@ -28,67 +27,55 @@ impl BetweenKernel for DecimalEncoding {
         let nullability =
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
-        match arr.values_type {
-            DecimalValueType::I128 => {
-                let Some(DecimalValue::I128(lower_128)) = *lower.as_decimal().decimal_value()
-                else {
-                    vortex_bail!("invalid lower bound Scalar: {lower}");
-                };
-                let Some(DecimalValue::I128(upper_128)) = *upper.as_decimal().decimal_value()
-                else {
-                    vortex_bail!("invalid upper bound Scalar: {upper}");
-                };
-
-                let lower_op = match options.lower_strict {
-                    StrictComparison::Strict => i128_lt_i128,
-                    StrictComparison::NonStrict => i128_lte_i128,
-                };
-
-                let upper_op = match options.upper_strict {
-                    StrictComparison::Strict => i128_lt_i128,
-                    StrictComparison::NonStrict => i128_lte_i128,
-                };
-
-                Ok(Some(between_impl::<i128>(
-                    arr,
-                    lower_128,
-                    upper_128,
-                    nullability,
-                    lower_op,
-                    upper_op,
-                )))
-            }
-            DecimalValueType::I256 => {
-                let Some(DecimalValue::I256(lower_256)) = *lower.as_decimal().decimal_value()
-                else {
-                    vortex_bail!("invalid lower bound Scalar: {lower}");
-                };
-                let Some(DecimalValue::I256(upper_256)) = *upper.as_decimal().decimal_value()
-                else {
-                    vortex_bail!("invalid upper bound Scalar: {upper}");
-                };
-
-                let lower_op = match options.lower_strict {
-                    StrictComparison::Strict => i256_lt_i256,
-                    StrictComparison::NonStrict => i256_lte_i256,
-                };
-
-                let upper_op = match options.upper_strict {
-                    StrictComparison::Strict => i256_lt_i256,
-                    StrictComparison::NonStrict => i256_lte_i256,
-                };
-
-                Ok(Some(between_impl::<i256>(
-                    arr,
-                    lower_256,
-                    upper_256,
-                    nullability,
-                    lower_op,
-                    upper_op,
-                )))
-            }
-        }
+        match_each_decimal_value_type!(arr.values_type(), |($D, $CTor)| {
+           between_unpack::<$D>(
+                arr,
+                lower,
+                upper,
+                |d| match d {
+                    $CTor(v) => Some(v),
+                    _ => None,
+                },
+                nullability,
+                options,
+             )
+        })
     }
+}
+
+fn between_unpack<T: NativeDecimalType>(
+    arr: &DecimalArray,
+    lower: Scalar,
+    upper: Scalar,
+    unpack: impl Fn(DecimalValue) -> Option<T> + Copy,
+    nullability: Nullability,
+    options: &BetweenOptions,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(lower_value) = lower.as_decimal().decimal_value().and_then(unpack) else {
+        vortex_bail!("invalid lower bound Scalar: {lower}");
+    };
+    let Some(upper_value) = upper.as_decimal().decimal_value().and_then(unpack) else {
+        vortex_bail!("invalid upper bound Scalar: {upper}");
+    };
+
+    let lower_op = match options.lower_strict {
+        StrictComparison::Strict => |a, b| a < b,
+        StrictComparison::NonStrict => |a, b| a <= b,
+    };
+
+    let upper_op = match options.upper_strict {
+        StrictComparison::Strict => |a, b| a < b,
+        StrictComparison::NonStrict => |a, b| a <= b,
+    };
+
+    Ok(Some(between_impl::<T>(
+        arr,
+        lower_value,
+        upper_value,
+        nullability,
+        lower_op,
+        upper_op,
+    )))
 }
 
 register_kernel!(BetweenKernelAdapter(DecimalEncoding).lift());
@@ -98,8 +85,8 @@ fn between_impl<T: NativeDecimalType>(
     lower: T,
     upper: T,
     nullability: Nullability,
-    lower_op: fn(T, T) -> bool,
-    upper_op: fn(T, T) -> bool,
+    lower_op: impl Fn(T, T) -> bool,
+    upper_op: impl Fn(T, T) -> bool,
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
     BoolArray::new(
@@ -110,26 +97,6 @@ fn between_impl<T: NativeDecimalType>(
         arr.validity().clone().union_nullability(nullability),
     )
     .into_array()
-}
-
-#[inline]
-const fn i128_lt_i128(a: i128, b: i128) -> bool {
-    a < b
-}
-
-#[inline]
-const fn i128_lte_i128(a: i128, b: i128) -> bool {
-    a <= b
-}
-
-#[inline]
-fn i256_lt_i256(a: i256, b: i256) -> bool {
-    a < b
-}
-
-#[inline]
-fn i256_lte_i256(a: i256, b: i256) -> bool {
-    a <= b
 }
 
 #[cfg(test)]

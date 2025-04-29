@@ -1,15 +1,16 @@
 use std::mem;
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef as ArrowArrayRef, Decimal128Array, Decimal256Array};
+use arrow_array::{ArrayRef as ArrowArrayRef, ArrayRef, Decimal128Array, Decimal256Array};
 use arrow_schema::DataType;
+use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::i256;
 
 use crate::Array;
 use crate::arrays::decimal::serde::DecimalValueType;
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::ToArrowFn;
 
 impl ToArrowFn<&DecimalArray> for DecimalEncoding {
@@ -23,28 +24,20 @@ impl ToArrowFn<&DecimalArray> for DecimalEncoding {
         let nulls = array.validity_mask()?.to_null_buffer();
 
         match array.values_type {
+            DecimalValueType::I8 => {
+                decimal_into_array_i128_decimal::<i8>(array, data_type, convert_buffer).map(Some)
+            }
+            DecimalValueType::I16 => {
+                decimal_into_array_i128_decimal::<i16>(array, data_type, convert_buffer).map(Some)
+            }
+            DecimalValueType::I32 => {
+                decimal_into_array_i128_decimal::<i32>(array, data_type, convert_buffer).map(Some)
+            }
+            DecimalValueType::I64 => {
+                decimal_into_array_i128_decimal::<i64>(array, data_type, convert_buffer).map(Some)
+            }
             DecimalValueType::I128 => {
-                let DataType::Decimal128(p, s) = data_type else {
-                    vortex_bail!(
-                        "Target Arrow type does not match Decimal source: {:?} ≠ {:?}",
-                        data_type,
-                        array.decimal_dtype()
-                    );
-                };
-                if *p != precision || *s != scale {
-                    vortex_bail!(
-                        "Decimal128: precision {} and scale {} do not match expected ({}, {})",
-                        precision,
-                        scale,
-                        p,
-                        s
-                    );
-                }
-
-                Ok(Some(Arc::new(
-                    Decimal128Array::new(array.buffer::<i128>().into_arrow_scalar_buffer(), nulls)
-                        .with_precision_and_scale(precision, scale)?,
-                )))
+                decimal_into_array_i128_decimal::<i128>(array, data_type, |x| x).map(Some)
             }
             DecimalValueType::I256 => {
                 let DataType::Decimal256(p, s) = data_type else {
@@ -76,6 +69,44 @@ impl ToArrowFn<&DecimalArray> for DecimalEncoding {
             }
         }
     }
+}
+
+fn decimal_into_array_i128_decimal<T: NativeDecimalType + AsPrimitive<i128>>(
+    array: &DecimalArray,
+    data_type: &DataType,
+    convert: impl Fn(Buffer<T>) -> Buffer<i128>,
+) -> VortexResult<ArrayRef> {
+    let precision = array.decimal_dtype().precision();
+    let scale = array.decimal_dtype().scale();
+
+    let DataType::Decimal128(p, s) = data_type else {
+        vortex_bail!(
+            "Target Arrow type does not match Decimal source: {:?} ≠ {:?}",
+            data_type,
+            array.decimal_dtype()
+        );
+    };
+    if *p != precision || *s != scale {
+        vortex_bail!(
+            "Decimal128: precision {} and scale {} do not match expected ({}, {})",
+            precision,
+            scale,
+            p,
+            s
+        );
+    }
+
+    Ok(Arc::new(
+        Decimal128Array::new(
+            convert(array.buffer::<T>()).into_arrow_scalar_buffer(),
+            array.validity_mask()?.to_null_buffer(),
+        )
+        .with_precision_and_scale(precision, scale)?,
+    ))
+}
+
+fn convert_buffer<T: NativeDecimalType + AsPrimitive<i128>>(buffer: Buffer<T>) -> Buffer<i128> {
+    buffer.iter().map(|val| val.as_()).collect()
 }
 
 #[cfg(test)]

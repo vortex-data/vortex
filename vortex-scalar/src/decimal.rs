@@ -10,6 +10,10 @@ use crate::{Scalar, ScalarValue, i256};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
 pub enum DecimalValue {
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
     I128(i128),
     I256(i256),
 }
@@ -17,6 +21,10 @@ pub enum DecimalValue {
 impl Display for DecimalValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            DecimalValue::I8(v8) => write!(f, "decimal8({})", v8),
+            DecimalValue::I16(v16) => write!(f, "decimal16({})", v16),
+            DecimalValue::I32(v32) => write!(f, "decimal32({})", v32),
+            DecimalValue::I64(v32) => write!(f, "decimal64({})", v32),
             DecimalValue::I128(v128) => write!(f, "decimal128({})", v128),
             DecimalValue::I256(v256) => write!(f, "decimal256({})", v256),
         }
@@ -79,6 +87,34 @@ impl Display for DecimalScalar<'_> {
             Some(&dv) => {
                 // Introduce some of the scale factors instead.
                 match dv {
+                    DecimalValue::I8(v) => write!(
+                        f,
+                        "decimal8({}, precision={}, scale={})",
+                        v,
+                        self.decimal_type.precision(),
+                        self.decimal_type.scale()
+                    ),
+                    DecimalValue::I16(v) => write!(
+                        f,
+                        "decimal16({}, precision={}, scale={})",
+                        v,
+                        self.decimal_type.precision(),
+                        self.decimal_type.scale()
+                    ),
+                    DecimalValue::I32(v) => write!(
+                        f,
+                        "decimal32({}, precision={}, scale={})",
+                        v,
+                        self.decimal_type.precision(),
+                        self.decimal_type.scale()
+                    ),
+                    DecimalValue::I64(v) => write!(
+                        f,
+                        "decimal64({}, precision={}, scale={})",
+                        v,
+                        self.decimal_type.precision(),
+                        self.decimal_type.scale()
+                    ),
                     DecimalValue::I128(v) => write!(
                         f,
                         "decimal128({}, precision={}, scale={})",

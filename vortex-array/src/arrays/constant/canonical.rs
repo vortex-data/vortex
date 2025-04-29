@@ -11,8 +11,8 @@ use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, StructArray,
-    VarBinViewArray,
+    BinaryView, BoolArray, DecimalArray, DecimalValueType, ExtensionArray, ListArray, NullArray,
+    StructArray, VarBinViewArray, precision_to_storage_size,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
@@ -57,30 +57,75 @@ impl ArrayCanonicalImpl for ConstantArray {
                 })
             }
             DType::Decimal(decimal_type, ..) => {
-                let fits_in_i128 = decimal_type.fits_in_i128();
-                let decimal_array = match (fits_in_i128, scalar.as_decimal().decimal_value()) {
-                    (true, None) => DecimalArray::new(
-                        Buffer::<i128>::zeroed(self.len()),
-                        *decimal_type,
-                        Validity::AllInvalid,
-                    ),
-                    (false, None) => DecimalArray::new(
-                        Buffer::<i256>::zeroed(self.len()),
-                        *decimal_type,
-                        Validity::AllInvalid,
-                    ),
-                    (_, Some(dv)) => match dv {
-                        DecimalValue::I128(v) => DecimalArray::new(
-                            Buffer::full(*v, self.len()),
+                let size = precision_to_storage_size(decimal_type);
+                let decimal = scalar.as_decimal();
+                let Some(value) = decimal.decimal_value() else {
+                    let all_null = match size {
+                        DecimalValueType::I8 => DecimalArray::new(
+                            Buffer::<i8>::zeroed(self.len()),
                             *decimal_type,
-                            Validity::AllValid,
+                            Validity::AllInvalid,
                         ),
-                        DecimalValue::I256(v) => DecimalArray::new(
-                            Buffer::full(*v, self.len()),
+                        DecimalValueType::I16 => DecimalArray::new(
+                            Buffer::<i16>::zeroed(self.len()),
                             *decimal_type,
-                            Validity::AllValid,
+                            Validity::AllInvalid,
                         ),
-                    },
+                        DecimalValueType::I32 => DecimalArray::new(
+                            Buffer::<i32>::zeroed(self.len()),
+                            *decimal_type,
+                            Validity::AllInvalid,
+                        ),
+                        DecimalValueType::I64 => DecimalArray::new(
+                            Buffer::<i64>::zeroed(self.len()),
+                            *decimal_type,
+                            Validity::AllInvalid,
+                        ),
+                        DecimalValueType::I128 => DecimalArray::new(
+                            Buffer::<i128>::zeroed(self.len()),
+                            *decimal_type,
+                            Validity::AllInvalid,
+                        ),
+                        DecimalValueType::I256 => DecimalArray::new(
+                            Buffer::<i256>::zeroed(self.len()),
+                            *decimal_type,
+                            Validity::AllInvalid,
+                        ),
+                    };
+                    return Ok(Canonical::Decimal(all_null));
+                };
+
+                let decimal_array = match value {
+                    DecimalValue::I8(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
+                    DecimalValue::I16(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
+                    DecimalValue::I32(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
+                    DecimalValue::I64(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
+                    DecimalValue::I128(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
+                    DecimalValue::I256(v) => DecimalArray::new(
+                        Buffer::full(*v, self.len()),
+                        *decimal_type,
+                        Validity::AllValid,
+                    ),
                 };
 
                 Canonical::Decimal(decimal_array)

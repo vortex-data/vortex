@@ -1,9 +1,8 @@
 use vortex_error::VortexResult;
-use vortex_scalar::i256;
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::{IsConstantFn, IsConstantOpts};
+use crate::match_each_decimal_value_type;
 
 impl IsConstantFn<&DecimalArray> for DecimalEncoding {
     fn is_constant(
@@ -11,10 +10,10 @@ impl IsConstantFn<&DecimalArray> for DecimalEncoding {
         array: &DecimalArray,
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        match array.values_type {
-            DecimalValueType::I128 => Ok(Some(compute_is_constant(&array.buffer::<i128>()))),
-            DecimalValueType::I256 => Ok(Some(compute_is_constant(&array.buffer::<i256>()))),
-        }
+        let constant = match_each_decimal_value_type!(array.values_type, |$S| {
+           compute_is_constant(&array.buffer::<$S>())
+        });
+        Ok(Some(constant))
     }
 }
 

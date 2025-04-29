@@ -74,6 +74,11 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 })
             }
             DType::Decimal(..) => match value.as_decimal().decimal_value() {
+                // TODO(joe): replace with decimal32, etc.
+                Some(DecimalValue::I8(v)) => Ok(Arc::new(Decimal128Array::new_scalar(*v as i128))),
+                Some(DecimalValue::I16(v)) => Ok(Arc::new(Decimal128Array::new_scalar(*v as i128))),
+                Some(DecimalValue::I32(v)) => Ok(Arc::new(Decimal128Array::new_scalar(*v as i128))),
+                Some(DecimalValue::I64(v)) => Ok(Arc::new(Decimal128Array::new_scalar(*v as i128))),
                 Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(*v128))),
                 Some(DecimalValue::I256(v256)) => {
                     Ok(Arc::new(Decimal256Array::new_scalar((*v256).into())))

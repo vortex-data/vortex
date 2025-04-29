@@ -1,12 +1,10 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
-use vortex_scalar::i256;
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
@@ -40,14 +38,13 @@ impl FilterKernel for DecimalEncoding {
         }
 
         match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => match array.values_type {
-                DecimalValueType::I128 => filter_by_indices!(i128, array, indices, validity),
-                DecimalValueType::I256 => filter_by_indices!(i256, array, indices, validity),
-            },
-            MaskIter::Slices(slices) => match array.values_type {
-                DecimalValueType::I128 => filter_by_slices!(i128, array, mask, slices, validity),
-                DecimalValueType::I256 => filter_by_slices!(i256, array, mask, slices, validity),
-            },
+            MaskIter::Indices(indices) => match_each_decimal_value_type!(array.values_type, |$S| {
+                filter_by_indices!($S, array, indices, validity)
+            }),
+
+            MaskIter::Slices(slices) => match_each_decimal_value_type!(array.values_type, |$S| {
+                filter_by_slices!($S, array,  mask, slices, validity)
+            }),
         }
     }
 }

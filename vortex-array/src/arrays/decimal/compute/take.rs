@@ -2,13 +2,11 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::i256;
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType, PrimitiveArray};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, match_each_decimal_value_type};
 
 impl TakeFn<&DecimalArray> for DecimalEncoding {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -17,20 +15,14 @@ impl TakeFn<&DecimalArray> for DecimalEncoding {
             .downcast_ref::<PrimitiveArray>()
             .ok_or_else(|| vortex_err!("indices must be a PrimitiveArray"))?;
 
-        match array.values_type() {
-            DecimalValueType::I128 => {
+        let decimal = match_each_decimal_value_type!(array.values_type(), |$D| {
                 match_each_integer_ptype!(indices.ptype(), |$I| {
-                    let buffer = take_to_buffer::<$I, i128>(indices.as_slice::<$I>(), array.buffer::<i128>().as_slice());
-                    Ok(DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone()).into_array())
+                    let buffer = take_to_buffer::<$I, $D>(indices.as_slice::<$I>(), array.buffer::<$D>().as_slice());
+                    DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone())
                 })
-            }
-            DecimalValueType::I256 => {
-                match_each_integer_ptype!(indices.ptype(), |$I| {
-                    let buffer = take_to_buffer::<$I, i256>(indices.as_slice::<$I>(), array.buffer::<i256>().as_slice());
-                    Ok(DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone()).into_array())
-                })
-            }
-        }
+        });
+
+        Ok(decimal.to_array())
     }
 }
 

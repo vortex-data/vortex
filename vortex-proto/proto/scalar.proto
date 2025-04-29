@@ -10,8 +10,12 @@ import "google/protobuf/struct.proto";
 
 message DecimalValue {
   oneof value {
-    bytes i128_little_endian = 1;
-    bytes i256_little_endian = 2;
+    bytes i8_little_endian = 1;
+    bytes i16_little_endian = 2;
+    bytes i32_little_endian = 3;
+    bytes i64_little_endian = 4;
+    bytes i128_little_endian = 5;
+    bytes i256_little_endian = 6;
   }
 }
 

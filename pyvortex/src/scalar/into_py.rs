@@ -114,6 +114,78 @@ trait DecimalIntoParts: Sized {
     fn decimal_parts(self, scale: i8) -> (Self, Self);
 }
 
+impl DecimalIntoParts for i8 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i8.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i8.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
+impl DecimalIntoParts for i16 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i16.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i16.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
+impl DecimalIntoParts for i32 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i32.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i32.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
+impl DecimalIntoParts for i64 {
+    fn decimal_parts(self, scale: i8) -> (Self, Self) {
+        match scale.cmp(&0) {
+            Ordering::Equal => (self, 0),
+            Ordering::Less => {
+                // Negative scale -> apply the given number of trailing zeros
+                let scale_factor = 10i64.pow(-scale as u32);
+                (self * scale_factor, 0)
+            }
+            Ordering::Greater => {
+                // Positive scale -> extract the leading/trailing digits separately.
+                let scale_factor = 10i64.pow(scale as u32);
+                (self / scale_factor, self % scale_factor)
+            }
+        }
+    }
+}
+
 impl DecimalIntoParts for i128 {
     fn decimal_parts(self, scale: i8) -> (Self, Self) {
         match scale.cmp(&0) {
@@ -159,6 +231,30 @@ fn decimal_value_to_py(
     let decimal_class = m.getattr("Decimal")?;
 
     match decimal_value {
+        DecimalValue::I8(v) => {
+            let (whole, decimal) = v.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
+        DecimalValue::I16(v) => {
+            let (whole, decimal) = v.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
+        DecimalValue::I32(v) => {
+            let (whole, decimal) = v.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
+        DecimalValue::I64(v) => {
+            let (whole, decimal) = v.decimal_parts(scale);
+            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
+                .into_pyobject(py)?;
+            decimal_class.call1((repr,))
+        }
         DecimalValue::I128(v128) => {
             let (whole, decimal) = v128.decimal_parts(scale);
             let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)

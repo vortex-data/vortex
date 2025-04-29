@@ -199,6 +199,10 @@ impl Serialize for PValue {
     }
 }
 
+pub const DECIMAL8_SERDE_NAME: &str = "decimal8";
+pub const DECIMAL16_SERDE_NAME: &str = "decimal16";
+pub const DECIMAL32_SERDE_NAME: &str = "decimal32";
+pub const DECIMAL64_SERDE_NAME: &str = "decimal64";
 pub const DECIMAL128_SERDE_NAME: &str = "decimal128";
 pub const DECIMAL256_SERDE_NAME: &str = "decimal256";
 
@@ -208,6 +212,29 @@ impl Serialize for DecimalValue {
         S: Serializer,
     {
         match self {
+            DecimalValue::I8(value) => {
+                let mut tuple_writer = serializer.serialize_tuple_struct(DECIMAL8_SERDE_NAME, 1)?;
+                tuple_writer.serialize_field(value)?;
+                tuple_writer.end()
+            }
+            DecimalValue::I16(value) => {
+                let mut tuple_writer =
+                    serializer.serialize_tuple_struct(DECIMAL16_SERDE_NAME, 1)?;
+                tuple_writer.serialize_field(value)?;
+                tuple_writer.end()
+            }
+            DecimalValue::I32(value) => {
+                let mut tuple_writer =
+                    serializer.serialize_tuple_struct(DECIMAL32_SERDE_NAME, 1)?;
+                tuple_writer.serialize_field(value)?;
+                tuple_writer.end()
+            }
+            DecimalValue::I64(value) => {
+                let mut tuple_writer =
+                    serializer.serialize_tuple_struct(DECIMAL64_SERDE_NAME, 1)?;
+                tuple_writer.serialize_field(value)?;
+                tuple_writer.end()
+            }
             DecimalValue::I128(value) => {
                 let mut tuple_writer =
                     serializer.serialize_tuple_struct(DECIMAL128_SERDE_NAME, 1)?;
