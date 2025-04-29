@@ -148,6 +148,9 @@ impl ComputeFnVTable for Compare {
         }
 
         // First try lhs op rhs, then invert and try again.
+        if let Some(output) = lhs.invoke(&COMPARE_FN, args)? {
+            return Ok(output);
+        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
@@ -159,6 +162,9 @@ impl ComputeFnVTable for Compare {
             inputs: &[rhs.into(), lhs.into()],
             options: &operator.swap(),
         };
+        if let Some(output) = rhs.invoke(&COMPARE_FN, &inverted_args)? {
+            return Ok(output);
+        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);

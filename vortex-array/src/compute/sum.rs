@@ -61,7 +61,7 @@ impl ComputeFnVTable for Sum {
             .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))
     }
 
-    fn return_len<'a>(&self, _args: &InvocationArgs<'a>) -> VortexResult<usize> {
+    fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
         // The sum function always returns a single scalar value.
         Ok(1)
     }
@@ -228,6 +228,9 @@ pub fn sum_impl(
         inputs: &[array.into()],
         options: &(),
     };
+    if let Some(output) = array.invoke(&SUM_FN, &args)? {
+        return output.unwrap_scalar();
+    }
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_scalar();

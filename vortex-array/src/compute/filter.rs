@@ -11,7 +11,7 @@ use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{
-    ComputeFn, ComputeFnVTable, Input, InvocationArgs, Kernel, Output, fill_null, scalar_at,
+    ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null, scalar_at,
 };
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
@@ -92,14 +92,12 @@ impl ComputeFnVTable for Filter {
             Mask::Values(values) => values,
         };
 
-        let args = InvocationArgs {
-            inputs: &[Input::Array(array), Input::Mask(mask)],
-            options: &(),
-        };
-
         // Check each kernel for the array
+        if let Some(output) = array.invoke(&FILTER_FN, args)? {
+            return Ok(output);
+        }
         for kernel in kernels {
-            if let Some(output) = kernel.invoke(&args)? {
+            if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
         }

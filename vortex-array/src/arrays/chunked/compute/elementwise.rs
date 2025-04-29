@@ -5,10 +5,11 @@ use crate::arrays::ChunkedArray;
 use crate::compute::{ComputeFn, InvocationArgs, Output, slice};
 
 impl ChunkedArray {
-    pub(in crate::arrays::chunked) fn invoke_elementwise<'a>(
+    /// Invoke an element-wise compute function over a chunked array.
+    pub(in crate::arrays::chunked) fn invoke_elementwise(
         &self,
         compute_fn: &ComputeFn,
-        args: &InvocationArgs<'a>,
+        args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         assert!(compute_fn.is_elementwise());
 
