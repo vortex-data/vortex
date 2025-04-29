@@ -128,6 +128,9 @@ impl ComputeFnVTable for Numeric {
         let NumericArgs { lhs, rhs, operator } = NumericArgs::try_from(args)?;
 
         // Check if LHS supports the operation directly.
+        if let Some(output) = lhs.invoke(&NUMERIC_FN, args)? {
+            return Ok(output);
+        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
@@ -139,6 +142,9 @@ impl ComputeFnVTable for Numeric {
             inputs: &[rhs.into(), lhs.into()],
             options: &operator.swap(),
         };
+        if let Some(output) = rhs.invoke(&NUMERIC_FN, &inverted_args)? {
+            return Ok(output);
+        }
         for kernel in kernels {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
