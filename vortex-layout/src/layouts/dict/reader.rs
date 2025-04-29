@@ -32,7 +32,7 @@ impl DictReader {
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
         if layout.vtable().id() != DictLayout.id() {
-            vortex_panic!("Mitmatched layout ID")
+            vortex_panic!("Mismatched layout ID")
         }
         let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
             layout.metadata().as_ref().map(|b| b.as_ref()),
@@ -98,13 +98,7 @@ impl DictReader {
                 } else {
                     let f = self
                         .values_array()
-                        .map(move |array| {
-                            expr.evaluate(&array?)
-                                // .and_then(|result| result.to_canonical())
-                                // TODO(os): not all expressions would benefit from a canonical array
-                                // .map(|canonical| canonical.into_array())
-                                .map_err(Arc::new)
-                        })
+                        .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
                         .boxed()
                         .shared();
 
@@ -115,13 +109,7 @@ impl DictReader {
             Entry::Vacant(vacant) => {
                 let f = self
                     .values_array()
-                    .map(move |array| {
-                        expr.evaluate(array?.as_ref())
-                            // .and_then(|result| result.to_canonical())
-                            // TODO(os): not all expressions would benefit from a canonical array
-                            // .map(|canonical| canonical.into_array())
-                            .map_err(Arc::new)
-                    })
+                    .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
                     .boxed()
                     .shared();
 
