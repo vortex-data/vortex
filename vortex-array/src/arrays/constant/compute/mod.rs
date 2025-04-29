@@ -13,17 +13,11 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
-use crate::compute::{
-    CastFn, InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
-};
+use crate::compute::{InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ConstantEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }

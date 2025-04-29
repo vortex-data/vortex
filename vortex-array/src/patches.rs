@@ -15,8 +15,8 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, slice, take, try_cast,
+    SearchResult, SearchSortedSide, cast, filter, scalar_at, search_sorted, search_sorted_usize,
+    search_sorted_usize_many, slice, take,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -204,7 +204,7 @@ impl Patches {
             self.array_len,
             self.offset,
             self.indices,
-            try_cast(&self.values, values_dtype)?,
+            cast(&self.values, values_dtype)?,
         ))
     }
 

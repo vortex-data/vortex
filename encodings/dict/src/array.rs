@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{scalar_at, take, take_into, try_cast};
+use vortex_array::compute::{cast, scalar_at, take, take_into};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
@@ -39,7 +39,7 @@ impl DictArray {
         let dtype = values.dtype();
         if dtype.is_nullable() {
             // If the values are nullable, we force codes to be nullable as well.
-            codes = try_cast(&codes, &codes.dtype().as_nullable())?;
+            codes = cast(&codes, &codes.dtype().as_nullable())?;
         } else {
             // If the values are non-nullable, we assert the codes are non-nullable as well.
             if codes.dtype().is_nullable() {

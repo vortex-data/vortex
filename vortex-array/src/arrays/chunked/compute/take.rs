@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    SearchSortedSide, TakeFn, scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast,
+    SearchSortedSide, TakeFn, cast, scalar_at, search_sorted_usize, slice, sub_scalar, take,
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -26,7 +26,7 @@ impl TakeFn<&ChunkedArray> for ChunkedEncoding {
             return take_strict_sorted(array, indices);
         }
 
-        let indices = try_cast(indices, PType::U64.into())?.to_primitive()?;
+        let indices = cast(indices, PType::U64.into())?.to_primitive()?;
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
@@ -93,7 +93,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResu
         } else {
             // Note. this try_cast (memory copy) is unnecessary, could instead upcast in the subtract fn.
             //  and avoid an extra
-            let u64_chunk_indices = try_cast(&chunk_indices, PType::U64.into())?;
+            let u64_chunk_indices = cast(&chunk_indices, PType::U64.into())?;
             sub_scalar(&u64_chunk_indices, chunk_begin.into())?
         };
 

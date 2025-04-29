@@ -6,7 +6,7 @@ use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
-use crate::compute::{ToArrowFn, try_cast};
+use crate::compute::{ToArrowFn, cast};
 use crate::{Array, ToCanonical};
 
 impl ToArrowFn<&VarBinArray> for VarBinEncoding {
@@ -65,7 +65,7 @@ impl ToArrowFn<&VarBinArray> for VarBinEncoding {
 pub(crate) fn varbin_to_arrow<O: NativePType + OffsetSizeTrait>(
     varbin_array: &VarBinArray,
 ) -> VortexResult<ArrayRef> {
-    let offsets = try_cast(
+    let offsets = cast(
         varbin_array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?

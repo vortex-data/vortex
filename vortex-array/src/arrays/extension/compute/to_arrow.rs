@@ -13,7 +13,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::Array;
 use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
 use crate::canonical::ToCanonical;
-use crate::compute::{ToArrowFn, to_arrow, try_cast};
+use crate::compute::{ToArrowFn, cast, to_arrow};
 
 impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
     fn to_arrow(
@@ -37,7 +37,7 @@ impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
 fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
     macro_rules! extract_temporal_values {
         ($values:expr, $prim:ty) => {{
-            let temporal_values = try_cast(
+            let temporal_values = cast(
                 $values,
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?

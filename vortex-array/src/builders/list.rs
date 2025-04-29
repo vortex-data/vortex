@@ -10,7 +10,7 @@ use vortex_scalar::{ListScalar, NumericOperator};
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
-use crate::compute::{numeric, slice, try_cast};
+use crate::compute::{cast, numeric, slice};
 use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -130,7 +130,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         })?;
 
         let offsets = numeric(
-            &try_cast(
+            &cast(
                 &slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,

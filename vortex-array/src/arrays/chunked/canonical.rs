@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use super::ChunkedArray;
 use crate::arrays::{ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
-use crate::compute::{scalar_at, slice, try_cast};
+use crate::compute::{cast, scalar_at, slice};
 use crate::validity::Validity;
 use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical, ToCanonical};
 
@@ -89,7 +89,7 @@ fn pack_lists(
     for chunk in chunks {
         let chunk = chunk.to_list()?;
         // TODO: handle i32 offsets if they fit.
-        let offsets_arr = try_cast(
+        let offsets_arr = cast(
             chunk.offsets(),
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?

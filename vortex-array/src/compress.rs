@@ -4,7 +4,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{min_max, try_cast};
+use crate::compute::{cast, min_max};
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayExt, ArrayRef, ToCanonical};
 
@@ -49,7 +49,7 @@ fn downscale_primitive_integer_array(
     if min < 0 || max < 0 {
         // Signed
         if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::I8, array.dtype().nullability()),
             )?
@@ -57,7 +57,7 @@ fn downscale_primitive_integer_array(
         }
 
         if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::I16, array.dtype().nullability()),
             )?
@@ -65,7 +65,7 @@ fn downscale_primitive_integer_array(
         }
 
         if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::I32, array.dtype().nullability()),
             )?
@@ -74,7 +74,7 @@ fn downscale_primitive_integer_array(
     } else {
         // Unsigned
         if max <= u8::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::U8, array.dtype().nullability()),
             )?
@@ -82,7 +82,7 @@ fn downscale_primitive_integer_array(
         }
 
         if max <= u16::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::U16, array.dtype().nullability()),
             )?
@@ -90,7 +90,7 @@ fn downscale_primitive_integer_array(
         }
 
         if max <= u32::MAX as i64 {
-            return try_cast(
+            return cast(
                 &array,
                 &DType::Primitive(PType::U32, array.dtype().nullability()),
             )?

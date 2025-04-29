@@ -1,17 +1,14 @@
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-
+use crate::Array;
 use crate::arrays::ChunkedEncoding;
-use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    CastFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn,
-    TakeFn, UncompressedSizeFn, try_cast,
+    FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
 
 mod binary_numeric;
 mod boolean;
+mod cast;
 mod compare;
 mod fill_null;
 mod filter;
@@ -27,10 +24,6 @@ mod take;
 mod uncompressed_size;
 
 impl ComputeVTable for ChunkedEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
@@ -72,17 +65,6 @@ impl ComputeVTable for ChunkedEncoding {
     }
 }
 
-impl CastFn<&ChunkedArray> for ChunkedEncoding {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut cast_chunks = Vec::new();
-        for chunk in array.chunks() {
-            cast_chunks.push(try_cast(chunk, dtype)?);
-        }
-
-        Ok(ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
@@ -92,7 +74,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::try_cast;
+    use crate::compute::cast;
 
     #[test]
     fn test_cast_chunked() {
@@ -115,7 +97,7 @@ mod test {
         .into_array();
 
         assert_eq!(
-            try_cast(
+            cast(
                 &root,
                 &DType::Primitive(PType::U64, Nullability::NonNullable)
             )

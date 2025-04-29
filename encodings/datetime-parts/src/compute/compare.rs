@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, and, compare, or, try_cast,
+    CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
 };
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::DType;
@@ -141,7 +141,7 @@ fn compare_gt(
 }
 
 fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
-    match try_cast(&ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
+    match cast(&ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
         Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {

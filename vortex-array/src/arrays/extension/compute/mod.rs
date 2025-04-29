@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    CastFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
+    FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
     MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn, ToArrowFn,
     UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
     slice, sum, take, uncompressed_size,
@@ -18,13 +18,6 @@ use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ExtensionEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        // It's not possible to cast an extension array to another type.
-        // TODO(ngates): we should allow some extension arrays to implement a callback
-        //  to support this
-        None
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }

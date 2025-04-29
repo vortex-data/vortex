@@ -1,19 +1,12 @@
 use crate::Array;
 use crate::compute::{
-    CastFn, FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn,
-    MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn,
-    TakeFromFn, ToArrowFn, UncompressedSizeFn,
+    FillForwardFn, FillNullFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn,
+    OptimizeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn,
+    ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// Implemented for arrays that can be casted to different types.
-    ///
-    /// See: [`CastFn`].
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        None
-    }
-
     /// Array function that returns new arrays a non-null value is repeated across runs of nulls.
     ///
     /// See: [`FillForwardFn`].

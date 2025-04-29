@@ -264,7 +264,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::conformance::binary_numeric::test_numeric;
-    use crate::compute::{scalar_at, sub_scalar, try_cast};
+    use crate::compute::{cast, scalar_at, sub_scalar};
     use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
@@ -379,7 +379,7 @@ mod test {
         let array = chunked_array();
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
-        let array = try_cast(&array, &signed_dtype).unwrap();
+        let array = cast(&array, &signed_dtype).unwrap();
         test_numeric::<u64>(array)
     }
 }

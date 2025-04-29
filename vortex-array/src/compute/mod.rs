@@ -12,7 +12,7 @@ use std::sync::RwLock;
 
 pub use between::*;
 pub use boolean::*;
-pub use cast::{CastFn, try_cast};
+pub use cast::*;
 pub use compare::*;
 pub use fill_forward::{FillForwardFn, fill_forward};
 pub use fill_null::{FillNullFn, fill_null};
@@ -175,6 +175,7 @@ pub enum Input<'a> {
     Array(&'a dyn Array),
     Mask(&'a Mask),
     Builder(&'a mut dyn ArrayBuilder),
+    DType(&'a DType),
 }
 
 impl Debug for Input<'_> {
@@ -185,6 +186,7 @@ impl Debug for Input<'_> {
             Input::Array(array) => f.field("Array", array),
             Input::Mask(mask) => f.field("Mask", mask),
             Input::Builder(builder) => f.field("Builder", &builder.len()),
+            Input::DType(dtype) => f.field("DType", dtype),
         };
         f.finish()
     }
@@ -205,6 +207,12 @@ impl<'a> From<&'a Scalar> for Input<'a> {
 impl<'a> From<&'a Mask> for Input<'a> {
     fn from(value: &'a Mask) -> Self {
         Input::Mask(value)
+    }
+}
+
+impl<'a> From<&'a DType> for Input<'a> {
+    fn from(value: &'a DType) -> Self {
+        Input::DType(value)
     }
 }
 
@@ -233,6 +241,13 @@ impl<'a> Input<'a> {
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
         match self {
             Input::Builder(builder) => Some(*builder),
+            _ => None,
+        }
+    }
+
+    pub fn dtype(&self) -> Option<&'a DType> {
+        match self {
+            Input::DType(dtype) => Some(*dtype),
             _ => None,
         }
     }

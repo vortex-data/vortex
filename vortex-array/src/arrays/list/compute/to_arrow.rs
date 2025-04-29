@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
-use crate::compute::{ToArrowFn, try_cast};
+use crate::compute::{ToArrowFn, cast};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
@@ -26,7 +26,7 @@ impl ToArrowFn<&ListArray> for ListEncoding {
             .to_primitive()
             .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-        let arrow_offsets = try_cast(&offsets, cast_ptype.into())
+        let arrow_offsets = cast(&offsets, cast_ptype.into())
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray"))?
             .to_primitive()?;
 

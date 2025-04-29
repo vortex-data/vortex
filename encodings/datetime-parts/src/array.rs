@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::StructArray;
-use vortex_array::compute::try_cast;
+use vortex_array::compute::cast;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
@@ -120,7 +120,7 @@ impl ExtensionArrayTrait for DateTimePartsArray {
     fn storage_data(&self) -> ArrayRef {
         // FIXME(ngates): this needs to be a tuple array so we can implement Compare
         // we don't want to write validity twice, so we pull it up to the top
-        let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
+        let days = cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
         StructArray::try_new(
             vec!["days".into(), "seconds".into(), "subseconds".into()].into(),
             [days, self.seconds().clone(), self.subseconds().clone()].into(),

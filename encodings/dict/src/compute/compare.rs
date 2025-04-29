@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare, try_cast};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, cast, compare};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_dtype::{DType, Nullability};
@@ -102,10 +102,10 @@ fn dict_equal_to(
         },
         // We found a single matching value so we can compare the codes directly.
         // Note: the codes include nullability so we can just compare the codes directly, to the found code.
-        (Some(code), None) => try_cast(
+        (Some(code), None) => cast(
             &compare(
                 codes,
-                &try_cast(&ConstantArray::new(code, codes.len()), codes.dtype())?,
+                &cast(&ConstantArray::new(code, codes.len()), codes.dtype())?,
                 Operator::Eq,
             )?,
             &DType::Bool(result_nullability),

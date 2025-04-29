@@ -75,7 +75,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{filter, try_cast};
+    use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -143,7 +143,7 @@ mod test {
         test_mask(
             &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
-                try_cast(
+                cast(
                     &buffer![100i32, 200, 300].into_array(),
                     null_fill_value.dtype(),
                 )
