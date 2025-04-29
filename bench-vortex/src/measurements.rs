@@ -241,7 +241,7 @@ pub struct CompressionTimingMeasurement {
 impl ToJson for CompressionTimingMeasurement {
     fn to_json(&self) -> JsonValue {
         let name = match self.format {
-            Format::OnDiskVortex => format!("{}", self.name),
+            Format::OnDiskVortex => self.name.to_string(),
             Format::Parquet => format!("parquet_rs-zstd {}", self.name),
             _ => vortex_panic!(
                 "CompressionTimingMeasurement only supports vortex and parquet formats"
