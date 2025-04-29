@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::compute::InvertFn;
+use crate::compute::InvertKernel;
 use crate::{Array, ArrayRef};
 
-impl InvertFn<&ConstantArray> for ConstantEncoding {
+impl InvertKernel<&ConstantArray> for ConstantEncoding {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {
         match array.scalar().as_bool().value() {
             None => Ok(array.to_array().into_array()),
@@ -24,7 +24,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::{ConstantArray, ConstantEncoding};
-    use crate::compute::InvertFn;
+    use crate::compute::InvertKernel;
     use crate::{Array, ArrayStatistics};
 
     #[test]

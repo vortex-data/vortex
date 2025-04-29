@@ -13,12 +13,14 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
-use crate::compute::{InvertFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{
+    InvertKernel, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn, UncompressedSizeFn,
+};
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ConstantEncoding {
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertKernel<&dyn Array>> {
         Some(self)
     }
 

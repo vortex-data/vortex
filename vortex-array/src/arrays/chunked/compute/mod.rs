@@ -1,8 +1,8 @@
 use crate::Array;
 use crate::arrays::ChunkedEncoding;
 use crate::compute::{
-    FillNullFn, InvertFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
-    UncompressedSizeFn,
+    FillNullFn, InvertKernel, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn,
+    TakeFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -28,7 +28,7 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertKernel<&dyn Array>> {
         Some(self)
     }
 

@@ -1,7 +1,7 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, InvertFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn,
-    ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
+    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
     UncompressedSizeFn,
 };
 
@@ -11,13 +11,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`FillNullFn`]
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
-    /// Invert a boolean array. Converts true -> false, false -> true, null -> null.
-    ///
-    /// See [`InvertFn`]
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         None
     }
 
