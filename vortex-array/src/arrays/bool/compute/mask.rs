@@ -9,7 +9,7 @@ impl MaskKernel for BoolEncoding {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(BoolArray::new(
             array.boolean_buffer().clone(),
-            array.validity().mask(&mask)?,
+            array.validity().mask(mask)?,
         )
         .into_array())
     }

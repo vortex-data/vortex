@@ -12,7 +12,7 @@ impl MaskKernel for VarBinEncoding {
             array.offsets().clone(),
             array.bytes().clone(),
             array.dtype().as_nullable(),
-            array.validity().mask(&mask)?,
+            array.validity().mask(mask)?,
         )?
         .into_array())
     }

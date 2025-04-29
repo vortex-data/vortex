@@ -11,7 +11,7 @@ impl MaskKernel for VarBinViewEncoding {
             array.views().clone(),
             array.buffers().to_vec(),
             array.dtype().as_nullable(),
-            array.validity().mask(&mask)?,
+            array.validity().mask(mask)?,
         )?
         .into_array())
     }
