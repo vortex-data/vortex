@@ -27,6 +27,7 @@ pub struct StructArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct StructEncoding;
 impl Encoding for StructEncoding {
     type Array = StructArray;

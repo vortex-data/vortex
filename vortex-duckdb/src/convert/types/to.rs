@@ -26,7 +26,10 @@ impl ToDuckDBType for DType {
                 PType::F64 => LogicalTypeId::Double,
                 PType::F16 => vortex_bail!("cannot convert f16 to duckdb type"),
             })),
-            DType::Decimal(..) => vortex_bail!("Vortex decimal type not supported yet"),
+            DType::Decimal(decimal_type, _) => Ok(LogicalTypeHandle::decimal(
+                decimal_type.precision(),
+                decimal_type.scale().try_into()?,
+            )),
             DType::Utf8(_) => Ok(LogicalTypeHandle::from(LogicalTypeId::Varchar)),
             DType::Binary(_) => Ok(LogicalTypeHandle::from(LogicalTypeId::Blob)),
             DType::Struct(struct_, _) => {

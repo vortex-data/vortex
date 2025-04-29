@@ -10,7 +10,6 @@ use vortex::arrays::{
     VarBinViewArray,
 };
 use vortex::buffer::buffer;
-use vortex::compute::Filter;
 use vortex::dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
@@ -159,13 +158,8 @@ fn compute_funcs(encodings: &[ArrayRef]) {
     let mut table_builder = Builder::default();
     table_builder.push_record(vec![
         "Encoding",
-        "cast",
-        "compare",
-        "fill_forward",
         "fill_null",
-        "filter",
         "scalar_at",
-        "binary_numeric",
         "search_sorted",
         "slice",
         "take",
@@ -176,13 +170,8 @@ fn compute_funcs(encodings: &[ArrayRef]) {
         let id = encoding.id();
         let mut impls = vec![id.as_ref()];
         for (j, func) in [
-            encoding.cast_fn().is_some(),
-            encoding.compare_fn().is_some(),
-            encoding.fill_forward_fn().is_some(),
             encoding.fill_null_fn().is_some(),
-            arr.find_kernel(&Filter).is_some(),
             encoding.scalar_at_fn().is_some(),
-            encoding.binary_numeric_fn().is_some(),
             encoding.search_sorted_fn().is_some(),
             encoding.slice_fn().is_some(),
             encoding.take_fn().is_some(),

@@ -1,5 +1,5 @@
-use vortex_array::compute::{FilterKernel, filter};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -16,3 +16,4 @@ impl FilterKernel for DateTimePartsEncoding {
         .into_array())
     }
 }
+register_kernel!(FilterKernelAdapter(DateTimePartsEncoding).lift());

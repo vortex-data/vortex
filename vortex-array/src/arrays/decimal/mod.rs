@@ -8,39 +8,21 @@ use vortex_mask::Mask;
 use vortex_scalar::i256;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::arrays::decimal::serde::{DecimalMetadata, DecimalValueType};
+use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ScalarAtFn, SliceFn};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
-use crate::vtable::{ComputeVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 
+#[derive(Debug)]
 pub struct DecimalEncoding;
 
-impl ComputeVTable for DecimalEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    // TODO(aduffy): SumFn
-    // TODO(aduffy): BetweenFn
-    // TODO(aduffy): IsSortedFn
-    // TODO(aduffy): SearchSortedFn
-    // TODO(aduffy): CompareFn
-    // TODO(aduffy): IsConstant
-    // TODO(aduffy): BetweenFn
-    // TODO(aduffy): BinaryNumericFn
-    // TODO(aduffy): TakeFn
-}
+pub use crate::arrays::decimal::serde::DecimalValueType;
 
 impl Encoding for DecimalEncoding {
     type Array = DecimalArray;
@@ -48,8 +30,24 @@ impl Encoding for DecimalEncoding {
 }
 
 /// Type of decimal scalar values.
-pub trait NativeDecimalType {
+pub trait NativeDecimalType: Copy + Eq + Ord {
     const VALUES_TYPE: DecimalValueType;
+}
+
+impl NativeDecimalType for i8 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
+}
+
+impl NativeDecimalType for i16 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
+}
+
+impl NativeDecimalType for i32 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
+}
+
+impl NativeDecimalType for i64 {
+    const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
 }
 
 impl NativeDecimalType for i128 {
@@ -58,6 +56,20 @@ impl NativeDecimalType for i128 {
 
 impl NativeDecimalType for i256 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
+}
+
+/// Maps a decimal precision into the small type that can represent it.
+pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueType {
+    match decimal_dtype.precision() {
+        1..=2 => DecimalValueType::I8,
+        3..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        39..=76 => DecimalValueType::I256,
+        0 => unreachable!("precision must be greater than 0"),
+        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+    }
 }
 
 /// Array for decimal-typed real numbers
@@ -128,6 +140,10 @@ impl DecimalArray {
         }
     }
 
+    pub fn values_type(&self) -> DecimalValueType {
+        self.values_type
+    }
+
     pub fn precision(&self) -> u8 {
         self.decimal_dtype().precision()
     }
@@ -159,6 +175,10 @@ impl ArrayImpl for DecimalArray {
     #[inline]
     fn _len(&self) -> usize {
         let divisor = match self.values_type {
+            DecimalValueType::I8 => 1,
+            DecimalValueType::I16 => 2,
+            DecimalValueType::I32 => 4,
+            DecimalValueType::I64 => 8,
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
         };

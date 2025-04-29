@@ -13,9 +13,7 @@ use crate::compute::{
     ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
-
-impl ArrayComputeImpl for ListArray {}
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ListEncoding {
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {

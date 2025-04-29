@@ -1,16 +1,16 @@
 use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::BinaryNumericOperator;
+use vortex_scalar::NumericOperator;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::compute::BinaryNumericFn;
-use crate::{Array, ArrayRef};
+use crate::compute::{NumericKernel, NumericKernelAdapter};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BinaryNumericFn<&ConstantArray> for ConstantEncoding {
-    fn binary_numeric(
+impl NumericKernel for ConstantEncoding {
+    fn numeric(
         &self,
         array: &ConstantArray,
         rhs: &dyn Array,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs) = rhs.as_constant() else {
             return Ok(None);
@@ -29,3 +29,5 @@ impl BinaryNumericFn<&ConstantArray> for ConstantEncoding {
         ))
     }
 }
+
+register_kernel!(NumericKernelAdapter(ConstantEncoding).lift());

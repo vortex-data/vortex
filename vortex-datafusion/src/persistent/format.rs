@@ -19,7 +19,7 @@ use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::insert::DataSinkExec;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
+use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::stats::{Stat, StatsProviderExt, StatsSet};
@@ -195,11 +195,12 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                async move {
+                tokio::task::spawn(async move {
                     let vxf = cache.try_get(&o, store).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
-                }
+                })
+                .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
             .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
@@ -207,14 +208,9 @@ impl FileFormat for VortexFormat {
 
         // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
         file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
-        let file_schemas = file_schemas
-            .into_iter()
-            .map(|(_, schema)| schema)
-            .collect::<Vec<_>>();
+        let file_schemas = file_schemas.into_iter().map(|(_, schema)| schema);
 
-        let schema = Arc::new(Schema::try_merge(file_schemas)?);
-
-        Ok(schema)
+        Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]

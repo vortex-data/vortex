@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::df::write_execution_plan;
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
@@ -447,7 +447,7 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{}", m);
             }
-            render_table(measurements, RatioMode::Time, &targets)?;
+            render_table(measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements)?;

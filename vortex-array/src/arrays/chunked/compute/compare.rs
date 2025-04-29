@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::builders::{ArrayBuilder, BoolBuilder};
-use crate::compute::{CompareFn, Operator, compare, slice};
-use crate::{Array, ArrayRef};
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare, slice};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl CompareFn<&ChunkedArray> for ChunkedEncoding {
+impl CompareKernel for ChunkedEncoding {
     fn compare(
         &self,
         lhs: &ChunkedArray,
@@ -31,6 +31,8 @@ impl CompareFn<&ChunkedArray> for ChunkedEncoding {
         Ok(Some(bool_builder.finish()))
     }
 }
+
+register_kernel!(CompareKernelAdapter(ChunkedEncoding).lift());
 
 #[cfg(test)]
 mod tests {

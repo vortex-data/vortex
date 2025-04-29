@@ -22,6 +22,7 @@ pub struct ExtensionArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ExtensionEncoding;
 impl Encoding for ExtensionEncoding {
     type Array = ExtensionArray;

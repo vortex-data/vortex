@@ -4,11 +4,11 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::SumFn;
+use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::{Array, register_kernel};
 
-impl SumFn<&BoolArray> for BoolEncoding {
+impl SumKernel for BoolEncoding {
     fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {
         let true_count: Option<u64> = match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
@@ -29,3 +29,5 @@ impl SumFn<&BoolArray> for BoolEncoding {
         Ok(Scalar::from(true_count))
     }
 }
+
+register_kernel!(SumKernelAdapter(BoolEncoding).lift());

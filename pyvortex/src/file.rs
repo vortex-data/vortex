@@ -6,7 +6,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::ToCanonical;
-use vortex::compute::try_cast;
+use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexError;
@@ -156,7 +156,7 @@ impl PyVortexFile {
             .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
 
         if let Some(indices) = indices {
-            let indices = try_cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
+            let indices = cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
                 .to_primitive()?
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);

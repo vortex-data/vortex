@@ -8,31 +8,16 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    CastFn, CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn,
-    KernelRef, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
+    FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
+    MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn, ToArrowFn,
     UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
     slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
-
-impl ArrayComputeImpl for ExtensionArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(ExtensionEncoding).some();
-}
+use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ExtensionEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        // It's not possible to cast an extension array to another type.
-        // TODO(ngates): we should allow some extension arrays to implement a callback
-        //  to support this
-        None
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
@@ -46,10 +31,6 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 
@@ -79,6 +60,8 @@ impl FilterKernel for ExtensionEncoding {
     }
 }
 
+register_kernel!(FilterKernelAdapter(ExtensionEncoding).lift());
+
 impl ScalarAtFn<&ExtensionArray> for ExtensionEncoding {
     fn scalar_at(&self, array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
@@ -98,11 +81,13 @@ impl SliceFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl SumFn<&ExtensionArray> for ExtensionEncoding {
+impl SumKernel for ExtensionEncoding {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
         sum(array.storage())
     }
 }
+
+register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
 
 impl TakeFn<&ExtensionArray> for ExtensionEncoding {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

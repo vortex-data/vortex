@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
-use crate::compute::{MaskFn, mask, try_cast};
+use crate::compute::{MaskFn, cast, mask};
 use crate::{Array, ArrayRef};
 
 impl MaskFn<&ChunkedArray> for ChunkedEncoding {
@@ -58,7 +58,7 @@ fn mask_indices(
                 let chunk = array
                     .chunk(current_chunk_id)
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
-                new_chunks.push(try_cast(chunk, new_dtype)?);
+                new_chunks.push(cast(chunk, new_dtype)?);
                 current_chunk_id += 1;
             }
         }
@@ -79,7 +79,7 @@ fn mask_indices(
         let chunk = array
             .chunk(current_chunk_id)
             .vortex_expect("find_chunk_idx must return valid chunk ID");
-        new_chunks.push(try_cast(chunk, new_dtype)?);
+        new_chunks.push(cast(chunk, new_dtype)?);
         current_chunk_id += 1;
     }
 

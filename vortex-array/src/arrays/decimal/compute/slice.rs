@@ -1,32 +1,25 @@
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
-use vortex_scalar::i256;
 
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::SliceFn;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, match_each_decimal_value_type};
 
 impl SliceFn<&DecimalArray> for DecimalEncoding {
     fn slice(&self, array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(match array.values_type {
-            DecimalValueType::I128 => slice_typed(
-                array.buffer::<i128>(),
+        let sliced = match_each_decimal_value_type!(array.values_type, |$S| {
+            slice_typed(
+                array.buffer::<$S>(),
                 start,
                 stop,
                 array.decimal_dtype(),
                 array.validity.clone(),
-            ),
-            DecimalValueType::I256 => slice_typed(
-                array.buffer::<i256>(),
-                start,
-                stop,
-                array.decimal_dtype(),
-                array.validity.clone(),
-            ),
-        })
+            )
+        });
+
+        Ok(sliced)
     }
 }
 

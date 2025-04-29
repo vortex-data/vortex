@@ -26,9 +26,10 @@ const CHUNK_SIZE: usize = 1024;
 /// use vortex_array::IntoArray;
 /// use vortex_buffer::buffer;
 /// use vortex_fastlanes::BitPackedArray;
+/// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
 /// let array = BitPackedArray::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
-/// let mut unpacked_chunks = array.unpacked_chunks();
+/// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks();
 ///
 /// if let Some(header) = unpacked_chunks.initial() {
 ///    // handle partial initial chunk

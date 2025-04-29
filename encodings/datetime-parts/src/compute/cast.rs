@@ -1,11 +1,11 @@
-use vortex_array::compute::{CastFn, try_cast};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-impl CastFn<&DateTimePartsArray> for DateTimePartsEncoding {
+impl CastKernel for DateTimePartsEncoding {
     fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
@@ -13,7 +13,7 @@ impl CastFn<&DateTimePartsArray> for DateTimePartsEncoding {
 
         Ok(DateTimePartsArray::try_new(
             dtype.clone(),
-            try_cast(
+            cast(
                 array.days().as_ref(),
                 &array.days().dtype().with_nullability(dtype.nullability()),
             )?,
@@ -24,11 +24,13 @@ impl CastFn<&DateTimePartsArray> for DateTimePartsEncoding {
     }
 }
 
+register_kernel!(CastKernelAdapter(DateTimePartsEncoding).lift());
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
-    use vortex_array::compute::try_cast;
+    use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
@@ -69,7 +71,7 @@ mod tests {
     ) {
         let array = date_time_array(validity);
         let new_dtype = array.dtype().with_nullability(cast_to_nullability);
-        let result = try_cast(&array, &new_dtype);
+        let result = cast(&array, &new_dtype);
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(result.unwrap().dtype(), &new_dtype);
     }
@@ -79,7 +81,7 @@ mod tests {
     #[case(Validity::from_iter([true, false, true]))]
     fn test_bad_cast_fails(#[case] validity: Validity) {
         let array = date_time_array(validity);
-        let result = try_cast(&array, &DType::Bool(Nullability::NonNullable));
+        let result = cast(&array, &DType::Bool(Nullability::NonNullable));
         assert!(
             result
                 .as_ref()
@@ -88,7 +90,7 @@ mod tests {
             result
         );
 
-        let result = try_cast(
+        let result = cast(
             &array,
             &array.dtype().with_nullability(Nullability::NonNullable),
         );

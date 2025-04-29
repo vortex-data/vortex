@@ -1,19 +1,14 @@
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-
+use crate::Array;
 use crate::arrays::ChunkedEncoding;
-use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterKernelAdapter, InvertFn,
-    IsConstantFn, IsSortedFn, KernelRef, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, SumFn, TakeFn,
-    UncompressedSizeFn, try_cast,
+    FillNullFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
+    UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
 
-mod binary_numeric;
-mod boolean;
+mod cast;
 mod compare;
+mod elementwise;
 mod fill_null;
 mod filter;
 mod invert;
@@ -27,32 +22,8 @@ mod sum;
 mod take;
 mod uncompressed_size;
 
-impl ArrayComputeImpl for ChunkedArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(ChunkedEncoding).some();
-}
-
 impl ComputeVTable for ChunkedEncoding {
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
@@ -87,21 +58,6 @@ impl ComputeVTable for ChunkedEncoding {
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
-impl CastFn<&ChunkedArray> for ChunkedEncoding {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut cast_chunks = Vec::new();
-        for chunk in array.chunks() {
-            cast_chunks.push(try_cast(chunk, dtype)?);
-        }
-
-        Ok(ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array())
-    }
 }
 
 #[cfg(test)]
@@ -113,7 +69,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::try_cast;
+    use crate::compute::cast;
 
     #[test]
     fn test_cast_chunked() {
@@ -136,7 +92,7 @@ mod test {
         .into_array();
 
         assert_eq!(
-            try_cast(
+            cast(
                 &root,
                 &DType::Primitive(PType::U64, Nullability::NonNullable)
             )

@@ -72,14 +72,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: DuckDB extension build
+        env:
+          # Build DuckDB and the Vortex extension with `-march=native`.
+          # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
+          NATIVE_ARCH: 1
         run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
       - name: Generate data
         shell: bash
-        run:
+        run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet,datafusion:vortex,duckdb:vortex -i1
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
+          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
 
       - name: Upload data
         if: matrix.remote_storage != null

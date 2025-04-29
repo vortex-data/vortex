@@ -3,7 +3,7 @@ use std::sync::Arc;
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, ExtDType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructDType};
 use vortex_error::{VortexResult, vortex_bail};
 
 pub trait FromDuckDBType<A> {
@@ -54,9 +54,12 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
                 Arc::new(DType::Primitive(PType::I64, nullable)),
                 Some(TemporalMetadata::Timestamp(timestamp_time_unit(type_.id())?, None).into()),
             )))),
+            LogicalTypeId::Decimal => Ok(DType::Decimal(
+                DecimalDType::new(type_.decimal_width(), type_.decimal_scale().try_into()?),
+                nullable,
+            )),
             LogicalTypeId::Interval
             | LogicalTypeId::Hugeint
-            | LogicalTypeId::Decimal
             | LogicalTypeId::Enum
             | LogicalTypeId::Map
             | LogicalTypeId::Uuid

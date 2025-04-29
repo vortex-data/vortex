@@ -7,6 +7,7 @@ use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
+use vortex::match_each_decimal_value;
 use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
 
 use crate::PyVortex;
@@ -114,23 +115,32 @@ trait DecimalIntoParts: Sized {
     fn decimal_parts(self, scale: i8) -> (Self, Self);
 }
 
-impl DecimalIntoParts for i128 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, 0),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = 10i128.pow(-scale as u32);
-                (self * scale_factor, 0)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = 10i128.pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
+macro_rules! impl_decimal_into_parts {
+    ($ty:ident, $ten:expr) => {
+        impl DecimalIntoParts for $ty {
+            fn decimal_parts(self, scale: i8) -> (Self, Self) {
+                let scale_factor = $ten.pow(scale.unsigned_abs() as u32);
+                match scale.cmp(&0) {
+                    Ordering::Equal => (self, 0),
+                    Ordering::Less => {
+                        // Negative scale -> apply the given number of trailing zeros
+                        (self * scale_factor, 0)
+                    }
+                    Ordering::Greater => {
+                        // Positive scale -> extract the leading/trailing digits separately.
+                        (self / scale_factor, self % scale_factor)
+                    }
+                }
             }
         }
-    }
+    };
 }
+
+impl_decimal_into_parts!(i8, 10i8);
+impl_decimal_into_parts!(i16, 10i16);
+impl_decimal_into_parts!(i32, 10i32);
+impl_decimal_into_parts!(i64, 10i64);
+impl_decimal_into_parts!(i128, 10i128);
 
 impl DecimalIntoParts for i256 {
     fn decimal_parts(self, scale: i8) -> (Self, Self) {
@@ -158,18 +168,12 @@ fn decimal_value_to_py(
     let m = py.import("decimal")?;
     let decimal_class = m.getattr("Decimal")?;
 
-    match decimal_value {
-        DecimalValue::I128(v128) => {
-            let (whole, decimal) = v128.decimal_parts(scale);
+    match_each_decimal_value!(decimal_value, |$V| {
+       {
+            let (whole, decimal) = $V.decimal_parts(scale);
             let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
                 .into_pyobject(py)?;
             decimal_class.call1((repr,))
         }
-        DecimalValue::I256(v256) => {
-            let (whole, decimal) = v256.decimal_parts(scale);
-            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
-                .into_pyobject(py)?;
-            decimal_class.call1((repr,))
-        }
-    }
+    })
 }

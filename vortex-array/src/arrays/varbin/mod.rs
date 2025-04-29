@@ -39,6 +39,7 @@ pub struct VarBinArray {
 
 try_from_array_ref!(VarBinArray);
 
+#[derive(Debug)]
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
     type Array = VarBinArray;

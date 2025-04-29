@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{Operator, compare, fill_forward, scalar_at, slice, take};
+use vortex::compute::{Operator, compare, scalar_at, slice, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
 use vortex::nbytes::NBytes;
@@ -378,51 +378,6 @@ impl PyArray {
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
         let inner = vortex::compute::filter(&*slf, &Mask::try_from(&*mask as &dyn Array)?)?;
-        Ok(PyArrayRef::from(inner))
-    }
-
-    /// Fill forward non-null values over runs of nulls.
-    ///
-    /// Leading nulls are replaced with the "zero" for that type. For integral and floating-point
-    /// types, this is zero. For the Boolean type, this is `:obj:`False`.
-    ///
-    /// Fill forward sensor values over intermediate missing values. Note that leading nulls are
-    /// replaced with 0.0:
-    ///
-    ///     >>> import vortex as vx
-    ///     >>> a = vx.array([
-    ///     ...      None,  None, 30.29, 30.30, 30.30,  None,  None, 30.27, 30.25,
-    ///     ...     30.22,  None,  None,  None,  None, 30.12, 30.11, 30.11, 30.11,
-    ///     ...     30.10, 30.08,  None, 30.21, 30.03, 30.03, 30.05, 30.07, 30.07,
-    ///     ... ])
-    ///     >>> a.fill_forward().to_arrow_array()
-    ///     <pyarrow.lib.DoubleArray object at ...>
-    ///     [
-    ///       0,
-    ///       0,
-    ///       30.29,
-    ///       30.3,
-    ///       30.3,
-    ///       30.3,
-    ///       30.3,
-    ///       30.27,
-    ///       30.25,
-    ///       30.22,
-    ///       ...
-    ///       30.11,
-    ///       30.1,
-    ///       30.08,
-    ///       30.08,
-    ///       30.21,
-    ///       30.03,
-    ///       30.03,
-    ///       30.05,
-    ///       30.07,
-    ///       30.07
-    ///     ]
-    fn fill_forward(slf: Bound<Self>) -> PyResult<PyArrayRef> {
-        let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        let inner = fill_forward(&slf)?;
         Ok(PyArrayRef::from(inner))
     }
 

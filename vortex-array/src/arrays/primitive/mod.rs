@@ -39,6 +39,7 @@ pub struct PrimitiveArray {
 
 try_from_array_ref!(PrimitiveArray);
 
+#[derive(Debug)]
 pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
     type Array = PrimitiveArray;

@@ -27,6 +27,7 @@
 //! ```
 
 mod bool;
+mod decimal;
 mod extension;
 mod lazy_validity_builder;
 mod list;
@@ -38,6 +39,7 @@ mod varbinview;
 use std::any::Any;
 
 pub use bool::*;
+pub use decimal::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;

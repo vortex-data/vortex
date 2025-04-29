@@ -6,13 +6,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
-use crate::compute::SumFn;
+use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::stats::Stat;
 use crate::variants::PrimitiveArrayTrait;
+use crate::{Array, register_kernel};
 
-impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
+impl SumKernel for PrimitiveEncoding {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {
         Ok(match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
@@ -52,6 +52,8 @@ impl SumFn<&PrimitiveArray> for PrimitiveEncoding {
         })
     }
 }
+
+register_kernel!(SumKernelAdapter(PrimitiveEncoding).lift());
 
 fn sum_integer<T: NativePType + ToPrimitive, R: NativePType + CheckedAdd>(
     values: &[T],

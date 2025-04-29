@@ -1,5 +1,5 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
-use vortex_array::compute::try_cast;
+use vortex_array::compute::cast;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayCanonicalImpl, Canonical, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -37,7 +37,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         TimeUnit::D => vortex_bail!(InvalidArgument: "cannot decode into TimeUnit::D"),
     };
 
-    let days_buf = try_cast(
+    let days_buf = cast(
         array.days(),
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
@@ -61,8 +61,8 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             *v += seconds;
         }
     } else {
-        let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
-            .to_primitive()?;
+        let seconds_buf =
+            cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?.to_primitive()?;
         for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
@@ -78,7 +78,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             *v += subseconds;
         }
     } else {
-        let subsecond_buf = try_cast(
+        let subsecond_buf = cast(
             array.subseconds(),
             &DType::Primitive(PType::I64, NonNullable),
         )?

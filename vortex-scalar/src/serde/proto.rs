@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_dtype::half::f16;
@@ -33,6 +34,10 @@ impl From<&ScalarValue> for pb::ScalarValue {
             ScalarValue(InnerScalarValue::Primitive(v)) => v.into(),
             ScalarValue(InnerScalarValue::Decimal(v)) => {
                 let inner_value = match v {
+                    DecimalValue::I8(v) => Value::I8LittleEndian(v.to_le_bytes().to_vec()),
+                    DecimalValue::I16(v) => Value::I16LittleEndian(v.to_le_bytes().to_vec()),
+                    DecimalValue::I32(v) => Value::I32LittleEndian(v.to_le_bytes().to_vec()),
+                    DecimalValue::I64(v) => Value::I64LittleEndian(v.to_le_bytes().to_vec()),
                     DecimalValue::I128(v128) => {
                         Value::I128LittleEndian(v128.to_le_bytes().to_vec())
                     }
@@ -182,31 +187,66 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
             }
             Ok(ScalarValue(InnerScalarValue::List(values.into())))
         }
-        Kind::DecimalValue(v) => match v.clone().value {
-            None => {
-                vortex_bail!("DecimalValue must be populated")
+        Kind::DecimalValue(v) => {
+            match v.clone().value {
+                None => {
+                    vortex_bail!("DecimalValue must be populated")
+                }
+                Some(value) => match value {
+                    Value::I8LittleEndian(i8_le_bytes) => {
+                        let native =
+                            i8::from_le_bytes(i8_le_bytes.try_into().map_err(|_| {
+                                vortex_err!("i8 decimal scalar value must be 1 bytes")
+                            })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I8(
+                            native,
+                        ))))
+                    }
+                    Value::I16LittleEndian(bytes) => {
+                        let native = i16::from_le_bytes(bytes.try_into().map_err(|_| {
+                            vortex_err!("i16 decimal scalar value must be 2 bytes")
+                        })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I16(
+                            native,
+                        ))))
+                    }
+                    Value::I32LittleEndian(bytes) => {
+                        let native = i32::from_le_bytes(bytes.try_into().map_err(|_| {
+                            vortex_err!("i32 decimal scalar value must be 4 bytes")
+                        })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I32(
+                            native,
+                        ))))
+                    }
+                    Value::I64LittleEndian(bytes) => {
+                        let native = i64::from_le_bytes(bytes.try_into().map_err(|_| {
+                            vortex_err!("i64 decimal scalar value must be 8 bytes")
+                        })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I64(
+                            native,
+                        ))))
+                    }
+                    Value::I128LittleEndian(i128_le_bytes) => {
+                        let native =
+                            i128::from_le_bytes(i128_le_bytes.try_into().map_err(|_| {
+                                vortex_err!("i128 decimal scalar value must be 16 bytes")
+                            })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
+                            native,
+                        ))))
+                    }
+                    Value::I256LittleEndian(i256_le_bytes) => {
+                        let native =
+                            i256::from_le_bytes(i256_le_bytes.try_into().map_err(|_| {
+                                vortex_err!("i128 decimal scalar value must be 32 bytes")
+                            })?);
+                        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
+                            native,
+                        ))))
+                    }
+                },
             }
-            Some(value) => match value {
-                Value::I128LittleEndian(i128_le_bytes) => {
-                    let native =
-                        i128::from_le_bytes(i128_le_bytes.try_into().map_err(|_| {
-                            vortex_err!("i128 decimal scalar value must be 16 bytes")
-                        })?);
-                    Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
-                        native,
-                    ))))
-                }
-                Value::I256LittleEndian(i256_le_bytes) => {
-                    let native =
-                        i256::from_le_bytes(i256_le_bytes.try_into().map_err(|_| {
-                            vortex_err!("i128 decimal scalar value must be 32 bytes")
-                        })?);
-                    Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-                        native,
-                    ))))
-                }
-            },
-        },
+        }
     }
 }
 

@@ -1,28 +1,18 @@
 mod compare;
+mod filter;
 
 use vortex_array::arrays::{VarBinArray, varbin_scalar};
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{
-    CompareFn, FilterKernel, FilterKernelAdapter, KernelRef, ScalarAtFn, SliceFn, TakeFn,
-    fill_null, filter, scalar_at, slice, take,
-};
+use vortex_array::compute::{ScalarAtFn, SliceFn, TakeFn, fill_null, scalar_at, slice, take};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayComputeImpl, ArrayExt, ArrayRef};
+use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl ArrayComputeImpl for FSSTArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(FSSTEncoding).some();
-}
 impl ComputeVTable for FSSTEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -93,19 +83,5 @@ impl ScalarAtFn<&FSSTArray> for FSSTEncoding {
         let decoded_buffer =
             ByteBuffer::from(array.decompressor().decompress(binary_datum.as_slice()));
         Ok(varbin_scalar(decoded_buffer, array.dtype()))
-    }
-}
-
-impl FilterKernel for FSSTEncoding {
-    // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(FSSTArray::try_new(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            filter(array.codes(), mask)?.as_::<VarBinArray>().clone(),
-            filter(array.uncompressed_lengths(), mask)?,
-        )?
-        .into_array())
     }
 }

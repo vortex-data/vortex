@@ -1,17 +1,17 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{BinaryNumericFn, binary_numeric};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::BinaryNumericOperator;
+use vortex_scalar::NumericOperator;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl BinaryNumericFn<&SparseArray> for SparseEncoding {
-    fn binary_numeric(
+impl NumericKernel for SparseEncoding {
+    fn numeric(
         &self,
         array: &SparseArray,
         rhs: &dyn Array,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
@@ -20,7 +20,7 @@ impl BinaryNumericFn<&SparseArray> for SparseEncoding {
         let new_patches = array.patches().clone().map_values(|values| {
             let rhs_const_array = ConstantArray::new(rhs_scalar.clone(), values.len()).into_array();
 
-            binary_numeric(&values, &rhs_const_array, op)
+            numeric(&values, &rhs_const_array, op)
         })?;
         let new_fill_value = array
             .fill_scalar()
@@ -33,3 +33,5 @@ impl BinaryNumericFn<&SparseArray> for SparseEncoding {
         ))
     }
 }
+
+register_kernel!(NumericKernelAdapter(SparseEncoding).lift());

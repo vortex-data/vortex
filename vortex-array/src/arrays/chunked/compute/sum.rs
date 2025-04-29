@@ -4,11 +4,11 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{SumFn, sum};
+use crate::compute::{SumKernel, SumKernelAdapter, sum};
 use crate::stats::Stat;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl SumFn<&ChunkedArray> for ChunkedEncoding {
+impl SumKernel for ChunkedEncoding {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())
@@ -25,6 +25,8 @@ impl SumFn<&ChunkedArray> for ChunkedEncoding {
         Ok(Scalar::new(sum_dtype, scalar_value))
     }
 }
+
+register_kernel!(SumKernelAdapter(ChunkedEncoding).lift());
 
 fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
     chunks: &[ArrayRef],

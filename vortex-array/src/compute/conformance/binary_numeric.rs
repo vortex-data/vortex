@@ -1,10 +1,10 @@
 use num_traits::Num;
 use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
-use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
+use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
-use crate::compute::{binary_numeric, scalar_at};
+use crate::compute::{numeric, scalar_at};
 use crate::{Array, ArrayRef, ToCanonical};
 
 fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
@@ -15,7 +15,7 @@ fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
         .vortex_unwrap()
 }
 
-pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
+pub fn test_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
@@ -27,19 +27,19 @@ where
         .vortex_unwrap();
     let scalar_one = Scalar::from(one).cast(array.dtype()).vortex_unwrap();
 
-    let operators: [BinaryNumericOperator; 6] = [
-        BinaryNumericOperator::Add,
-        BinaryNumericOperator::Sub,
-        BinaryNumericOperator::RSub,
-        BinaryNumericOperator::Mul,
-        BinaryNumericOperator::Div,
-        BinaryNumericOperator::RDiv,
+    let operators: [NumericOperator; 6] = [
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::RSub,
+        NumericOperator::Mul,
+        NumericOperator::Div,
+        NumericOperator::RDiv,
     ];
 
     for operator in operators {
         assert_eq!(
             to_vec_of_scalar(
-                &binary_numeric(
+                &numeric(
                     &array,
                     &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
                     operator
@@ -62,7 +62,7 @@ where
 
         assert_eq!(
             to_vec_of_scalar(
-                &binary_numeric(
+                &numeric(
                     &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
                     &array,
                     operator

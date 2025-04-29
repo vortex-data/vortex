@@ -7,26 +7,28 @@ use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
 use tokio::runtime::Runtime;
 use vortex::arrays::ChunkedArray;
-use vortex::nbytes::NBytes;
-use vortex::{ArrayExt, ArrayRef};
+use vortex::builders::builder_with_capacity;
+use vortex::error::VortexUnwrap;
+use vortex::{Array, ArrayExt};
 
 use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
-use crate::measurements::{CustomUnitMeasurement, ThroughputMeasurement};
+use crate::datasets::Dataset;
+use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
-    pub throughputs: Vec<ThroughputMeasurement>,
+    pub timings: Vec<CompressionTimingMeasurement>,
     pub ratios: Vec<CustomUnitMeasurement>,
 }
 
 impl Extend<CompressMeasurements> for CompressMeasurements {
     fn extend<T: IntoIterator<Item = CompressMeasurements>>(&mut self, iter: T) {
         iter.into_iter().for_each(|measurement| {
-            self.throughputs.extend(measurement.throughputs);
+            self.timings.extend(measurement.timings);
             self.ratios.extend(measurement.ratios);
         })
     }
@@ -45,29 +47,33 @@ impl FromIterator<CompressMeasurements> for CompressMeasurements {
     }
 }
 
-pub fn benchmark_compress<F>(
+pub fn benchmark_compress(
     runtime: &Runtime,
     progress: &ProgressBar,
     formats: &[Format],
     iterations: usize,
-    bench_name: &str,
-    make_uncompressed: F,
-) -> CompressMeasurements
-where
-    F: Fn() -> ArrayRef,
-{
+    dataset_handle: &dyn Dataset,
+) -> CompressMeasurements {
+    let bench_name = dataset_handle.name();
     tracing::info!("Running {bench_name} benchmark");
-    let uncompressed = make_uncompressed();
-    let uncompressed_size = uncompressed.nbytes();
+
+    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await });
+    let uncompressed =
+        ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(|chunk| {
+            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+            builder.finish()
+        }))
+        .into_array();
+
     let compressed_size = AtomicU64::default();
 
     let mut ratios = Vec::new();
-    let mut throughputs = Vec::new();
+    let mut timings = Vec::new();
 
     if formats.contains(&Format::OnDiskVortex) {
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 compressed_size.store(
                     vortex_compress_write(&uncompressed, &mut Vec::new())
@@ -82,12 +88,6 @@ where
 
         let compressed_size_f64 = compressed_size.load(Ordering::SeqCst) as f64;
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:raw size/{}", bench_name),
-            format: Format::OnDiskVortex,
-            unit: Cow::from("ratio"),
-            value: compressed_size_f64 / (uncompressed_size as f64),
-        });
-        ratios.push(CustomUnitMeasurement {
             name: format!("vortex size/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("bytes"),
@@ -99,9 +99,8 @@ where
         let parquet_compressed_size = AtomicU64::default();
         let chunked = uncompressed.as_::<ChunkedArray>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_compressed_size.store(
                     parquet_compress_write(
@@ -117,12 +116,19 @@ where
         });
 
         progress.inc(1);
+        let parquet_compressed_size = parquet_compressed_size.into_inner();
+        ratios.push(CustomUnitMeasurement {
+            name: format!("parquet-zstd size/{}", bench_name),
+            // unlike timings, ratios have a single column vortex
+            format: Format::OnDiskVortex,
+            unit: Cow::from("bytes"),
+            value: parquet_compressed_size as f64,
+        });
         ratios.push(CustomUnitMeasurement {
             name: format!("vortex:parquet-zstd size/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
-            value: compressed_size.load(Ordering::SeqCst) as f64
-                / parquet_compressed_size.into_inner() as f64,
+            value: compressed_size.load(Ordering::SeqCst) as f64 / parquet_compressed_size as f64,
         });
     }
 
@@ -137,9 +143,8 @@ where
         // Force materialization of the lazy cell so it's not invoked from within the async benchmark function
         LazyCell::force(&buffer);
 
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 vortex_decompress_read(buffer.clone()).await.unwrap()
             }),
@@ -161,10 +166,10 @@ where
             );
             Bytes::from(buf)
         });
+        LazyCell::force(&buffer);
 
-        throughputs.push(ThroughputMeasurement {
+        timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_decompress_read(buffer.clone());
             }),
@@ -173,8 +178,5 @@ where
         progress.inc(1);
     }
 
-    CompressMeasurements {
-        throughputs,
-        ratios,
-    }
+    CompressMeasurements { timings, ratios }
 }

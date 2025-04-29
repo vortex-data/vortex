@@ -31,6 +31,7 @@ pub struct RunEndArray {
 
 try_from_array_ref!(RunEndArray);
 
+#[derive(Debug)]
 pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
     type Array = RunEndArray;

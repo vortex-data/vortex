@@ -10,12 +10,12 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Filter, KernelRef};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
-    Canonical, Encoding, EncodingId,
+    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor, Canonical, Encoding,
+    EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -26,7 +26,6 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
-    + ArrayComputeImpl
     + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
@@ -44,6 +43,15 @@ pub trait ArrayImpl:
     ///
     /// - The number of given children matches the current number of children of the array.
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
+
+    /// Dynamically invoke a kernel for the given compute function.
+    fn _invoke(
+        &self,
+        _compute_fn: &ComputeFn,
+        _args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        Ok(None)
+    }
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -80,21 +88,6 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn vtable(&self) -> VTableRef {
         ArrayImpl::_vtable(self)
-    }
-
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
-        let any = compute_fn.as_any();
-
-        // Check each of the known compute functions.
-
-        if any.is::<Filter>() {
-            if let Some(f) = <Self as ArrayComputeImpl>::FILTER {
-                return Some(f);
-            }
-        }
-
-        // Otherwise, fallback to a manual lookup
-        self._find_kernel(compute_fn)
     }
 
     /// Returns whether the item at `index` is valid.
@@ -219,5 +212,13 @@ impl<A: ArrayImpl + 'static> Array for A {
         }
 
         Ok(self._with_children(children)?.into_array())
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        self._invoke(compute_fn, args)
     }
 }

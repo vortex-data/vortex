@@ -3,7 +3,7 @@ use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
@@ -13,10 +13,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
-use vortex::arrays::ChunkedArray;
-use vortex::builders::builder_with_capacity;
-use vortex::error::VortexUnwrap;
-use vortex::{Array, ArrayExt};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -103,25 +99,7 @@ fn compress(
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(
-                &runtime,
-                &progress,
-                &formats,
-                iterations,
-                dataset_handle.name(),
-                || {
-                    let vx_array =
-                        runtime.block_on(async { dataset_handle.to_vortex_array().await });
-                    ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
-                        |chunk| {
-                            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
-                            builder.finish()
-                        },
-                    ))
-                    .into_array()
-                },
-            )
+            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
         })
         .collect::<CompressMeasurements>();
 
@@ -129,10 +107,9 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.throughputs, RatioMode::Throughput, &targets)?;
+            render_table(measurements.timings, &targets)?;
             render_table(
                 measurements.ratios,
-                RatioMode::Throughput,
                 &if formats.contains(&Format::OnDiskVortex) {
                     vec![Target::new(Engine::default(), Format::OnDiskVortex)]
                 } else {
@@ -141,7 +118,7 @@ fn compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.throughputs)?;
+            print_measurements_json(measurements.timings)?;
             print_measurements_json(measurements.ratios)
         }
     }

@@ -1,25 +1,20 @@
 use vortex_error::VortexResult;
-use vortex_scalar::{DecimalValue, Scalar, i256};
+use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::arrays::decimal::serde::DecimalValueType;
 use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::ScalarAtFn;
+use crate::{Array, match_each_decimal_value_type};
 
 impl ScalarAtFn<&DecimalArray> for DecimalEncoding {
     fn scalar_at(&self, array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
-        Ok(match array.values_type {
-            DecimalValueType::I128 => Scalar::decimal(
-                DecimalValue::I128(array.buffer::<i128>()[index]),
+        let scalar = match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
+           Scalar::decimal(
+                $CTor(array.buffer::<$D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
-            ),
-            DecimalValueType::I256 => Scalar::decimal(
-                DecimalValue::I256(array.buffer::<i256>()[index]),
-                array.decimal_dtype(),
-                array.dtype().nullability(),
-            ),
-        })
+            )
+        });
+        Ok(scalar)
     }
 }
 

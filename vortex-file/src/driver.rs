@@ -31,7 +31,7 @@ pub struct CoalescedDriver {
     performance_hint: PerformanceHint,
     /// The maximum number of bytes to hold in the prefetch buffer.
     max_prefetch_bytes: i64,
-
+    max_prefetch_inflight_requests: usize,
     first_poll: bool,
     state: HashMap<SegmentId, PendingSegment>,
     /// Maintain a set of segments that have been requested, ordered by insertion.
@@ -40,6 +40,8 @@ pub struct CoalescedDriver {
     polled: LinkedHashSet<SegmentId>,
     /// The number of bytes that have been prefetched but not yet consumed.
     prefetched_bytes: i64,
+
+    inflight_prefetch_lease: Arc<()>,
 }
 
 struct PendingSegment {
@@ -69,12 +71,14 @@ impl CoalescedDriver {
 
             performance_hint,
             max_prefetch_bytes: 32 << 20, // 32 MB
-
+            max_prefetch_inflight_requests: 1,
             first_poll: false,
             state: Default::default(),
             requested: Default::default(),
             polled: Default::default(),
             prefetched_bytes: 0,
+
+            inflight_prefetch_lease: Arc::new(()),
         }
     }
 
@@ -119,7 +123,7 @@ impl CoalescedDriver {
     }
 
     fn on_requested(&mut self, request: SegmentRequest) {
-        self.requested.insert(request.id());
+        self.requested.insert_if_absent(request.id());
         self.state.insert(
             request.id(),
             PendingSegment {
@@ -140,7 +144,7 @@ impl CoalescedDriver {
 
         let state = self.segment_state_mut(id);
         state.polled = true;
-        self.polled.insert(id);
+        self.polled.insert_if_absent(id);
         self.polled_counter.inc();
     }
 
@@ -155,7 +159,11 @@ impl CoalescedDriver {
     fn on_resolved(&mut self, _id: SegmentId) {}
 
     /// Request a segment from the underlying storage.
-    fn coalesce_request(&mut self, request: SegmentRequest) -> CoalescedSegmentRequest {
+    fn coalesce_request(
+        &mut self,
+        request: SegmentRequest,
+        lease: Option<Arc<()>>,
+    ) -> CoalescedSegmentRequest {
         let spec = self.segment_spec(request.id());
 
         // We start with the requested segment, and then loop in any additional segments that fall
@@ -164,6 +172,7 @@ impl CoalescedDriver {
             byte_range: spec.byte_range(),
             requests: vec![request],
             segment_map: self.segment_map.clone(),
+            lease,
         };
 
         // TODO(ngates): dynamically update the coalescing window based on request duration.
@@ -243,7 +252,7 @@ impl CoalescedDriver {
         coalesced.requests.sort_by_key(|r| r.id());
 
         // Maintain the prefetch buffer count.
-        for request in &coalesced.requests {
+        for request in coalesced.requests.iter() {
             self.mark_as_prefetched(request.id());
         }
 
@@ -290,7 +299,7 @@ impl Stream for CoalescedDriver {
                 .get_mut(&id)
                 .and_then(|state| state.request.take())
             {
-                return Poll::Ready(Some(this.coalesce_request(request)));
+                return Poll::Ready(Some(this.coalesce_request(request, None)));
             }
         }
 
@@ -300,14 +309,19 @@ impl Stream for CoalescedDriver {
             this.prefetched_bytes,
             this.max_prefetch_bytes
         );
-        if this.prefetched_bytes < this.max_prefetch_bytes {
+
+        if this.prefetched_bytes < this.max_prefetch_bytes
+            && Arc::strong_count(&this.inflight_prefetch_lease) - 1
+                < this.max_prefetch_inflight_requests
+        {
             while let Some(id) = this.requested.pop_front() {
                 if let Some(request) = this
                     .state
                     .get_mut(&id)
                     .and_then(|state| state.request.take())
                 {
-                    let coalesced = this.coalesce_request(request);
+                    let coalesced =
+                        this.coalesce_request(request, Some(this.inflight_prefetch_lease.clone()));
                     log::debug!("Prefetching: {:?}", coalesced);
                     return Poll::Ready(Some(coalesced));
                 }
@@ -326,6 +340,8 @@ pub struct CoalescedSegmentRequest {
     requests: Vec<SegmentRequest>,
     /// A copy of the segment map so we can resolve the requests.
     segment_map: Arc<[SegmentSpec]>,
+    #[allow(dead_code)]
+    lease: Option<Arc<()>>,
 }
 
 impl Debug for CoalescedSegmentRequest {

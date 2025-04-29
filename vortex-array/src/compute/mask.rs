@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::try_cast;
+use crate::compute::cast;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
@@ -67,7 +67,7 @@ pub fn mask(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
 
     let masked = if matches!(mask, Mask::AllFalse(_)) {
         // Fast-path for empty mask
-        try_cast(array, &array.dtype().as_nullable())?
+        cast(array, &array.dtype().as_nullable())?
     } else if matches!(mask, Mask::AllTrue(_)) {
         // Fast-path for full mask.
         ConstantArray::new(

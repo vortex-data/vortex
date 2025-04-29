@@ -1,5 +1,5 @@
-use vortex_array::compute::{FilterKernel, filter};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -24,6 +24,8 @@ impl FilterKernel for ALPRDEncoding {
         .into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(ALPRDEncoding).lift());
 
 #[cfg(test)]
 mod test {
