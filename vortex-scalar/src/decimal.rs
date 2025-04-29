@@ -31,6 +31,23 @@ impl Display for DecimalValue {
     }
 }
 
+macro_rules! decimal_value {
+    ($T:ty, $DV:tt) => {
+        impl From<$T> for DecimalValue {
+            fn from(value: $T) -> Self {
+                DecimalValue::$DV(value)
+            }
+        }
+    };
+}
+
+decimal_value!(i8, I8);
+decimal_value!(i16, I16);
+decimal_value!(i32, I32);
+decimal_value!(i64, I64);
+decimal_value!(i128, I128);
+decimal_value!(i256, I256);
+
 impl Scalar {
     pub fn decimal(
         value: DecimalValue,

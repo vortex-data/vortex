@@ -12,12 +12,12 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 
-use crate::ScalarType;
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
+use crate::{ScalarType, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -167,9 +167,9 @@ impl InnerScalarValue {
             (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
                 pvalue.is_instance_of(ptype)
             }
-            // Make sure the scalar value is of the right representation, either
-            // 128 or 256.
-            (InnerScalarValue::Decimal(_), DType::Decimal(..)) => true,
+            (InnerScalarValue::Decimal(_) | InnerScalarValue::Buffer(_), DType::Decimal(..)) => {
+                true
+            }
             (InnerScalarValue::Buffer(_), DType::Binary(_)) => true,
             (InnerScalarValue::BufferString(_), DType::Utf8(_)) => true,
             (InnerScalarValue::List(values), DType::List(dtype, _)) => {
@@ -215,7 +215,16 @@ impl InnerScalarValue {
         match self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Decimal(v) => Ok(Some(*v)),
-            _ => Err(vortex_err!("Expected a decimal scalar, found {:?}", self)),
+            InnerScalarValue::Buffer(b) => Ok(Some(match b.len() {
+                1 => DecimalValue::I8(b[0] as i8),
+                2 => DecimalValue::I16(i16::from_le_bytes(b.as_slice().try_into()?)),
+                4 => DecimalValue::I32(i32::from_le_bytes(b.as_slice().try_into()?)),
+                8 => DecimalValue::I64(i64::from_le_bytes(b.as_slice().try_into()?)),
+                16 => DecimalValue::I128(i128::from_le_bytes(b.as_slice().try_into()?)),
+                32 => DecimalValue::I256(i256::from_le_bytes(b.as_slice().try_into()?)),
+                l => vortex_bail!("Buffer is not a decimal value length {l}"),
+            })),
+            _ => vortex_bail!("Expected a decimal scalar, found {:?}", self),
         }
     }
 
