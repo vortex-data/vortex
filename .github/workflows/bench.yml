@@ -58,6 +58,10 @@ jobs:
         with:
           version: v1.2.1
 
+      # cat-s3 script uses gzip to append to compressed benchmark results
+      - name: Install gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip
+
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
@@ -73,7 +77,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz ${{ matrix.benchmark.id }}.json
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit

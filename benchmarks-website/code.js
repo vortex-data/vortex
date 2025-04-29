@@ -376,11 +376,32 @@ window.initAndRender = (function () {
             .map(line => JSON.parse(line))
     }
 
+    async function fetchAndDecompressGzip(url) {
+        const response = await fetch(url);
+        
+        const decompressedStream = response.body
+            .pipeThrough(new DecompressionStream('gzip'));
+        
+        const reader = decompressedStream.getReader();
+        const decoder = new TextDecoder();
+        let result = '';
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            result += decoder.decode(value, { stream: true });
+        }
+        
+        result += decoder.decode();
+        
+        return result;
+    }
+
     function initAndRender(keptGroups) {
-        let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
-            .then(response => response.text())
+        let data = fetchAndDecompressGzip('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz')
             .then(parse_jsonl)
-            .catch(error => console.error('unable to load data.json:', error));
+            .catch(error => console.error('unable to load data.json.gz:', error));
+            
         let commit_metadata = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json')
             .then(response => response.text())
             .then(parse_jsonl)
