@@ -7,14 +7,14 @@ use crate::{Array, match_each_decimal_value_type};
 
 impl ScalarAtFn<&DecimalArray> for DecimalEncoding {
     fn scalar_at(&self, array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
-        let res = match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
+        let scalar = match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
            Scalar::decimal(
                 $CTor(array.buffer::<$D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
             )
         });
-        Ok(res)
+        Ok(scalar)
     }
 }
 
