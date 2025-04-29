@@ -72,6 +72,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: DuckDB extension build
+        env:
+          # Build DuckDB and the Vortex extension with `-march=native`.
+          # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
+          NATIVE_ARCH: 1
         run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
