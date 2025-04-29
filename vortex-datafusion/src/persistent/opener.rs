@@ -105,7 +105,7 @@ impl FileOpener for VortexFileOpener {
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
-                .with_split_by(SplitBy::RowCount(8 * batch_size))
+                .with_split_by(SplitBy::RowCount(batch_size))
                 .map_to_record_batch(projected_arrow_schema.clone())
                 .into_stream()?
                 .map_err(|e: VortexError| ArrowError::from(e))
