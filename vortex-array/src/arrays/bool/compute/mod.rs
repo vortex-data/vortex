@@ -1,8 +1,8 @@
 use crate::Array;
 use crate::arrays::BoolEncoding;
 use crate::compute::{
-    FillNullFn, InvertKernel, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn,
-    TakeFn, ToArrowFn, UncompressedSizeFn,
+    FillNullFn, IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -24,10 +24,6 @@ mod uncompressed_size;
 
 impl ComputeVTable for BoolEncoding {
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn invert_fn(&self) -> Option<&dyn InvertKernel<&dyn Array>> {
         Some(self)
     }
 

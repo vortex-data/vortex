@@ -1,10 +1,10 @@
-use vortex_array::compute::{InvertKernel, invert};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{InvertKernel, InvertKernelAdapter, invert};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl InvertKernel<&SparseArray> for SparseEncoding {
+impl InvertKernel for SparseEncoding {
     fn invert(&self, array: &SparseArray) -> VortexResult<ArrayRef> {
         let inverted_fill = array.fill_scalar().as_bool().invert().into_scalar();
         let inverted_patches = array
@@ -14,3 +14,5 @@ impl InvertKernel<&SparseArray> for SparseEncoding {
         SparseArray::try_new_from_patches(inverted_patches, inverted_fill).map(|a| a.into_array())
     }
 }
+
+register_kernel!(InvertKernelAdapter(SparseEncoding).lift());

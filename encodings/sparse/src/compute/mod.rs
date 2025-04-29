@@ -1,7 +1,7 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, InvertKernel, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn,
+    FilterKernel, FilterKernelAdapter, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn,
+    TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -18,10 +18,6 @@ mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
-    fn invert_fn(&self) -> Option<&dyn InvertKernel<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }

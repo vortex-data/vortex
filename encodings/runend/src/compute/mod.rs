@@ -12,7 +12,7 @@ mod take_from;
 
 use vortex_array::Array;
 use vortex_array::compute::{
-    FillNullFn, InvertKernel, IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, TakeFromFn,
+    FillNullFn, IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, TakeFromFn,
 };
 use vortex_array::vtable::ComputeVTable;
 
@@ -20,10 +20,6 @@ use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn invert_fn(&self) -> Option<&dyn InvertKernel<&dyn Array>> {
         Some(self)
     }
 

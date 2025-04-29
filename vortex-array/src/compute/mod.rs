@@ -16,7 +16,7 @@ pub use cast::*;
 pub use compare::*;
 pub use fill_null::{FillNullFn, fill_null};
 pub use filter::*;
-pub use invert::{InvertKernel, invert};
+pub use invert::*;
 pub use is_constant::*;
 pub use is_sorted::*;
 pub use like::{LikeFn, LikeOptions, like};
