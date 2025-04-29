@@ -6,55 +6,79 @@ use std::time::Duration;
 use anyhow::Result;
 use xshell::Shell;
 
-use crate::IdempotentPath;
 use crate::ddb::DuckDBExecutor;
+use crate::{Format, IdempotentPath};
 
-pub struct DuckdbTpchOptions {
+pub enum TpcDataset {
+    TpcH,
+    TpcDs,
+}
+
+pub struct DuckdbTpcOptions {
     /// Scale factor of the data in GB.
     pub scale_factor: u8,
 
     /// Location on-disk to store generated files.
     pub base_dir: PathBuf,
+
+    pub dataset: TpcDataset,
+
+    pub format: Format,
 }
 
-impl DuckdbTpchOptions {
+impl DuckdbTpcOptions {
+    // TODO(joe); this is not unused fix this in tpch
     pub fn csvs_dir(&self) -> PathBuf {
         self.base_dir.join(self.scale_factor.to_string())
     }
+
+    pub fn output_dir(&self) -> PathBuf {
+        self.base_dir
+            .join(self.scale_factor.to_string())
+            .join(self.format.to_string())
+    }
 }
 
-impl Default for DuckdbTpchOptions {
+impl Default for DuckdbTpcOptions {
     fn default() -> Self {
         Self {
             scale_factor: 1,
             base_dir: "tpch-duckdb".to_data_path(),
+            dataset: TpcDataset::TpcH,
+            format: Format::Csv,
         }
     }
 }
 
-impl DuckdbTpchOptions {
-    pub fn with_base_dir<P: AsRef<Path>>(self, dir: P) -> Self {
-        Self {
-            base_dir: dir.as_ref().to_owned(),
-            scale_factor: self.scale_factor,
-        }
+impl DuckdbTpcOptions {
+    pub fn with_base_dir<P: AsRef<Path>>(mut self, dir: P) -> Self {
+        self.base_dir = dir.as_ref().to_path_buf();
+        self
     }
 
-    pub fn with_scale_factor(self, scale_factor: u8) -> Self {
-        Self {
-            base_dir: self.base_dir,
-            scale_factor,
-        }
+    pub fn with_scale_factor(mut self, scale_factor: u8) -> Self {
+        self.scale_factor = scale_factor;
+        self
+    }
+
+    pub fn with_format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+
+    pub fn with_dataset(mut self, dataset: TpcDataset) -> Self {
+        self.dataset = dataset;
+        self
     }
 }
 
-pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
+pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     let sh = Shell::new()?;
 
     let scale_factor = opts.scale_factor;
 
     // mkdir -p the output directory
-    let output_dir = opts.csvs_dir();
+    let output_dir = opts.output_dir();
     sh.create_dir(&output_dir)?;
 
     // See if the success file has been written. If so, do not run expensive generator
@@ -64,11 +88,45 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
         return Ok(output_dir);
     }
 
-    let output = Command::new("duckdb")
-        .current_dir(&output_dir)
-        .arg("-c")
-        .arg(format!("install tpch; load tpch; call dbgen(sf={scale_factor}); export database '.' (format csv, delimiter '|', header false);"))
-        .output()?;
+    let mut command =
+        Command::new("/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/duckdb");
+
+    match opts.dataset {
+        TpcDataset::TpcH => command
+            .arg("-c")
+            .arg("install tpch; load tpch;")
+            .arg("-c")
+            .arg(format!("call dbgen(sf={scale_factor})")),
+        TpcDataset::TpcDs => command
+            // .arg("-c")
+            // .arg("install tpcds; load tpcds;")
+            .arg("-c")
+            .arg(format!("call dsdgen(sf={scale_factor})")),
+    };
+
+    match opts.format {
+        Format::Csv => command.arg("-c").arg(format!(
+            "export database '{}' (format CSV, delimiter '|', header false);",
+            output_dir.to_string_lossy(),
+        )),
+        Format::Parquet => command.arg("-c").arg(format!(
+            "export database '{}' (format PARQUET);",
+            output_dir.to_string_lossy(),
+        )),
+        Format::OnDiskVortex | Format::InMemoryVortex => {
+            command
+                .arg("-c")
+                .arg("install vortex from community; load vortex;");
+
+            command.arg("-c").arg(format!(
+                "export database '{}' (format VORTEX);",
+                output_dir.to_string_lossy(),
+            ))
+        }
+        _ => todo!(),
+    };
+
+    let output = command.output()?;
 
     if !output.status.success() || !output.stderr.is_empty() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -76,11 +134,13 @@ pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
         anyhow::bail!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
 
-    // rename .csv files into the expected .tbl extension
-    sh.read_dir(&output_dir)?
-        .into_iter()
-        .filter(|p| p.extension().is_some_and(|ext| ext == "csv"))
-        .try_for_each(|p| fs::rename(p.clone(), p.with_extension("tbl")))?;
+    if opts.format == Format::Csv {
+        // rename .csv files into the expected .tbl extension
+        sh.read_dir(&output_dir)?
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|ext| ext == "csv"))
+            .try_for_each(|p| fs::rename(p.clone(), p.with_extension("tbl")))?;
+    }
 
     // Write a success file to indicate this scale-factor is created.
     sh.write_file(success_file, vec![])?;

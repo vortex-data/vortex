@@ -24,7 +24,7 @@ pub struct DuckDBExecutor {
 }
 
 impl DuckDBExecutor {
-    fn command(&self) -> Command {
+    pub fn command(&self) -> Command {
         let mut command = Command::new(&self.duckdb_path);
         command.arg(&self.duckdb_file);
         command

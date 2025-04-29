@@ -9,7 +9,7 @@ use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
+use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
@@ -126,9 +126,9 @@ fn main() -> anyhow::Result<()> {
     let url = match args.use_remote_data_dir {
         None => {
             let data_dir = match args.data_generator {
-                DataGenerator::Duckdb => generate_tpch(
-                    DuckdbTpchOptions::default().with_scale_factor(args.scale_factor),
-                )?,
+                DataGenerator::Duckdb => {
+                    generate_tpc(DuckdbTpcOptions::default().with_scale_factor(args.scale_factor))?
+                }
                 DataGenerator::Dbgen => {
                     let db_gen_options =
                         DBGenOptions::default().with_scale_factor(args.scale_factor);
