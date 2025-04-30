@@ -9,17 +9,13 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn,
-    ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
+    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
+    ScalarAtFn, SliceFn, ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ListEncoding {
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -76,7 +72,7 @@ impl MinMaxFn<&ListArray> for ListEncoding {
     }
 }
 
-impl IsConstantFn<&ListArray> for ListEncoding {
+impl IsConstantKernel for ListEncoding {
     fn is_constant(
         &self,
         _array: &ListArray,
@@ -86,6 +82,8 @@ impl IsConstantFn<&ListArray> for ListEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(ListEncoding).lift());
 
 impl UncompressedSizeFn<&ListArray> for ListEncoding {
     fn uncompressed_size(&self, array: &ListArray) -> VortexResult<usize> {

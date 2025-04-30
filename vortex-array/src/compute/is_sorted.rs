@@ -80,6 +80,7 @@ pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
 
     Ok(is_sorted)
 }
+
 pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
     // We currently don't support sorting struct arrays.
     if array.dtype().is_struct() {

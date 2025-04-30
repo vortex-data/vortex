@@ -10,18 +10,14 @@ use vortex_scalar::Scalar;
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter, is_constant_opts,
-    scalar_at, slice, take, uncompressed_size,
+    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
+    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
+    is_constant_opts, scalar_at, slice, take, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -121,7 +117,7 @@ impl MinMaxFn<&StructArray> for StructEncoding {
     }
 }
 
-impl IsConstantFn<&StructArray> for StructEncoding {
+impl IsConstantKernel for StructEncoding {
     fn is_constant(
         &self,
         array: &StructArray,
@@ -133,14 +129,19 @@ impl IsConstantFn<&StructArray> for StructEncoding {
         }
 
         for child in children.iter() {
-            if !is_constant_opts(child, opts)? {
-                return Ok(Some(false));
+            match is_constant_opts(child, opts)? {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
             }
         }
 
         Ok(Some(true))
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(StructEncoding).lift());
 
 impl UncompressedSizeFn<&StructArray> for StructEncoding {
     fn uncompressed_size(&self, array: &StructArray) -> VortexResult<usize> {

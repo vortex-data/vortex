@@ -8,20 +8,16 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn,
-    MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn, ToArrowFn,
-    UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
-    slice, sum, take, uncompressed_size,
+    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
+    IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn,
+    ToArrowFn, UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max,
+    scalar_at, slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ExtensionEncoding {
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
@@ -109,15 +105,17 @@ impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl IsConstantFn<&ExtensionArray> for ExtensionEncoding {
+impl IsConstantKernel for ExtensionEncoding {
     fn is_constant(
         &self,
         array: &ExtensionArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.storage(), opts).map(Some)
+        is_constant_opts(array.storage(), opts)
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(ExtensionEncoding).lift());
 
 impl UncompressedSizeFn<&ExtensionArray> for ExtensionEncoding {
     fn uncompressed_size(&self, array: &ExtensionArray) -> VortexResult<usize> {
