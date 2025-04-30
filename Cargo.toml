@@ -55,7 +55,7 @@ version = "0.32.0"
 anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arrayref = "0.3.7"
-arrow = "55"
+arrow = { version = "55", default-features = false }
 arrow-arith = "55"
 arrow-array = "55"
 arrow-buffer = "55"
@@ -171,37 +171,37 @@ witchcraft-metrics = "1.0.1"
 
 # BEGIN crates published by this project
 vortex = { version = "0.32.0", path = "./vortex" }
-vortex-alp = { version = "0.32.0", path = "./encodings/alp" }
-vortex-array = { version = "0.32.0", path = "./vortex-array" }
-vortex-btrblocks = { version = "0.32.0", path = "./vortex-btrblocks" }
-vortex-buffer = { version = "0.32.0", path = "./vortex-buffer" }
-vortex-bytebool = { version = "0.32.0", path = "./encodings/bytebool" }
-vortex-datafusion = { version = "0.32.0", path = "./vortex-datafusion" }
-vortex-datetime-parts = { version = "0.32.0", path = "./encodings/datetime-parts" }
-vortex-dict = { version = "0.32.0", path = "./encodings/dict" }
+vortex-alp = { version = "0.32.0", path = "./encodings/alp", default-features = false }
+vortex-array = { version = "0.32.0", path = "./vortex-array", default-features = false }
+vortex-btrblocks = { version = "0.32.0", path = "./vortex-btrblocks", default-features = false }
+vortex-buffer = { version = "0.32.0", path = "./vortex-buffer", default-features = false }
+vortex-bytebool = { version = "0.32.0", path = "./encodings/bytebool", default-features = false }
+vortex-datafusion = { version = "0.32.0", path = "./vortex-datafusion", default-features = false }
+vortex-datetime-parts = { version = "0.32.0", path = "./encodings/datetime-parts", default-features = false }
+vortex-dict = { version = "0.32.0", path = "./encodings/dict", default-features = false }
 vortex-dtype = { version = "0.32.0", path = "./vortex-dtype", default-features = false }
-vortex-error = { version = "0.32.0", path = "./vortex-error" }
-vortex-expr = { version = "0.32.0", path = "./vortex-expr" }
-vortex-fastlanes = { version = "0.32.0", path = "./encodings/fastlanes" }
+vortex-error = { version = "0.32.0", path = "./vortex-error", default-features = false }
+vortex-expr = { version = "0.32.0", path = "./vortex-expr", default-features = false }
+vortex-fastlanes = { version = "0.32.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.32.0", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.32.0", path = "./vortex-flatbuffers" }
-vortex-fsst = { version = "0.32.0", path = "./encodings/fsst" }
-vortex-io = { version = "0.32.0", path = "./vortex-io" }
-vortex-ipc = { version = "0.32.0", path = "./vortex-ipc" }
-vortex-layout = { version = "0.32.0", path = "./vortex-layout" }
-vortex-mask = { version = "0.32.0", path = "./vortex-mask" }
-vortex-metrics = { version = "0.32.0", path = "./vortex-metrics" }
-vortex-proto = { version = "0.32.0", path = "./vortex-proto" }
-vortex-runend = { version = "0.32.0", path = "./encodings/runend" }
+vortex-flatbuffers = { version = "0.32.0", path = "./vortex-flatbuffers", default-features = false }
+vortex-fsst = { version = "0.32.0", path = "./encodings/fsst", default-features = false }
+vortex-io = { version = "0.32.0", path = "./vortex-io", default-features = false }
+vortex-ipc = { version = "0.32.0", path = "./vortex-ipc", default-features = false }
+vortex-layout = { version = "0.32.0", path = "./vortex-layout", default-features = false }
+vortex-mask = { version = "0.32.0", path = "./vortex-mask", default-features = false }
+vortex-metrics = { version = "0.32.0", path = "./vortex-metrics", default-features = false }
+vortex-proto = { version = "0.32.0", path = "./vortex-proto", default-features = false }
+vortex-runend = { version = "0.32.0", path = "./encodings/runend", default-features = false }
 vortex-scalar = { version = "0.32.0", path = "./vortex-scalar", default-features = false }
-vortex-sparse = { version = "0.32.0", path = "./encodings/sparse" }
-vortex-tui = { version = "0.32.0", path = "./vortex-tui" }
-vortex-zigzag = { version = "0.32.0", path = "./encodings/zigzag" }
+vortex-sparse = { version = "0.32.0", path = "./encodings/sparse", default-features = false }
+vortex-tui = { version = "0.32.0", path = "./vortex-tui", default-features = false }
+vortex-zigzag = { version = "0.32.0", path = "./encodings/zigzag", default-features = false }
 # END crates published by this project
 
 # No version contraints for unpublished crates.
-vortex-duckdb = { path = "./vortex-duckdb" }
-vortex-ffi = { path = "./vortex-ffi" }
+vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
+vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
 worker = "0.5.0"
 xshell = "0.2.6"
