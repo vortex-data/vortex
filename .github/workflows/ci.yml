@@ -289,10 +289,9 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
-        run: cargo install grcov
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
+        uses: taiki-e/install-action@grcov
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Rust Tests
         run: |
           df -h .
