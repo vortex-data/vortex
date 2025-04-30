@@ -10,7 +10,8 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use super::reader::{DictReader, SharedArrayFuture};
+use super::reader::DictReader;
+use crate::layouts::SharedArrayFuture;
 use crate::{
     ArrayEvaluation, ExprEvaluator, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };

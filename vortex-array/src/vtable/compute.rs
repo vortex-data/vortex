@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MaskFn, MinMaxFn, OptimizeFn, ScalarAtFn,
+    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn,
     SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
     UncompressedSizeFn,
 };
@@ -32,19 +32,17 @@ pub trait ComputeVTable {
         None
     }
 
-    /// Replace masked values with null.
-    ///
-    /// This operation does not change the length of the array.
-    ///
-    /// See: [`MaskFn`].
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
-        None
-    }
-
     /// Compute the min, max of an array.
     ///
     /// See: [`MinMaxFn`].
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        None
+    }
+
+    /// Compute nan count of the array
+    ///
+    /// See: [`NaNCountFn`]
+    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
         None
     }
 

@@ -80,7 +80,7 @@ where
             Operator::Gt | Operator::Gte => {
                 // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
-                let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
+                let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
                 if is_not_finite {
                     Ok(Some(
                         ConstantArray::new(value.is_sign_negative(), alp.len()).into_array(),
@@ -99,7 +99,7 @@ where
             Operator::Lt | Operator::Lte => {
                 // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
-                let is_not_finite = value.is_infinite() || NativePType::is_nan(value);
+                let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
                 if is_not_finite {
                     Ok(Some(
                         ConstantArray::new(value.is_sign_positive(), alp.len()).into_array(),

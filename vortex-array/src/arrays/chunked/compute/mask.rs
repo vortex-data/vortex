@@ -7,11 +7,11 @@ use vortex_scalar::Scalar;
 use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
-use crate::compute::{MaskFn, cast, mask};
-use crate::{Array, ArrayRef};
+use crate::compute::{MaskKernel, MaskKernelAdapter, cast, mask};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskFn<&ChunkedArray> for ChunkedEncoding {
-    fn mask(&self, array: &ChunkedArray, mask: Mask) -> VortexResult<ArrayRef> {
+impl MaskKernel for ChunkedEncoding {
+    fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
         let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
             AllOr::All => unreachable!("handled in top-level mask"),
@@ -30,6 +30,8 @@ impl MaskFn<&ChunkedArray> for ChunkedEncoding {
     }
 }
 
+register_kernel!(MaskKernelAdapter(ChunkedEncoding).lift());
+
 fn mask_indices(
     array: &ChunkedArray,
     indices: &[usize],
@@ -47,7 +49,7 @@ fn mask_indices(
             let chunk = array
                 .chunk(current_chunk_id)
                 .vortex_expect("find_chunk_idx must return valid chunk ID");
-            let masked_chunk = mask(chunk, Mask::from_indices(chunk.len(), chunk_indices))?;
+            let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
             // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
             new_chunks.push(masked_chunk);
@@ -70,7 +72,7 @@ fn mask_indices(
         let chunk = array
             .chunk(current_chunk_id)
             .vortex_expect("find_chunk_idx must return valid chunk ID");
-        let masked_chunk = mask(chunk, Mask::from_indices(chunk.len(), chunk_indices))?;
+        let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
         new_chunks.push(masked_chunk);
         current_chunk_id += 1;
     }
@@ -109,7 +111,7 @@ fn mask_slices(
                 }
                 ChunkFilter::Slices(slices) => {
                     // Slices of indices that must be set to null
-                    mask(chunk, Mask::from_slices(chunk.len(), slices))?
+                    mask(chunk, &Mask::from_slices(chunk.len(), slices))?
                 }
             })
         })

@@ -4,7 +4,8 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
-use crate::compute::{numeric, scalar_at};
+use crate::compute::numeric::numeric;
+use crate::compute::scalar_at;
 use crate::{Array, ArrayRef, ToCanonical};
 
 fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {

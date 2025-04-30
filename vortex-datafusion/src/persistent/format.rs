@@ -14,11 +14,13 @@ use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue, Statistics,
     config_datafusion_err, not_impl_err,
 };
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+use datafusion_datasource::sink::DataSinkExec;
+use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::ExecutionPlan;
-use datafusion_physical_plan::insert::DataSinkExec;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
@@ -321,7 +323,7 @@ impl FileFormat for VortexFormat {
         if file_scan_config
             .file_groups
             .iter()
-            .flatten()
+            .flat_map(|fg| fg.files())
             .any(|f| f.range.is_some())
         {
             return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
@@ -340,12 +342,15 @@ impl FileFormat for VortexFormat {
         }
 
         let mut source = VortexSource::new(self.file_cache.clone(), self.metrics.clone());
-
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);
         }
 
-        Ok(file_scan_config.with_source(Arc::new(source)).build())
+        Ok(DataSourceExec::from_data_source(
+            FileScanConfigBuilder::from(file_scan_config)
+                .with_source(Arc::new(source))
+                .build(),
+        ))
     }
 
     async fn create_writer_physical_plan(

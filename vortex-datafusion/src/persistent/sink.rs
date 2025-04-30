@@ -8,8 +8,8 @@ use datafusion::common::runtime::SpawnedTask;
 use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
 use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
 use datafusion_common::DataFusionError;
+use datafusion_datasource::sink::DataSink;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
-use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
@@ -42,7 +42,9 @@ impl std::fmt::Debug for VortexSink {
 impl DisplayAs for VortexSink {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match t {
-            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+            DisplayFormatType::Default
+            | DisplayFormatType::Verbose
+            | DisplayFormatType::TreeRender => {
                 write!(f, "VortexSink")
             }
         }

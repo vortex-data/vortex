@@ -46,9 +46,7 @@ impl VortexReadAt for ObjectStoreReadAt {
     ) -> io::Result<ByteBuffer> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
-        let start = usize::try_from(range.start).vortex_expect("range.start");
-        let end = usize::try_from(range.end).vortex_expect("range.end");
-        let len: usize = end - start;
+        let len = usize::try_from(range.end - range.start).vortex_expect("Read can't find usize");
 
         // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
         // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
@@ -59,7 +57,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             .get_opts(
                 &location,
                 GetOptions {
-                    range: Some(GetRange::Bounded(start..end)),
+                    range: Some(GetRange::Bounded(range.start..range.end)),
                     ..Default::default()
                 },
             )

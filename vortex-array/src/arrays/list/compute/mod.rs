@@ -1,15 +1,15 @@
+mod mask;
 mod to_arrow;
 
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    IsConstantFn, IsConstantOpts, IsSortedFn, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn,
+    IsConstantFn, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn,
     ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
@@ -29,10 +29,6 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
@@ -70,17 +66,6 @@ impl SliceFn<&ListArray> for ListEncoding {
             array.validity().slice(start, stop)?,
         )?
         .into_array())
-    }
-}
-
-impl MaskFn<&ListArray> for ListEncoding {
-    fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<ArrayRef> {
-        ListArray::try_new(
-            array.elements().clone(),
-            array.offsets().clone(),
-            array.validity().mask(&mask)?,
-        )
-        .map(|a| a.into_array())
     }
 }
 

@@ -1,8 +1,8 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{MaskFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{MaskKernel, MaskKernelAdapter, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -11,10 +11,6 @@ use vortex_scalar::Scalar;
 use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -28,11 +24,13 @@ impl ComputeVTable for ByteBoolEncoding {
     }
 }
 
-impl MaskFn<&ByteBoolArray> for ByteBoolEncoding {
-    fn mask(&self, array: &ByteBoolArray, mask: Mask) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(&mask)?).into_array())
+impl MaskKernel for ByteBoolEncoding {
+    fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
+        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)?).into_array())
     }
 }
+
+register_kernel!(MaskKernelAdapter(ByteBoolEncoding).lift());
 
 impl ScalarAtFn<&ByteBoolArray> for ByteBoolEncoding {
     fn scalar_at(&self, array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {

@@ -6,8 +6,7 @@ use crate::Array;
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::{VarBinArray, varbin_scalar};
 use crate::compute::{
-    IsConstantFn, IsSortedFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
-    UncompressedSizeFn,
+    IsConstantFn, IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -29,10 +28,6 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 

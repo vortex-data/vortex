@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::traits::StatsProvider;
-use super::{IsSorted, IsStrictSorted, NullCount, StatType, UncompressedSizeInBytes};
+use super::{IsSorted, IsStrictSorted, NaNCount, NullCount, StatType, UncompressedSizeInBytes};
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
 
 #[derive(Default, Debug, Clone)]
@@ -199,6 +199,7 @@ impl StatsSet {
                 Stat::Sum => self.merge_sum(other, dtype),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
+                Stat::NaNCount => self.merge_nan_count(other),
             }
         }
 
@@ -224,6 +225,7 @@ impl StatsSet {
                 Stat::IsSorted | Stat::IsStrictSorted => {
                     unreachable!("not commutative")
                 }
+                Stat::NaNCount => self.merge_nan_count(other),
             }
         }
 
@@ -245,6 +247,7 @@ impl StatsSet {
                 Stat::IsStrictSorted => self.combine_bool_stat::<IsStrictSorted>(other)?,
                 Stat::NullCount => self.combine_bound::<NullCount>(other, dtype)?,
                 Stat::Sum => self.combine_bound::<Sum>(other, dtype)?,
+                Stat::NaNCount => self.combine_bound::<NaNCount>(other, dtype)?,
             }
         }
         Ok(())
@@ -427,6 +430,10 @@ impl StatsSet {
 
     fn merge_null_count(&mut self, other: &Self) {
         self.merge_sum_stat(Stat::NullCount, other)
+    }
+
+    fn merge_nan_count(&mut self, other: &Self) {
+        self.merge_sum_stat(Stat::NaNCount, other)
     }
 
     fn merge_uncompressed_size_in_bytes(&mut self, other: &Self) {

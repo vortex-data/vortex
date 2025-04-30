@@ -1,8 +1,8 @@
 mod between;
 mod compare;
-mod filter;
+mod nan_count;
 
-use vortex_array::compute::{ScalarAtFn, SliceFn, TakeFn, scalar_at, slice, take};
+use vortex_array::compute::{NaNCountFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice, take};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -12,6 +12,9 @@ use vortex_scalar::Scalar;
 use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 impl ComputeVTable for ALPEncoding {
+    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
+        Some(self)
+    }
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }

@@ -22,7 +22,17 @@ while (( n_failures < 2 )); do
         continue
     }
 
-    cat $local_copy $local_file_to_concatenate > $local_concatenated
+    if [[ "$key" =~ \.gz$ ]]; then
+        local_decompressed=$(mktemp)
+        local_decompressed_concat=$(mktemp)
+        gzip -d -c "$local_copy" > "$local_decompressed"
+        cat "$local_decompressed" "$local_file_to_concatenate" > "$local_decompressed_concat"
+        gzip -c "$local_decompressed_concat" > "$local_concatenated"
+        rm "$local_decompressed" "$local_decompressed_concat"
+    else
+        cat $local_copy $local_file_to_concatenate > $local_concatenated
+    fi
+
 
     aws s3api put-object --bucket "$bucket" --key "$key" --body "$local_concatenated" --if-match "$current_etag" || {
         echo "ETag does not match during upload. Trying again."

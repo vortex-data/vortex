@@ -78,7 +78,7 @@ impl StatsTable {
                     }
                 }
                 // These stats sum up
-                Stat::NullCount | Stat::UncompressedSizeInBytes => {
+                Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
                     let sum = sum(&array)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value();
