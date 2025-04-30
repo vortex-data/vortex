@@ -1,5 +1,6 @@
 mod binary;
 mod bool;
+mod decimal;
 mod list;
 mod primitive;
 mod utf8;
