@@ -3,8 +3,8 @@
 
 // @generated
 
-use crate::dtype::*;
 use crate::scalar::*;
+use crate::dtype::*;
 use core::mem;
 use core::cmp::Ordering;
 
@@ -137,12 +137,8 @@ impl<'b> flatbuffers::Push for Buffer {
     type Output = Buffer;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const Buffer as *const u8, <Self as flatbuffers::Push>::size());
+        let src = ::core::slice::from_raw_parts(self as *const Buffer as *const u8, Self::size());
         dst.copy_from_slice(src);
-    }
-    #[inline]
-    fn alignment() -> flatbuffers::PushAlignment {
-        flatbuffers::PushAlignment::new(4)
     }
 }
 

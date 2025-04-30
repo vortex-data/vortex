@@ -58,7 +58,7 @@ union Type {
     Null = 1,
     Bool = 2,
     Primitive = 3,
-    Decimal = 10,
+    Decimal = 4,
     Utf8 = 5,
     Binary = 6,
     Struct_ = 7,
