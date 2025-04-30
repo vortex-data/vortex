@@ -272,7 +272,7 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-large
     env:
       # Disable incremental compilation to get accurate coverage
       CARGO_INCREMENTAL: "0"
@@ -299,8 +299,8 @@ jobs:
           cargo nextest run --locked --workspace --all-features --no-fail-fast
           echo "Finished running nextest"
           df -h .
-          # nextest doesn't support doc tests
-          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi
+          # nextest doesn't support doc tests 
+          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --no-fail-fast
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
