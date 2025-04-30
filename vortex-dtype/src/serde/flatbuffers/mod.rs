@@ -168,7 +168,8 @@ impl TryFrom<ViewedDType> for DType {
             }
             // This is here to fail to compile if another variant is included.
             #[allow(clippy::wildcard_in_or_patterns)]
-            fb::Type(10) | _ => Err(vortex_err!("Unknown DType variant")),
+            fb::Type(10) => Err(vortex_err!("Unknown DType variant")),
+            _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
 }
