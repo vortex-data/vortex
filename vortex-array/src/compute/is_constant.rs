@@ -1,56 +1,31 @@
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use std::any::Any;
+use std::sync::LazyLock;
 
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_scalar::Scalar;
+
+use crate::arcref::ArcRef;
 use crate::arrays::{ConstantArray, NullArray};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::{Array, ArrayExt, Encoding};
 
-pub trait IsConstantFn<A> {
-    /// # Preconditions
-    ///
-    /// * All values are valid
-    /// * array.len() > 1
-    ///
-    /// Returns `Ok(None)` to signal we couldn't make an exact determination.
-    fn is_constant(&self, array: A, opts: &IsConstantOpts) -> VortexResult<Option<bool>>;
-}
-
-impl<E: Encoding> IsConstantFn<&dyn Array> for E
-where
-    E: for<'a> IsConstantFn<&'a E::Array>,
-{
-    fn is_constant(&self, array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        IsConstantFn::is_constant(self, array_ref, opts)
-    }
-}
-
-/// Configuration for [`is_constant_opts`] operations.
-#[derive(Clone)]
-pub struct IsConstantOpts {
-    /// Should the operation make an effort to canonicalize the target array if its encoding doesn't implement [`IsConstantFn`].
-    pub canonicalize: bool,
-}
-
-impl Default for IsConstantOpts {
-    fn default() -> Self {
-        Self { canonicalize: true }
-    }
-}
-
-/// Computes whether an array has constant values. If the array's encoding doesn't implement the relevant VTable, it'll try and canonicalize in order to make a determination.
+/// Computes whether an array has constant values. If the array's encoding doesn't implement the
+/// relevant VTable, it'll try and canonicalize in order to make a determination.
+///
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 1. Its encoded as a [`ConstantArray`] or [`NullArray`]
+/// 1. It's encoded as a [`ConstantArray`] or [`NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
 /// 1. Is all valid AND has minimum and maximum statistics that are equal.
 ///
 /// If the array has some null values but is not all null, it'll never be constant.
-/// **Please note:** Might return false negatives if a specific encoding couldn't make a determination.
-pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
+///
+/// Returns `Ok(None)` if we could not determine whether the array is constant, e.g. if
+/// canonicalization is disabled and the no kernel exists for the array's encoding.
+pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
     let opts = IsConstantOpts::default();
     is_constant_opts(array, &opts)
 }
@@ -58,24 +33,72 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
 /// Computes whether an array has constant values. Configurable by [`IsConstantOpts`].
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
-pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<bool> {
-    // We try and rely on some easy to get stats
-    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-        return Ok(value);
-    }
-
-    let is_constant = is_constant_impl(array, opts)?;
-
-    if let Some(is_constant) = is_constant {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(is_constant.into()));
-    }
-
-    Ok(is_constant.unwrap_or_default())
+pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
+    Ok(IS_CONSTANT_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into()],
+            options,
+        })?
+        .unwrap_scalar()?
+        .as_bool()
+        .value())
 }
 
-fn is_constant_impl(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
+pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
+    for kernel in inventory::iter::<IsConstantKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+struct IsConstant;
+
+impl ComputeFnVTable for IsConstant {
+    fn invoke(
+        &self,
+        args: &InvocationArgs,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
+        let IsConstantArgs { array, options } = IsConstantArgs::try_from(args)?;
+
+        // We try and rely on some easy to get stats
+        if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
+            return Ok(Scalar::from(Some(value)).into());
+        }
+
+        let value = is_constant_impl(array, options, kernels)?;
+
+        // Only if we made a determination do we update the stats.
+        if let Some(value) = value {
+            array
+                .statistics()
+                .set(Stat::IsConstant, Precision::Exact(value.into()));
+        }
+
+        Ok(Scalar::from(value).into())
+    }
+
+    fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
+        // We always return a nullable boolean where `null` indicates we couldn't determine
+        // whether the array is constant.
+        Ok(DType::Bool(Nullability::Nullable))
+    }
+
+    fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
+        Ok(1)
+    }
+
+    fn is_elementwise(&self) -> bool {
+        false
+    }
+}
+
+fn is_constant_impl(
+    array: &dyn Array,
+    options: &IsConstantOpts,
+    kernels: &[ArcRef<dyn Kernel>],
+) -> VortexResult<Option<bool>> {
     match array.len() {
         // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
         0 => return Ok(Some(false)),
@@ -121,29 +144,107 @@ fn is_constant_impl(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<Op
         all_valid,
         "All values must be valid as an invariant of the VTable."
     );
-    let is_constant = if let Some(vtable_fn) = array.vtable().is_constant_fn() {
-        vtable_fn.is_constant(array, opts)?
-    } else {
-        log::debug!(
-            "No is_constant implementation found for {}",
-            array.encoding()
-        );
-
-        if opts.canonicalize {
-            let array = array.to_canonical()?;
-
-            if let Some(is_constant_fn) = array.as_ref().vtable().is_constant_fn() {
-                is_constant_fn.is_constant(array.as_ref(), opts)?
-            } else {
-                vortex_bail!(
-                    "No is_constant function for canonical array: {}",
-                    array.as_ref().encoding(),
-                )
-            }
-        } else {
-            None
-        }
+    let args = InvocationArgs {
+        inputs: &[array.into()],
+        options,
     };
+    for kernel in kernels {
+        if let Some(output) = kernel.invoke(&args)? {
+            return Ok(output.unwrap_scalar()?.as_bool().value());
+        }
+    }
+    if let Some(output) = array.invoke(&IS_CONSTANT_FN, &args)? {
+        return Ok(output.unwrap_scalar()?.as_bool().value());
+    }
 
-    Ok(is_constant)
+    log::debug!(
+        "No is_constant implementation found for {}",
+        array.encoding()
+    );
+
+    if options.canonicalize && !array.is_canonical() {
+        let array = array.to_canonical()?;
+        let is_constant = is_constant_opts(array.as_ref(), options)?;
+        return Ok(is_constant);
+    }
+
+    // Otherwise, we cannot determine if the array is constant.
+    Ok(None)
+}
+
+pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);
+inventory::collect!(IsConstantKernelRef);
+
+pub trait IsConstantKernel: Encoding {
+    /// # Preconditions
+    ///
+    /// * All values are valid
+    /// * array.len() > 1
+    ///
+    /// Returns `Ok(None)` to signal we couldn't make an exact determination.
+    fn is_constant(&self, array: &Self::Array, opts: &IsConstantOpts)
+    -> VortexResult<Option<bool>>;
+}
+
+#[derive(Debug)]
+pub struct IsConstantKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + IsConstantKernel> IsConstantKernelAdapter<E> {
+    pub const fn lift(&'static self) -> IsConstantKernelRef {
+        IsConstantKernelRef(ArcRef::new_ref(self))
+    }
+}
+
+impl<E: Encoding + IsConstantKernel> Kernel for IsConstantKernelAdapter<E> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+        let args = IsConstantArgs::try_from(args)?;
+        let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
+        let is_constant = E::is_constant(&self.0, array, args.options)?;
+        Ok(Some(Scalar::from(is_constant).into()))
+    }
+}
+
+struct IsConstantArgs<'a> {
+    array: &'a dyn Array,
+    options: &'a IsConstantOpts,
+}
+
+impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 1 {
+            vortex_bail!("Expected 1 input, found {}", value.inputs.len());
+        }
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
+        let options = value
+            .options
+            .as_any()
+            .downcast_ref::<IsConstantOpts>()
+            .ok_or_else(|| vortex_err!("Expected options to be of type IsConstantOpts"))?;
+        Ok(Self { array, options })
+    }
+}
+
+/// Configuration for [`is_constant_opts`] operations.
+#[derive(Clone)]
+pub struct IsConstantOpts {
+    /// Should the operation make an effort to canonicalize the target array if its encoding doesn't implement [`IsConstantKernel`].
+    pub canonicalize: bool,
+}
+
+impl Default for IsConstantOpts {
+    fn default() -> Self {
+        Self { canonicalize: true }
+    }
+}
+
+impl Options for IsConstantOpts {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }

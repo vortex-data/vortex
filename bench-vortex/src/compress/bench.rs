@@ -70,18 +70,24 @@ pub fn benchmark_compress(
 
     let mut ratios = Vec::new();
     let mut timings = Vec::new();
+    let mut vortex_compress_time = None;
+    let mut vortex_decompress_time = None;
+    let mut parquet_compress_time = None;
+    let mut parquet_decompress_time = None;
 
     if formats.contains(&Format::OnDiskVortex) {
+        let time = run(runtime, iterations, || async {
+            compressed_size.store(
+                vortex_compress_write(&uncompressed, &mut Vec::new())
+                    .await
+                    .unwrap(),
+                Ordering::SeqCst,
+            );
+        });
+        vortex_compress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            time: run(runtime, iterations, || async {
-                compressed_size.store(
-                    vortex_compress_write(&uncompressed, &mut Vec::new())
-                        .await
-                        .unwrap(),
-                    Ordering::SeqCst,
-                );
-            }),
+            time,
             format: Format::OnDiskVortex,
         });
         progress.inc(1);
@@ -99,19 +105,21 @@ pub fn benchmark_compress(
         let parquet_compressed_size = AtomicU64::default();
         let chunked = uncompressed.as_::<ChunkedArray>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
+        let time = run(runtime, iterations, || async {
+            parquet_compressed_size.store(
+                parquet_compress_write(
+                    batches.clone(),
+                    schema.clone(),
+                    Compression::ZSTD(ZstdLevel::default()),
+                    &mut Vec::new(),
+                ) as u64,
+                Ordering::SeqCst,
+            );
+        });
+        parquet_compress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
             name: format!("compress time/{}", bench_name),
-            time: run(runtime, iterations, || async {
-                parquet_compressed_size.store(
-                    parquet_compress_write(
-                        batches.clone(),
-                        schema.clone(),
-                        Compression::ZSTD(ZstdLevel::default()),
-                        &mut Vec::new(),
-                    ) as u64,
-                    Ordering::SeqCst,
-                );
-            }),
+            time,
             format: Format::Parquet,
         });
 
@@ -143,11 +151,13 @@ pub fn benchmark_compress(
         // Force materialization of the lazy cell so it's not invoked from within the async benchmark function
         LazyCell::force(&buffer);
 
+        let time = run(runtime, iterations, || async {
+            vortex_decompress_read(buffer.clone()).await.unwrap()
+        });
+        vortex_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            time: run(runtime, iterations, || async {
-                vortex_decompress_read(buffer.clone()).await.unwrap()
-            }),
+            time,
             format: Format::OnDiskVortex,
         });
         progress.inc(1);
@@ -168,14 +178,34 @@ pub fn benchmark_compress(
         });
         LazyCell::force(&buffer);
 
+        let time = run(runtime, iterations, || async {
+            parquet_decompress_read(buffer.clone());
+        });
+        parquet_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
             name: format!("decompress time/{}", bench_name),
-            time: run(runtime, iterations, || async {
-                parquet_decompress_read(buffer.clone());
-            }),
+            time,
             format: Format::Parquet,
         });
         progress.inc(1);
+    }
+
+    if let Some((vortex, parquet)) = vortex_compress_time.zip(parquet_compress_time) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:parquet-zst ratio compress time/{}", bench_name),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,
+        });
+    }
+
+    if let Some((vortex, parquet)) = vortex_decompress_time.zip(parquet_decompress_time) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:parquet-zst ratio decompress time/{}", bench_name),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,
+        });
     }
 
     CompressMeasurements { timings, ratios }

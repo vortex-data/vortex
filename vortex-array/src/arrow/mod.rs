@@ -8,7 +8,6 @@ mod array;
 mod compute;
 mod convert;
 mod datum;
-mod dtype;
 mod record_batch;
 
 pub use datum::*;

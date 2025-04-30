@@ -8,8 +8,8 @@ mod min_max;
 mod optimize;
 
 use vortex_array::compute::{
-    FillNullFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn,
-    OptimizeFn, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
+    FillNullFn, FilterKernel, FilterKernelAdapter, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn,
+    ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -21,10 +21,6 @@ use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         Some(self)
     }
 

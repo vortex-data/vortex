@@ -24,7 +24,7 @@ endif ()
 
 corrosion_import_crate(MANIFEST_PATH ../Cargo.toml
     CRATES vortex-ffi
-    FEATURES duckdb
+    FEATURES duckdb mimalloc
     CRATE_TYPES staticlib
     FLAGS --crate-type=staticlib
 )

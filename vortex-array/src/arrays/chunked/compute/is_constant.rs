@@ -1,10 +1,12 @@
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::Array;
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{IsConstantFn, IsConstantOpts, is_constant_opts, scalar_at};
+use crate::compute::{
+    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts, scalar_at,
+};
+use crate::{Array, register_kernel};
 
-impl IsConstantFn<&ChunkedArray> for ChunkedEncoding {
+impl IsConstantKernel for ChunkedEncoding {
     fn is_constant(
         &self,
         array: &ChunkedArray,
@@ -14,8 +16,11 @@ impl IsConstantFn<&ChunkedArray> for ChunkedEncoding {
 
         let first_chunk = chunks.next().vortex_expect("Must have at least one value");
 
-        if !is_constant_opts(first_chunk, opts)? {
-            return Ok(Some(false));
+        match is_constant_opts(first_chunk, opts)? {
+            // Un-determined
+            None => return Ok(None),
+            Some(false) => return Ok(Some(false)),
+            Some(true) => {}
         }
 
         let first_value = scalar_at(first_chunk, 0)?.into_nullable();
@@ -25,8 +30,11 @@ impl IsConstantFn<&ChunkedArray> for ChunkedEncoding {
                 continue;
             }
 
-            if !is_constant_opts(chunk, opts)? {
-                return Ok(Some(false));
+            match is_constant_opts(chunk, opts)? {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
             }
 
             if first_value != scalar_at(chunk, 0)?.into_nullable() {
@@ -37,6 +45,8 @@ impl IsConstantFn<&ChunkedArray> for ChunkedEncoding {
         Ok(Some(true))
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(ChunkedEncoding).lift());
 
 #[cfg(test)]
 mod tests {

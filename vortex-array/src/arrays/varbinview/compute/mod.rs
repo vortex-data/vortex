@@ -15,16 +15,12 @@ use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::compute::{
-    IsConstantFn, IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }

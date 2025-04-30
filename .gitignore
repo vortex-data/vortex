@@ -211,3 +211,7 @@ benchmarks/.out
 profile.json.gz
 *.trace.json
 *.folded
+
+
+# LLVM profiles
+*.profraw

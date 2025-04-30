@@ -3,17 +3,17 @@ use std::ops::Range;
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use num_traits::AsPrimitive;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
-use vortex_array::compute::{IsConstantFn, IsConstantOpts};
+use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::{ToCanonical, register_kernel};
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::unpack_iter::BitPacked;
 use crate::{BitPackedArray, BitPackedEncoding};
 
-impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
+impl IsConstantKernel for BitPackedEncoding {
     fn is_constant(
         &self,
         array: &BitPackedArray,
@@ -25,6 +25,8 @@ impl IsConstantFn<&BitPackedArray> for BitPackedEncoding {
         .map(Some)
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(BitPackedEncoding).lift());
 
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
@@ -155,13 +157,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::compute::is_constant;
     use vortex_buffer::buffer;
-    use vortex_error::VortexUnwrap;
 
     use crate::BitPackedArray;
 
     #[test]
     fn is_constant_with_patches() {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).vortex_unwrap();
-        assert!(is_constant(&array).vortex_unwrap());
+        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
+        assert!(is_constant(&array).unwrap().unwrap());
     }
 }

@@ -1,8 +1,7 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
-    UncompressedSizeFn,
+    FillNullFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -11,13 +10,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`FillNullFn`]
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
-    /// Checks if an array is constant.
-    ///
-    /// See [`IsConstantFn`]
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
         None
     }
 
