@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use arrow::ArrayRef as ArrowArrayRef;
 use arrow_array::Array;
 use arrow_schema::Field;
+use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -49,10 +50,6 @@ impl ArrowArray {
             inner: arrow_array,
             dtype,
         }
-    }
-
-    pub fn into_inner(self) -> ArrowArrayRef {
-        self.inner
     }
 
     pub fn inner(&self) -> &ArrowArrayRef {

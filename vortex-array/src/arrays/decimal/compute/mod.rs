@@ -6,11 +6,10 @@ mod scalar_at;
 mod slice;
 mod sum;
 mod take;
-mod to_arrow;
 
 use crate::Array;
 use crate::arrays::DecimalEncoding;
-use crate::compute::{IsSortedFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{IsSortedFn, ScalarAtFn, SliceFn, TakeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for DecimalEncoding {
@@ -27,10 +26,6 @@ impl ComputeVTable for DecimalEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 }

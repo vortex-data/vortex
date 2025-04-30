@@ -1,5 +1,4 @@
 mod compare;
-mod to_arrow;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -10,8 +9,8 @@ use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
     IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn,
-    ToArrowFn, UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max,
-    scalar_at, slice, sum, take, uncompressed_size,
+    UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
+    slice, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -31,10 +30,6 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 

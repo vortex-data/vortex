@@ -32,7 +32,6 @@ pub use slice::{SliceFn, slice};
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};
 pub use take_from::TakeFromFn;
-pub use to_arrow::*;
 pub use uncompressed_size::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -68,7 +67,6 @@ mod slice;
 mod sum;
 mod take;
 mod take_from;
-mod to_arrow;
 mod uncompressed_size;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered

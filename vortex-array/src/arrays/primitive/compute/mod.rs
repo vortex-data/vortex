@@ -2,7 +2,7 @@ use crate::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
     FillNullFn, IsSortedFn, MinMaxFn, NaNCountFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn,
-    SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    SliceFn, TakeFn, UncompressedSizeFn,
 };
 use crate::vtable::ComputeVTable;
 
@@ -20,7 +20,6 @@ mod search_sorted;
 mod slice;
 mod sum;
 mod take;
-mod to_arrow;
 mod uncompressed_size;
 
 pub use is_constant::*;
@@ -59,10 +58,6 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 

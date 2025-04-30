@@ -1,5 +1,3 @@
-use arrow_array::{ArrayRef as ArrowArrayRef, new_null_array};
-use arrow_schema::DataType;
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
@@ -9,7 +7,7 @@ use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
@@ -26,10 +24,6 @@ impl ComputeVTable for NullEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
@@ -84,19 +78,6 @@ impl TakeFn<&NullArray> for NullEncoding {
         });
 
         Ok(NullArray::new(indices.len()).into_array())
-    }
-}
-
-impl ToArrowFn<&NullArray> for NullEncoding {
-    fn to_arrow(
-        &self,
-        array: &NullArray,
-        data_type: &DataType,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        if data_type != &DataType::Null {
-            vortex_bail!("Unsupported data type: {data_type}");
-        }
-        Ok(Some(new_null_array(data_type, array.len())))
     }
 }
 

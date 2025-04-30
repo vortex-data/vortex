@@ -1,5 +1,4 @@
 mod mask;
-mod to_arrow;
 
 use std::sync::Arc;
 
@@ -10,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, ToArrowFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
+    ScalarAtFn, SliceFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
@@ -21,10 +20,6 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 

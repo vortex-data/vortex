@@ -1,7 +1,5 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
-use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -9,9 +7,7 @@ use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
-use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
-use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
@@ -189,19 +185,6 @@ pub trait ToCanonical: Array {
 }
 
 impl<A: Array + ?Sized> ToCanonical for A {}
-
-impl IntoArrowArray for ArrayRef {
-    /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
-    /// Arrow [`DataType`].
-    fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        let data_type = preferred_arrow_data_type(&self)?;
-        self.into_arrow(&data_type)
-    }
-
-    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        to_arrow(&self, data_type)
-    }
-}
 
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.

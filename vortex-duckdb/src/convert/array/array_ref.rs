@@ -3,8 +3,7 @@ use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
 use vortex_array::arrays::{ChunkedArray, ChunkedEncoding, VarBinViewArray, VarBinViewEncoding};
-use vortex_array::arrow::FromArrowArray;
-use vortex_array::compute::to_arrow_preferred;
+use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
@@ -29,7 +28,9 @@ pub fn to_duckdb(
     if try_to_duckdb(&canonical_array, chunk, cache)?.is_some() {
         return Ok(());
     };
-    to_arrow_preferred(&canonical_array)?.to_duckdb(chunk, cache)
+    canonical_array
+        .into_arrow_preferred()?
+        .to_duckdb(chunk, cache)
 }
 
 fn try_to_duckdb(

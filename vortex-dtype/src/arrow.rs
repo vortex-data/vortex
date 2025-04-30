@@ -12,7 +12,6 @@
 
 use std::sync::Arc;
 
-use arrow_schema::DataType::{Decimal128, Decimal256};
 use arrow_schema::{
     DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
 };
@@ -20,7 +19,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, FieldName, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructDType};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -50,6 +49,19 @@ impl TryFromArrowType<&DataType> for PType {
             DataType::Float64 => Ok(Self::F64),
             _ => Err(vortex_err!(
                 "Arrow datatype {:?} cannot be converted to ptype",
+                value
+            )),
+        }
+    }
+}
+
+impl TryFromArrowType<&DataType> for DecimalDType {
+    fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
+        match value {
+            DataType::Decimal128(precision, scale) => Ok(Self::new(*precision, *scale)),
+            DataType::Decimal256(precision, scale) => Ok(Self::new(*precision, *scale)),
+            _ => Err(vortex_err!(
+                "Arrow datatype {:?} cannot be converted to DecimalDType",
                 value
             )),
         }
@@ -99,6 +111,8 @@ impl FromArrowType<&Field> for DType {
         match field.data_type() {
             DataType::Null => Null,
             DataType::Boolean => Bool(nullability),
+            DataType::Decimal128(p, s) => Decimal(DecimalDType::new(*p, *s), nullability),
+            DataType::Decimal256(p, s) => Decimal(DecimalDType::new(*p, *s), nullability),
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
             DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
             DataType::Date32
@@ -160,9 +174,9 @@ impl DType {
             },
             DType::Decimal(dt, _) => {
                 if dt.scale() > DECIMAL128_MAX_SCALE {
-                    Decimal256(dt.precision(), dt.scale())
+                    DataType::Decimal256(dt.precision(), dt.scale())
                 } else {
-                    Decimal128(dt.precision(), dt.scale())
+                    DataType::Decimal128(dt.precision(), dt.scale())
                 }
             }
             DType::Utf8(_) => DataType::Utf8View,

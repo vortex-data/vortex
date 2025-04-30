@@ -22,8 +22,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{
-    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
-    VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
@@ -89,6 +89,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
         self.is_encoding(NullEncoding.id())
             || self.is_encoding(BoolEncoding.id())
             || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(DecimalEncoding.id())
             || self.is_encoding(StructEncoding.id())
             || self.is_encoding(ListEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())

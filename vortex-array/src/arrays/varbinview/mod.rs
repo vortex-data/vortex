@@ -1,13 +1,9 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::Arc;
 
+use arrow_array::GenericByteViewArray;
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
-use arrow_array::{
-    ArrayRef as ArrowArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray,
-};
-use arrow_buffer::ScalarBuffer;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -527,43 +523,6 @@ impl ArrayCanonicalImpl for VarBinViewArray {
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         builder.extend_from_array(self)
-    }
-}
-
-pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrowArrayRef {
-    let views = var_bin_view.views().clone();
-
-    let nulls = var_bin_view
-        .validity_mask()
-        .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer();
-
-    let data = (0..var_bin_view.nbuffers())
-        .map(|i| var_bin_view.buffer(i))
-        .collect::<Vec<_>>();
-
-    let data = data
-        .into_iter()
-        .map(|p| p.clone().into_arrow_buffer())
-        .collect::<Vec<_>>();
-
-    // Switch on Arrow DType.
-    match var_bin_view.dtype() {
-        DType::Binary(_) => Arc::new(unsafe {
-            BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_byte_buffer().into_arrow_buffer()),
-                data,
-                nulls,
-            )
-        }),
-        DType::Utf8(_) => Arc::new(unsafe {
-            StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_byte_buffer().into_arrow_buffer()),
-                data,
-                nulls,
-            )
-        }),
-        _ => vortex_panic!("expected utf8 or binary, got {}", var_bin_view.dtype()),
     }
 }
 

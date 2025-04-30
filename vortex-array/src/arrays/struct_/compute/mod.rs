@@ -1,6 +1,5 @@
 mod cast;
 mod mask;
-mod to_arrow;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -11,7 +10,7 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn, filter,
+    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn, filter,
     is_constant_opts, scalar_at, slice, take, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
@@ -27,10 +26,6 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 

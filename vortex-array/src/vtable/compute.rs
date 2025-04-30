@@ -1,7 +1,7 @@
 use crate::Array;
 use crate::compute::{
     FillNullFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -82,13 +82,6 @@ pub trait ComputeVTable {
     }
 
     fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
-        None
-    }
-
-    /// Convert the array to an Arrow array of the given type.
-    ///
-    /// See: [`ToArrowFn`].
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         None
     }
 

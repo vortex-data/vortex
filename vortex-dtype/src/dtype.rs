@@ -153,6 +153,16 @@ impl DType {
         matches!(self, Bool(_))
     }
 
+    /// Check if `self` is a binary
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Binary(_))
+    }
+
+    /// Check if `self` is a utf8
+    pub fn is_utf8(&self) -> bool {
+        matches!(self, Utf8(_))
+    }
+
     /// Check if `self` is an extension type
     pub fn is_extension(&self) -> bool {
         matches!(self, Extension(_))

@@ -7,7 +7,7 @@ use jni::sys::{
 };
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{preferred_arrow_data_type, scalar_at, slice};
+use vortex::compute::{scalar_at, slice};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::nbytes::NBytes;
@@ -78,7 +78,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |env| {
-        let preferred_arrow_type = preferred_arrow_data_type(array_ref.inner.as_ref())?;
+        let preferred_arrow_type = array_ref.inner.dtype().to_arrow_dtype()?;
         let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
 
         let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;
