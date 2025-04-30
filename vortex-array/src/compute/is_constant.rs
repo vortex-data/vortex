@@ -64,7 +64,7 @@ impl ComputeFnVTable for IsConstant {
 
         // We try and rely on some easy to get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-            return Ok(Scalar::from(value).into());
+            return Ok(Scalar::from(Some(value)).into());
         }
 
         let value = is_constant_impl(array, options, kernels)?;
@@ -164,7 +164,8 @@ fn is_constant_impl(
 
     if options.canonicalize && !array.is_canonical() {
         let array = array.to_canonical()?;
-        is_constant_opts(array.as_ref(), options)?;
+        let is_constant = is_constant_opts(array.as_ref(), options)?;
+        return Ok(is_constant);
     }
 
     // Otherwise, we cannot determine if the array is constant.
@@ -200,7 +201,8 @@ impl<E: Encoding + IsConstantKernel> Kernel for IsConstantKernelAdapter<E> {
         let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
         };
-        Ok(E::is_constant(&self.0, array, args.options)?.map(|b| Scalar::from(b).into()))
+        let is_constant = E::is_constant(&self.0, array, args.options)?;
+        Ok(Some(Scalar::from(is_constant).into()))
     }
 }
 

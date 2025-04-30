@@ -64,7 +64,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                        DecimalArray::new(
                                 Buffer::<$D>::zeroed(self.len()),
                                 *decimal_type,
-                                Validity::AllInvalid,
+                                validity,
                             )
                     });
                     return Ok(Canonical::Decimal(all_null));
@@ -74,7 +74,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                    DecimalArray::new(
                         Buffer::full(*$V, self.len()),
                         *decimal_type,
-                        Validity::AllValid,
+                        validity,
                     )
                 });
                 Canonical::Decimal(decimal_array)

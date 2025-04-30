@@ -164,12 +164,14 @@ impl<A: ArrayImpl + 'static> Array for A {
         assert_eq!(
             canonical.as_ref().len(),
             self.len(),
-            "Canonical length mismatch"
+            "Canonical length mismatch {}",
+            self.encoding(),
         );
         assert_eq!(
             canonical.as_ref().dtype(),
             self.dtype(),
-            "Canonical dtype mismatch"
+            "Canonical dtype mismatch {}",
+            self.encoding(),
         );
         canonical.as_ref().statistics().inherit(self.statistics());
         Ok(canonical)

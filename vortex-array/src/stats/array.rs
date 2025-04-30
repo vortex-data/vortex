@@ -105,8 +105,6 @@ impl StatsSetRef<'_> {
             return Ok(Some(stat));
         }
 
-        // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
-        //  regular compute functions.
         Ok(match stat {
             Stat::Min => {
                 min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min.into_value())
@@ -130,7 +128,7 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    Some(is_constant(self.dyn_array_ref)?.into())
+                    is_constant(self.dyn_array_ref)?.map(ScalarValue::from)
                 }
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
