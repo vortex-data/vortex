@@ -91,12 +91,10 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
             // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
             // tokio dep
-            let inner = RUNTIME.with(|r| {
-                r.block_on(async move {
-                    VortexOpenOptions::file()
-                        .open_object_store(&object_store, uri.path())
-                        .await
-                })
+            let inner = futures::executor::block_on(async move {
+                VortexOpenOptions::file()
+                    .open_object_store(&object_store, uri.path())
+                    .await
             })?;
             Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
         }
@@ -113,16 +111,14 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
         let path = CStr::from_ptr(path).to_str()?;
 
-        RUNTIME.with(|r| {
-            r.block_on(async move {
-                VortexWriteOptions::default()
-                    .write(
-                        &mut File::create(path).await?,
-                        array.inner.to_array_stream(),
-                    )
-                    .await?;
-                Ok(())
-            })
+        futures::executor::block_on(async {
+            VortexWriteOptions::default()
+                .write(
+                    &mut File::create(path).await?,
+                    array.inner.to_array_stream(),
+                )
+                .await?;
+            Ok(())
         })
     });
 }
