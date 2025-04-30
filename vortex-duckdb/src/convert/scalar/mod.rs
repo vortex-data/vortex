@@ -51,15 +51,15 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
-            return Ok(Value::from(()));
+            return Ok(Value::null());
         };
 
         let huge_value = match decimal_value {
-            DecimalValue::I8(v)
-            | DecimalValue::I16(v)
-            | DecimalValue::I32(v)
-            | DecimalValue::I64(v)
-            | DecimalValue::I128(v) => *v as i128,
+            DecimalValue::I8(v) => *v as i128,
+            DecimalValue::I16(v) => *v as i128,
+            DecimalValue::I32(v) => *v as i128,
+            DecimalValue::I64(v) => *v as i128,
+            DecimalValue::I128(v) => *v,
             DecimalValue::I256(_) => vortex_bail!("cannot handle a i256 decimal in duckdb"),
         };
 
@@ -67,6 +67,8 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             width: decimal_type.precision(),
             scale: decimal_type.scale().cast_unsigned(),
             value: duckdb_hugeint {
+                // We want to truncate
+                #[allow(clippy::cast_possible_truncation)]
                 lower: huge_value as u64,
                 upper: (huge_value >> 64) as i64,
             },
