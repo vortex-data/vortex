@@ -310,6 +310,7 @@ jobs:
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
+          rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
