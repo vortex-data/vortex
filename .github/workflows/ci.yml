@@ -239,7 +239,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=8
+      - cpu=16
       - image=ubuntu24-full-x64
       - tag=rust-lint
     steps:
@@ -270,7 +270,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - tag=rust-test
     steps:
@@ -302,10 +302,8 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Rust Tests
         run: |
-          df -h .
           cargo nextest run --locked --workspace --all-features --no-fail-fast
           echo "Finished running nextest"
-          df -h .
           # nextest doesn't support doc tests
           cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
       - name: Generate coverage report
