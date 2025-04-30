@@ -125,7 +125,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +141,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=${{ matrix.config.name }}
 
     env:
@@ -195,7 +193,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=build-duckdb
 
     steps:
@@ -225,7 +222,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v1
@@ -245,7 +241,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-lint
     steps:
       - uses: runs-on/action@v1
@@ -277,7 +272,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-test
     steps:
       # Disable lints when running tests. They will be caught by the Rust lint job.
