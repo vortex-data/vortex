@@ -68,7 +68,7 @@ impl ToDuckDB for DecimalArray {
                 write_decimal_values::<i128>(self, &mut vector)
             }
             (from, to @ (DecimalValueType::I8 | DecimalValueType::I256)) => vortex_bail!(
-                "cannot convert from ({}) to ({}) single the target decimal value type not supported by duckdb",
+                "cannot convert from ({:?}) to ({:?}) single the target decimal value type not supported by duckdb",
                 from,
                 to
             ),
