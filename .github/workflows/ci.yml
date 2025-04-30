@@ -297,6 +297,8 @@ jobs:
         run: |
           df -h .
           cargo nextest run --locked --workspace --all-features --no-fail-fast
+          echo "Finished running nextest"
+          df -h .
           # nextest doesn't support doc tests
           cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi
       - name: Generate coverage report
