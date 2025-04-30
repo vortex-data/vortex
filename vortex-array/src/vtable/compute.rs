@@ -31,6 +31,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Compute nan count of the array
+    ///
+    /// See: [`NaNCountFn`]
+    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
+        None
+    }
+
     /// Try and optimize the layout of an array.
     ///
     /// See: [`OptimizeFn`]

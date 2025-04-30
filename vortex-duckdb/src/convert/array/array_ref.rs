@@ -1,4 +1,4 @@
-use arrow_array::ArrayRef as ArrowArrayRef;
+use duckdb::arrow::array::ArrayRef as ArrowArrayRef;
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };

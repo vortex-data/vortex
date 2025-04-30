@@ -71,6 +71,9 @@ jobs:
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
+      - name: Install gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip
+
       - name: DuckDB extension build
         env:
           # Build DuckDB and the Vortex extension with `-march=native`.
@@ -151,7 +154,8 @@ jobs:
 
           base_commit_sha=${{ github.event.pull_request.base.sha }}
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+            | gzip -d \
             | grep $base_commit_sha \
             > base.json
 
@@ -177,4 +181,4 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json results.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json

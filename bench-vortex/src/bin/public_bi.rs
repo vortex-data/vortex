@@ -6,8 +6,8 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, df};
-use clap::Parser;
+use bench_vortex::{Format, Target, default_env_filter, df};
+use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tracing::info_span;
@@ -22,14 +22,22 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
-    formats: Vec<Format>,
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
+    targets: Vec<Target>,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    display_metrics: bool,
     #[arg(long, default_value_t, value_enum)]
     display_format: DisplayFormat,
-    #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
     #[arg(long, default_value_t = false)]
     disable_datafusion_cache: bool,
     #[arg(short, long, value_delimiter = ',')]
@@ -76,12 +84,6 @@ fn main() -> anyhow::Result<()> {
 
     let runtime = new_tokio_runtime(args.threads);
 
-    let targets = args
-        .formats
-        .iter()
-        .map(|f| Target::new(Engine::DataFusion, *f))
-        .collect_vec();
-
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
         None => pbi_dataset.queries()?,
@@ -92,7 +94,7 @@ fn main() -> anyhow::Result<()> {
             .collect(),
     };
 
-    let progress_bar = ProgressBar::new((queries.len() * args.formats.len()) as u64);
+    let progress_bar = ProgressBar::new((queries.len() * args.targets.len()) as u64);
     let mut all_measurements = Vec::default();
     let mut metrics = Vec::new();
 
@@ -101,10 +103,9 @@ fn main() -> anyhow::Result<()> {
     // download csvs, unzip, convert to parquet, and convert that to vortex
     runtime.block_on(dataset.write_as_vortex());
 
-    for target in &targets {
+    for target in &args.targets {
         let format = target.format();
-        let session =
-            df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
+        let session = df::get_session_context(args.disable_datafusion_cache);
 
         let file_type = match format {
             Format::Csv => FileType::Csv,
@@ -164,21 +165,23 @@ fn main() -> anyhow::Result<()> {
 
     match args.display_format {
         DisplayFormat::Table => {
-            for (query, format, metric_sets) in metrics {
-                println!("\nmetrics for query={query}, {format}:");
-                for (idx, metric_set) in metric_sets.into_iter().enumerate() {
-                    println!("scan[{idx}]:");
-                    for m in metric_set
-                        .timestamps_removed()
-                        .aggregate()
-                        .sorted_for_display()
-                        .iter()
-                    {
-                        println!("{}", m);
+            if args.display_metrics {
+                for (query, format, metric_sets) in metrics {
+                    println!("\nmetrics for query={query}, {format}:");
+                    for (idx, metric_set) in metric_sets.into_iter().enumerate() {
+                        println!("scan[{idx}]:");
+                        for m in metric_set
+                            .timestamps_removed()
+                            .aggregate()
+                            .sorted_for_display()
+                            .iter()
+                        {
+                            println!("{}", m);
+                        }
                     }
                 }
             }
-            render_table(all_measurements, &targets)
+            render_table(all_measurements, &args.targets)
         }
         DisplayFormat::GhJson => print_measurements_json(all_measurements),
     }

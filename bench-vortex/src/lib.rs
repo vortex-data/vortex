@@ -11,7 +11,6 @@ use itertools::Itertools;
 use serde::Serialize;
 
 pub mod bench_run;
-pub mod blob;
 pub mod clickbench;
 pub mod compress;
 pub mod conversions;

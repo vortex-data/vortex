@@ -48,6 +48,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
         value
     }
 
+    fn into_value(self) -> Precision<T> {
+        self
+    }
+
     fn union(&self, other: &Self) -> Option<Self> {
         self.clone()
             .zip(other.clone())
@@ -83,9 +87,5 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
             Precision::Exact(val) => Some(val),
             _ => None,
         }
-    }
-
-    fn into_value(self) -> Precision<T> {
-        self
     }
 }
