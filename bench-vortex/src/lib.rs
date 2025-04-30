@@ -21,6 +21,7 @@ pub mod measurements;
 pub mod metrics;
 pub mod public_bi;
 pub mod random_access;
+pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 
