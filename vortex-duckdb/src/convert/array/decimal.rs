@@ -240,7 +240,6 @@ mod tests {
         );
         let str = StructArray::from_fields(&[("a", array.to_array())]).unwrap();
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
-        println!("chunk {:?}", chunk);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
             format!("{:?}", chunk),
