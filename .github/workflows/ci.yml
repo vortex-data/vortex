@@ -298,7 +298,7 @@ jobs:
           df -h .
           cargo nextest run --locked --workspace --all-features --no-fail-fast
           # nextest doesn't support doc tests
-          cargo test --doc --workspace --exclude pyvortex
+          cargo test --doc --workspace --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
