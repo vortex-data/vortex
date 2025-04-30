@@ -166,7 +166,8 @@ impl TryFrom<ViewedDType> for DType {
                     metadata,
                 ))))
             }
-            _ => Err(vortex_err!("Unknown DType variant")),
+            // This is here to fail to compile if another variant is included.
+            fb::Type(10) | _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
 }
