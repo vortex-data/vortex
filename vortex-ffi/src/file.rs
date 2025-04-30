@@ -25,7 +25,7 @@ use vortex::stream::ArrayStreamArrayExt;
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
-use crate::{RUNTIME, to_string, to_string_vec};
+use crate::{to_string, to_string_vec};
 
 /// A file reader that can be used to read from a file.
 #[allow(non_camel_case_types)]

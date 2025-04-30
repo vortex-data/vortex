@@ -22,16 +22,6 @@ use vortex::error::VortexExpect;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-thread_local! {
-    static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-        // Using a new_multi_thread runtime since a current local runtime has a deadlock.
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .vortex_expect("building runtime")
-    });
-}
-
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);
     c_str.to_string_lossy().into_owned()
