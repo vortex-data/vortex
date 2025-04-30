@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    FillNullFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
 };
 
