@@ -14,7 +14,13 @@ use crate::compute::{Operator, compare};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 
-/// Get a `Mask` representing the positions in `array` that contains the scalar `value`.
+/// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list
+/// item contains the `value`, or `false` otherwise.
+///
+/// ## Null handling
+///
+/// This function has the same NULL semantics as [`compare`], i.e. nulls will occupy a position
+/// where there is
 ///
 /// ## Example
 ///
@@ -34,7 +40,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 /// let to_vec: Vec<bool> = matches.to_boolean_buffer().iter().collect();
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
-pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<Mask> {
+pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
     // Ensure that the array must be of List type.
     let Some(list_array) = array.as_any().downcast_ref::<ListArray>() else {
         vortex_bail!("array must be of List type")
@@ -51,8 +57,8 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<Mask> {
     if let Some(pred) = matches.as_constant() {
         return match pred.as_bool().value() {
             // TODO(aduffy): how do we handle null?
-            None | Some(false) => Ok(Mask::new_false(matches.len())),
-            Some(true) => Ok(Mask::new_true(matches.len())),
+            None | Some(false) => Ok(ConstantArray::new(false.into(), matches.len()).into_array()),
+            Some(true) => Ok(ConstantArray::new(true.into(), matches.len()).into_array()),
         };
     }
 
@@ -66,7 +72,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<Mask> {
 fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
     ends: &[T],
     matches: &BooleanBuffer,
-) -> Mask {
+) -> ArrayRef {
     let mask: BooleanBuffer = ends
         .windows(2)
         .map(|window| {
@@ -76,7 +82,7 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
         })
         .collect();
 
-    Mask::from_buffer(mask)
+    Mask::from_buffer(mask).into_array()
 }
 
 /// Returns a new array of `u64` representing the length of each list element.
