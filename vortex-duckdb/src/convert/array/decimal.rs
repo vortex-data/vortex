@@ -128,7 +128,9 @@ impl FromDuckDB<SizedFlatVector> for DecimalArray {
 
         // If validity buffer has a value this the array must be nullable
         // val.is_some() iff nullable  ==> !(x xor b)
-        assert!(!(val.is_some() ^ !nullable));
+        if val.is_some() {
+            assert!(nullable)
+        }
 
         let validity = if val.is_some() {
             // Use the validity slice
