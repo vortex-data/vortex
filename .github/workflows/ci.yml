@@ -272,7 +272,13 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - disk=large
+      - tag=rust-test
     steps:
       # Disable lints when running tests. They will be caught by the Rust lint job.
       - name: Setup environment (On develop)
@@ -294,7 +300,6 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
