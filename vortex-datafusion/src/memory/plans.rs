@@ -19,8 +19,9 @@ use futures::{Stream, ready};
 use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrow::compute::to_arrow;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
-use vortex_array::compute::{take, to_arrow_preferred};
+use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{VortexError, vortex_err, vortex_panic};
@@ -157,11 +158,12 @@ impl Stream for RowIndicesStream {
             .ok_or_else(|| vortex_err!("Not a struct array"))?
             .project(&this.filter_projection)?;
 
-        let selection = to_arrow_preferred(
+        let selection = to_arrow(
             &this
                 .conjunction_expr
                 .evaluate(vortex_struct.as_ref())
                 .map_err(|e| DataFusionError::External(e.into()))?,
+            &DataType::Boolean,
         )?;
 
         // Convert the `selection` BooleanArray into a UInt64Array of indices.

@@ -83,6 +83,7 @@ impl ComputeFnVTable for ToArrow {
     ) -> VortexResult<Output> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
 
+        println!("KERNELS {:?}", kernels);
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);

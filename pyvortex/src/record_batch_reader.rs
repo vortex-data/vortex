@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
 use arrow::datatypes::{DataType, SchemaRef};
 use arrow::error::ArrowError;
-use vortex::compute::to_arrow;
+use vortex::arrow::compute::to_arrow;
 use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;
 

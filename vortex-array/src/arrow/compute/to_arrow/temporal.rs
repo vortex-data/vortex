@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
 use std::sync::Arc;
 
 use arrow_array::types::{
