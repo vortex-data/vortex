@@ -51,7 +51,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
-            return Ok(Value::from(()));
+            return Ok(Value::null());
         };
 
         let huge_value = match decimal_value {
@@ -67,6 +67,8 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             width: decimal_type.precision(),
             scale: decimal_type.scale().cast_unsigned(),
             value: duckdb_hugeint {
+                // We want to truncate
+                #[allow(clippy::cast_possible_truncation)]
                 lower: huge_value as u64,
                 upper: (huge_value >> 64) as i64,
             },
