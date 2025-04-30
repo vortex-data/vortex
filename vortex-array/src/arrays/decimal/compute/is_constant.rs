@@ -1,6 +1,7 @@
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::{match_each_decimal_value_type, register_kernel};
 
@@ -11,26 +12,13 @@ impl IsConstantKernel for DecimalEncoding {
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         let constant = match_each_decimal_value_type!(array.values_type, |$S| {
-           compute_is_constant(&array.buffer::<$S>())
+           array.buffer::<$S>().iter().all_equal()
         });
         Ok(Some(constant))
     }
 }
 
 register_kernel!(IsConstantKernelAdapter(DecimalEncoding).lift());
-
-fn compute_is_constant<T: NativeDecimalType>(values: &[T]) -> bool {
-    // We know that the top-level `is_constant` ensures that the array is all_valid or non-null.
-    let first_value = values[0];
-
-    for &value in &values[1..] {
-        if value != first_value {
-            return false;
-        }
-    }
-
-    true
-}
 
 #[cfg(test)]
 mod tests {
@@ -49,7 +37,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(!is_constant(&array).unwrap());
+        assert!(!is_constant(&array).unwrap().unwrap());
 
         let array = DecimalArray::new(
             buffer![100i128, 100i128, 100i128],
@@ -57,6 +45,6 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(is_constant(&array).unwrap());
+        assert!(is_constant(&array).unwrap().unwrap());
     }
 }
