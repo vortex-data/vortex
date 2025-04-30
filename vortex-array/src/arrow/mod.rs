@@ -4,7 +4,7 @@ use arrow_array::ArrayRef;
 use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
-mod array;
+mod convert;
 mod datum;
 mod dtype;
 mod record_batch;
