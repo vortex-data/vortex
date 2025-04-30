@@ -84,20 +84,6 @@ impl ToDuckDB for DecimalArray {
     }
 }
 
-/// Maps a decimal precision into the small type that can represent it.
-/// see https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
-pub fn precision_to_duckdb_storage_size(
-    decimal_dtype: &DecimalDType,
-) -> VortexResult<DecimalValueType> {
-    Ok(match decimal_dtype.precision() {
-        1..=4 => DecimalValueType::I16,
-        5..=9 => DecimalValueType::I32,
-        10..=18 => DecimalValueType::I64,
-        19..=38 => DecimalValueType::I128,
-        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
-    })
-}
-
 // Writes a decimal array to a duckdb array, where the storage types differ.
 fn convert_buffer_and_write_decimal_values<
     From: NativeDecimalType + AsPrimitive<To>,
@@ -177,6 +163,20 @@ fn into_decimal<D: NativeDecimalType>(
 ) -> DecimalArray {
     let buf: Buffer<D> = vector.as_slice_with_len(len).iter().cloned().collect();
     DecimalArray::new(buf, *dtype, validity)
+}
+
+/// Maps a decimal precision into the small type that can represent it.
+/// see https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
+pub fn precision_to_duckdb_storage_size(
+    decimal_dtype: &DecimalDType,
+) -> VortexResult<DecimalValueType> {
+    Ok(match decimal_dtype.precision() {
+        1..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
+    })
 }
 
 #[cfg(test)]
