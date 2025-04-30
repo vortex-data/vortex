@@ -40,15 +40,13 @@ fn try_to_duckdb(
     chunk: &mut dyn WritableVector,
     cache: &mut ConversionCache,
 ) -> VortexResult<Option<()>> {
-    if array.dtype().is_decimal() {
-        let decimal = array.to_decimal()?;
-        return decimal.to_duckdb(chunk, cache).map(Some);
-    }
-
     if let Some(constant) = array.as_constant() {
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
         Ok(Some(()))
+    } else if array.dtype().is_decimal() {
+        let decimal = array.to_decimal()?;
+        decimal.to_duckdb(chunk, cache).map(Some)
     } else if array.is_encoding(ChunkedEncoding.id()) {
         array
             .as_any()

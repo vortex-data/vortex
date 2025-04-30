@@ -39,7 +39,6 @@ fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> O
 where
     T: Into<DecimalValue> + NativeDecimalType + Ord + Copy + 'a,
 {
-    // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.cmp(b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
@@ -72,7 +71,7 @@ mod tests {
         let decimal = DecimalArray::new(
             buffer![100i32, 2000i32, 200i32],
             DecimalDType::new(4, 2),
-            Validity::from_iter([true, false, true].into_iter()),
+            Validity::from_iter([true, false, true]),
         );
 
         let min_max = min_max(&decimal).unwrap();

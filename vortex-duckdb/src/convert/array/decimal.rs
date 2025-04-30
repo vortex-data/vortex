@@ -140,12 +140,10 @@ impl FromDuckDB<SizedFlatVector> for DecimalArray {
             } else {
                 Validity::from(buf)
             }
+        } else if nullable {
+            Validity::AllValid
         } else {
-            if nullable {
-                Validity::AllValid
-            } else {
-                Validity::NonNullable
-            }
+            Validity::NonNullable
         };
 
         let dtype = DType::from_duckdb(vector.logical_type(), nullable.into())?;
@@ -180,8 +178,8 @@ fn into_decimal<D: NativeDecimalType>(
     dtype: &DecimalDType,
     validity: Validity,
 ) -> DecimalArray {
-    let buf: Buffer<D> = vector.as_slice_with_len(len).into_iter().cloned().collect();
-    DecimalArray::new(buf, dtype.clone(), validity)
+    let buf: Buffer<D> = vector.as_slice_with_len(len).iter().cloned().collect();
+    DecimalArray::new(buf, *dtype, validity)
 }
 
 #[cfg(test)]
@@ -203,7 +201,7 @@ mod tests {
             DecimalDType::new(3, 2),
             Validity::NonNullable,
         );
-        let str = StructArray::from_fields(&[("a", array.clone().to_array())]).unwrap();
+        let str = StructArray::from_fields(&[("a", array.to_array())]).unwrap();
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
 
@@ -222,7 +220,7 @@ mod tests {
             DecimalDType::new(5, 2),
             Validity::NonNullable,
         );
-        let str = StructArray::from_fields(&[("a", array.clone().to_array())]).unwrap();
+        let str = StructArray::from_fields(&[("a", array.to_array())]).unwrap();
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
@@ -240,7 +238,7 @@ mod tests {
             DecimalDType::new(5, 2),
             Validity::NonNullable,
         );
-        let str = StructArray::from_fields(&[("a", array.clone().to_array())]).unwrap();
+        let str = StructArray::from_fields(&[("a", array.to_array())]).unwrap();
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         println!("chunk {:?}", chunk);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
@@ -259,7 +257,7 @@ mod tests {
             DecimalDType::new(20, 2),
             Validity::AllValid,
         );
-        let str = StructArray::from_fields(&[("a", array.clone().to_array())]).unwrap();
+        let str = StructArray::from_fields(&[("a", array.to_array())]).unwrap();
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
