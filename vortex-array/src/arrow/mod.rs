@@ -4,10 +4,13 @@ use arrow_array::ArrayRef;
 use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
+mod array;
+mod compute;
 mod convert;
 mod datum;
 mod dtype;
 mod record_batch;
+
 pub use datum::*;
 
 pub trait FromArrowArray<A> {
