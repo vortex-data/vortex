@@ -55,11 +55,11 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
         };
 
         let huge_value = match decimal_value {
-            DecimalValue::I8(v)
-            | DecimalValue::I16(v)
-            | DecimalValue::I32(v)
-            | DecimalValue::I64(v)
-            | DecimalValue::I128(v) => *v as i128,
+            DecimalValue::I8(v) => *v as i128,
+            DecimalValue::I16(v) => *v as i128,
+            DecimalValue::I32(v) => *v as i128,
+            DecimalValue::I64(v) => *v as i128,
+            DecimalValue::I128(v) => *v,
             DecimalValue::I256(_) => vortex_bail!("cannot handle a i256 decimal in duckdb"),
         };
 
