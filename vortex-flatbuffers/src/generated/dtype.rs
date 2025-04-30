@@ -133,7 +133,7 @@ impl flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 10;
+pub const ENUM_MAX_TYPE: u8 = 9;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_TYPE: [Type; 10] = [
@@ -141,12 +141,12 @@ pub const ENUM_VALUES_TYPE: [Type; 10] = [
   Type::Null,
   Type::Bool,
   Type::Primitive,
+  Type::Decimal,
   Type::Utf8,
   Type::Binary,
   Type::Struct_,
   Type::List,
   Type::Extension,
-  Type::Decimal,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -158,26 +158,26 @@ impl Type {
   pub const Null: Self = Self(1);
   pub const Bool: Self = Self(2);
   pub const Primitive: Self = Self(3);
+  pub const Decimal: Self = Self(4);
   pub const Utf8: Self = Self(5);
   pub const Binary: Self = Self(6);
   pub const Struct_: Self = Self(7);
   pub const List: Self = Self(8);
   pub const Extension: Self = Self(9);
-  pub const Decimal: Self = Self(10);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 10;
+  pub const ENUM_MAX: u8 = 9;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
     Self::Bool,
     Self::Primitive,
+    Self::Decimal,
     Self::Utf8,
     Self::Binary,
     Self::Struct_,
     Self::List,
     Self::Extension,
-    Self::Decimal,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -186,12 +186,12 @@ impl Type {
       Self::Null => Some("Null"),
       Self::Bool => Some("Bool"),
       Self::Primitive => Some("Primitive"),
+      Self::Decimal => Some("Decimal"),
       Self::Utf8 => Some("Utf8"),
       Self::Binary => Some("Binary"),
       Self::Struct_ => Some("Struct_"),
       Self::List => Some("List"),
       Self::Extension => Some("Extension"),
-      Self::Decimal => Some("Decimal"),
       _ => None,
     }
   }
@@ -1336,6 +1336,21 @@ impl<'a> DType<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
+  pub fn type__as_decimal(&self) -> Option<Decimal<'a>> {
+    if self.type_type() == Type::Decimal {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Decimal::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
   pub fn type__as_utf_8(&self) -> Option<Utf8<'a>> {
     if self.type_type() == Type::Utf8 {
       self.type_().map(|t| {
@@ -1409,21 +1424,6 @@ impl<'a> DType<'a> {
     }
   }
 
-  #[inline]
-  #[allow(non_snake_case)]
-  pub fn type__as_decimal(&self) -> Option<Decimal<'a>> {
-    if self.type_type() == Type::Decimal {
-      self.type_().map(|t| {
-       // Safety:
-       // Created from a valid Table for this object
-       // Which contains a valid union in this slot
-       unsafe { Decimal::init_from_table(t) }
-     })
-    } else {
-      None
-    }
-  }
-
 }
 
 impl flatbuffers::Verifiable for DType<'_> {
@@ -1438,12 +1438,12 @@ impl flatbuffers::Verifiable for DType<'_> {
           Type::Null => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Null>>("Type::Null", pos),
           Type::Bool => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Bool>>("Type::Bool", pos),
           Type::Primitive => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Primitive>>("Type::Primitive", pos),
+          Type::Decimal => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Decimal>>("Type::Decimal", pos),
           Type::Utf8 => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Utf8>>("Type::Utf8", pos),
           Type::Binary => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Binary>>("Type::Binary", pos),
           Type::Struct_ => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Struct_>>("Type::Struct_", pos),
           Type::List => v.verify_union_variant::<flatbuffers::ForwardsUOffset<List>>("Type::List", pos),
           Type::Extension => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Extension>>("Type::Extension", pos),
-          Type::Decimal => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Decimal>>("Type::Decimal", pos),
           _ => Ok(()),
         }
      })?
@@ -1519,6 +1519,13 @@ impl core::fmt::Debug for DType<'_> {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
           }
         },
+        Type::Decimal => {
+          if let Some(x) = self.type__as_decimal() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
         Type::Utf8 => {
           if let Some(x) = self.type__as_utf_8() {
             ds.field("type_", &x)
@@ -1549,13 +1556,6 @@ impl core::fmt::Debug for DType<'_> {
         },
         Type::Extension => {
           if let Some(x) = self.type__as_extension() {
-            ds.field("type_", &x)
-          } else {
-            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
-          }
-        },
-        Type::Decimal => {
-          if let Some(x) = self.type__as_decimal() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

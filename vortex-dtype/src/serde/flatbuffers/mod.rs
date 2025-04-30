@@ -6,7 +6,8 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType, flatbuffers as fb,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
+    flatbuffers as fb,
 };
 
 mod project;
@@ -90,6 +91,15 @@ impl TryFrom<ViewedDType> for DType {
                 Ok(Self::Primitive(
                     fb_primitive.ptype().try_into()?,
                     fb_primitive.nullable().into(),
+                ))
+            }
+            fb::Type::Decimal => {
+                let fb_decimal = fb
+                    .type__as_decimal()
+                    .ok_or_else(|| vortex_err!("failed to parse decimal dtype from flatbuffer"))?;
+                Ok(Self::Decimal(
+                    DecimalDType::new(fb_decimal.precision(), fb_decimal.scale()),
+                    fb_decimal.nullable().into(),
                 ))
             }
             fb::Type::Binary => Ok(Self::Binary(
