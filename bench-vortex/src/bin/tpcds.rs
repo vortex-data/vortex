@@ -4,7 +4,7 @@ use std::time::Duration;
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::tpcds::tpcds_queries;
+use bench_vortex::tpcds::{benchmark_duckdb_query, tpcds_queries};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::utils::{TPCDS_DATASET, new_tokio_runtime};
 use bench_vortex::{BenchmarkDataset, Engine, IdempotentPath, Target, ddb, default_env_filter};
@@ -130,7 +130,7 @@ fn main() -> anyhow::Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
-    _iterations: usize,
+    iterations: usize,
     scale_factor: usize,
     targets: Vec<Target>,
     display_format: DisplayFormat,
@@ -162,8 +162,6 @@ async fn bench_main(
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
         .then(|| ddb::build_and_get_executable_path(duckdb_path));
-
-    let _ = duckdb_resolved_path;
 
     for target in &targets {
         let engine = target.engine();
@@ -207,9 +205,9 @@ async fn bench_main(
                 let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
-                for (query_idx, _sql_queries) in tpch_queries.clone() {
+                for (query_idx, sql_query) in tpch_queries.clone() {
                     let fastest_run = Duration::new(0, 0);
-                    // benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
+                    benchmark_duckdb_query(query_idx, &sql_query, iterations, &executor);
 
                     let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
