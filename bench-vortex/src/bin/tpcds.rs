@@ -1,18 +1,19 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
+use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpcds::tpcds_queries;
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
-use bench_vortex::utils::{new_tokio_runtime, TPCDS_DATASET};
-use bench_vortex::{Engine, IdempotentPath, Target, ddb, default_env_filter, BenchmarkDataset};
+use bench_vortex::utils::{TPCDS_DATASET, new_tokio_runtime};
+use bench_vortex::{BenchmarkDataset, Engine, IdempotentPath, Target, ddb, default_env_filter};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::info;
+use log::{info, warn};
 use tempfile::tempdir;
 use url::Url;
-use bench_vortex::ddb::{register_tables, DuckDBExecutor};
 use vortex::error::VortexExpect;
 
 #[derive(Parser, Debug)]
@@ -112,6 +113,7 @@ fn main() -> anyhow::Result<()> {
         .block_on(bench_main(
             args.queries,
             args.iterations,
+            1,
             args.targets,
             args.display_format,
             url,
@@ -128,7 +130,8 @@ fn main() -> anyhow::Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
-    iterations: usize,
+    _iterations: usize,
+    scale_factor: usize,
     targets: Vec<Target>,
     display_format: DisplayFormat,
     url: Url,
@@ -166,30 +169,30 @@ async fn bench_main(
         let engine = target.engine();
         let format = target.format();
         match engine {
-    //         Engine::DataFusion => {
-    //             let ctx = load_datasets(&url, format).await?;
-    //
-    //             for (query_idx, sql_queries) in tpch_queries.clone() {
-    //                 // Run benchmark as an async function
-    //                 let (row_count, fastest_run) =
-    //                     benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
-    //
-    //                 row_counts.push((query_idx, format, row_count));
-    //
-    //                 let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
-    //
-    //                 measurements.push(QueryMeasurement {
-    //                     query_idx,
-    //                     target: *target,
-    //                     storage,
-    //                     fastest_run,
-    //                     dataset: TPCDS_DATASET.to_owned(),
-    //                 });
-    //
-    //                 progress.inc(1);
-    //             }
-    //         }
-    //         // TODO(joe); ensure that files are downloaded before running duckdb.
+            //         Engine::DataFusion => {
+            //             let ctx = load_datasets(&url, format).await?;
+            //
+            //             for (query_idx, sql_queries) in tpch_queries.clone() {
+            //                 // Run benchmark as an async function
+            //                 let (row_count, fastest_run) =
+            //                     benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
+            //
+            //                 row_counts.push((query_idx, format, row_count));
+            //
+            //                 let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
+            //
+            //                 measurements.push(QueryMeasurement {
+            //                     query_idx,
+            //                     target: *target,
+            //                     storage,
+            //                     fastest_run,
+            //                     dataset: TPCDS_DATASET.to_owned(),
+            //                 });
+            //
+            //                 progress.inc(1);
+            //             }
+            //         }
+            //         // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
                 let duckdb_path = duckdb_resolved_path.as_ref().vortex_expect("created above");
                 let temp_dir = tempdir()?;
@@ -197,12 +200,16 @@ async fn bench_main(
                     .path()
                     .join(format!("duckdb-file-{}.db", format.name()));
 
+                let url = url
+                    .join(&format!("{}/", scale_factor))
+                    .expect("cannot join scale factor");
+
                 let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
-                for (query_idx, sql_queries) in tpch_queries.clone() {
-                    let fastest_run =
-                        benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
+                for (query_idx, _sql_queries) in tpch_queries.clone() {
+                    let fastest_run = Duration::new(0, 0);
+                    // benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
 
                     let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
@@ -221,9 +228,8 @@ async fn bench_main(
                 warn!("Engine {:?} not supported for TPC-H benchmarks", engine);
             }
         }
-        _ => todo!()
-    // }
-    //
+    }
+
     progress.finish();
 
     match display_format {

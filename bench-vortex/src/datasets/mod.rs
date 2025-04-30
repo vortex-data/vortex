@@ -6,6 +6,8 @@ use datafusion::prelude::SessionContext;
 use url::Url;
 use vortex::ArrayRef;
 
+use crate::Format;
+
 pub mod data_downloads;
 pub mod file;
 pub mod struct_list_of_ints;
@@ -100,7 +102,10 @@ impl BenchmarkDataset {
                 // TPC-H vortex files are stored in "vortex_compressed/" subdirectory
                 Ok(base_url.join("vortex_compressed/")?)
             }
-            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::TpcDS => {
+            BenchmarkDataset::TpcDS => {
+                Ok(base_url.join(&format!("{}/", Format::OnDiskVortex.to_string()))?)
+            }
+            BenchmarkDataset::ClickBench { .. } => {
                 // ClickBench vortex files are stored in "vortex/" subdirectory
                 Ok(base_url.join("vortex/")?)
             }
@@ -111,14 +116,14 @@ impl BenchmarkDataset {
         &self,
         session: &SessionContext,
         base_url: &Url,
-        format: crate::Format,
+        format: Format,
     ) -> Result<()> {
         // Register tables synchronously to avoid nested runtime issues
         match (self, format) {
             (BenchmarkDataset::TpcH, _) | (BenchmarkDataset::TpcDS, _) => {
                 // TPC-H tables are handled separately
             }
-            (BenchmarkDataset::ClickBench { single_file }, crate::Format::Parquet) => {
+            (BenchmarkDataset::ClickBench { single_file }, Format::Parquet) => {
                 crate::clickbench::register_parquet_files(
                     session,
                     "hits",
@@ -127,7 +132,7 @@ impl BenchmarkDataset {
                     *single_file,
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file }, crate::Format::OnDiskVortex) => {
+            (BenchmarkDataset::ClickBench { single_file }, Format::OnDiskVortex) => {
                 crate::clickbench::register_vortex_files(
                     session.clone(),
                     "hits",

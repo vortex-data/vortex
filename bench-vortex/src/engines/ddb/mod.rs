@@ -165,7 +165,7 @@ fn create_table_registration(
             let mut commands = String::new();
             let tables = BenchmarkDataset::TpcDS.tables();
 
-            for table_name in &tables {
+            for table_name in tables {
                 let table_path = format!("{base_dir}{table_name}.{extension}");
                 commands.push_str(&format!(
                     "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
@@ -234,6 +234,7 @@ pub fn register_tables(
 
     let mut command = duckdb_executor.command();
 
+    println!("eff {}", effective_url);
     command.arg("-c").arg(create_table_registration(
         &effective_url,
         extension,

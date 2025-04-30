@@ -34,6 +34,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path, dataset: BenchmarkData
         BenchmarkDataset::ClickBench { .. } => {
             crate::clickbench::convert_parquet_to_vortex(input_path).await
         }
+        _ => todo!(),
     }
 }
 
@@ -90,6 +91,7 @@ pub async fn register_parquet_files(
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_name, listing_table)?;
         }
+        _ => todo!(),
     }
 
     Ok(())
@@ -197,6 +199,7 @@ pub async fn register_vortex_files(
                 single_file,
             )?;
         }
+        _ => todo!(),
     }
 
     Ok(())
