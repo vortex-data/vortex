@@ -1,10 +1,10 @@
-use futures::StreamExt;
+use futures::{StreamExt, future};
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::{IoDispatcher, VortexWrite};
+use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
 
@@ -21,7 +21,6 @@ pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
     file_statistics: Vec<Stat>,
-    io_dispatcher: IoDispatcher,
 }
 
 impl Default for VortexWriteOptions {
@@ -30,7 +29,6 @@ impl Default for VortexWriteOptions {
             strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
-            io_dispatcher: IoDispatcher::shared(),
         }
     }
 }
@@ -59,7 +57,7 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Perform an async write of the provided stream of `Array`.
-    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
+    pub async fn write<W: VortexWrite + Send, S: ArrayStream + Unpin>(
         self,
         write: W,
         mut stream: S,
@@ -80,30 +78,29 @@ impl VortexWriteOptions {
 
         // Our buffered message writer accumulates messages for each batch so we can flush them
         // into the file.
-        let mut segment_writer = BufferedSegmentWriter::default();
-        let mut segment_specs = vec![];
+        let (mut segment_buffer, segment_writer) = BufferedSegmentWriter::create();
 
-        // Then write the stream via the root layout
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            layout_writer.push_chunk(&mut segment_writer, chunk)?;
-            // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
-            segment_writer
-                .flush_async(&mut write, &mut segment_specs)
-                .await?;
-        }
+        let flush = async { segment_writer.write(write).await };
+        let write_chunks = async {
+            // Then write the stream via the root layout
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk?;
+                layout_writer.push_chunk(&mut segment_buffer, chunk)?;
+                segment_buffer.flush()?;
+            }
 
-        // Flush the final layout messages into the file
-        layout_writer.flush(&mut segment_writer)?;
-        segment_writer
-            .flush_async(&mut write, &mut segment_specs)
-            .await?;
+            // Flush the final layout messages into the file
+            layout_writer.flush(&mut segment_buffer)?;
+            segment_buffer.flush()?;
 
-        // Finish the layouts and flush the finishing messages into the file
-        let layout = layout_writer.finish(&mut segment_writer)?;
-        segment_writer
-            .flush_async(&mut write, &mut segment_specs)
-            .await?;
+            // Finish the layouts and flush the finishing messages into the file
+            let layout = layout_writer.finish(&mut segment_buffer)?;
+            segment_buffer.flush()?;
+            drop(segment_buffer);
+            Ok(layout)
+        };
+        // compress chunks and flush concurrently, former is cpu bound latter is io.
+        let (layout, (mut write, segment_specs)) = future::try_join(write_chunks, flush).await?;
 
         // We write our footer components in order of least likely to be needed to most likely.
         // DType is the least likely to be needed, as many readers may provide this from an
