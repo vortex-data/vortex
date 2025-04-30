@@ -142,7 +142,7 @@ jobs:
 
       - name: Install uv
         if: inputs.mode == 'pr'
-        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
       - name: Compare results
