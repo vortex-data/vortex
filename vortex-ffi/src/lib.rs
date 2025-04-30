@@ -14,7 +14,6 @@ mod stream;
 use std::ffi::{CStr, c_char, c_int};
 
 pub use log::vx_log_level;
-use vortex::error::VortexExpect;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
