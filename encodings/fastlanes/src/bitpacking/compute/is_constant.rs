@@ -157,13 +157,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::compute::is_constant;
     use vortex_buffer::buffer;
-    use vortex_error::VortexUnwrap;
 
     use crate::BitPackedArray;
 
     #[test]
     fn is_constant_with_patches() {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).vortex_unwrap();
-        assert!(is_constant(&array).vortex_unwrap());
+        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
+        assert!(is_constant(&array).unwrap().unwrap());
     }
 }
