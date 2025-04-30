@@ -4,7 +4,7 @@ use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::VortexWrite;
+use vortex_io::{IoDispatcher, VortexWrite};
 use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
 
@@ -21,6 +21,7 @@ pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
     file_statistics: Vec<Stat>,
+    io_dispatcher: IoDispatcher,
 }
 
 impl Default for VortexWriteOptions {
@@ -29,6 +30,7 @@ impl Default for VortexWriteOptions {
             strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
+            io_dispatcher: IoDispatcher::shared(),
         }
     }
 }
