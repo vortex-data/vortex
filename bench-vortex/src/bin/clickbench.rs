@@ -58,8 +58,6 @@ struct Args {
     #[arg(long)]
     queries_file: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
-    #[arg(long, default_value_t = false)]
     disable_datafusion_cache: bool,
     #[arg(long)]
     export_spans: bool,
@@ -218,10 +216,7 @@ fn main() -> anyhow::Result<()> {
 
         let mut engine_ctx = match engine {
             Engine::DataFusion => {
-                let session_ctx = df::get_session_context(
-                    args.emulate_object_store,
-                    args.disable_datafusion_cache,
-                );
+                let session_ctx = df::get_session_context(args.disable_datafusion_cache);
                 // Register object store to the session.
                 df::make_object_store(&session_ctx, &base_url)?;
 

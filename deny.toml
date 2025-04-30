@@ -9,7 +9,10 @@ no-default-features = false
 feature-depth = 1
 
 [advisories]
-ignore = ["RUSTSEC-2025-0020", "RUSTSEC-2024-0436"]
+ignore = [
+    # Paste is no longer maintained because its essentially "finished".
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 # List of explicitly allowed licenses

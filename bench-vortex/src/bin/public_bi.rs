@@ -39,8 +39,6 @@ struct Args {
     #[arg(long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
-    #[arg(long, default_value_t = false)]
     disable_datafusion_cache: bool,
     #[arg(short, long, value_delimiter = ',')]
     dataset: PBIDataset,
@@ -107,8 +105,7 @@ fn main() -> anyhow::Result<()> {
 
     for target in &args.targets {
         let format = target.format();
-        let session =
-            df::get_session_context(args.emulate_object_store, args.disable_datafusion_cache);
+        let session = df::get_session_context(args.disable_datafusion_cache);
 
         let file_type = match format {
             Format::Csv => FileType::Csv,

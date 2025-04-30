@@ -1,7 +1,8 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn, UncompressedSizeFn,
+    FillNullFn, IsConstantFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, ToArrowFn,
+    UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -35,6 +36,13 @@ pub trait ComputeVTable {
     ///
     /// See: [`MinMaxFn`].
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
+        None
+    }
+
+    /// Compute nan count of the array
+    ///
+    /// See: [`NaNCountFn`]
+    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
         None
     }
 

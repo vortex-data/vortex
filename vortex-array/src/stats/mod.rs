@@ -29,13 +29,20 @@ use vortex_error::VortexExpect;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.
-pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::Sum, Stat::NullCount];
+pub const PRUNING_STATS: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::Sum,
+    Stat::NullCount,
+    Stat::NaNCount,
+];
 
 /// Stats to keep when serializing arrays to layouts
 pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
     Stat::Max,
     Stat::NullCount,
+    Stat::NaNCount,
     Stat::Sum,
     Stat::IsConstant,
     Stat::IsSorted,
@@ -75,6 +82,8 @@ pub enum Stat {
     NullCount = 6,
     /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes = 7,
+    /// The number of NaN values in the array
+    NaNCount = 8,
 }
 
 /// These structs allow the extraction of the bound from the `Precision` value.
@@ -87,6 +96,7 @@ pub struct IsSorted;
 pub struct IsStrictSorted;
 pub struct NullCount;
 pub struct UncompressedSizeInBytes;
+pub struct NaNCount;
 
 impl StatType<bool> for IsConstant {
     type Bound = Precision<bool>;
@@ -136,19 +146,26 @@ impl<T: PartialOrd + Clone + Debug> StatType<T> for Sum {
     const STAT: Stat = Stat::Sum;
 }
 
+impl<T: PartialOrd + Clone> StatType<T> for NaNCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NaNCount;
+}
+
 impl Stat {
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not
     pub fn is_commutative(&self) -> bool {
         // NOTE: we prefer this syntax to force a compile error if we add a new stat
         match self {
-            Stat::IsConstant
-            | Stat::Max
-            | Stat::Min
-            | Stat::NullCount
-            | Stat::Sum
-            | Stat::UncompressedSizeInBytes => true,
-            Stat::IsSorted | Stat::IsStrictSorted => false,
+            Self::IsConstant
+            | Self::Max
+            | Self::Min
+            | Self::NullCount
+            | Self::Sum
+            | Self::NaNCount
+            | Self::UncompressedSizeInBytes => true,
+            Self::IsSorted | Self::IsStrictSorted => false,
         }
     }
 
@@ -159,14 +176,15 @@ impl Stat {
 
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
         Some(match self {
-            Stat::IsConstant => DType::Bool(NonNullable),
-            Stat::IsSorted => DType::Bool(NonNullable),
-            Stat::IsStrictSorted => DType::Bool(NonNullable),
-            Stat::Max => data_type.clone(),
-            Stat::Min => data_type.clone(),
-            Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
-            Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Stat::Sum => {
+            Self::IsConstant => DType::Bool(NonNullable),
+            Self::IsSorted => DType::Bool(NonNullable),
+            Self::IsStrictSorted => DType::Bool(NonNullable),
+            Self::Max => data_type.clone(),
+            Self::Min => data_type.clone(),
+            Self::NullCount => DType::Primitive(PType::U64, NonNullable),
+            Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+            Self::NaNCount => DType::Primitive(PType::U64, NonNullable),
+            Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
                 // Therefore, we make integer sum stats nullable.
@@ -207,13 +225,14 @@ impl Stat {
             Self::Min => "min",
             Self::NullCount => "null_count",
             Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
-            Stat::Sum => "sum",
+            Self::Sum => "sum",
+            Self::NaNCount => "nan_count",
         }
     }
 }
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
-    let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize;
+    let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize + 1;
     // TODO(ngates): use vortex-buffer::BitBuffer
     let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
         MutableBuffer::from_len_zeroed(max_stat.div_ceil(8)),

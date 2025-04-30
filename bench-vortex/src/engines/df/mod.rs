@@ -7,7 +7,6 @@ use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
-use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::physical_plan::collect;
 use datafusion::physical_plan::execution_plan::ExecutionPlan;
@@ -22,8 +21,6 @@ use url::Url;
 use vortex::error::VortexResult;
 use vortex_datafusion::persistent::VortexFormatFactory;
 
-use crate::blob::SlowObjectStoreRegistry;
-
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     String::from_utf8(
         Command::new("git")
@@ -37,17 +34,8 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .to_string()
 });
 
-pub fn get_session_context(
-    emulate_object_store: bool,
-    disable_datafusion_cache: bool,
-) -> SessionContext {
-    let registry = if emulate_object_store {
-        Arc::new(SlowObjectStoreRegistry::default()) as _
-    } else {
-        Arc::new(DefaultObjectStoreRegistry::new()) as _
-    };
-
-    let mut rt_builder = RuntimeEnvBuilder::new().with_object_store_registry(registry);
+pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
+    let mut rt_builder = RuntimeEnvBuilder::new();
 
     if !disable_datafusion_cache {
         let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());

@@ -101,7 +101,7 @@ impl VortexFileCache {
                         self.metrics
                             .child_with_tags([("filename", object.location.to_string())]),
                     )
-                    .with_file_size(object.size as u64)
+                    .with_file_size(object.size)
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
