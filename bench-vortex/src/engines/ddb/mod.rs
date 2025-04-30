@@ -161,6 +161,20 @@ fn create_table_registration(
                 duckdb_object.to_str()
             )
         }
+        BenchmarkDataset::TpcDS => {
+            let mut commands = String::new();
+            let tables = BenchmarkDataset::TpcDS.tables();
+
+            for table_name in &tables {
+                let table_path = format!("{base_dir}{table_name}.{extension}");
+                commands.push_str(&format!(
+                    "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                    duckdb_object.to_str(),
+                ));
+            }
+            println!("commands {:?}", commands);
+            commands
+        }
     }
 }
 

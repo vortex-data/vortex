@@ -114,9 +114,9 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
             output_dir.to_string_lossy(),
         )),
         Format::OnDiskVortex | Format::InMemoryVortex => {
-            command
-                .arg("-c")
-                .arg("install vortex from community; load vortex;");
+            // command
+            //     .arg("-c")
+            //     .arg("install vortex from community; load vortex;");
 
             command.arg("-c").arg(format!(
                 "export database '{}' (format VORTEX);",

@@ -22,6 +22,7 @@ pub trait Dataset {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BenchmarkDataset {
     TpcH,
+    TpcDS,
     ClickBench { single_file: bool },
 }
 
@@ -29,6 +30,7 @@ impl Display for BenchmarkDataset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BenchmarkDataset::TpcH => write!(f, "tpch"),
+            BenchmarkDataset::TpcDS => write!(f, "tpcds"),
             BenchmarkDataset::ClickBench { single_file } => {
                 if *single_file {
                     write!(f, "clickbench-single")
@@ -41,13 +43,51 @@ impl Display for BenchmarkDataset {
 }
 
 impl BenchmarkDataset {
+    pub fn tables(&self) -> &[&'static str] {
+        match self {
+            BenchmarkDataset::TpcDS => &[
+                "call_center",
+                "catalog_sales",
+                "customer_demographics",
+                "income_band",
+                "store_returns",
+                "warehouse",
+                "web_sales",
+                "catalog_page",
+                "customer",
+                "date_dim",
+                "inventory",
+                "promotion",
+                "ship_mode",
+                "store_sales",
+                "web_page",
+                "web_site",
+                "catalog_returns",
+                "customer_address",
+                "household_demographics",
+                "item",
+                "reason",
+                "store",
+                "time_dim",
+                "web_returns",
+            ],
+
+            BenchmarkDataset::TpcH => &[
+                "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
+                "supplier",
+            ],
+
+            BenchmarkDataset::ClickBench { .. } => todo!(),
+        }
+    }
+
     pub fn parquet_path(&self, base_url: &Url) -> Result<Url> {
         match self {
             BenchmarkDataset::TpcH => {
                 // TPC-H parquet files are stored alongside the TBL files
                 Ok(base_url.clone())
             }
-            BenchmarkDataset::ClickBench { .. } => {
+            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::TpcDS => {
                 // ClickBench parquet files are stored in "parquet/" subdirectory
                 Ok(base_url.join("parquet/")?)
             }
@@ -60,7 +100,7 @@ impl BenchmarkDataset {
                 // TPC-H vortex files are stored in "vortex_compressed/" subdirectory
                 Ok(base_url.join("vortex_compressed/")?)
             }
-            BenchmarkDataset::ClickBench { .. } => {
+            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::TpcDS => {
                 // ClickBench vortex files are stored in "vortex/" subdirectory
                 Ok(base_url.join("vortex/")?)
             }
@@ -75,7 +115,7 @@ impl BenchmarkDataset {
     ) -> Result<()> {
         // Register tables synchronously to avoid nested runtime issues
         match (self, format) {
-            (BenchmarkDataset::TpcH, _) => {
+            (BenchmarkDataset::TpcH, _) | (BenchmarkDataset::TpcDS, _) => {
                 // TPC-H tables are handled separately
             }
             (BenchmarkDataset::ClickBench { single_file }, crate::Format::Parquet) => {
