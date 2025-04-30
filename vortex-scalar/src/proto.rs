@@ -261,3 +261,66 @@ mod test {
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use half::f16;
+    use rstest::rstest;
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructDType, half};
+
+    use super::*;
+    use crate::{Scalar, i256};
+
+    #[rstest]
+    #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable))]
+    #[case(Scalar::utf8("hello", Nullability::NonNullable))]
+    #[case(Scalar::primitive(1u8, Nullability::NonNullable))]
+    #[case(Scalar::primitive(
+        f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])),
+        Nullability::NonNullable
+    ))]
+    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable
+    ))]
+    #[case(Scalar::struct_(DType::Struct(
+        Arc::new(StructDType::from_iter([
+            ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),
+            ("b", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
+        ])),
+        Nullability::NonNullable),
+        vec![
+            Scalar::primitive(23592960, Nullability::NonNullable),
+            Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
+        ],
+    ))]
+    #[case(Scalar::struct_(DType::Struct(
+        Arc::new(StructDType::from_iter([
+            ("a", FieldDType::from(DType::Primitive(PType::U64, Nullability::NonNullable))),
+            ("b", FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable))),
+            ("c", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
+        ])),
+        Nullability::NonNullable),
+        vec![
+            Scalar::primitive(415118687234i64, Nullability::NonNullable),
+            Scalar::primitive(2.6584664e36f32, Nullability::NonNullable),
+            Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
+        ],
+    ))]
+    #[case(Scalar::decimal(
+        DecimalValue::I256(i256::from_i128(12345643673471)),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable
+    ))]
+    #[case(Scalar::decimal(
+        DecimalValue::I16(23412),
+        DecimalDType::new(3, 2),
+        Nullability::NonNullable
+    ))]
+    fn test_scalar_value_serde_roundtrip(#[case] scalar: Scalar) {
+        let written = scalar.value.to_protobytes::<Vec<u8>>();
+        let scalar_read_back = ScalarValue::from_protobytes(&written).unwrap();
+        assert_eq!(
+            scalar,
+            Scalar::new(scalar.dtype().clone(), scalar_read_back)
+        );
+    }
+}
