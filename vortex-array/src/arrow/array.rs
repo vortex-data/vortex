@@ -2,7 +2,8 @@ use std::fmt::Debug;
 
 use arrow::ArrayRef as ArrowArrayRef;
 use arrow_array::Array;
-use vortex_dtype::DType;
+use arrow_schema::Field;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -38,6 +39,18 @@ pub struct ArrowArray {
 }
 
 impl ArrowArray {
+    pub fn new(arrow_array: ArrowArrayRef, nullability: Nullability) -> Self {
+        let dtype = DType::from_arrow(&Field::new(
+            "__",
+            arrow_array.data_type().clone(),
+            nullability.into(),
+        ));
+        Self {
+            inner: arrow_array,
+            dtype,
+        }
+    }
+
     pub fn into_inner(self) -> ArrowArrayRef {
         self.inner
     }
