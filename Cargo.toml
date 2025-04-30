@@ -55,7 +55,7 @@ version = "0.32.0"
 anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arrayref = "0.3.7"
-arrow = "55"
+arrow = {version = "55", default-features = false}
 arrow-arith = "55"
 arrow-array = "55"
 arrow-buffer = "55"

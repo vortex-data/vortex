@@ -272,15 +272,23 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
-    runs-on: ubuntu-latest-large
-    env:
-      # Disable incremental compilation to get accurate coverage
-      CARGO_INCREMENTAL: "0"
-      # Disable lints when running tests. They will be caught by the Rust lint job.
-      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
-      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+    runs-on: ubuntu-latest
     steps:
+      # Disable lints when running tests. They will be caught by the Rust lint job.
+      - name: Setup environment (On develop)
+        shell: bash
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          echo "RUSTFLAGS=\"-Cinstrument-coverage -A warnings\"" >> $GITHUB_ENV
+          # Disable incremental compilation to get accurate coverage
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=target/coverage/vortex-%p-%m.profraw" >> $GITHUB_ENV
+          echo "GRCOV_OUTPUT_FILE=target/coverage/vortex.lcov" >> $GITHUB_ENV
+      - name: Setup environment
+        shell: bash
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "RUSTFLAGS=\"-A warnings\"" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
