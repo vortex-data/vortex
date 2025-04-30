@@ -132,7 +132,10 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Docs
-        run: cargo doc --no-deps
+        run: |
+          cargo doc --no-deps
+          # nextest doesn't support doc tests, so we run it here
+          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -270,7 +273,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=4
+      - cpu=8
       - image=ubuntu24-full-x64
       - tag=rust-test
     steps:
@@ -303,9 +306,7 @@ jobs:
       - name: Rust Tests
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
-          echo "Finished running nextest"
-          # nextest doesn't support doc tests
-          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
