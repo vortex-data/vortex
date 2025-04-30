@@ -75,7 +75,7 @@ impl ToDuckDB for DecimalArray {
                 "cannot convert {:?} decimal to duckdb decimal, likely a downcast, which is not support yet",
                 x
             ),
-        }?;
+        };
 
         write_validity_from_mask(self.validity_mask()?, &mut vector);
 
@@ -104,19 +104,14 @@ fn convert_buffer_and_write_decimal_values<
 >(
     array: &DecimalArray,
     vector: &mut FlatVector,
-) -> VortexResult<()> {
+) {
     let buf: Buffer<To> = array.buffer::<From>().iter().map(|v| v.as_()).collect();
     vector.copy(&buf);
-    Ok(())
 }
 
 // Writes a decimal array to a duckdb array, where the storage types are the same.
-fn write_decimal_values<D: NativeDecimalType>(
-    array: &DecimalArray,
-    vector: &mut FlatVector,
-) -> VortexResult<()> {
+fn write_decimal_values<D: NativeDecimalType>(array: &DecimalArray, vector: &mut FlatVector) {
     vector.copy(&array.buffer::<D>());
-    Ok(())
 }
 
 impl FromDuckDB<SizedFlatVector> for DecimalArray {
@@ -126,8 +121,7 @@ impl FromDuckDB<SizedFlatVector> for DecimalArray {
 
         let val = vector.validity_slice();
 
-        // If validity buffer has a value this the array must be nullable
-        // val.is_some() iff nullable  ==> !(x xor b)
+        // If validity buffer has a value this array must be nullable
         if val.is_some() {
             assert!(nullable)
         }
