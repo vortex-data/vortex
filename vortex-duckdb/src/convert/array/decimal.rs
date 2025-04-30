@@ -22,54 +22,55 @@ impl ToDuckDB for DecimalArray {
 
         // Duckdb has an assumed storage width based on the decimal width (what we call precision)
         match (
-            precision_to_duckdb_storage_size(&self.decimal_dtype())?,
             self.values_type(),
+            precision_to_duckdb_storage_size(&self.decimal_dtype())?,
         ) {
-            (DecimalValueType::I16, DecimalValueType::I8) => {
+            (DecimalValueType::I8, DecimalValueType::I16) => {
                 convert_buffer_and_write_decimal_values::<i8, i16>(self, &mut vector)
             }
             (DecimalValueType::I16, DecimalValueType::I16) => {
                 write_decimal_values::<i16>(self, &mut vector)
             }
-            (DecimalValueType::I32, DecimalValueType::I8) => {
+            (DecimalValueType::I8, DecimalValueType::I32) => {
                 convert_buffer_and_write_decimal_values::<i8, i32>(self, &mut vector)
             }
-            (DecimalValueType::I32, DecimalValueType::I16) => {
+            (DecimalValueType::I16, DecimalValueType::I32) => {
                 convert_buffer_and_write_decimal_values::<i16, i32>(self, &mut vector)
             }
             (DecimalValueType::I32, DecimalValueType::I32) => {
                 write_decimal_values::<i32>(self, &mut vector)
             }
-            (DecimalValueType::I64, DecimalValueType::I8) => {
+            (DecimalValueType::I8, DecimalValueType::I64) => {
                 convert_buffer_and_write_decimal_values::<i8, i64>(self, &mut vector)
             }
-            (DecimalValueType::I64, DecimalValueType::I16) => {
+            (DecimalValueType::I16, DecimalValueType::I64) => {
                 convert_buffer_and_write_decimal_values::<i16, i64>(self, &mut vector)
             }
-            (DecimalValueType::I64, DecimalValueType::I32) => {
+            (DecimalValueType::I32, DecimalValueType::I64) => {
                 convert_buffer_and_write_decimal_values::<i32, i64>(self, &mut vector)
             }
             (DecimalValueType::I64, DecimalValueType::I64) => {
                 write_decimal_values::<i64>(self, &mut vector)
             }
-            (DecimalValueType::I128, DecimalValueType::I8) => {
+            (DecimalValueType::I8, DecimalValueType::I128) => {
                 convert_buffer_and_write_decimal_values::<i8, i128>(self, &mut vector)
             }
-            (DecimalValueType::I128, DecimalValueType::I16) => {
+            (DecimalValueType::I16, DecimalValueType::I128) => {
                 convert_buffer_and_write_decimal_values::<i16, i128>(self, &mut vector)
             }
-            (DecimalValueType::I128, DecimalValueType::I32) => {
+            (DecimalValueType::I32, DecimalValueType::I128) => {
                 convert_buffer_and_write_decimal_values::<i32, i128>(self, &mut vector)
             }
-            (DecimalValueType::I128, DecimalValueType::I64) => {
+            (DecimalValueType::I64, DecimalValueType::I128) => {
                 convert_buffer_and_write_decimal_values::<i64, i128>(self, &mut vector)
             }
             (DecimalValueType::I128, DecimalValueType::I128) => {
                 write_decimal_values::<i128>(self, &mut vector)
             }
-            (ty @ (DecimalValueType::I8 | DecimalValueType::I256), _) => vortex_bail!(
-                "cannot convert to a decimal value type not supported buy duckdb {:?}",
-                ty
+            (from, to @ (DecimalValueType::I8 | DecimalValueType::I256)) => vortex_bail!(
+                "cannot convert from ({}) to ({}) single the target decimal value type not supported by duckdb",
+                from,
+                to
             ),
             x => vortex_bail!(
                 "cannot convert {:?} decimal to duckdb decimal, likely a downcast, which is not support yet",
