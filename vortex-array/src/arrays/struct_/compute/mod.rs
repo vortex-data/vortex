@@ -129,8 +129,11 @@ impl IsConstantKernel for StructEncoding {
         }
 
         for child in children.iter() {
-            if !is_constant_opts(child, opts)? {
-                return Ok(Some(false));
+            match is_constant_opts(child, opts)? {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
             }
         }
 

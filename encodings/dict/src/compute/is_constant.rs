@@ -8,7 +8,7 @@ use crate::{DictArray, DictEncoding};
 
 impl IsConstantKernel for DictEncoding {
     fn is_constant(&self, array: &DictArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.codes(), opts).map(Some)
+        is_constant_opts(array.codes(), opts)
     }
 }
 

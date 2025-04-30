@@ -111,7 +111,7 @@ impl IsConstantKernel for ExtensionEncoding {
         array: &ExtensionArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.storage(), opts).map(Some)
+        is_constant_opts(array.storage(), opts)
     }
 }
 

@@ -8,7 +8,7 @@ use crate::{FoRArray, FoREncoding};
 
 impl IsConstantKernel for FoREncoding {
     fn is_constant(&self, array: &FoRArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.encoded(), opts).map(Some)
+        is_constant_opts(array.encoded(), opts)
     }
 }
 

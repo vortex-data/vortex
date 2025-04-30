@@ -22,9 +22,10 @@ use crate::{Array, ArrayExt, Encoding};
 /// 1. Is all valid AND has minimum and maximum statistics that are equal.
 ///
 /// If the array has some null values but is not all null, it'll never be constant.
-/// **Please note:** Might return false negatives if a specific encoding couldn't make a
-/// determination.
-pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
+///
+/// Returns `Ok(None)` if we could not determine whether the array is constant, e.g. if
+/// canonicalization is disabled and the no kernel exists for the array's encoding.
+pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
     let opts = IsConstantOpts::default();
     is_constant_opts(array, &opts)
 }
@@ -32,7 +33,7 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
 /// Computes whether an array has constant values. Configurable by [`IsConstantOpts`].
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
-pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<bool> {
+pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
     Ok(IS_CONSTANT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -40,8 +41,7 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
         })?
         .unwrap_scalar()?
         .as_bool()
-        .value()
-        .unwrap_or_default())
+        .value())
 }
 
 pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -68,15 +68,21 @@ impl ComputeFnVTable for IsConstant {
         }
 
         let value = is_constant_impl(array, options, kernels)?;
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(value.into()));
+
+        // Only if we made a determination do we update the stats.
+        if let Some(value) = value {
+            array
+                .statistics()
+                .set(Stat::IsConstant, Precision::Exact(value.into()));
+        }
 
         Ok(Scalar::from(value).into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
-        Ok(DType::Bool(Nullability::NonNullable))
+        // We always return a nullable boolean where `null` indicates we couldn't determine
+        // whether the array is constant.
+        Ok(DType::Bool(Nullability::Nullable))
     }
 
     fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
@@ -92,30 +98,30 @@ fn is_constant_impl(
     array: &dyn Array,
     options: &IsConstantOpts,
     kernels: &[ArcRef<dyn Kernel>],
-) -> VortexResult<bool> {
+) -> VortexResult<Option<bool>> {
     match array.len() {
         // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
-        0 => return Ok(false),
+        0 => return Ok(Some(false)),
         // Array of length 1 is always constant.
-        1 => return Ok(true),
+        1 => return Ok(Some(true)),
         _ => {}
     }
 
     // Constant and null arrays are always constant
     if array.as_opt::<ConstantArray>().is_some() || array.as_opt::<NullArray>().is_some() {
-        return Ok(true);
+        return Ok(Some(true));
     }
 
     let all_invalid = array.all_invalid()?;
     if all_invalid {
-        return Ok(true);
+        return Ok(Some(true));
     }
 
     let all_valid = array.all_valid()?;
 
     // If we have some nulls, array can't be constant
     if !all_valid && !all_invalid {
-        return Ok(false);
+        return Ok(Some(false));
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
@@ -130,7 +136,7 @@ fn is_constant_impl(
 
     if let Some((min, max)) = min.zip(max) {
         if min == max {
-            return Ok(true);
+            return Ok(Some(true));
         }
     }
 
@@ -144,19 +150,11 @@ fn is_constant_impl(
     };
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
-            return Ok(output
-                .unwrap_scalar()?
-                .as_bool()
-                .value()
-                .unwrap_or_default());
+            return Ok(output.unwrap_scalar()?.as_bool().value());
         }
     }
     if let Some(output) = array.invoke(&IS_CONSTANT_FN, &args)? {
-        return Ok(output
-            .unwrap_scalar()?
-            .as_bool()
-            .value()
-            .unwrap_or_default());
+        return Ok(output.unwrap_scalar()?.as_bool().value());
     }
 
     log::debug!(
@@ -169,8 +167,8 @@ fn is_constant_impl(
         is_constant_opts(array.as_ref(), options)?;
     }
 
-    // Otherwise, we cannot assume the array is constant
-    Ok(false)
+    // Otherwise, we cannot determine if the array is constant.
+    Ok(None)
 }
 
 pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);

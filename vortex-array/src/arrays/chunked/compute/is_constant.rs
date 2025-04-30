@@ -16,8 +16,11 @@ impl IsConstantKernel for ChunkedEncoding {
 
         let first_chunk = chunks.next().vortex_expect("Must have at least one value");
 
-        if !is_constant_opts(first_chunk, opts)? {
-            return Ok(Some(false));
+        match is_constant_opts(first_chunk, opts)? {
+            // Un-determined
+            None => return Ok(None),
+            Some(false) => return Ok(Some(false)),
+            Some(true) => {}
         }
 
         let first_value = scalar_at(first_chunk, 0)?.into_nullable();
@@ -27,8 +30,11 @@ impl IsConstantKernel for ChunkedEncoding {
                 continue;
             }
 
-            if !is_constant_opts(chunk, opts)? {
-                return Ok(Some(false));
+            match is_constant_opts(chunk, opts)? {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
             }
 
             if first_value != scalar_at(chunk, 0)?.into_nullable() {
