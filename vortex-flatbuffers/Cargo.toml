@@ -14,12 +14,11 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-array = ["dtype", "scalar"]
+array = ["dtype"]
 dtype = []
 file = ["ipc"]
 ipc = ["array"]
 layout = ["array"]
-scalar = ["dtype"]
 
 [dependencies]
 flatbuffers = { workspace = true }

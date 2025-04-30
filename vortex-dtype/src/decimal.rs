@@ -1,4 +1,4 @@
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{VortexError, vortex_bail};
 
 use crate::DType;
 
@@ -60,10 +60,7 @@ impl TryFrom<&DType> for DecimalDType {
     fn try_from(value: &DType) -> Result<Self, Self::Error> {
         match value {
             DType::Decimal(dt, _) => Ok(*dt),
-            _ => Err(vortex_err!(
-                "Cannot convert DType {} into DecimalType",
-                value
-            )),
+            _ => vortex_bail!("Cannot convert DType {value} into DecimalType"),
         }
     }
 }

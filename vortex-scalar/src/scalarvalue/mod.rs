@@ -5,17 +5,20 @@ mod list;
 mod primitive;
 mod utf8;
 
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 use std::sync::Arc;
 
+use bytes::BufMut;
 use itertools::Itertools;
+use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_proto::scalar as pb;
 
-use crate::ScalarType;
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
+use crate::{ScalarType, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -37,37 +40,31 @@ pub(crate) enum InnerScalarValue {
     List(Arc<[ScalarValue]>),
 }
 
-#[cfg(feature = "flatbuffers")]
 impl ScalarValue {
-    pub fn to_flexbytes<B: Default + for<'a> Extend<&'a u8>>(&self) -> B {
-        use serde::Serialize;
-        use vortex_error::VortexExpect;
-
-        let mut ser = flexbuffers::FlexbufferSerializer::new();
-        self.serialize(&mut ser)
-            .vortex_expect("Failed to serialize ScalarValue");
-        let view = ser.view();
+    pub fn to_protobytes<B: BufMut + Default>(&self) -> B {
+        let pb_scalar = pb::ScalarValue::from(self);
 
         let mut buf = B::default();
-        buf.extend(view);
+        pb_scalar
+            .encode(&mut buf)
+            .map_err(|e| vortex_err!("Failed to serialize protobuf {e}"))
+            .vortex_unwrap();
         buf
     }
 
-    pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
-        use serde::Deserialize;
-
-        Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
-            buf,
-        )?)?)
+    pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
+        ScalarValue::try_from(
+            &pb::ScalarValue::decode(buf)
+                .map_err(|e| vortex_err!("Failed to deserialize protobuf {e}"))?,
+        )
     }
 }
 
-fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {
-    let mut output = String::new();
-    for byte in slice {
-        write!(output, "{:02x}", byte)?;
-    }
-    Ok(output)
+fn to_hex(slice: &[u8]) -> String {
+    slice
+        .iter()
+        .format_with("", |f, b| b(&format_args!("{:02x}", f)))
+        .to_string()
 }
 
 impl Display for ScalarValue {
@@ -87,11 +84,11 @@ impl Display for InnerScalarValue {
                     write!(
                         f,
                         "{}..{}",
-                        to_hex(&buf[0..5])?,
-                        to_hex(&buf[buf.len() - 5..buf.len()])?,
+                        to_hex(&buf[0..5]),
+                        to_hex(&buf[buf.len() - 5..buf.len()]),
                     )
                 } else {
-                    write!(f, "{}", to_hex(buf)?)
+                    write!(f, "{}", to_hex(buf))
                 }
             }
             Self::BufferString(bufstr) => {
@@ -171,9 +168,9 @@ impl InnerScalarValue {
             (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
                 pvalue.is_instance_of(ptype)
             }
-            // Make sure the scalar value is of the right representation, either
-            // 128 or 256.
-            (InnerScalarValue::Decimal(_), DType::Decimal(..)) => true,
+            (InnerScalarValue::Decimal(_) | InnerScalarValue::Buffer(_), DType::Decimal(..)) => {
+                true
+            }
             (InnerScalarValue::Buffer(_), DType::Binary(_)) => true,
             (InnerScalarValue::BufferString(_), DType::Utf8(_)) => true,
             (InnerScalarValue::List(values), DType::List(dtype, _)) => {
@@ -219,7 +216,16 @@ impl InnerScalarValue {
         match self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Decimal(v) => Ok(Some(*v)),
-            _ => Err(vortex_err!("Expected a decimal scalar, found {:?}", self)),
+            InnerScalarValue::Buffer(b) => Ok(Some(match b.len() {
+                1 => DecimalValue::I8(b[0] as i8),
+                2 => DecimalValue::I16(i16::from_le_bytes(b.as_slice().try_into()?)),
+                4 => DecimalValue::I32(i32::from_le_bytes(b.as_slice().try_into()?)),
+                8 => DecimalValue::I64(i64::from_le_bytes(b.as_slice().try_into()?)),
+                16 => DecimalValue::I128(i128::from_le_bytes(b.as_slice().try_into()?)),
+                32 => DecimalValue::I256(i256::from_le_bytes(b.as_slice().try_into()?)),
+                l => vortex_bail!("Buffer is not a decimal value length {l}"),
+            })),
+            _ => vortex_bail!("Expected a decimal scalar, found {:?}", self),
         }
     }
 

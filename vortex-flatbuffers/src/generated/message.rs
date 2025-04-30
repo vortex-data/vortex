@@ -3,7 +3,6 @@
 
 // @generated
 
-use crate::scalar::*;
 use crate::dtype::*;
 use crate::array::*;
 use core::mem;

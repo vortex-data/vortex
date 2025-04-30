@@ -19,11 +19,10 @@ mod extension;
 mod list;
 mod null;
 mod primitive;
+mod proto;
 mod pvalue;
 mod scalar_type;
 mod scalarvalue;
-#[cfg(feature = "serde")]
-mod serde;
 mod struct_;
 mod utf8;
 
@@ -49,7 +48,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 /// including nullability. When the DType does match, ordering is nulls first (lowest), then the
 /// natural ordering of the scalar value.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
     dtype: DType,
     value: ScalarValue,

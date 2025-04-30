@@ -209,25 +209,25 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 		return scalar;
 	}
 	case LogicalTypeId::TINYINT:
-		scalar->mutable_value()->set_int8_value(value.GetValue<int8_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int8_t>());
 		return scalar;
 	case LogicalTypeId::SMALLINT:
-		scalar->mutable_value()->set_int16_value(value.GetValue<int16_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int16_t>());
 		return scalar;
 	case LogicalTypeId::INTEGER:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::BIGINT:
 		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::UTINYINT:
-		scalar->mutable_value()->set_uint8_value(value.GetValue<uint8_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint8_t>());
 		return scalar;
 	case LogicalTypeId::USMALLINT:
-		scalar->mutable_value()->set_uint16_value(value.GetValue<uint16_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint16_t>());
 		return scalar;
 	case LogicalTypeId::UINTEGER:
-		scalar->mutable_value()->set_uint32_value(value.GetValue<uint32_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint32_t>());
 		return scalar;
 	case LogicalTypeId::UBIGINT:
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
@@ -242,10 +242,10 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());
 		return scalar;
 	case LogicalTypeId::DATE:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIME:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_SEC:
 		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());

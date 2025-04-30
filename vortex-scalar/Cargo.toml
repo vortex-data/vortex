@@ -17,39 +17,24 @@ version = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
+bytes = { workspace = true }
 datafusion-common = { workspace = true, optional = true }
-flatbuffers = { workspace = true, optional = true }
-flexbuffers = { workspace = true, optional = true }
 getrandom_v02 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
-serde = { workspace = true, optional = true, features = ["rc"] }
+prost = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, optional = true }
-vortex-proto = { workspace = true, optional = true }
+vortex-proto = { workspace = true, features = ["scalar"] }
 
 [dev-dependencies]
-flexbuffers = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
 workspace = true
 
 [features]
-# Uncomment for improved IntelliJ support
-#default = ["flatbuffers", "proto", "serde"]
 arbitrary = ["dep:arbitrary"]
 datafusion = ["dep:datafusion-common"]
-flatbuffers = [
-    "dep:flatbuffers",
-    "dep:flexbuffers",
-    "dep:serde",
-    "vortex-flatbuffers/scalar",
-    "vortex-error/flatbuffers",
-    "vortex-error/flexbuffers",
-]
-proto = ["vortex-proto/scalar"]
-serde = ["dep:serde", "serde/derive", "vortex-dtype/serde"]

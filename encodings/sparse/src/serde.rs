@@ -56,7 +56,7 @@ impl EncodingVTable for SparseEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
+        let fill_value = Scalar::new(dtype, ScalarValue::from_protobytes(&parts.buffer(0)?)?);
 
         Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
     }
@@ -90,7 +90,7 @@ impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
         let fill_value_buffer = self
             .fill_value
             .value()
-            .to_flexbytes::<ByteBufferMut>()
+            .to_protobytes::<ByteBufferMut>()
             .freeze();
         visitor.visit_buffer(&fill_value_buffer);
     }

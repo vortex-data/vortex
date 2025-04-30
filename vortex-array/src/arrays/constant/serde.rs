@@ -27,7 +27,7 @@ impl EncodingVTable for ConstantEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let sv = ScalarValue::from_flexbytes(&parts.buffer(0)?)?;
+        let sv = ScalarValue::from_protobytes(&parts.buffer(0)?)?;
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
     }
@@ -51,7 +51,11 @@ impl EncodingVTable for ConstantEncoding {
 
 impl ArrayVisitorImpl for ConstantArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let buffer = self.scalar.value().to_flexbytes::<ByteBufferMut>().freeze();
+        let buffer = self
+            .scalar
+            .value()
+            .to_protobytes::<ByteBufferMut>()
+            .freeze();
         visitor.visit_buffer(&buffer);
     }
 

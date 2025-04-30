@@ -45,11 +45,9 @@ serde = [
     "dep:serde",
     "dep:serde_json",
     "vortex-dtype/serde",
-    "vortex-scalar/serde",
     "vortex-error/serde",
 ]
 proto = [
-    "vortex-scalar/proto",
     "vortex-proto/expr",
     "vortex-error/prost",
     "dep:prost",

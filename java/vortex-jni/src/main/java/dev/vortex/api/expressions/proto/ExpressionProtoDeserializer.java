@@ -115,24 +115,10 @@ public final class ExpressionProtoDeserializer {
                 return nullLiteral(dtype);
             case BOOL_VALUE:
                 return Literal.bool(scalarValue.getBoolValue());
-            case INT8_VALUE:
-                return Literal.int8(Casts.toByte(scalarValue.getInt8Value()));
-            case INT16_VALUE:
-                return Literal.int16(Casts.toShort(scalarValue.getInt16Value()));
-            case INT32_VALUE:
-                return Literal.int32(scalarValue.getInt32Value());
             case INT64_VALUE:
                 return Literal.int64(scalarValue.getInt64Value());
-            case UINT8_VALUE:
-                return Literal.int8(Casts.toUnsignedByte(scalarValue.getUint8Value()));
-            case UINT16_VALUE:
-                return Literal.int16(Casts.toShort(scalarValue.getUint16Value()));
-            case UINT32_VALUE:
-                return Literal.int32(scalarValue.getUint32Value());
             case UINT64_VALUE:
                 return Literal.int64(scalarValue.getUint64Value());
-            case F16_VALUE:
-                throw new IllegalArgumentException("F16 is not supported yet");
             case F32_VALUE:
                 return Literal.float32(scalarValue.getF32Value());
             case F64_VALUE:
@@ -160,9 +146,9 @@ public final class ExpressionProtoDeserializer {
                 byte timeUnit =
                         TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
                 if (timeUnit == TemporalMetadatas.TIME_UNIT_SECONDS) {
-                    return Literal.timeSeconds(scalar.getValue().getInt32Value());
+                    return Literal.timeSeconds(Math.toIntExact(scalar.getValue().getInt64Value()));
                 } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
-                    return Literal.timeMillis(scalar.getValue().getInt32Value());
+                    return Literal.timeMillis(Math.toIntExact(scalar.getValue().getInt64Value()));
                 } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MICROS) {
                     return Literal.timeMicros(scalar.getValue().getInt64Value());
                 } else if (timeUnit == TemporalMetadatas.TIME_UNIT_NANOS) {
@@ -175,7 +161,7 @@ public final class ExpressionProtoDeserializer {
                 byte timeUnit =
                         TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
                 if (timeUnit == TemporalMetadatas.TIME_UNIT_DAYS) {
-                    return Literal.dateDays(scalar.getValue().getInt32Value());
+                    return Literal.dateDays(Math.toIntExact(scalar.getValue().getInt64Value()));
                 } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
                     return Literal.dateMillis(scalar.getValue().getInt64Value());
                 } else {
