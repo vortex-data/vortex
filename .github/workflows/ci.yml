@@ -279,7 +279,7 @@ jobs:
         shell: bash
         if: github.ref == 'refs/heads/develop'
         run: |
-          echo "RUSTFLAGS=\"-Cinstrument-coverage -A warnings\"" >> $GITHUB_ENV
+          echo "RUSTFLAGS=\"-Cinstrument-coverage -Awarnings\"" >> $GITHUB_ENV
           # Disable incremental compilation to get accurate coverage
           echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
           echo "LLVM_PROFILE_FILE=target/coverage/vortex-%p-%m.profraw" >> $GITHUB_ENV
@@ -288,7 +288,7 @@ jobs:
         shell: bash
         if: github.ref != 'refs/heads/develop'
         run: |
-          echo "RUSTFLAGS=\"-A warnings\"" >> $GITHUB_ENV
+          echo "RUSTFLAGS=\"-Awarnings\"" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
