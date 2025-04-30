@@ -12,10 +12,8 @@ mod log;
 mod stream;
 
 use std::ffi::{CStr, c_char, c_int};
-use std::sync::LazyLock;
 
 pub use log::vx_log_level;
-use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
