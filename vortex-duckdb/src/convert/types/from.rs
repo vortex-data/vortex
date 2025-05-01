@@ -43,7 +43,7 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
             )))),
             LogicalTypeId::Time => Ok(DType::Extension(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
-                Arc::new(DType::Primitive(PType::I32, nullable)),
+                Arc::new(DType::Primitive(PType::I64, nullable)),
                 Some(TemporalMetadata::Time(TimeUnit::Us).into()),
             )))),
             LogicalTypeId::Timestamp

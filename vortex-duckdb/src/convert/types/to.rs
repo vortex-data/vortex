@@ -70,7 +70,7 @@ pub fn ext_to_duckdb(ext_dtype: &ExtDType) -> LogicalTypeHandle {
             }
         },
         TemporalMetadata::Time(time_unit) => match time_unit {
-            TimeUnit::Ms => LogicalTypeHandle::from(LogicalTypeId::Date),
+            TimeUnit::Us => LogicalTypeHandle::from(LogicalTypeId::Time),
             _ => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
