@@ -109,7 +109,7 @@ table CompressionSpec {
 // If we were to add AES_CTR we would keep same 12 byte nonce and append a 32 bit counter to it (initialzed at 1) to encrypt data.
 
 // Possible encryption algorithms to use when encrypting files
-enum EncryptionAlgorithm {
+enum EncryptionAlgorithm: uint8 {
     AES_GCM = 0,
     // Do we need random access to the encrypted bytes? Since our individual blocks are relatively small there should be a minor
     // difference between slicing the block and decrypting the whole thing, however, maybe there is?

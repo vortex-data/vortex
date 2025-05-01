@@ -104,6 +104,87 @@ impl<'a> flatbuffers::Verifiable for CompressionScheme {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for CompressionScheme {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_ENCRYPTION_ALGORITHM: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_ENCRYPTION_ALGORITHM: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_ENCRYPTION_ALGORITHM: [EncryptionAlgorithm; 1] = [
+  EncryptionAlgorithm::AES_GCM,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct EncryptionAlgorithm(pub u8);
+#[allow(non_upper_case_globals)]
+impl EncryptionAlgorithm {
+  pub const AES_GCM: Self = Self(0);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 0;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::AES_GCM,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::AES_GCM => Some("AES_GCM"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for EncryptionAlgorithm {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for EncryptionAlgorithm {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for EncryptionAlgorithm {
+    type Output = EncryptionAlgorithm;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for EncryptionAlgorithm {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for EncryptionAlgorithm {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for EncryptionAlgorithm {}
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
 // struct SegmentSpec, aligned to 8
 #[repr(transparent)]
@@ -1251,6 +1332,8 @@ impl<'a> flatbuffers::Follow<'a> for EncryptionSpec<'a> {
 }
 
 impl<'a> EncryptionSpec<'a> {
+  pub const VT_ALGORITHM: flatbuffers::VOffsetT = 4;
+  pub const VT_KEY_METADATA: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1259,12 +1342,29 @@ impl<'a> EncryptionSpec<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    _args: &'args EncryptionSpecArgs
+    args: &'args EncryptionSpecArgs<'args>
   ) -> flatbuffers::WIPOffset<EncryptionSpec<'bldr>> {
     let mut builder = EncryptionSpecBuilder::new(_fbb);
+    if let Some(x) = args.key_metadata { builder.add_key_metadata(x); }
+    builder.add_algorithm(args.algorithm);
     builder.finish()
   }
 
+
+  #[inline]
+  pub fn algorithm(&self) -> EncryptionAlgorithm {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, Some(EncryptionAlgorithm::AES_GCM)).unwrap()}
+  }
+  #[inline]
+  pub fn key_metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(EncryptionSpec::VT_KEY_METADATA, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for EncryptionSpec<'_> {
@@ -1274,16 +1374,22 @@ impl flatbuffers::Verifiable for EncryptionSpec<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
+     .visit_field::<EncryptionAlgorithm>("algorithm", Self::VT_ALGORITHM, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("key_metadata", Self::VT_KEY_METADATA, false)?
      .finish();
     Ok(())
   }
 }
-pub struct EncryptionSpecArgs {
+pub struct EncryptionSpecArgs<'a> {
+    pub algorithm: EncryptionAlgorithm,
+    pub key_metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
 }
-impl<'a> Default for EncryptionSpecArgs {
+impl<'a> Default for EncryptionSpecArgs<'a> {
   #[inline]
   fn default() -> Self {
     EncryptionSpecArgs {
+      algorithm: EncryptionAlgorithm::AES_GCM,
+      key_metadata: None,
     }
   }
 }
@@ -1293,6 +1399,14 @@ pub struct EncryptionSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EncryptionSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_algorithm(&mut self, algorithm: EncryptionAlgorithm) {
+    self.fbb_.push_slot::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, algorithm, EncryptionAlgorithm::AES_GCM);
+  }
+  #[inline]
+  pub fn add_key_metadata(&mut self, key_metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(EncryptionSpec::VT_KEY_METADATA, key_metadata);
+  }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> EncryptionSpecBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
@@ -1311,6 +1425,8 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EncryptionSpecBuilder<'a, 'b, A
 impl core::fmt::Debug for EncryptionSpec<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("EncryptionSpec");
+      ds.field("algorithm", &self.algorithm());
+      ds.field("key_metadata", &self.key_metadata());
       ds.finish()
   }
 }
