@@ -29,7 +29,6 @@ impl EncodingVTable for VarBinViewEncoding {
         let mut buffers: Vec<ByteBuffer> = (0..parts.nbuffers())
             .map(|i| parts.buffer(i))
             .try_collect()?;
-        let nbuffers = buffers.len();
         let views = Buffer::<BinaryView>::from_byte_buffer(
             buffers.pop().vortex_expect("Missing views buffer"),
         );
