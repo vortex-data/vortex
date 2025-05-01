@@ -18,6 +18,7 @@ use std::thread::Builder;
 pub use log::vx_log_level;
 use tokio::runtime;
 use tokio::runtime::Runtime;
+use vortex::error::VortexExpect;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
@@ -27,7 +28,7 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .expect("Cannot start runtime")
+        .vortex_expect("Cannot start runtime")
 });
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
