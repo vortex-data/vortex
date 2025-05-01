@@ -53,7 +53,7 @@ pub fn dict_encode_with_constraints(
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints)?;
     let codes = downscale_integer_array(encoder.encode(array)?)?;
-    DictArray::try_new(codes, encoder.values()?)
+    DictArray::try_new(codes, encoder.values())
 }
 
 pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {

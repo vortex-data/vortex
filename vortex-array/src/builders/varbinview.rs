@@ -201,13 +201,14 @@ impl ArrayBuilder for VarBinViewBuilder {
             .null_buffer_builder
             .finish_with_nullability(self.nullability);
 
-        VarBinViewArray::try_new(
-            std::mem::take(&mut self.views_builder).freeze(),
-            buffers,
-            std::mem::replace(&mut self.dtype, DType::Null),
-            validity,
-        )
-        .vortex_expect("VarBinViewArray components should be valid.")
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                std::mem::take(&mut self.views_builder).freeze(),
+                buffers,
+                std::mem::replace(&mut self.dtype, DType::Null),
+                validity,
+            )
+        }
         .into_array()
     }
 }

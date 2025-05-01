@@ -1,4 +1,3 @@
-use arrow_data::{validate_binary_view, validate_string_view};
 use itertools::Itertools;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -34,22 +33,6 @@ impl EncodingVTable for VarBinViewEncoding {
         );
         if views.len() != len {
             vortex_bail!("Expected {} views, got {}", len, views.len());
-        }
-
-        // Validate the views are of the correct type
-        let arrow_views = Buffer::<u128>::from_byte_buffer(views.clone().into_byte_buffer());
-        let arrow_buffers = buffers
-            .iter()
-            .map(|b| b.clone().into_arrow_buffer())
-            .collect::<Vec<_>>();
-        match dtype {
-            DType::Binary(_) => {
-                validate_binary_view(&arrow_views, &arrow_buffers)?;
-            }
-            DType::Utf8(_) => {
-                validate_string_view(&arrow_views, &arrow_buffers)?;
-            }
-            _ => unreachable!("VarBinViewArray can only have type of Binary or Utf8"),
         }
 
         let validity = if parts.nchildren() == 0 {

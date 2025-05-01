@@ -14,12 +14,14 @@ impl CastKernel for VarBinViewEncoding {
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
-        Ok(VarBinViewArray::try_new(
-            array.views().clone(),
-            array.buffers().to_vec(),
-            new_dtype,
-            new_validity,
-        )?
+        Ok(unsafe {
+            VarBinViewArray::new_unchecked(
+                array.views().clone(),
+                array.buffers().to_vec(),
+                new_dtype,
+                new_validity,
+            )
+        }
         .into_array())
     }
 }

@@ -86,12 +86,15 @@ fn fsst_into_varbin_view(
     let views = views.freeze();
     let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes);
 
-    VarBinViewArray::try_new(
-        views,
-        vec![uncompressed_bytes_array],
-        fsst_array.dtype().clone(),
-        Validity::copy_from_array(fsst_array)?,
-    )
+    // SAFETY: The views are guaranteed to be valid as we have just created them.
+    Ok(unsafe {
+        VarBinViewArray::new_unchecked(
+            views,
+            vec![uncompressed_bytes_array],
+            fsst_array.dtype().clone(),
+            Validity::copy_from_array(fsst_array)?,
+        )
+    })
 }
 
 #[cfg(test)]

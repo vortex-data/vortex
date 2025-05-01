@@ -8,8 +8,9 @@ use arrow_array::{
     ArrayRef as ArrowArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray,
 };
 use arrow_buffer::ScalarBuffer;
+use arrow_data::{validate_binary_view, validate_string_view};
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{
     VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
@@ -290,25 +291,51 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        if views.alignment() != Alignment::of::<BinaryView>() {
-            vortex_bail!("Views must be aligned to a 128 bits");
-        }
-
-        if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
-            vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
+        // Validate the views are of the correct type
+        let arrow_views = Buffer::<u128>::from_byte_buffer(views.clone().into_byte_buffer());
+        let arrow_buffers = buffers
+            .iter()
+            .map(|b| b.clone().into_arrow_buffer())
+            .collect::<Vec<_>>();
+        match dtype {
+            DType::Binary(_) => {
+                validate_binary_view(&arrow_views, &arrow_buffers)?;
+            }
+            DType::Utf8(_) => {
+                validate_string_view(&arrow_views, &arrow_buffers)?;
+            }
+            _ => vortex_bail!(MismatchedTypes: "utf8 or binary", dtype),
         }
 
         if dtype.is_nullable() == (validity == Validity::NonNullable) {
             vortex_bail!("incorrect validity {:?}", validity);
         }
 
-        Ok(Self {
+        // SAFETY: we just ran validation
+        Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
+    }
+
+    /// Create a new `VarBinViewArray` without validating the views.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the views are valid for the given buffers and dtype.
+    pub unsafe fn new_unchecked(
+        views: Buffer<BinaryView>,
+        buffers: Vec<ByteBuffer>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        if dtype.is_nullable() == (validity == Validity::NonNullable) {
+            vortex_panic!("incorrect validity {:?}", validity);
+        }
+        Self {
             dtype,
             buffers,
             views,
             validity,
             stats_set: Default::default(),
-        })
+        }
     }
 
     /// Number of raw string data buffers held by this array.

@@ -60,12 +60,14 @@ impl SliceFn<&VarBinViewArray> for VarBinViewEncoding {
     fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let views = array.views().slice(start..stop);
 
-        Ok(VarBinViewArray::try_new(
-            views,
-            array.buffers().to_vec(),
-            array.dtype().clone(),
-            array.validity().slice(start, stop)?,
-        )?
+        Ok(unsafe {
+            VarBinViewArray::new_unchecked(
+                views,
+                array.buffers().to_vec(),
+                array.dtype().clone(),
+                array.validity().slice(start, stop)?,
+            )
+        }
         .into_array())
     }
 }

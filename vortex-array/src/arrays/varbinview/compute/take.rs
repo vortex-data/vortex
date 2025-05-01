@@ -27,14 +27,16 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
             take_views(array.views(), indices.as_slice::<$I>())
         });
 
-        Ok(VarBinViewArray::try_new(
-            views_buffer,
-            array.buffers().to_vec(),
-            array.dtype().with_nullability(
-                (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
-            ),
-            validity,
-        )?
+        Ok(unsafe {
+            VarBinViewArray::new_unchecked(
+                views_buffer,
+                array.buffers().to_vec(),
+                array.dtype().with_nullability(
+                    (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
+                ),
+                validity,
+            )
+        }
         .into_array())
     }
 

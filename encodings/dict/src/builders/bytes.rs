@@ -172,14 +172,16 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
         }
     }
 
-    fn values(&mut self) -> VortexResult<ArrayRef> {
-        VarBinViewArray::try_new(
-            self.views.clone().freeze(),
-            vec![self.values.clone().freeze()],
-            self.dtype.clone(),
-            self.dtype.nullability().into(),
-        )
-        .map(|a| a.into_array())
+    fn values(&mut self) -> ArrayRef {
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                self.views.clone().freeze(),
+                vec![self.values.clone().freeze()],
+                self.dtype.clone(),
+                self.dtype.nullability().into(),
+            )
+        }
+        .into_array()
     }
 }
 

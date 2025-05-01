@@ -208,17 +208,19 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
             Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
         );
 
-        VarBinViewArray::try_new(
-            views_buffer,
-            value
-                .data_buffers()
-                .iter()
-                .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                .collect::<Vec<_>>(),
-            dtype,
-            nulls(value.nulls(), nullable),
-        )
-        .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
+        // SAFETY: we assume that Arrow arrays are themselves valid.
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                views_buffer,
+                value
+                    .data_buffers()
+                    .iter()
+                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
+                    .collect::<Vec<_>>(),
+                dtype,
+                nulls(value.nulls(), nullable),
+            )
+        }
         .into_array()
     }
 }

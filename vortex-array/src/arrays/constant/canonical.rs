@@ -132,8 +132,14 @@ fn canonical_byte_view(
     match scalar_bytes {
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
-
-            VarBinViewArray::try_new(views, Vec::new(), dtype.clone(), Validity::AllInvalid)
+            Ok(unsafe {
+                VarBinViewArray::new_unchecked(
+                    views,
+                    Vec::new(),
+                    dtype.clone(),
+                    Validity::AllInvalid,
+                )
+            })
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
@@ -152,12 +158,14 @@ fn canonical_byte_view(
                 views.push(view);
             }
 
-            VarBinViewArray::try_new(
-                views.freeze(),
-                buffers,
-                dtype.clone(),
-                Validity::from(dtype.nullability()),
-            )
+            Ok(unsafe {
+                VarBinViewArray::new_unchecked(
+                    views.freeze(),
+                    buffers,
+                    dtype.clone(),
+                    Validity::from(dtype.nullability()),
+                )
+            })
         }
     }
 }
