@@ -177,7 +177,6 @@ fn create_table_registration(
                     duckdb_object.to_str(),
                 ));
             }
-            println!("commands {:?}", commands);
             commands
         }
     }

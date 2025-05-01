@@ -95,11 +95,9 @@ impl DecimalArray {
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
                 vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}, dc_ty={:?}, ty={:?}",
+                    "Buffer and validity length mismatch: buffer={}, validity={}",
                     buffer.len(),
                     len,
-                    decimal_dtype,
-                    T::VALUES_TYPE
                 );
             }
         }
