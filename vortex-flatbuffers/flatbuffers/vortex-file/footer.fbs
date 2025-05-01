@@ -108,12 +108,15 @@ table CompressionSpec {
 // When encrypting data with AES_GCM the nonce should always be 12 bytes in length (per specification recommendation) and tag 16 bytes.
 // If we were to add AES_CTR we would keep same 12 byte nonce and append a 32 bit counter to it (initialzed at 1) to encrypt data.
 
+// Encryption is applied after general purpose compression
+
 // Possible encryption algorithms to use when encrypting files
 enum EncryptionAlgorithm: uint8 {
-    AES_GCM = 0,
+    None = 0,
+    AES_GCM = 1,
     // Do we need random access to the encrypted bytes? Since our individual blocks are relatively small there should be a minor
     // difference between slicing the block and decrypting the whole thing, however, maybe there is?
-    // AES_CTR = 1,
+    // AES_CTR = 2,
 }
 
 // Callers can provide additional AAD information per spec to handle encrypted blocks being replaced without their knoweldge

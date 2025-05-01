@@ -107,10 +107,11 @@ impl flatbuffers::SimpleToVerifyInSlice for CompressionScheme {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_ENCRYPTION_ALGORITHM: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_ENCRYPTION_ALGORITHM: u8 = 0;
+pub const ENUM_MAX_ENCRYPTION_ALGORITHM: u8 = 1;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_ENCRYPTION_ALGORITHM: [EncryptionAlgorithm; 1] = [
+pub const ENUM_VALUES_ENCRYPTION_ALGORITHM: [EncryptionAlgorithm; 2] = [
+  EncryptionAlgorithm::None,
   EncryptionAlgorithm::AES_GCM,
 ];
 
@@ -119,16 +120,19 @@ pub const ENUM_VALUES_ENCRYPTION_ALGORITHM: [EncryptionAlgorithm; 1] = [
 pub struct EncryptionAlgorithm(pub u8);
 #[allow(non_upper_case_globals)]
 impl EncryptionAlgorithm {
-  pub const AES_GCM: Self = Self(0);
+  pub const None: Self = Self(0);
+  pub const AES_GCM: Self = Self(1);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
   pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
     Self::AES_GCM,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
+      Self::None => Some("None"),
       Self::AES_GCM => Some("AES_GCM"),
       _ => None,
     }
@@ -1356,7 +1360,7 @@ impl<'a> EncryptionSpec<'a> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, Some(EncryptionAlgorithm::AES_GCM)).unwrap()}
+    unsafe { self._tab.get::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, Some(EncryptionAlgorithm::None)).unwrap()}
   }
   #[inline]
   pub fn key_metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
@@ -1388,7 +1392,7 @@ impl<'a> Default for EncryptionSpecArgs<'a> {
   #[inline]
   fn default() -> Self {
     EncryptionSpecArgs {
-      algorithm: EncryptionAlgorithm::AES_GCM,
+      algorithm: EncryptionAlgorithm::None,
       key_metadata: None,
     }
   }
@@ -1401,7 +1405,7 @@ pub struct EncryptionSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EncryptionSpecBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_algorithm(&mut self, algorithm: EncryptionAlgorithm) {
-    self.fbb_.push_slot::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, algorithm, EncryptionAlgorithm::AES_GCM);
+    self.fbb_.push_slot::<EncryptionAlgorithm>(EncryptionSpec::VT_ALGORITHM, algorithm, EncryptionAlgorithm::None);
   }
   #[inline]
   pub fn add_key_metadata(&mut self, key_metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
