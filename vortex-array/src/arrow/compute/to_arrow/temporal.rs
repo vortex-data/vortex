@@ -9,7 +9,7 @@ use arrow_array::{
     ArrayRef as ArrowArrayRef, ArrowPrimitiveType, PrimitiveArray as ArrowPrimitiveArray,
 };
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
+use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -26,10 +26,16 @@ pub(super) struct ToArrowTemporal;
 impl Kernel for ToArrowTemporal {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
-        let Some(array) = TemporalArray::try_from(array.to_array()).ok() else {
+
+        if !array
+            .as_extension_typed()
+            .map(|ext| is_temporal_ext_type(ext.ext_dtype().id()))
+            .unwrap_or_default()
+        {
             // This kernel only handles temporal arrays.
             return Ok(None);
-        };
+        }
+        let array = TemporalArray::try_from(array.to_array())?;
 
         // Figure out the target Arrow type, or use the canonical type
         let arrow_type = arrow_type
