@@ -114,6 +114,11 @@ typedef struct vx_error vx_error;
 typedef struct vx_file_reader vx_file_reader;
 
 /**
+ * A Vortex layout reader.
+ */
+typedef struct vx_layout_reader vx_layout_reader;
+
+/**
  * Options supplied for opening a file.
  */
 typedef struct vx_file_open_options {
@@ -159,12 +164,26 @@ typedef struct vx_file_scan_options {
    * Number of columns in `projection`.
    */
   int projection_len;
+  /**
+   * Serialized expressions for pushdown
+   */
   const char *filter_expression;
+  /**
+   * The len in bytes of the filter expression
+   */
   int filter_expression_len;
   /**
    * Splits the file into chunks of this size, if zero then we use the write layout.
    */
   int split_by_row_count;
+  /**
+   * First row of a range to scan.
+   */
+  unsigned long row_range_start;
+  /**
+   * Last row of a range to scan.
+   */
+  unsigned long row_range_end;
 } vx_file_scan_options;
 
 
@@ -365,6 +384,23 @@ const struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
                                      const struct vx_file_scan_options *opts,
                                      struct vx_error **error);
+
+struct vx_array_stream *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
+                                              const struct vx_file_scan_options *opts,
+                                              struct vx_error **error);
+
+/**
+ * Returns the row count for a given file reader.
+ */
+uint64_t vx_file_row_count(struct vx_file_reader *file_reader, struct vx_error **error);
+
+/**
+ * Creates a layout reader for a given file.
+ */
+struct vx_layout_reader *vx_layout_reader_create(struct vx_file_reader *file_reader,
+                                                 struct vx_error **error);
+
+void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 
 /**
  * Free the file and all associated resources.

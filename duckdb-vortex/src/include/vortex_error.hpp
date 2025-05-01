@@ -9,3 +9,11 @@ inline void HandleError(vx_error *error) {
 		throw duckdb::InvalidInputException(msg);
 	}
 }
+
+template <typename Func>
+auto Try(Func func) {
+	vx_error *error = nullptr;
+	auto result = func(&error);
+	HandleError(error);
+	return result;
+}

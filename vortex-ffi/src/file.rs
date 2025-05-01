@@ -1,6 +1,8 @@
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{CStr, c_char, c_int};
+#![allow(non_camel_case_types)]
+
+use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
@@ -16,9 +18,11 @@ use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{Identity, deserialize_expr, select};
+use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::LayoutReader;
+use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
@@ -28,9 +32,12 @@ use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 /// A file reader that can be used to read from a file.
-#[allow(non_camel_case_types)]
 pub struct vx_file_reader {
-    pub(crate) inner: VortexFile,
+    pub inner: VortexFile,
+}
+
+pub struct vx_layout_reader {
+    pub inner: Arc<dyn LayoutReader>,
 }
 
 /// Options supplied for opening a file.
@@ -53,15 +60,24 @@ pub struct vx_file_open_options {
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
+
     /// Number of columns in `projection`.
-    pub projection_len: c_int,
-    // Serialized expressions for pushdown
+    pub projection_len: c_uint,
+
+    /// Serialized expressions for pushdown
     pub filter_expression: *const c_char,
-    // The len in bytes of the filter expression
-    pub filter_expression_len: c_int,
+
+    /// The len in bytes of the filter expression
+    pub filter_expression_len: c_uint,
 
     /// Splits the file into chunks of this size, if zero then we use the write layout.
     pub split_by_row_count: c_int,
+
+    /// First row of a range to scan.
+    pub row_range_start: c_ulong,
+
+    /// Last row of a range to scan.
+    pub row_range_end: c_ulong,
 }
 
 /// Open a file at the given path on the file system.
@@ -71,11 +87,9 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
     try_or(error, ptr::null_mut(), || {
-        let options = unsafe {
-            options
-                .as_ref()
-                .ok_or_else(|| vortex_err!("null options"))?
-        };
+        let options = options
+            .as_ref()
+            .ok_or_else(|| vortex_err!("null options"))?;
 
         if options.uri.is_null() {
             vortex_bail!("null uri")
@@ -93,6 +107,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
                 .open_object_store(&object_store, uri.path())
                 .await
         })?;
+
         Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
     })
 }
@@ -104,7 +119,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
+        let array = ffi_array.as_ref().vortex_expect("null array");
         let path = CStr::from_ptr(path).to_str()?;
 
         RUNTIME.block_on(async {
@@ -145,6 +160,68 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
     drop(Box::from_raw(stat));
 }
 
+#[derive(Default)]
+struct ScanOptions {
+    field_names: Option<Vec<Arc<str>>>,
+    filter_expr: Option<ExprRef>,
+    split_by: Option<SplitBy>,
+    row_range: Option<std::ops::Range<u64>>,
+}
+
+/// Processes FFI scan options.
+///
+/// Extracts and converts a scan configuration from an FFI options struct.
+fn process_scan_options(opts: Option<&vx_file_scan_options>) -> VortexResult<ScanOptions> {
+    if let Some(opts) = opts {
+        // Extract field names for projection.
+        let field_names = (0..opts.projection_len)
+            .map(|idx| unsafe { to_string(*opts.projection.add(idx as usize)).into() })
+            .collect::<Vec<Arc<str>>>();
+
+        let filter_expr = (!opts.filter_expression.is_null() && opts.filter_expression_len > 0)
+            .then_some({
+                let bytes = unsafe {
+                    slice::from_raw_parts(
+                        opts.filter_expression as *const u8,
+                        opts.filter_expression_len as usize,
+                    )
+                };
+
+                // Decode the protobuf message.
+                deserialize_expr(&Expr::decode(bytes)?)
+                    .map_err(|e| e.with_context("deserializing expr"))?
+            });
+
+        let row_range = (opts.row_range_end > opts.row_range_start)
+            .then_some(opts.row_range_start..opts.row_range_end);
+
+        // Explicit row ranges take precedence over split by chunk size.
+        let split_by = (opts.split_by_row_count > 0 && row_range.is_none())
+            .then_some(SplitBy::RowCount(opts.split_by_row_count as usize));
+
+        Ok(ScanOptions {
+            field_names: Some(field_names),
+            filter_expr,
+            split_by,
+            row_range,
+        })
+    } else {
+        Ok(ScanOptions::default())
+    }
+}
+
+/// Convert a stream to an FFI-compatible array stream
+fn stream_to_ffi_array_stream<S>(stream: S) -> VortexResult<*mut vx_array_stream>
+where
+    S: vortex::stream::ArrayStream + Send + 'static,
+{
+    let inner = Some(Box::new(ArrayStreamInner {
+        stream: Box::pin(stream),
+    }));
+
+    Ok(Box::into_raw(Box::new(vx_array_stream { inner })))
+}
+
 /// Get a readonly pointer to the DType of the data inside of the file.
 ///
 /// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
@@ -165,43 +242,94 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
-        if let Some(opts) = opts.as_ref() {
-            let mut field_names = Vec::new();
-            for i in 0..opts.projection_len {
-                let col_name = unsafe { *opts.projection.offset(i as isize) };
-                let col_name: Arc<str> = to_string(col_name).into();
-                field_names.push(col_name);
-            }
-            let expr_str = opts.filter_expression;
-            if !expr_str.is_null() && opts.filter_expression_len > 0 {
-                let bytes = unsafe {
-                    slice::from_raw_parts(
-                        expr_str as *const u8,
-                        opts.filter_expression_len as usize,
-                    )
-                };
+        let scan_options = process_scan_options(opts.as_ref())?;
 
-                // Decode the protobuf message
-                let expr_proto = Expr::decode(bytes)?;
-                let expr = deserialize_expr(&expr_proto)
-                    .map_err(|e| e.with_context("deserializing expr"))?;
-                stream = stream.with_filter(expr)
-            }
-            if opts.split_by_row_count > 0 {
-                stream = stream.with_split_by(SplitBy::RowCount(opts.split_by_row_count as usize));
-            }
-
+        // Apply options if provided.
+        if let Some(field_names) = scan_options.field_names {
             stream = stream.with_projection(select(field_names, Identity::new_expr()));
         }
 
-        let stream = stream.into_array_stream()?;
+        if let Some(expr) = scan_options.filter_expr {
+            stream = stream.with_filter(expr);
+        }
 
-        let inner = Some(Box::new(ArrayStreamInner {
-            stream: Box::pin(stream),
-        }));
+        if let Some(range) = scan_options.row_range {
+            stream = stream.with_row_range(range);
+        }
 
-        Ok(Box::into_raw(Box::new(vx_array_stream { inner })))
+        if let Some(split_by_value) = scan_options.split_by {
+            stream = stream.with_split_by(split_by_value);
+        }
+
+        stream_to_ffi_array_stream(stream.into_array_stream()?)
     })
+}
+
+/// Build a new `vx_array_stream` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
+    layout_reader: *const vx_layout_reader,
+    opts: *const vx_file_scan_options,
+    error: *mut *mut vx_error,
+) -> *mut vx_array_stream {
+    try_or(error, ptr::null_mut(), || {
+        let layout_reader = layout_reader.as_ref().vortex_expect("null layout reader");
+        let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
+
+        let scan_options = process_scan_options(opts.as_ref())?;
+
+        // Apply options if provided.
+        if let Some(field_names) = scan_options.field_names {
+            scan_builder = scan_builder.with_projection(select(field_names, Identity::new_expr()));
+        }
+
+        if let Some(expr) = scan_options.filter_expr {
+            scan_builder = scan_builder.with_filter(expr);
+        }
+
+        if let Some(range) = scan_options.row_range {
+            scan_builder = scan_builder.with_row_range(range);
+        }
+
+        if let Some(split_by_value) = scan_options.split_by {
+            scan_builder = scan_builder.with_split_by(split_by_value);
+        }
+
+        stream_to_ffi_array_stream(scan_builder.into_array_stream()?)
+    })
+}
+
+/// Returns the row count for a given file reader.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_file_row_count(
+    file_reader: *mut vx_file_reader,
+    error: *mut *mut vx_error,
+) -> u64 {
+    try_or(error, 0, || {
+        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
+        Ok(file_reader.inner.row_count())
+    })
+}
+
+/// Creates a layout reader for a given file.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_layout_reader_create(
+    file_reader: *mut vx_file_reader,
+    error: *mut *mut vx_error,
+) -> *mut vx_layout_reader {
+    try_or(error, ptr::null_mut(), || {
+        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
+        let inner = file_reader.inner.layout_reader()?;
+
+        Ok(Box::into_raw(Box::new(vx_layout_reader { inner })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_reader) {
+    if !layout_reader.is_null() {
+        drop(unsafe { Box::from_raw(layout_reader) });
+    }
 }
 
 /// Free the file and all associated resources.
