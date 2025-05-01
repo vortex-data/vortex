@@ -429,7 +429,7 @@ mod tests {
     #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
-        let res = arrow_compare(&left, &right, Operator::Eq).unwrap();
+        let res = compare(&left, &right, Operator::Eq).unwrap();
         assert_eq!(
             res.to_bool().unwrap().boolean_buffer().count_set_bits(),
             left.len()
