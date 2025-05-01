@@ -74,6 +74,47 @@ async fn test_read_simple() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test__simple() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = VortexWriteOptions::default()
+        .write(ByteBufferMut::empty(), st.to_array_stream())
+        .await
+        .unwrap();
+
+    let stream = VortexOpenOptions::in_memory()
+        .open(buf)
+        .await
+        .unwrap()
+        .scan()
+        .unwrap()
+        .into_array_stream()
+        .unwrap();
+    pin_mut!(stream);
+
+    let mut row_count = 0;
+
+    while let Some(array) = stream.next().await {
+        let array = array.unwrap();
+        row_count += array.len();
+    }
+
+    assert_eq!(row_count, 8);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn test_read_simple_with_spawn() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),

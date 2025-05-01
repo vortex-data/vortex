@@ -9,6 +9,7 @@ use crate::{Array, ArrayRef, match_each_decimal_value_type};
 
 impl SliceFn<&DecimalArray> for DecimalEncoding {
     fn slice(&self, array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        println!("slice {}", array.to_array().tree_display());
         let sliced = match_each_decimal_value_type!(array.values_type, |$S| {
             slice_typed(
                 array.buffer::<$S>(),

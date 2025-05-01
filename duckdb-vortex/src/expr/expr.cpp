@@ -144,6 +144,9 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_primitive()->set_nullable(nullable);
 		dtype->mutable_primitive()->set_type(vortex::dtype::F64);
 		return dtype;
+	// case LogicalTypeId::DECIMAL:
+	//     dtype->mutable_decimal()->set_nullable(nullable);
+	//     auto decimal = dtype->mutable_decimal();
 	case LogicalTypeId::CHAR:
 	case LogicalTypeId::VARCHAR:
 		dtype->mutable_utf8()->set_nullable(nullable);
