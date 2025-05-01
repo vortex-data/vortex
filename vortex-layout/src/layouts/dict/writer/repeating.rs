@@ -119,7 +119,7 @@ impl LayoutWriter for DictLayoutWriter {
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         if let Some(mut encoder) = self.encoder.take() {
-            self.push_values(segment_writer, encoder.values()?)?;
+            self.push_values(segment_writer, encoder.values())?;
             self.flush_last(segment_writer)?;
         }
         Ok(())

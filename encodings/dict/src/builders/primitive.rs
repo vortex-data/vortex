@@ -145,8 +145,8 @@ where
         Ok(codes.into_array())
     }
 
-    fn values(&mut self) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
+    fn values(&mut self) -> ArrayRef {
+        PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array()
     }
 }
 

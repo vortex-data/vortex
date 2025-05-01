@@ -171,7 +171,7 @@ fn encode_chunk(
     let encoded = encoder.encode(chunk)?;
     Ok(match remainder(chunk, encoded.len())? {
         None => EncodingState::Continue((encoder, encoded)),
-        Some(unencoded) => EncodingState::Done((encoder.values()?, encoded, unencoded)),
+        Some(unencoded) => EncodingState::Done((encoder.values(), encoded, unencoded)),
     })
 }
 

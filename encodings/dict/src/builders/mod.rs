@@ -26,7 +26,7 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
 pub trait DictEncoder: Send {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
-    fn values(&mut self) -> VortexResult<ArrayRef>;
+    fn values(&mut self) -> ArrayRef;
 }
 
 pub fn dict_encoder(
