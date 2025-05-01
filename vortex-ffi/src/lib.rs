@@ -13,7 +13,6 @@ mod stream;
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;
-use std::thread::Builder;
 
 pub use log::vx_log_level;
 use tokio::runtime;
