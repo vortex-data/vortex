@@ -71,35 +71,29 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
     try_or(error, ptr::null_mut(), || {
-        {
-            let options = unsafe {
-                options
-                    .as_ref()
-                    .ok_or_else(|| vortex_err!("null options"))?
-            };
+        let options = unsafe {
+            options
+                .as_ref()
+                .ok_or_else(|| vortex_err!("null options"))?
+        };
 
-            if options.uri.is_null() {
-                vortex_bail!("null uri")
-            }
-            let uri = CStr::from_ptr(options.uri).to_string_lossy();
-            let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
-
-            let prop_keys = to_string_vec(options.property_keys, options.property_len);
-            let prop_vals = to_string_vec(options.property_vals, options.property_len);
-
-            let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
-
-            // TODO(joe): replace with futures::executor::block_on, currently vortex-file has a hidden
-            // tokio dep
-            let inner = RUNTIME.with(|r| {
-                r.block_on(async move {
-                    VortexOpenOptions::file()
-                        .open_object_store(&object_store, uri.path())
-                        .await
-                })
-            })?;
-            Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
+        if options.uri.is_null() {
+            vortex_bail!("null uri")
         }
+        let uri = CStr::from_ptr(options.uri).to_string_lossy();
+        let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+
+        let prop_keys = to_string_vec(options.property_keys, options.property_len);
+        let prop_vals = to_string_vec(options.property_vals, options.property_len);
+
+        let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
+
+        let inner = RUNTIME.block_on(async move {
+            VortexOpenOptions::file()
+                .open_object_store(&object_store, uri.path())
+                .await
+        })?;
+        Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
     })
 }
 
@@ -113,16 +107,14 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
         let path = CStr::from_ptr(path).to_str()?;
 
-        RUNTIME.with(|r| {
-            r.block_on(async move {
-                VortexWriteOptions::default()
-                    .write(
-                        &mut File::create(path).await?,
-                        array.inner.to_array_stream(),
-                    )
-                    .await?;
-                Ok(())
-            })
+        RUNTIME.block_on(async {
+            VortexWriteOptions::default()
+                .write(
+                    &mut File::create(path).await?,
+                    array.inner.to_array_stream(),
+                )
+                .await?;
+            Ok(())
         })
     });
 }

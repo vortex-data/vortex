@@ -307,7 +307,7 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
         .try_collect()
 }
 
-// Native functions for each of the values, cast up to u64 or down to something lower.
+/// Search for many `usize` values in a sorted array.
 pub fn search_sorted_usize_many(
     array: &dyn Array,
     targets: &[usize],

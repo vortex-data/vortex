@@ -8,7 +8,7 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output}
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ToCanonical};
 
-/// Logically invert a boolean array.
+/// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
     INVERT_FN
         .invoke(&InvocationArgs {
