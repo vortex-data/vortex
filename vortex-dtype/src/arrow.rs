@@ -107,6 +107,9 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
 
         match data_type {
             DataType::Null => Null,
+            DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
+                Decimal(DecimalDType::new(*precision, *scale), nullability)
+            }
             DataType::Boolean => Bool(nullability),
             DataType::Decimal128(p, s) => Decimal(DecimalDType::new(*p, *s), nullability),
             DataType::Decimal256(p, s) => Decimal(DecimalDType::new(*p, *s), nullability),

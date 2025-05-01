@@ -130,6 +130,17 @@ impl Format {
             Format::OnDiskDuckDB => "duckdb",
         }
     }
+
+    pub fn ext(&self) -> &'static str {
+        match self {
+            Format::Csv => "csv",
+            Format::Arrow => "arrow",
+            Format::Parquet => "parquet",
+            Format::InMemoryVortex => unreachable!("no extension"),
+            Format::OnDiskVortex => "vortex",
+            Format::OnDiskDuckDB => "duckdb",
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, Hash, Default, PartialEq, Eq, Serialize)]

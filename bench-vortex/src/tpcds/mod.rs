@@ -1,12 +1,14 @@
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use datafusion::prelude::SessionContext;
+use datafusion_physical_plan::ExecutionPlan;
 use url::Url;
 
 use crate::ddb::DuckDBExecutor;
-use crate::df::get_session_context;
+use crate::df::{execute_query, get_session_context};
 use crate::{Format, ddb, vortex_panic};
 
 pub async fn load_datasets(_base_dir: &Url, _format: Format) -> anyhow::Result<SessionContext> {
@@ -39,4 +41,12 @@ pub fn benchmark_duckdb_query(
 
         fastest.min(duration)
     })
+}
+
+pub async fn run_datafusion_tpcds_query(
+    ctx: &SessionContext,
+    query: &str,
+) -> (usize, Arc<dyn ExecutionPlan>) {
+    let (record_batches, metrics) = execute_query(ctx, query).await.unwrap();
+    (record_batches.iter().map(|r| r.num_rows()).sum(), metrics)
 }

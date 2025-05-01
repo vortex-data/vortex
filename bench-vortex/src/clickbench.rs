@@ -197,11 +197,11 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub fn register_vortex_files(
+pub async fn register_vortex_files(
     session: SessionContext,
     table_name: &str,
     input_path: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
     single_file: bool,
 ) -> anyhow::Result<()> {
     let mut vortex_path = input_path.join("vortex/")?;
@@ -215,9 +215,17 @@ pub fn register_vortex_files(
 
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format))
-        .with_schema(schema.clone().into());
+    let config =
+        ListingTableConfig::new(table_url).with_listing_options(ListingOptions::new(format));
+
+    let config = if let Some(schema) = schema {
+        config.with_schema(schema.into())
+    } else {
+        config
+            .infer_schema(&session.state())
+            .await
+            .vortex_expect("cannot infer schema")
+    };
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
     session.register_table(table_name, listing_table)?;
