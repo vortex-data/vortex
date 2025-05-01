@@ -74,6 +74,9 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    // Don't try to rebuild duckdb
+    #[arg(long)]
+    fast: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -181,6 +184,7 @@ fn main() -> anyhow::Result<()> {
         args.export_spans,
         args.emit_plan,
         &args.duckdb_path,
+        args.fast,
     ))
 }
 
@@ -299,6 +303,7 @@ async fn bench_main(
     export_spans: bool,
     emit_plan: bool,
     duckdb_path: &Option<PathBuf>,
+    skip_duckdb_build: bool,
 ) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -340,7 +345,7 @@ async fn bench_main(
     let duckdb_resolved_path = targets
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(duckdb_path));
+        .then(|| ddb::build_and_get_executable_path(duckdb_path, skip_duckdb_build));
 
     for target in &targets {
         let engine = target.engine();

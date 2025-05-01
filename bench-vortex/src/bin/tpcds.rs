@@ -33,6 +33,8 @@ struct Args {
     duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(short, long, value_delimiter = ',')]
+    exclude_queries: Option<Vec<usize>>,
     #[arg(short, long, default_value_t = 10)]
     iterations: usize,
     #[arg(short)]
@@ -45,6 +47,7 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    // Don't try to rebuild duckdb
     #[arg(long)]
     fast: bool,
 }
@@ -113,6 +116,7 @@ fn main() -> anyhow::Result<()> {
     runtime
         .block_on(bench_main(
             args.queries,
+            args.exclude_queries,
             args.iterations,
             1,
             args.targets,
@@ -132,6 +136,7 @@ fn main() -> anyhow::Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
+    exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     scale_factor: usize,
     targets: Vec<Target>,
@@ -145,8 +150,6 @@ async fn bench_main(
         targets.iter().join(", ")
     );
 
-    let query_count = queries.as_ref().map_or(99, |c| c.len());
-    let progress = ProgressBar::new((query_count * targets.len()) as u64);
     let mut measurements: Vec<QueryMeasurement> = Vec::new();
     let tpch_queries: Vec<_> = tpcds_queries()
         .filter(|(query_idx, _)| {
@@ -156,10 +159,14 @@ async fn bench_main(
             queries
                 .as_ref()
                 .is_none_or(|included| included.contains(query_idx))
+                && exclude_queries
+                    .as_ref()
+                    .is_none_or(|excluded| !excluded.contains(query_idx))
         })
         .collect();
-
     assert!(!tpch_queries.is_empty(), "No queries to run");
+
+    let progress = ProgressBar::new((tpch_queries.len() * targets.len()) as u64);
 
     let duckdb_resolved_path = targets
         .iter()
@@ -170,30 +177,7 @@ async fn bench_main(
         let engine = target.engine();
         let format = target.format();
         match engine {
-            //         Engine::DataFusion => {
-            //             let ctx = load_datasets(&url, format).await?;
-            //
-            //             for (query_idx, sql_queries) in tpch_queries.clone() {
-            //                 // Run benchmark as an async function
-            //                 let (row_count, fastest_run) =
-            //                     benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
-            //
-            //                 row_counts.push((query_idx, format, row_count));
-            //
-            //                 let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
-            //
-            //                 measurements.push(QueryMeasurement {
-            //                     query_idx,
-            //                     target: *target,
-            //                     storage,
-            //                     fastest_run,
-            //                     dataset: TPCDS_DATASET.to_owned(),
-            //                 });
-            //
-            //                 progress.inc(1);
-            //             }
-            //         }
-            //         // TODO(joe); ensure that files are downloaded before running duckdb.
+            // TODO(joe): support datafusion
             Engine::DuckDB => {
                 let duckdb_path = duckdb_resolved_path.as_ref().vortex_expect("created above");
                 let temp_dir = tempdir()?;
