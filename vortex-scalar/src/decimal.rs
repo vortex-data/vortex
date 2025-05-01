@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::scalarvalue::InnerScalarValue;
 use crate::{Scalar, ScalarValue, i256};
@@ -155,3 +155,44 @@ impl PartialOrd for DecimalScalar<'_> {
         self.value.partial_cmp(&other.value)
     }
 }
+
+macro_rules! decimal_scalar_unpack {
+    ($ty:ident, $arm:ident) => {
+        impl TryFrom<DecimalScalar<'_>> for Option<$ty> {
+            type Error = VortexError;
+
+            fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
+                Ok(match value.value {
+                    None => None,
+                    Some(DecimalValue::$arm(v)) => Some(v),
+                    _ => vortex_bail!("Cannot extract decimal as "),
+                })
+            }
+        }
+
+        impl TryFrom<DecimalScalar<'_>> for $ty {
+            type Error = VortexError;
+
+            fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
+                match value.value {
+                    None => vortex_bail!("Cannot extract value from null decimal"),
+                    Some(DecimalValue::$arm(v)) => Ok(v),
+                    _ => vortex_bail!("Cannot extract decimal as "),
+                }
+            }
+        }
+
+        impl From<$ty> for DecimalValue {
+            fn from(value: $ty) -> Self {
+                DecimalValue::$arm(value)
+            }
+        }
+    };
+}
+
+decimal_scalar_unpack!(i8, I8);
+decimal_scalar_unpack!(i16, I16);
+decimal_scalar_unpack!(i32, I32);
+decimal_scalar_unpack!(i64, I64);
+decimal_scalar_unpack!(i128, I128);
+decimal_scalar_unpack!(i256, I256);

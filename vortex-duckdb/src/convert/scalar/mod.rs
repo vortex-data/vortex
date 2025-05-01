@@ -1,9 +1,13 @@
 use duckdb::core::Value;
+use duckdb::ffi::{duckdb_decimal, duckdb_hugeint};
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType, match_each_native_simd_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, PrimitiveScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{
+    BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
+    Utf8Scalar,
+};
 
 pub trait ToDuckDBScalar {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value>;
@@ -15,7 +19,7 @@ impl ToDuckDBScalar for Scalar {
             DType::Null => Ok(Value::null()),
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
-            DType::Decimal(..) => todo!("implement for duckdb"),
+            DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
@@ -36,6 +40,41 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
         match_each_native_simd_ptype!(self.ptype(), |$P| {
             Ok(Value::from(self.as_::<$P>().vortex_expect("ptype value mismatch")))
         })
+    }
+}
+
+impl ToDuckDBScalar for DecimalScalar<'_> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        let decimal_type = self
+            .dtype()
+            .as_decimal()
+            .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
+
+        let Some(decimal_value) = self.decimal_value() else {
+            return Ok(Value::null());
+        };
+
+        let huge_value = match decimal_value {
+            DecimalValue::I8(v) => *v as i128,
+            DecimalValue::I16(v) => *v as i128,
+            DecimalValue::I32(v) => *v as i128,
+            DecimalValue::I64(v) => *v as i128,
+            DecimalValue::I128(v) => *v,
+            DecimalValue::I256(_) => vortex_bail!("cannot handle a i256 decimal in duckdb"),
+        };
+
+        let decimal = duckdb_decimal {
+            width: decimal_type.precision(),
+            scale: decimal_type.scale().cast_unsigned(),
+            value: duckdb_hugeint {
+                // We want to truncate
+                #[allow(clippy::cast_possible_truncation)]
+                lower: huge_value as u64,
+                upper: (huge_value >> 64) as i64,
+            },
+        };
+
+        Ok(Value::from(decimal))
     }
 }
 

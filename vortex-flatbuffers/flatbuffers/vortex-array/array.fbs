@@ -1,5 +1,3 @@
-include "vortex-scalar/scalar.fbs";
-
 /// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
 /// immediately after the message in the byte stream.
 table Array {
@@ -37,9 +35,10 @@ table ArrayNode {
 }
 
 table ArrayStats {
-    min: ScalarValue;
-    max: ScalarValue;
-    sum: ScalarValue;
+    /// Protobuf serialized ScalarValue
+    min: [ubyte];
+    max: [ubyte];
+    sum: [ubyte];
     is_sorted: bool = null;
     is_strict_sorted: bool = null;
     is_constant: bool = null;

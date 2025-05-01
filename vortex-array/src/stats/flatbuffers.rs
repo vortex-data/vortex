@@ -18,17 +18,17 @@ impl WriteFlatBuffer for StatsSet {
         let min = self
             .get(Stat::Min)
             .and_then(Precision::as_exact)
-            .map(|min| min.write_flatbuffer(fbb));
+            .map(|min| fbb.create_vector(&min.to_protobytes::<Vec<u8>>()));
 
         let max = self
             .get(Stat::Max)
             .and_then(Precision::as_exact)
-            .map(|max| max.write_flatbuffer(fbb));
+            .map(|max| fbb.create_vector(&max.to_protobytes::<Vec<u8>>()));
 
         let sum = self
             .get(Stat::Sum)
             .and_then(Precision::as_exact)
-            .map(|max| max.write_flatbuffer(fbb));
+            .map(|sum| fbb.create_vector(&sum.to_protobytes::<Vec<u8>>()));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
@@ -89,12 +89,18 @@ impl ReadFlatBuffer for StatsSet {
                 }
                 Stat::Max => {
                     if let Some(max) = fb.max() {
-                        stats_set.set(Stat::Max, Precision::Exact(ScalarValue::try_from(max)?));
+                        stats_set.set(
+                            Stat::Max,
+                            Precision::Exact(ScalarValue::from_protobytes(max.bytes())?),
+                        );
                     }
                 }
                 Stat::Min => {
                     if let Some(min) = fb.min() {
-                        stats_set.set(Stat::Min, Precision::Exact(ScalarValue::try_from(min)?));
+                        stats_set.set(
+                            Stat::Min,
+                            Precision::Exact(ScalarValue::from_protobytes(min.bytes())?),
+                        );
                     }
                 }
                 Stat::NullCount => {
@@ -112,7 +118,10 @@ impl ReadFlatBuffer for StatsSet {
                 }
                 Stat::Sum => {
                     if let Some(sum) = fb.sum() {
-                        stats_set.set(Stat::Sum, Precision::Exact(ScalarValue::try_from(sum)?));
+                        stats_set.set(
+                            Stat::Sum,
+                            Precision::Exact(ScalarValue::from_protobytes(sum.bytes())?),
+                        );
                     }
                 }
                 Stat::NaNCount => {

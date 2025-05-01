@@ -46,7 +46,7 @@ impl EncodingVTable for FoREncoding {
         let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
         let encoded = parts.child(0).decode(ctx, encoded_dtype, len)?;
 
-        let reference = ScalarValue::from_flexbytes(
+        let reference = ScalarValue::from_protobytes(
             parts
                 .metadata()
                 .ok_or_else(|| vortex_err!("Missing FoR metadata"))?,
@@ -72,7 +72,7 @@ pub struct ScalarValueMetadata(ScalarValue);
 
 impl SerializeMetadata for ScalarValueMetadata {
     fn serialize(&self) -> Option<Vec<u8>> {
-        Some(self.0.to_flexbytes())
+        Some(self.0.to_protobytes())
     }
 }
 
@@ -80,7 +80,7 @@ impl DeserializeMetadata for ScalarValueMetadata {
     type Output = ScalarValue;
 
     fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
-        ScalarValue::from_flexbytes(
+        ScalarValue::from_protobytes(
             metadata.ok_or_else(|| vortex_err!("Missing ScalarValue metadata"))?,
         )
     }

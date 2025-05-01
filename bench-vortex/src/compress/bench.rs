@@ -192,7 +192,7 @@ pub fn benchmark_compress(
 
     if let Some((vortex, parquet)) = vortex_compress_time.zip(parquet_compress_time) {
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:parquet-zst ratio compress time/{}", bench_name),
+            name: format!("vortex:parquet-zstd ratio compress time/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
             value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,
@@ -201,7 +201,7 @@ pub fn benchmark_compress(
 
     if let Some((vortex, parquet)) = vortex_decompress_time.zip(parquet_decompress_time) {
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:parquet-zst ratio decompress time/{}", bench_name),
+            name: format!("vortex:parquet-zstd ratio decompress time/{}", bench_name),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
             value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,

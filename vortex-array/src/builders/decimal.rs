@@ -21,19 +21,18 @@ const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 impl<T: NativeDecimalType> DecimalBuilder<T> {
     pub fn new(precision: u8, scale: i8, nullability: Nullability) -> Self {
-        Self::with_capacity(DEFAULT_BUILDER_CAPACITY, precision, scale, nullability)
+        Self::with_capacity(
+            DEFAULT_BUILDER_CAPACITY,
+            DecimalDType::new(precision, scale),
+            nullability,
+        )
     }
 
-    pub fn with_capacity(
-        capacity: usize,
-        precision: u8,
-        scale: i8,
-        nullability: Nullability,
-    ) -> Self {
+    pub fn with_capacity(capacity: usize, decimal: DecimalDType, nullability: Nullability) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
-            dtype: DType::Decimal(DecimalDType::new(precision, scale), nullability),
+            dtype: DType::Decimal(decimal, nullability),
         }
     }
 

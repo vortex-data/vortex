@@ -8,17 +8,6 @@ option java_outer_classname = "ScalarProtos";
 import "dtype.proto";
 import "google/protobuf/struct.proto";
 
-message DecimalValue {
-  oneof value {
-    bytes i8_little_endian = 1;
-    bytes i16_little_endian = 2;
-    bytes i32_little_endian = 3;
-    bytes i64_little_endian = 4;
-    bytes i128_little_endian = 5;
-    bytes i256_little_endian = 6;
-  }
-}
-
 message Scalar {
   vortex.dtype.DType dtype = 1;
   ScalarValue value = 2;
@@ -28,22 +17,13 @@ message ScalarValue {
   oneof kind {
     google.protobuf.NullValue null_value = 1;
     bool bool_value = 2;
-    sint32 int8_value = 3;
-    sint32 int16_value = 4;
-    sint32 int32_value = 5;
-    sint64 int64_value = 6;
-    uint32 uint8_value = 7;
-    uint32 uint16_value = 8;
-    uint32 uint32_value = 9;
-    uint64 uint64_value = 10;
-    // two bytes
-    uint32 f16_value = 11;
-    float f32_value = 12;
-    double f64_value = 13;
-    string string_value = 14;
-    bytes bytes_value = 15;
-    ListValue list_value = 16;
-    DecimalValue decimal_value = 17;
+    sint64 int64_value = 3;
+    uint64 uint64_value = 4;
+    float f32_value = 5;
+    double f64_value = 6;
+    string string_value = 7;
+    bytes bytes_value = 8;
+    ListValue list_value = 9;
   }
 }
 

@@ -1,8 +1,11 @@
 use duckdb::arrow::array::ArrayRef as ArrowArrayRef;
+use duckdb::core::LogicalTypeId;
 use duckdb::vtab::arrow::{
     WritableVector, flat_vector_to_arrow_array, write_arrow_array_to_vector,
 };
-use vortex_array::arrays::{ChunkedArray, ChunkedEncoding, VarBinViewArray, VarBinViewEncoding};
+use vortex_array::arrays::{
+    ChunkedArray, ChunkedEncoding, DecimalArray, VarBinViewArray, VarBinViewEncoding,
+};
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
@@ -42,6 +45,9 @@ fn try_to_duckdb(
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
         Ok(Some(()))
+    } else if array.dtype().is_decimal() {
+        let decimal = array.to_decimal()?;
+        decimal.to_duckdb(chunk, cache).map(Some)
     } else if array.is_encoding(ChunkedEncoding.id()) {
         array
             .as_any()
@@ -95,6 +101,10 @@ impl ToDuckDB for ArrowArrayRef {
 impl FromDuckDB<SizedFlatVector> for ArrayRef {
     // TODO(joe): going via is slow, make it faster.
     fn from_duckdb(mut sized_vector: SizedFlatVector) -> VortexResult<ArrayRef> {
+        if sized_vector.vector.logical_type().id() == LogicalTypeId::Decimal {
+            return DecimalArray::from_duckdb(sized_vector);
+        }
+
         let len = sized_vector.len;
         let arrow_arr = flat_vector_to_arrow_array(&mut sized_vector.vector, len)
             .map_err(|e| vortex_err!("Failed to convert duckdb array to vortex: {}", e))?;

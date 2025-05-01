@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use crate::compute::sum;
 use crate::{Array, ArrayRef};
 
-pub trait NullArrayTrait {}
+pub trait NullArrayTrait: Array {}
 
 pub trait BoolArrayTrait: Array {}
 
@@ -40,9 +40,9 @@ pub trait PrimitiveArrayTrait: Array {
     }
 }
 
-pub trait Utf8ArrayTrait {}
+pub trait Utf8ArrayTrait: Array {}
 
-pub trait BinaryArrayTrait {}
+pub trait BinaryArrayTrait: Array {}
 
 pub trait DecimalArrayTrait: Array {}
 
@@ -90,7 +90,7 @@ impl dyn StructArrayTrait + '_ {
     }
 }
 
-pub trait ListArrayTrait {}
+pub trait ListArrayTrait: Array {}
 
 pub trait ExtensionArrayTrait: Array {
     /// Returns the extension logical [`DType`].
