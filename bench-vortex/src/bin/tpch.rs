@@ -134,9 +134,6 @@ fn main() -> anyhow::Result<()> {
 
     let url = match args.use_remote_data_dir {
         None => {
-            let data_dir =
-                generate_tpc(DuckdbTpcOptions::default().with_scale_factor(args.scale_factor))?;
-
             for format in formats {
                 // Arrow uses csv
                 let format = if format == Format::Arrow {
@@ -153,21 +150,11 @@ fn main() -> anyhow::Result<()> {
                 generate_tpc(opts)?;
             }
 
-            info!(
-                "Using existing or generating new files located at {}.",
-                data_dir.display()
-            );
-            Url::parse(
-                format!(
-                    "file:{}/{}/",
-                    "tpch"
-                        .to_data_path()
-                        .to_str()
-                        .vortex_expect("path must be utf8"),
-                    args.scale_factor
-                )
-                .as_ref(),
-            )?
+            let data_dir = "tpch".to_data_path();
+            let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
+
+            info!("Using existing or generating new files located at {data_dir}.");
+            Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
         }
         Some(tpch_benchmark_remote_data_dir) => {
             // e.g. "s3://vortex-bench-dev-eu/parquet/"
