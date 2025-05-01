@@ -29,8 +29,7 @@ impl Kernel for ToArrowTemporal {
 
         if !array
             .as_extension_typed()
-            .map(|ext| is_temporal_ext_type(ext.ext_dtype().id()))
-            .unwrap_or_default()
+            .is_some_and(|ext| is_temporal_ext_type(ext.ext_dtype().id()))
         {
             // This kernel only handles temporal arrays.
             return Ok(None);

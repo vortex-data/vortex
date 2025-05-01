@@ -5,7 +5,6 @@ use std::sync::LazyLock;
 
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -288,8 +287,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = datum_for_cmp(left)?;
-    let rhs = datum_for_cmp(right)?;
+    let lhs = Datum::try_new(left)?;
+    let rhs = Datum::try_new(right)?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -319,17 +318,6 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             b,
             (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
         )
-    }
-}
-
-// Make sure both of the arrays end up with the same arrow data type
-fn datum_for_cmp(array: &dyn Array) -> VortexResult<Datum> {
-    if matches!(array.dtype(), DType::Utf8(_)) {
-        Datum::with_target_datatype(array, &DataType::Utf8View)
-    } else if matches!(array.dtype(), DType::Binary(_)) {
-        Datum::with_target_datatype(array, &DataType::BinaryView)
-    } else {
-        Datum::try_new(array)
     }
 }
 
@@ -441,7 +429,7 @@ mod tests {
     #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
-        let res = arrow_compare(&left, &right, Operator::Eq).unwrap();
+        let res = compare(&left, &right, Operator::Eq).unwrap();
         assert_eq!(
             res.to_bool().unwrap().boolean_buffer().count_set_bits(),
             left.len()

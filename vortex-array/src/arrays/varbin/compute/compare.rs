@@ -5,11 +5,13 @@ use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding, VarBinViewArray};
 use crate::arrow::{Datum, from_arrow_array_with_len};
-use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare_lengths_to_empty};
+use crate::compute::{
+    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
+};
 use crate::variants::PrimitiveArrayTrait as _;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayExt, ArrayRef, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinEncoding {
@@ -85,6 +87,10 @@ impl CompareKernel for VarBinEncoding {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
+        } else if rhs.is::<VarBinViewArray>() {
+            // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
+            // to VarBinView and re-invoke.
+            return Ok(Some(compare(&lhs.to_varbinview()?, rhs, operator)?));
         } else {
             Ok(None)
         }

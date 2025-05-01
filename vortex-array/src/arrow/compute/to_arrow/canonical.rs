@@ -19,17 +19,16 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arcref::ArcRef;
 use crate::arrays::{
     BoolArray, DecimalArray, DecimalValueType, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
+use crate::arrow::compute::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{Array as _, Canonical, ToCanonical, register_kernel};
+use crate::{Array as _, Canonical, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
@@ -160,8 +159,6 @@ impl Kernel for ToArrowCanonical {
         ))
     }
 }
-
-register_kernel!(ToArrowKernelRef(ArcRef::new_ref(&ToArrowCanonical)));
 
 fn to_arrow_null(array: NullArray) -> VortexResult<ArrowArrayRef> {
     Ok(Arc::new(ArrowNullArray::new(array.len())))
@@ -311,9 +308,10 @@ fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<
         .vortex_expect("VarBinViewArray: failed to get logical validity")
         .to_null_buffer();
 
-    Ok(Arc::new(GenericByteViewArray::<T>::new(
-        views, buffers, nulls,
-    )))
+    // SAFETY: our own VarBinView array is considered safe.
+    Ok(Arc::new(unsafe {
+        GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls)
+    }))
 }
 
 fn to_arrow_varbin<V: ByteViewType, T: ByteArrayType>(
