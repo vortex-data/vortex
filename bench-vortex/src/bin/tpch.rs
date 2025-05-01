@@ -8,7 +8,6 @@ use bench_vortex::df::write_execution_plan;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
-// use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
@@ -140,16 +139,18 @@ fn main() -> anyhow::Result<()> {
 
             for format in formats {
                 // Arrow uses csv
-                let format = (format == Format::Arrow)
-                    .then(|| Format::Csv)
-                    .unwrap_or(format);
+                let format = if format == Format::Arrow {
+                    Format::Csv
+                } else {
+                    format
+                };
                 let opts = DuckdbTpcOptions::default()
                     .with_scale_factor(1)
                     .with_base_dir("tpch".to_data_path())
                     .with_dataset(TpcDataset::TpcH)
                     .with_duckdb_path(duckdb_resolved_path.clone())
                     .with_format(format);
-                generate_tpc(opts).expect("gen tpch-ds");
+                generate_tpc(opts)?;
             }
 
             info!(

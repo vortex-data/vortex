@@ -70,9 +70,7 @@ pub async fn load_datasets(
     };
 
     for (name, path, schema) in files.into_iter().map(|(name, schema)| {
-        let format = (format == Format::Arrow)
-            .then(|| Format::Csv)
-            .unwrap_or(format);
+        let format = if format == Format::Arrow { Format::Csv } else { format };
         (
             name,
             base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext())),
