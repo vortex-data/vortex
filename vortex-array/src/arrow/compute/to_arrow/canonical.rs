@@ -185,9 +185,9 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = array.validity_mask()?.to_null_buffer();
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalValueType::I8 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I16 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I32 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I64 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
+        DecimalValueType::I16 => array.buffer::<i16>().into_iter().map(|x| x.as_()).collect(),
+        DecimalValueType::I32 => array.buffer::<i32>().into_iter().map(|x| x.as_()).collect(),
+        DecimalValueType::I64 => array.buffer::<i64>().into_iter().map(|x| x.as_()).collect(),
         DecimalValueType::I128 => array.buffer::<i128>(),
         DecimalValueType::I256 => {
             vortex_bail!("i256 decimals cannot be converted to Arrow i128 decimal")
