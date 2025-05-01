@@ -9,8 +9,7 @@ use crate::{Array, ArrayRef, match_each_decimal_value_type};
 
 impl SliceFn<&DecimalArray> for DecimalEncoding {
     fn slice(&self, array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        println!("slice {}", array.to_array().tree_display());
-        let sliced = match_each_decimal_value_type!(array.values_type, |$S| {
+        match_each_decimal_value_type!(array.values_type, |$S| {
             slice_typed(
                 array.buffer::<$S>(),
                 start,
@@ -18,9 +17,7 @@ impl SliceFn<&DecimalArray> for DecimalEncoding {
                 array.decimal_dtype(),
                 array.validity.clone(),
             )
-        });
-
-        Ok(sliced)
+        })
     }
 }
 
@@ -30,9 +27,10 @@ fn slice_typed<T: NativeDecimalType>(
     end: usize,
     decimal_dtype: DecimalDType,
     validity: Validity,
-) -> ArrayRef {
+) -> VortexResult<ArrayRef> {
     let sliced = values.slice(start..end);
-    DecimalArray::new(sliced, decimal_dtype, validity).into_array()
+    let validity = validity.slice(start, end)?;
+    Ok(DecimalArray::new(sliced, decimal_dtype, validity).into_array())
 }
 
 #[cfg(test)]
@@ -48,15 +46,29 @@ mod tests {
     #[test]
     fn test_slice() {
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128],
+            buffer![100i128, 200i128, 300i128, 4000i128],
             DecimalDType::new(3, 2),
             Validity::NonNullable,
-        );
+        )
+        .to_array();
 
         let sliced = slice(&array, 1, 3).unwrap();
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_any().downcast_ref::<DecimalArray>().unwrap();
         assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
+    }
+
+    #[test]
+    fn test_slice_nullable() {
+        let array = DecimalArray::new(
+            buffer![100i128, 200i128, 300i128, 4000i128],
+            DecimalDType::new(3, 2),
+            Validity::from_iter([false, true, false, true]),
+        )
+        .to_array();
+
+        let sliced = slice(&array, 1, 3).unwrap();
+        assert_eq!(sliced.len(), 2);
     }
 }

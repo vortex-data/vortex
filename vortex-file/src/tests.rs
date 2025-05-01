@@ -8,16 +8,17 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+    ChunkedArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+    VarBinViewArray,
 };
-use vortex_array::compute::scalar_at;
+use vortex_array::compute::{scalar_at, slice};
 use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
@@ -74,20 +75,56 @@ async fn test_read_simple() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test__simple() {
-    let strings = ChunkedArray::from_iter([
-        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
-        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
-    ])
+async fn test_round_trip_many_types() {
+    let strings = VarBinArray::from(vec!["ab", "foo", "bar"]).into_array();
+
+    let numbers = buffer![1u32, 2, 3].into_array();
+
+    let decimal_2 = DecimalArray::new(
+        buffer![100i8, 10i8, 2i8],
+        DecimalDType::new(2, 1),
+        Validity::from_iter([false, true, false]),
+    )
     .into_array();
 
-    let numbers = ChunkedArray::from_iter([
-        buffer![1u32, 2, 3, 4].into_array(),
-        buffer![5u32, 6, 7, 8].into_array(),
-    ])
+    let decimal_4 = DecimalArray::new(
+        buffer![100i16, 10i16, 2i16],
+        DecimalDType::new(4, 2),
+        Validity::from_iter([false, true, false]),
+    )
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let decimal_9 = DecimalArray::new(
+        buffer![100i32, 10i32, 2i32],
+        DecimalDType::new(9, 2),
+        Validity::from_iter([false, true, false]),
+    )
+    .into_array();
+
+    let decimal_17 = DecimalArray::new(
+        buffer![100i64, 10i64, 20234i64],
+        DecimalDType::new(17, 2),
+        Validity::from_iter([false, true, false]),
+    )
+    .into_array();
+
+    let decimal_35 = DecimalArray::new(
+        buffer![100i128, 139348340i128, 23943942i128],
+        DecimalDType::new(35, 2),
+        Validity::from_iter([true, false, false]),
+    )
+    .into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("decimal_2", decimal_2),
+        ("decimal_4", decimal_4),
+        ("decimal_9", decimal_9),
+        ("decimal_17", decimal_17),
+        ("decimal_35", decimal_35),
+    ])
+    .unwrap();
     let buf = VortexWriteOptions::default()
         .write(ByteBufferMut::empty(), st.to_array_stream())
         .await
@@ -103,14 +140,14 @@ async fn test__simple() {
         .unwrap();
     pin_mut!(stream);
 
-    let mut row_count = 0;
+    let chunks = stream.collect::<Vec<_>>().await;
+    let chunks = chunks
+        .into_iter()
+        .collect::<VortexResult<Vec<_>>>()
+        .unwrap();
+    let read = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
 
-    while let Some(array) = stream.next().await {
-        let array = array.unwrap();
-        row_count += array.len();
-    }
-
-    assert_eq!(row_count, 8);
+    assert_eq!(read.len(), 3);
 }
 
 #[tokio::test]

@@ -92,7 +92,6 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        println!("ty {:?}", T::VALUES_TYPE);
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
                 vortex_panic!(

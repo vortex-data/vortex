@@ -105,14 +105,18 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     };
 
     match opts.format {
-        Format::Csv => command.arg("-c").arg(format!(
-            "export database '{}' (format CSV, delimiter '|', header false);",
-            output_dir.to_string_lossy(),
-        )),
-        Format::Parquet => command.arg("-c").arg(format!(
-            "export database '{}' (format PARQUET);",
-            output_dir.to_string_lossy(),
-        )),
+        Format::Csv => {
+            command.arg("-c").arg(format!(
+                "export database '{}' (format CSV, delimiter '|', header false);",
+                output_dir.to_string_lossy(),
+            ));
+        }
+        Format::Parquet => {
+            command.arg("-c").arg(format!(
+                "export database '{}' (format PARQUET);",
+                output_dir.to_string_lossy(),
+            ));
+        }
         Format::OnDiskVortex | Format::InMemoryVortex => {
             // command
             //     .arg("-c")
@@ -121,8 +125,9 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
             command.arg("-c").arg(format!(
                 "export database '{}' (format VORTEX);",
                 output_dir.to_string_lossy(),
-            ))
+            ));
         }
+        Format::OnDiskDuckDB => { /* Do nothing */ }
         _ => todo!(),
     };
 

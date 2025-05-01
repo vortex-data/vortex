@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
@@ -206,8 +205,8 @@ async fn bench_main(
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
                 for (query_idx, sql_query) in tpch_queries.clone() {
-                    let fastest_run = Duration::new(0, 0);
-                    benchmark_duckdb_query(query_idx, &sql_query, iterations, &executor);
+                    let fastest_run =
+                        benchmark_duckdb_query(query_idx, &sql_query, iterations, &executor);
 
                     let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
