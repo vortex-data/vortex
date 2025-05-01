@@ -75,7 +75,7 @@ struct Args {
     emit_plan: bool,
     // Don't try to rebuild duckdb
     #[arg(long)]
-    fast: bool,
+    skip_rebuild: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -145,8 +145,11 @@ fn main() -> anyhow::Result<()> {
                 data_dir.display()
             );
             Url::parse(
-                ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
-                    .as_ref(),
+                format!(
+                    "file:{}/",
+                    data_dir.to_str().vortex_expect("path should be utf8")
+                )
+                .as_ref(),
             )?
         }
         Some(tpch_benchmark_remote_data_dir) => {
@@ -185,7 +188,7 @@ fn main() -> anyhow::Result<()> {
         args.export_spans,
         args.emit_plan,
         &args.duckdb_path,
-        args.fast,
+        args.skip_rebuild,
     ))
 }
 

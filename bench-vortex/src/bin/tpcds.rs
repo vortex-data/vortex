@@ -49,7 +49,7 @@ struct Args {
     emit_plan: bool,
     // Don't try to rebuild duckdb
     #[arg(long)]
-    fast: bool,
+    skip_rebuild: bool,
 }
 
 #[allow(clippy::expect_used)]
@@ -93,7 +93,8 @@ fn main() -> anyhow::Result<()> {
         .unique()
         .collect_vec();
 
-    let duckdb_resolved_path = ddb::build_and_get_executable_path(&args.duckdb_path, args.fast);
+    let duckdb_resolved_path =
+        ddb::build_and_get_executable_path(&args.duckdb_path, args.skip_rebuild);
 
     for format in formats {
         let opts = DuckdbTpcOptions::default()
@@ -181,7 +182,7 @@ async fn bench_main(
                     .join(format!("duckdb-file-{}.db", format.name()));
 
                 let url = url
-                    .join(&format!("{}/", scale_factor))
+                    .join(&format!("{scale_factor}/"))
                     .vortex_expect("cannot join scale factor");
 
                 let executor = DuckDBExecutor::new(duckdb_path.to_owned(), duckdb_file);
