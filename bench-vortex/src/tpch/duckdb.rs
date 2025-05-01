@@ -24,6 +24,8 @@ pub struct DuckdbTpcOptions {
     pub dataset: TpcDataset,
 
     pub format: Format,
+
+    pub duckdb_path: Option<PathBuf>,
 }
 
 impl DuckdbTpcOptions {
@@ -46,6 +48,7 @@ impl Default for DuckdbTpcOptions {
             base_dir: "tpch-duckdb".to_data_path(),
             dataset: TpcDataset::TpcH,
             format: Format::Csv,
+            duckdb_path: None,
         }
     }
 }
@@ -70,6 +73,10 @@ impl DuckdbTpcOptions {
         self.dataset = dataset;
         self
     }
+    pub fn with_duckdb_path(mut self, path: PathBuf) -> Self {
+        self.duckdb_path = Some(path);
+        self
+    }
 }
 
 pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
@@ -88,18 +95,17 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         return Ok(output_dir);
     }
 
-    let mut command =
-        Command::new("/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/duckdb");
+    let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
 
     match opts.dataset {
         TpcDataset::TpcH => command
             .arg("-c")
-            .arg("install tpch; load tpch;")
+            .arg("load tpch;")
             .arg("-c")
             .arg(format!("call dbgen(sf={scale_factor})")),
         TpcDataset::TpcDs => command
-            // .arg("-c")
-            // .arg("install tpcds; load tpcds;")
+            .arg("-c")
+            .arg("load tpcds;")
             .arg("-c")
             .arg(format!("call dsdgen(sf={scale_factor})")),
     };

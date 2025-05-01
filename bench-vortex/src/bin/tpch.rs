@@ -129,14 +129,16 @@ fn main() -> anyhow::Result<()> {
     let url = match args.use_remote_data_dir {
         None => {
             let data_dir = match args.data_generator {
-                DataGenerator::Duckdb => {
-                    generate_tpc(DuckdbTpcOptions::default().with_scale_factor(args.scale_factor))?
-                }
                 DataGenerator::Dbgen => {
                     let db_gen_options =
                         DBGenOptions::default().with_scale_factor(args.scale_factor);
                     DBGen::new(db_gen_options).generate()?
                 }
+                DataGenerator::Duckdb => todo!("not implemented yet, will be support this soon"),
+                // TODO(joe) re-enable this once its correct.
+                // DataGenerator::Duckdb => {
+                //     generate_tpc(DuckdbTpcOptions::default().with_scale_factor(args.scale_factor))?
+                // }
             };
 
             info!(

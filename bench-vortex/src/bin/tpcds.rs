@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
@@ -92,11 +92,14 @@ fn main() -> anyhow::Result<()> {
         .unique()
         .collect_vec();
 
+    let duckdb_resolved_path = ddb::build_and_get_executable_path(&args.duckdb_path, args.fast);
+
     for format in formats {
         let opts = DuckdbTpcOptions::default()
             .with_scale_factor(1)
             .with_base_dir("tpcds".to_data_path())
             .with_dataset(TpcDataset::TpcDs)
+            .with_duckdb_path(duckdb_resolved_path.clone())
             .with_format(format);
         generate_tpc(opts).expect("gen tpch-ds");
     }
@@ -122,8 +125,7 @@ fn main() -> anyhow::Result<()> {
             args.targets,
             args.display_format,
             url,
-            &args.duckdb_path,
-            args.fast,
+            &duckdb_resolved_path,
         ))
         .unwrap();
 
@@ -142,8 +144,7 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     url: Url,
-    duckdb_path: &Option<PathBuf>,
-    skip_duckdb_build: bool,
+    duckdb_resolved_path: &Path,
 ) -> anyhow::Result<()> {
     info!(
         "Benchmarking against these targets: {}.",
@@ -168,18 +169,13 @@ async fn bench_main(
 
     let progress = ProgressBar::new((tpch_queries.len() * targets.len()) as u64);
 
-    let duckdb_resolved_path = targets
-        .iter()
-        .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(duckdb_path, skip_duckdb_build));
-
     for target in &targets {
         let engine = target.engine();
         let format = target.format();
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                let duckdb_path = duckdb_resolved_path.as_ref().vortex_expect("created above");
+                let duckdb_path = duckdb_resolved_path;
                 let temp_dir = tempdir()?;
                 let duckdb_file = temp_dir
                     .path()
@@ -189,7 +185,7 @@ async fn bench_main(
                     .join(&format!("{}/", scale_factor))
                     .expect("cannot join scale factor");
 
-                let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
+                let executor = DuckDBExecutor::new(duckdb_path.to_owned(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
                 for (query_idx, sql_query) in tpch_queries.clone() {

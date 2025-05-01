@@ -239,7 +239,6 @@ pub fn register_tables(
 
     let mut command = duckdb_executor.command();
 
-    println!("eff {}", effective_url);
     command.arg("-c").arg(create_table_registration(
         &effective_url,
         extension,
