@@ -36,6 +36,7 @@ use crate::{Array as _, Canonical, ToCanonical, register_kernel};
 pub(super) struct ToArrowCanonical;
 
 impl Kernel for ToArrowCanonical {
+    #[allow(clippy::cognitive_complexity)]
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
         if !array.is_canonical() {

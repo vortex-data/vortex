@@ -7,6 +7,7 @@ mod scalar_at;
 mod slice;
 mod sum;
 mod take;
+mod uncompressed_size;
 
 use crate::Array;
 use crate::arrays::DecimalEncoding;
