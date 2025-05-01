@@ -105,7 +105,26 @@ table CompressionSpec {
     scheme: CompressionScheme;
 }
 
+// When encrypting data with AES_GCM the nonce should always be 12 bytes in length (per specification recommendation) and tag 16 bytes.
+// If we were to add AES_CTR we would keep same 12 byte nonce and append a 32 bit counter to it (initialzed at 1) to encrypt data.
+
+// Possible encryption algorithms to use when encrypting files
+enum EncryptionAlgorithm {
+    AES_GCM = 0,
+    // Do we need random access to the encrypted bytes? Since our individual blocks are relatively small there should be a minor
+    // difference between slicing the block and decrypting the whole thing, however, maybe there is?
+    // AES_CTR = 1,
+}
+
+// Callers can provide additional AAD information per spec to handle encrypted blocks being replaced without their knoweldge
+//
+// Do we need the AAD suffix like thing that Parquet exposes? It only protects against swapping encrypted blocks across files
 table EncryptionSpec {
+    algorithm: EncryptionAlgorithm;
+    // This is extremely broad but in order to avoid being prescriptive about the structure of the encryption keys or how they're obtained
+    // we support storing arbitrary bytes here and delegate to the reader implementation as to what the metadata means.
+    // This could be the external id or encrypted key material.
+    key_metadata: [ubyte];
 }
 // [footer]
 
