@@ -28,9 +28,7 @@ struct VortexFileReader {
 	static duckdb::unique_ptr<VortexFileReader> Open(const vx_file_open_options *options) {
 		vx_error *error;
 		auto file = vx_file_open_reader(options, &error);
-		if (file == nullptr) {
-			HandleError(error);
-		}
+		HandleError(error);
 		return duckdb::make_uniq<VortexFileReader>(file);
 	}
 
@@ -68,10 +66,10 @@ struct VortexArrayStream {
 	duckdb::unique_ptr<VortexArray> NextArray() const {
 		vx_error *error;
 		auto array = vx_array_stream_next(array_stream, &error);
+		HandleError(error);
 		if (array == nullptr) {
 			return nullptr;
 		}
-		HandleError(error);
 		return duckdb::make_uniq<VortexArray>(array);
 	}
 

@@ -11,12 +11,13 @@ use arrow_array::{
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::TemporalArray;
+use crate::arrays::{ExtensionArray, TemporalArray};
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
+use crate::variants::ExtensionArrayTrait;
 use crate::{Array as _, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
@@ -28,13 +29,15 @@ impl Kernel for ToArrowTemporal {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
 
         if !array
-            .as_extension_typed()
+            .as_any()
+            .downcast_ref::<ExtensionArray>()
             .is_some_and(|ext| is_temporal_ext_type(ext.ext_dtype().id()))
         {
             // This kernel only handles temporal arrays.
             return Ok(None);
         }
-        let array = TemporalArray::try_from(array.to_array())?;
+        let array = TemporalArray::try_from(array.to_array())
+            .vortex_expect("Checked above that array is a temporal ExtensionArray");
 
         // Figure out the target Arrow type, or use the canonical type
         let arrow_type = arrow_type
