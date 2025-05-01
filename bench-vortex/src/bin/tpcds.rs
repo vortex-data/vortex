@@ -52,6 +52,7 @@ struct Args {
     fast: bool,
 }
 
+#[allow(clippy::expect_used)]
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -116,18 +117,16 @@ fn main() -> anyhow::Result<()> {
 
     let runtime = new_tokio_runtime(None);
 
-    runtime
-        .block_on(bench_main(
-            args.queries,
-            args.exclude_queries,
-            args.iterations,
-            1,
-            args.targets,
-            args.display_format,
-            url,
-            &duckdb_resolved_path,
-        ))
-        .unwrap();
+    runtime.block_on(bench_main(
+        args.queries,
+        args.exclude_queries,
+        args.iterations,
+        1,
+        args.targets,
+        args.display_format,
+        url,
+        &duckdb_resolved_path,
+    ))?;
 
     // Require trace guard lives until here
     #[cfg(feature = "tracing")]
@@ -183,7 +182,7 @@ async fn bench_main(
 
                 let url = url
                     .join(&format!("{}/", scale_factor))
-                    .expect("cannot join scale factor");
+                    .vortex_expect("cannot join scale factor");
 
                 let executor = DuckDBExecutor::new(duckdb_path.to_owned(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;

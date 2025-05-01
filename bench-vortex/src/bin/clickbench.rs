@@ -208,7 +208,7 @@ fn main() -> anyhow::Result<()> {
         .targets
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(&args.duckdb_path));
+        .then(|| ddb::build_and_get_executable_path(&args.duckdb_path, false));
 
     for target in args.targets.iter() {
         let engine = target.engine();

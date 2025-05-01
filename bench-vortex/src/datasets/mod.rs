@@ -103,7 +103,7 @@ impl BenchmarkDataset {
                 Ok(base_url.join("vortex_compressed/")?)
             }
             BenchmarkDataset::TpcDS => {
-                Ok(base_url.join(&format!("{}/", Format::OnDiskVortex.to_string()))?)
+                Ok(base_url.join(&format!("{}/", Format::OnDiskVortex))?)
             }
             BenchmarkDataset::ClickBench { .. } => {
                 // ClickBench vortex files are stored in "vortex/" subdirectory
