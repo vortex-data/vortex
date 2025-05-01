@@ -41,7 +41,7 @@ impl DuckDBExecutor {
 /// Finds the path to the DuckDB executable
 pub fn build_and_get_executable_path(
     user_supplied_path_flag: &Option<PathBuf>,
-    skip_build: bool,
+    skip_duckdb_build: bool,
 ) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
         assert!(
@@ -77,7 +77,7 @@ pub fn build_and_get_executable_path(
         .expect("failed to find the vortex repo")
         .join("duckdb-vortex");
 
-    if !skip_build {
+    if !skip_duckdb_build {
         let mut command = Command::new("make");
         command
             .current_dir(&duckdb_vortex_path)
