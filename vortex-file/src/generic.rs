@@ -142,7 +142,17 @@ impl VortexOpenOptions<GenericVortexFile> {
         let postscript = self.parse_postscript(&initial_read)?;
 
         // If we haven't been provided a DType, we must read one from the file.
-        let dtype_segment = self.dtype.is_none().then(|| postscript.dtype.ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))).transpose()?;
+        let dtype_segment = self
+            .dtype
+            .is_none()
+            .then(|| {
+                postscript.dtype.ok_or_else(|| {
+                    vortex_err!(
+                        "Vortex file doesn't embed a DType and none provided to VortexOpenOptions"
+                    )
+                })
+            })
+            .transpose()?;
 
         // The other postscript segments are required, so now we figure out our the offset that
         // contains all the required segments.
