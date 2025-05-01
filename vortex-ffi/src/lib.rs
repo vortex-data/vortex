@@ -12,12 +12,23 @@ mod log;
 mod stream;
 
 use std::ffi::{CStr, c_char, c_int};
+use std::sync::LazyLock;
+use std::thread::Builder;
 
 pub use log::vx_log_level;
+use tokio::runtime;
+use tokio::runtime::Runtime;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Cannot start runtime")
+});
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = CStr::from_ptr(ptr);

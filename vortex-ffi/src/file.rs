@@ -25,7 +25,7 @@ use vortex::stream::ArrayStreamArrayExt;
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
-use crate::{to_string, to_string_vec};
+use crate::{RUNTIME, to_string, to_string_vec};
 
 /// A file reader that can be used to read from a file.
 #[allow(non_camel_case_types)]
@@ -88,7 +88,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let inner = futures::executor::block_on(async move {
+        let inner = RUNTIME.block_on(async move {
             VortexOpenOptions::file()
                 .open_object_store(&object_store, uri.path())
                 .await
@@ -107,7 +107,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
         let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
         let path = CStr::from_ptr(path).to_str()?;
 
-        futures::executor::block_on(async {
+        RUNTIME.block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut File::create(path).await?,
