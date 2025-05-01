@@ -202,7 +202,7 @@ vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type
 
 vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
 	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
-	auto dtype = into_vortex_dtype(arena, value.type().id(), nullable);
+	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
 	scalar->set_allocated_dtype(dtype);
 
 	switch (value.type().id()) {
@@ -245,6 +245,16 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 	case LogicalTypeId::DOUBLE:
 		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
 		return scalar;
+	case LogicalTypeId::DECIMAL: {
+		auto huge = value.GetValue<duckdb::hugeint_t>();
+		uint32_t out[4];
+		out[0] = static_cast<uint32_t>(huge);
+		out[1] = static_cast<uint32_t>(huge >> 32);
+		out[2] = static_cast<uint32_t>(huge >> 64);
+		out[3] = static_cast<uint32_t>(huge >> 96);
+		scalar->mutable_value()->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
+		return scalar;
+	}
 	case LogicalTypeId::VARCHAR:
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());
 		return scalar;
@@ -367,7 +377,7 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 	}
 	case duckdb::ExpressionClass::BOUND_CONSTANT: {
 		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
-		set_literal(arena, Value(dconstant.value), true, expr);
+		set_literal(arena, dconstant.value, true, expr);
 		return expr;
 	}
 	case duckdb::ExpressionClass::BOUND_COMPARISON: {

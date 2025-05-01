@@ -39,7 +39,10 @@ impl DuckDBExecutor {
 }
 
 /// Finds the path to the DuckDB executable
-pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
+pub fn build_and_get_executable_path(
+    user_supplied_path_flag: &Option<PathBuf>,
+    skip_build: bool,
+) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
         assert!(
             duckdb_path.as_path().exists(),
@@ -74,32 +77,34 @@ pub fn build_and_get_executable_path(user_supplied_path_flag: &Option<PathBuf>) 
         .expect("failed to find the vortex repo")
         .join("duckdb-vortex");
 
-    let mut command = Command::new("make");
-    command
-        .current_dir(&duckdb_vortex_path)
-        .env("GEN", "ninja")
-        .arg("release");
-
-    info!(
-        "Building duckdb vortex extension at {}, with command {:?}",
-        duckdb_vortex_path.display(),
+    if !skip_build {
+        let mut command = Command::new("make");
         command
-    );
+            .current_dir(&duckdb_vortex_path)
+            .env("GEN", "ninja")
+            .arg("release");
 
-    let output = command
-        .output()
-        .expect("Trying to build duckdb vortex extension");
+        info!(
+            "Building duckdb vortex extension at {}, with command {:?}",
+            duckdb_vortex_path.display(),
+            command
+        );
 
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        let output = command
+            .output()
+            .expect("Trying to build duckdb vortex extension");
+
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        }
+
+        info!(
+            "Built duckdb vortex extension at {}",
+            duckdb_vortex_path.display()
+        );
     }
-
-    info!(
-        "Built duckdb vortex extension at {}",
-        duckdb_vortex_path.display()
-    );
 
     let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
 
@@ -284,7 +289,8 @@ pub fn execute_query(
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         bail!(
-            "DuckDB query failed: {}",
+            "DuckDB query failed, stdout: {} stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
     }

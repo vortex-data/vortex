@@ -45,6 +45,8 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(long)]
+    fast: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -117,6 +119,7 @@ fn main() -> anyhow::Result<()> {
             args.display_format,
             url,
             &args.duckdb_path,
+            args.fast,
         ))
         .unwrap();
 
@@ -135,6 +138,7 @@ async fn bench_main(
     display_format: DisplayFormat,
     url: Url,
     duckdb_path: &Option<PathBuf>,
+    skip_duckdb_build: bool,
 ) -> anyhow::Result<()> {
     info!(
         "Benchmarking against these targets: {}.",
@@ -160,7 +164,7 @@ async fn bench_main(
     let duckdb_resolved_path = targets
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(duckdb_path));
+        .then(|| ddb::build_and_get_executable_path(duckdb_path, skip_duckdb_build));
 
     for target in &targets {
         let engine = target.engine();

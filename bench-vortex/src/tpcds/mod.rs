@@ -24,7 +24,6 @@ fn tpch_query(query_idx: usize) -> String {
         .join("tpcds")
         .join(format!("{:02}", query_idx))
         .with_extension("sql");
-    println!("dir {:?}", manifest_dir.to_str());
     fs::read_to_string(manifest_dir).unwrap()
 }
 
