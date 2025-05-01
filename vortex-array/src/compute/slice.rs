@@ -39,11 +39,11 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
         return Ok(array.to_array());
     }
 
+    check_slice_bounds(array, start, stop)?;
+
     if start == stop {
         return Ok(Canonical::empty(array.dtype()).into_array());
     }
-
-    check_slice_bounds(array, start, stop)?;
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.

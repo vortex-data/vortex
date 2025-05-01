@@ -96,26 +96,16 @@ impl FromArrowType<&Fields> for StructDType {
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
     fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
-        let field = Field::new("__", data_type.clone(), nullability.into());
-        Self::from_arrow(&field)
-    }
-}
-
-impl FromArrowType<&Field> for DType {
-    fn from_arrow(field: &Field) -> Self {
         use crate::DType::*;
 
-        let nullability: Nullability = field.is_nullable().into();
-
-        if field.data_type().is_integer() || field.data_type().is_floating() {
+        if data_type.is_integer() || data_type.is_floating() {
             return Primitive(
-                PType::try_from_arrow(field.data_type())
-                    .vortex_expect("arrow float/integer to ptype"),
+                PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
 
-        match field.data_type() {
+        match data_type {
             DataType::Null => Null,
             DataType::Boolean => Bool(nullability),
             DataType::Decimal128(p, s) => Decimal(DecimalDType::new(*p, *s), nullability),
@@ -127,14 +117,20 @@ impl FromArrowType<&Field> for DType {
             | DataType::Time32(_)
             | DataType::Time64(_)
             | DataType::Timestamp(..) => Extension(Arc::new(
-                make_temporal_ext_dtype(field.data_type()).with_nullability(nullability),
+                make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
             DataType::Struct(f) => Struct(Arc::new(StructDType::from_arrow(f)), nullability),
-            _ => unimplemented!("Arrow data type not yet supported: {:?}", field.data_type()),
+            _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
+    }
+}
+
+impl FromArrowType<&Field> for DType {
+    fn from_arrow(field: &Field) -> Self {
+        Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
 }
 
