@@ -108,8 +108,6 @@ table CompressionSpec {
 // When encrypting data with AES_GCM the nonce should always be 12 bytes in length (per specification recommendation) and tag 16 bytes.
 // If we were to add AES_CTR we would keep same 12 byte nonce and append a 32 bit counter to it (initialzed at 1) to encrypt data.
 
-// Encryption is applied after general purpose compression
-
 // Possible encryption algorithms to use when encrypting files
 enum EncryptionAlgorithm: uint8 {
     None = 0,
