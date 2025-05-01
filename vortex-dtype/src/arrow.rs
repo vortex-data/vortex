@@ -94,6 +94,13 @@ impl FromArrowType<&Fields> for StructDType {
     }
 }
 
+impl FromArrowType<(&DataType, Nullability)> for DType {
+    fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
+        let field = Field::new("__", data_type.clone(), nullability.into());
+        Self::from_arrow(&field)
+    }
+}
+
 impl FromArrowType<&Field> for DType {
     fn from_arrow(field: &Field) -> Self {
         use crate::DType::*;

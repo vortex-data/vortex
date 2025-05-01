@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use ::arrow_array::{
-    ArrayRef as ArrowArrayRef, BooleanArray as ArrowBoolArray,
-    Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
-    NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
-    StructArray as ArrowStructArray,
-};
 use arrow_array::types::{
-    BinaryViewType, ByteViewType, Float16Type, Float32Type, Float64Type, Int8Type, Int16Type,
-    Int32Type, Int64Type, StringViewType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    BinaryType, BinaryViewType, ByteArrayType, ByteViewType, Float16Type, Float32Type, Float64Type,
+    Int8Type, Int16Type, Int32Type, Int64Type, LargeBinaryType, LargeUtf8Type, StringViewType,
+    UInt8Type, UInt16Type, UInt32Type, UInt64Type, Utf8Type,
 };
-use arrow_array::{ArrowPrimitiveType, GenericByteViewArray, GenericListArray, OffsetSizeTrait};
+use arrow_array::{
+    Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
+    Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
+    GenericByteArray, GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray,
+    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+};
 use arrow_buffer::{ScalarBuffer, i256};
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
@@ -24,16 +24,16 @@ use crate::arrays::{
     BoolArray, DecimalArray, DecimalValueType, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
+use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::compute::to_arrow::ToArrowArgs;
-use crate::arrow::compute::{ToArrowKernelRef, to_arrow};
+use crate::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use crate::{Array as _, Canonical, ToCanonical, register_kernel};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
-struct ToArrowCanonical;
+pub(super) struct ToArrowCanonical;
 
 impl Kernel for ToArrowCanonical {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
@@ -117,8 +117,28 @@ impl Kernel for ToArrowCanonical {
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
             }
+            (Canonical::VarBinView(array), DataType::Binary) if array.dtype().is_binary() => {
+                to_arrow_varbin::<BinaryViewType, BinaryType>(
+                    to_arrow_varbinview::<BinaryViewType>(array)?,
+                )
+            }
+            (Canonical::VarBinView(array), DataType::LargeBinary) if array.dtype().is_binary() => {
+                to_arrow_varbin::<BinaryViewType, LargeBinaryType>(to_arrow_varbinview::<
+                    BinaryViewType,
+                >(array)?)
+            }
             (Canonical::VarBinView(array), DataType::Utf8View) if array.dtype().is_utf8() => {
                 to_arrow_varbinview::<StringViewType>(array)
+            }
+            (Canonical::VarBinView(array), DataType::Utf8) if array.dtype().is_utf8() => {
+                to_arrow_varbin::<StringViewType, Utf8Type>(to_arrow_varbinview::<StringViewType>(
+                    array,
+                )?)
+            }
+            (Canonical::VarBinView(array), DataType::LargeUtf8) if array.dtype().is_utf8() => {
+                to_arrow_varbin::<StringViewType, LargeUtf8Type>(to_arrow_varbinview::<
+                    StringViewType,
+                >(array)?)
             }
             (Canonical::Extension(_), _) => {
                 // Datetime and interval types are handled by a different kernel.
@@ -219,7 +239,8 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
                 );
             }
 
-            to_arrow(arr, field.data_type())
+            arr.clone()
+                .into_arrow(field.data_type())
                 .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", field)))
         })
         .collect::<VortexResult<Vec<_>>>()?;
@@ -265,7 +286,7 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {}", offsets_dtype)))?
         .to_primitive()?;
 
-    let values = to_arrow(array.elements(), element.data_type())?;
+    let values = array.elements().clone().into_arrow(element.data_type())?;
     let nulls = array.validity_mask()?.to_null_buffer();
 
     Ok(Arc::new(GenericListArray::new(
@@ -291,6 +312,23 @@ fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<
 
     Ok(Arc::new(GenericByteViewArray::<T>::new(
         views, buffers, nulls,
+    )))
+}
+
+fn to_arrow_varbin<V: ByteViewType, T: ByteArrayType>(
+    arrow_varbinview: ArrowArrayRef,
+) -> VortexResult<ArrowArrayRef>
+where
+    <V as ByteViewType>::Native: AsRef<<T as ByteArrayType>::Native>,
+{
+    let varbinview = arrow_varbinview
+        .as_any()
+        .downcast_ref::<GenericByteViewArray<V>>()
+        .vortex_expect("VarBinViewArray: failed to downcast to GenericByteViewArray");
+
+    // Note that this conversion requires a copy.
+    Ok(Arc::new(GenericByteArray::<T>::from_iter(
+        varbinview.iter(),
     )))
 }
 

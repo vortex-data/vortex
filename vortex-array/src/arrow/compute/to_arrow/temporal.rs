@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
 use std::sync::Arc;
 
 use arrow_array::types::{
@@ -15,17 +13,15 @@ use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arcref::ArcRef;
 use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::compute::ToArrowKernelRef;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, ToCanonical, register_kernel};
+use crate::{Array as _, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
-struct ToArrowTemporal;
+pub(super) struct ToArrowTemporal;
 
 impl Kernel for ToArrowTemporal {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
@@ -93,8 +89,6 @@ impl Kernel for ToArrowTemporal {
         ))
     }
 }
-
-register_kernel!(ToArrowKernelRef(ArcRef::new_ref(&ToArrowTemporal)));
 
 fn to_arrow_temporal<T: ArrowPrimitiveType>(array: &TemporalArray) -> VortexResult<ArrowArrayRef>
 where

@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 
-use arrow::ArrayRef as ArrowArrayRef;
-use arrow_array::Array;
-use arrow_schema::Field;
+use arrow_array::{Array, ArrayRef as ArrowArrayRef};
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
@@ -13,7 +11,7 @@ use crate::stats::StatsSetRef;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{
     ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, arrow,
+    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 
 /// A Vortex array that wraps an in-memory Arrow array.
@@ -41,11 +39,7 @@ pub struct ArrowArray {
 
 impl ArrowArray {
     pub fn new(arrow_array: ArrowArrayRef, nullability: Nullability) -> Self {
-        let dtype = DType::from_arrow(&Field::new(
-            "__",
-            arrow_array.data_type().clone(),
-            nullability.into(),
-        ));
+        let dtype = DType::from_arrow((arrow_array.data_type(), nullability));
         Self {
             inner: arrow_array,
             dtype,

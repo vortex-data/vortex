@@ -44,6 +44,7 @@ impl VortexMemTable {
             .dtype()
             .to_arrow_schema()
             .vortex_expect("schema is inferable");
+        println!("DF MEM Arrow schema: {arrow_schema:?}");
         let schema_ref = SchemaRef::new(arrow_schema);
 
         let array = match array.as_opt::<ChunkedArray>() {

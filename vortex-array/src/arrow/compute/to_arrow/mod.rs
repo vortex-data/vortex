@@ -5,15 +5,16 @@ mod varbin;
 use std::any::Any;
 use std::sync::LazyLock;
 
-use arrow::ArrayRef as ArrowArrayRef;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
+use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::arcref::ArcRef;
 use crate::arrow::array::ArrowArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::{Array, Encoding, arrow};
+use crate::{Array, Encoding};
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
@@ -83,7 +84,6 @@ impl ComputeFnVTable for ToArrow {
     ) -> VortexResult<Output> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
 
-        println!("KERNELS {:?}", kernels);
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
@@ -115,8 +115,10 @@ impl ComputeFnVTable for ToArrow {
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let ToArrowArgs { array, .. } = ToArrowArgs::try_from(args)?;
-        Ok(array.dtype().clone())
+        let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+        Ok(arrow_type
+            .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
+            .unwrap_or_else(|| array.dtype().clone()))
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
@@ -131,6 +133,11 @@ impl ComputeFnVTable for ToArrow {
 
 pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
+
+    // Register the kernels we ship ourselves
+    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
+    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
+
     for kernel in inventory::iter::<ToArrowKernelRef> {
         compute.register_kernel(kernel.0.clone());
     }
