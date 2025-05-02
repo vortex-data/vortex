@@ -5,7 +5,6 @@ use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetada
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
-use vortex_dtype::proto::dtype as pb;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -122,7 +121,7 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
 
 #[derive(prost::Message)]
 pub struct DictLayoutMetadata {
-    #[prost(enumeration = "pb::PType", tag = "1")]
+    #[prost(enumeration = "PType", tag = "1")]
     // i32 is required for proto, use the generated getter to read this field.
     codes_ptype: i32,
 }
@@ -130,14 +129,14 @@ pub struct DictLayoutMetadata {
 impl DictLayoutMetadata {
     pub fn new(codes_ptype: PType) -> Self {
         let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype.into());
+        metadata.set_codes_ptype(codes_ptype);
         metadata
     }
 }
 
 fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
-    let metadata = Bytes::copy_from_slice(
-        &ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?))
+    let metadata = Bytes::from(
+        ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?))
             .serialize()
             .ok_or_else(|| vortex_err!("could not serialize dict layout metadata"))?,
     );
