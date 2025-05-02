@@ -92,7 +92,7 @@ pub async fn load_datasets(
             Format::OnDiskVortex => {
                 register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
             }
-            Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusionn"),
+            Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
         }
     }
 
