@@ -46,7 +46,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::compute::{scalar_at, take};
     use vortex_array::{Array, ToCanonical};
 
     use crate::RunEndArray;
@@ -81,7 +81,7 @@ mod test {
 
     #[test]
     fn sliced_take() {
-        let sliced = slice(&ree_array(), 4, 9).unwrap();
+        let sliced = ree_array().slice(4, 9).unwrap();
         let taken = take(sliced.as_ref(), &PrimitiveArray::from_iter([1, 3, 4])).unwrap();
 
         assert_eq!(taken.len(), 3);

@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use super::ChunkedArray;
 use crate::arrays::{ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
-use crate::compute::{cast, scalar_at, slice};
+use crate::compute::{cast, scalar_at};
 use crate::validity::Validity;
 use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical, ToCanonical};
 
@@ -98,11 +98,11 @@ fn pack_lists(
         let first_offset_value: usize = usize::try_from(&scalar_at(&offsets_arr, 0)?)?;
         let last_offset_value: usize =
             usize::try_from(&scalar_at(&offsets_arr, offsets_arr.len() - 1)?)?;
-        elements.push(slice(
-            chunk.elements(),
-            first_offset_value,
-            last_offset_value,
-        )?);
+        elements.push(
+            chunk
+                .elements()
+                .slice(first_offset_value, last_offset_value)?,
+        );
 
         let adjustment_from_previous = *offsets
             .last()

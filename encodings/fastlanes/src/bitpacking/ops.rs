@@ -1,36 +1,34 @@
 use std::cmp::max;
 
-use vortex_array::compute::SliceFn;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::BitPackedArray;
 
-impl SliceFn<&BitPackedArray> for BitPackedEncoding {
-    fn slice(&self, array: &BitPackedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let offset_start = start + array.offset() as usize;
-        let offset_stop = stop + array.offset() as usize;
+impl ArrayOperationsImpl for BitPackedArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let offset_start = start + self.offset() as usize;
+        let offset_stop = stop + self.offset() as usize;
         let offset = offset_start % 1024;
         let block_start = max(0, offset_start - offset);
         let block_stop = offset_stop.div_ceil(1024) * 1024;
 
-        let encoded_start = (block_start / 8) * array.bit_width() as usize;
-        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+        let encoded_start = (block_start / 8) * self.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * self.bit_width() as usize;
 
         // slice the buffer using the encoded start/stop values
         // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
         unsafe {
             BitPackedArray::new_unchecked_with_offset(
-                array.packed().slice(encoded_start..encoded_stop),
-                array.ptype(),
-                array.validity().slice(start, stop)?,
-                array
-                    .patches()
+                self.packed().slice(encoded_start..encoded_stop),
+                self.ptype(),
+                self.validity().slice(start, stop)?,
+                self.patches()
                     .map(|p| p.slice(start, stop))
                     .transpose()?
                     .flatten(),
-                array.bit_width(),
+                self.bit_width(),
                 stop - start,
                 offset as u16,
             )
@@ -43,7 +41,7 @@ impl SliceFn<&BitPackedArray> for BitPackedEncoding {
 mod test {
     use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::compute::{scalar_at, take};
 
     use crate::BitPackedArray;
 
@@ -52,7 +50,7 @@ mod test {
         let arr =
             BitPackedArray::encode(&PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)), 6)
                 .unwrap();
-        let sliced = BitPackedArray::try_from(slice(&arr, 1024, 2048).unwrap()).unwrap();
+        let sliced = BitPackedArray::try_from(arr.slice(1024, 2048).unwrap()).unwrap();
         assert_eq!(scalar_at(&sliced, 0).unwrap(), (1024u32 % 64).into());
         assert_eq!(scalar_at(&sliced, 1023).unwrap(), (2047u32 % 64).into());
         assert_eq!(sliced.offset(), 0);
@@ -65,7 +63,7 @@ mod test {
             BitPackedArray::encode(&PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)), 6)
                 .unwrap()
                 .into_array();
-        let sliced = BitPackedArray::try_from(slice(&arr, 512, 1434).unwrap()).unwrap();
+        let sliced = BitPackedArray::try_from(arr.slice(512, 1434).unwrap()).unwrap();
         assert_eq!(scalar_at(&sliced, 0).unwrap(), (512u32 % 64).into());
         assert_eq!(scalar_at(&sliced, 921).unwrap(), (1433u32 % 64).into());
         assert_eq!(sliced.offset(), 512);
@@ -80,7 +78,7 @@ mod test {
         )
         .unwrap();
 
-        let compressed = slice(&packed, 768, 9999).unwrap();
+        let compressed = packed.slice(768, 9999).unwrap();
         assert_eq!(
             scalar_at(&compressed, 0).unwrap(),
             ((768 % 63) as u8).into()
@@ -99,7 +97,7 @@ mod test {
         )
         .unwrap();
 
-        let compressed = slice(&packed, 7168, 9216).unwrap();
+        let compressed = packed.slice(7168, 9216).unwrap();
         assert_eq!(
             scalar_at(&compressed, 0).unwrap(),
             ((7168 % 63) as u8).into()
@@ -116,12 +114,12 @@ mod test {
             BitPackedArray::encode(&PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)), 6)
                 .unwrap()
                 .into_array();
-        let sliced = BitPackedArray::try_from(slice(&arr, 512, 1434).unwrap()).unwrap();
+        let sliced = BitPackedArray::try_from(arr.slice(512, 1434).unwrap()).unwrap();
         assert_eq!(scalar_at(&sliced, 0).unwrap(), (512u32 % 64).into());
         assert_eq!(scalar_at(&sliced, 921).unwrap(), (1433u32 % 64).into());
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
-        let doubly_sliced = BitPackedArray::try_from(slice(&sliced, 127, 911).unwrap()).unwrap();
+        let doubly_sliced = BitPackedArray::try_from(sliced.slice(127, 911).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&doubly_sliced, 0).unwrap(),
             ((512u32 + 127) % 64).into()
@@ -145,7 +143,7 @@ mod test {
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
-        let sliced = slice(&array, 0, 64).unwrap();
+        let sliced = array.slice(0, 64).unwrap();
         let sliced_bp = BitPackedArray::try_from(sliced).unwrap();
         assert!(sliced_bp.patches().is_none());
     }
@@ -159,7 +157,7 @@ mod test {
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
-        let sliced = slice(&array, 922, 2061).unwrap();
+        let sliced = array.slice(922, 2061).unwrap();
 
         // Take one element from each chunk.
         // Chunk 1: physical indices  922-1023, logical indices    0-101

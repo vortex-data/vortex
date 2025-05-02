@@ -1,6 +1,7 @@
 mod canonical;
 mod convert;
 mod implementation;
+mod operations;
 mod statistics;
 mod validity;
 mod variants;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 pub use canonical::*;
 pub use convert::*;
 pub use implementation::*;
+pub use operations::*;
 pub use statistics::*;
 pub use validity::*;
 pub use variants::*;
@@ -67,6 +69,9 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Returns the encoding VTable.
     fn vtable(&self) -> VTableRef;
+
+    /// Performs a constant-time slice of the array.
+    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -187,6 +192,10 @@ impl Array for Arc<dyn Array> {
 
     fn vtable(&self) -> VTableRef {
         self.as_ref().vtable()
+    }
+
+    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
+        self.as_ref().slice(start, end)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {

@@ -203,7 +203,7 @@ mod test {
     use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
     use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use vortex_array::compute::{
-        SearchResult, SearchSortedSide, search_sorted, search_sorted_many, slice,
+        SearchResult, SearchSortedSide, search_sorted, search_sorted_many,
     };
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -234,12 +234,10 @@ mod test {
 
     #[test]
     fn search_sliced() {
-        let bitpacked = slice(
-            &BitPackedArray::encode(&PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]), 2).unwrap(),
-            2,
-            4,
-        )
-        .unwrap();
+        let bitpacked = BitPackedArray::encode(&PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]), 2)
+            .unwrap()
+            .slice(2, 4)
+            .unwrap();
         assert_eq!(
             search_sorted(&bitpacked, 3, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(0)

@@ -3,7 +3,7 @@ mod filter;
 
 use vortex_array::arrays::{VarBinArray, varbin_scalar};
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{ScalarAtFn, SliceFn, TakeFn, fill_null, scalar_at, slice, take};
+use vortex_array::compute::{ScalarAtFn, TakeFn, fill_null, scalar_at, take};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_buffer::ByteBuffer;
@@ -17,29 +17,8 @@ impl ComputeVTable for FSSTEncoding {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl SliceFn<&FSSTArray> for FSSTEncoding {
-    fn slice(&self, array: &FSSTArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        // Slicing an FSST array leaves the symbol table unmodified,
-        // only slicing the `codes` array.
-        Ok(FSSTArray::try_new(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            slice(array.codes(), start, stop)?
-                .as_::<VarBinArray>()
-                .clone(),
-            slice(array.uncompressed_lengths(), start, stop)?,
-        )?
-        .into_array())
     }
 }
 

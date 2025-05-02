@@ -2,8 +2,9 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical,
+    try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -77,6 +78,12 @@ impl ArrayCanonicalImpl for ZigZagArray {
     }
 }
 
+impl ArrayOperationsImpl for ZigZagArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ZigZagArray::try_new(self.encoded().slice(start, stop)?)?.into_array())
+    }
+}
+
 impl ArrayStatisticsImpl for ZigZagArray {
     fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
@@ -112,7 +119,7 @@ impl PrimitiveArrayTrait for ZigZagArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::compute::{scalar_at, slice};
+    use vortex_array::compute::scalar_at;
     use vortex_array::vtable::EncodingVTable;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
@@ -138,7 +145,7 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = ZigZagArray::try_from(slice(&zigzag, 0, 2).unwrap()).unwrap();
+        let sliced = ZigZagArray::try_from(zigzag.slice(0, 2).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&sliced, sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

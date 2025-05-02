@@ -9,7 +9,7 @@ mod optimize;
 
 use vortex_array::compute::{
     FillNullFn, FilterKernel, FilterKernelAdapter, IsSortedFn, MinMaxFn, OptimizeFn, ScalarAtFn,
-    SliceFn, TakeFn, filter, scalar_at, slice, take,
+    TakeFn, filter, scalar_at, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -33,10 +33,6 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -72,20 +68,12 @@ impl FilterKernel for DictEncoding {
 
 register_kernel!(FilterKernelAdapter(DictEncoding).lift());
 
-impl SliceFn<&DictArray> for DictEncoding {
-    // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        DictArray::try_new(slice(array.codes(), start, stop)?, array.values().clone())
-            .map(|a| a.into_array())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at, slice};
+    use vortex_array::compute::{Operator, compare, scalar_at};
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -180,7 +168,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(&reference).unwrap();
-        slice(&dict, 1, 4).unwrap()
+        dict.slice(1, 4).unwrap()
     }
 
     #[test]

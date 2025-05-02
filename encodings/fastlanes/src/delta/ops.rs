@@ -1,0 +1,290 @@
+use std::cmp::min;
+
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_error::VortexResult;
+
+use crate::DeltaArray;
+
+impl ArrayOperationsImpl for DeltaArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let physical_start = start + self.offset();
+        let physical_stop = stop + self.offset();
+
+        let start_chunk = physical_start / 1024;
+        let stop_chunk = physical_stop.div_ceil(1024);
+
+        let bases = self.bases();
+        let deltas = self.deltas();
+        let validity = self.validity();
+        let lanes = self.lanes();
+
+        let new_bases = bases.slice(
+            min(start_chunk * lanes, self.bases_len()),
+            min(stop_chunk * lanes, self.bases_len()),
+        )?;
+
+        let new_deltas = deltas.slice(
+            min(start_chunk * 1024, self.deltas_len()),
+            min(stop_chunk * 1024, self.deltas_len()),
+        )?;
+
+        let new_validity = validity.slice(start, stop)?;
+
+        let logical_len = stop - start;
+
+        let arr = DeltaArray::try_new(
+            new_bases,
+            new_deltas,
+            new_validity,
+            physical_start % 1024,
+            logical_len,
+        )?;
+
+        Ok(arr.into_array())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use vortex_array::ToCanonical;
+
+    use super::*;
+
+    #[test]
+    fn test_slice_non_jagged_array_first_chunk_of_two() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(10, 250)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            (10u32..250).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_non_jagged_array_second_chunk_of_two() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(1024 + 10, 1024 + 250)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_non_jagged_array_span_two_chunks_chunk_of_two() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(1000, 1048)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            (1000u32..1048).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_non_jagged_array_span_two_chunks_chunk_of_four() {
+        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(2040, 2050)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            (2040u32..2050).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_non_jagged_array_whole() {
+        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(0, 4096)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            (0u32..4096).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_non_jagged_array_empty() {
+        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(0, 0)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+
+        assert_eq!(
+            delta
+                .slice(4096, 4096)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+
+        assert_eq!(
+            delta
+                .slice(1024, 1024)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+    }
+
+    #[test]
+    fn test_slice_jagged_array_second_chunk_of_two() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(1024 + 10, 1024 + 250)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_slice_jagged_array_empty() {
+        let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
+
+        assert_eq!(
+            delta
+                .slice(0, 0)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+
+        assert_eq!(
+            delta
+                .slice(4000, 4000)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+
+        assert_eq!(
+            delta
+                .slice(1024, 1024)
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<u32>(),
+            Vec::<u32>::new(),
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_of_non_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        let sliced = delta.slice(10, 1013).unwrap();
+        let sliced_again = sliced.slice(0, 2).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            vec![10, 11]
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_of_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
+
+        let sliced = delta.slice(10, 1013).unwrap();
+        let sliced_again = sliced.slice(0, 2).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            vec![10, 11]
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_second_chunk_of_non_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        let sliced = delta.slice(1034, 1050).unwrap();
+        let sliced_again = sliced.slice(0, 2).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            vec![1034, 1035]
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_second_chunk_of_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
+
+        let sliced = delta.slice(1034, 1050).unwrap();
+        let sliced_again = sliced.slice(0, 2).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            vec![1034, 1035]
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
+
+        let sliced = delta.slice(1010, 1050).unwrap();
+        let sliced_again = sliced.slice(5, 20).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            (1015..1030).collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
+
+        let sliced = delta.slice(1010, 1050).unwrap();
+        let sliced_again = sliced.slice(5, 20).unwrap();
+
+        assert_eq!(
+            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
+            (1015..1030).collect::<Vec<_>>(),
+        );
+    }
+}

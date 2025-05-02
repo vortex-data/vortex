@@ -3,6 +3,7 @@
 #![feature(substr_range)]
 #![feature(trusted_len)]
 #![feature(array_chunks)]
+#![feature(iterator_try_collect)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::EncodingVTable).

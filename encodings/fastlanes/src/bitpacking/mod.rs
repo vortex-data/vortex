@@ -23,6 +23,7 @@ use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
 mod compress;
 mod compute;
+mod ops;
 mod serde;
 pub mod unpack_iter;
 

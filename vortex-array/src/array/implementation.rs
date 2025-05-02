@@ -7,15 +7,17 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::convert::IntoArray;
+use crate::array::operations::ArrayOperationsImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
-use crate::stats::{Precision, Stat, StatsSetRef};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor, Canonical, Encoding,
-    EncodingId,
+    Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
+    Canonical, Encoding, EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -26,6 +28,7 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
+    + ArrayOperationsImpl
     + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
@@ -88,6 +91,84 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn vtable(&self) -> VTableRef {
         ArrayImpl::_vtable(self)
+    }
+
+    /// Perform a constant-time slice of the array.
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        if start == 0 && stop == self.len() {
+            return Ok(self.to_array());
+        }
+
+        if start > self.len() {
+            vortex_bail!(OutOfBounds: start, 0, self.len());
+        }
+        if stop > self.len() {
+            vortex_bail!(OutOfBounds: stop, 0, self.len());
+        }
+        if start > stop {
+            vortex_bail!("start ({start}) must be <= stop ({stop})");
+        }
+
+        if start == stop {
+            return Ok(Canonical::empty(self.dtype()).into_array());
+        }
+
+        // We know that constant array don't need stats propagation, so we can avoid the overhead of
+        // computing derived stats and merging them in.
+        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
+        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
+        let derived_stats = (!self.is_constant()).then(|| {
+            let stats = self.statistics().to_owned();
+
+            // an array that is not constant can become constant after slicing
+            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
+            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
+
+            let mut stats = stats.keep_inexact_stats(&[
+                Stat::Max,
+                Stat::Min,
+                Stat::NullCount,
+                Stat::UncompressedSizeInBytes,
+            ]);
+
+            if is_constant == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsConstant, Precision::exact(true));
+            }
+            if is_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsSorted, Precision::exact(true));
+            }
+            if is_strict_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsStrictSorted, Precision::exact(true));
+            }
+
+            stats
+        });
+
+        let sliced = ArrayOperationsImpl::_slice(self, start, stop)?;
+
+        assert_eq!(
+            sliced.len(),
+            stop - start,
+            "Slice length mismatch {}",
+            self.encoding()
+        );
+        assert_eq!(
+            sliced.dtype(),
+            self.dtype(),
+            "Slice dtype mismatch {}",
+            self.encoding()
+        );
+
+        if let Some(derived_stats) = derived_stats {
+            let mut stats = sliced.statistics().to_owned();
+            stats.combine_sets(&derived_stats, self.dtype())?;
+            for (stat, val) in stats.into_iter() {
+                sliced.statistics().set(stat, val)
+            }
+        }
+
+        Ok(sliced)
     }
 
     /// Returns whether the item at `index` is valid.

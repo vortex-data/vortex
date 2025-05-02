@@ -8,7 +8,7 @@ use vortex_array::arrays::{
     VarBinViewEncoding,
 };
 use vortex_array::compute::{
-    SearchResult, SearchSortedSide, compare, filter, scalar_at, search_sorted, slice, take,
+    SearchResult, SearchSortedSide, compare, filter, scalar_at, search_sorted, take,
 };
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef};
@@ -30,7 +30,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Slice(range) => {
-                current_array = slice(&current_array, range.start, range.end).vortex_unwrap();
+                current_array = current_array.slice(range.start, range.end).vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Take(indices) => {

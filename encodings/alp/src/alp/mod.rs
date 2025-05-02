@@ -7,6 +7,7 @@ use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
 mod array;
 mod compress;
 mod compute;
+mod ops;
 mod serde;
 
 pub use array::*;

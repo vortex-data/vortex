@@ -2,7 +2,7 @@ mod between;
 mod compare;
 mod nan_count;
 
-use vortex_array::compute::{NaNCountFn, ScalarAtFn, SliceFn, TakeFn, scalar_at, slice, take};
+use vortex_array::compute::{NaNCountFn, ScalarAtFn, TakeFn, scalar_at, take};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
@@ -18,11 +18,6 @@ impl ComputeVTable for ALPEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -69,20 +64,5 @@ impl TakeFn<&ALPArray> for ALPEncoding {
             })
             .transpose()?;
         Ok(ALPArray::try_new(taken_encoded, array.exponents(), taken_patches)?.into_array())
-    }
-}
-
-impl SliceFn<&ALPArray> for ALPEncoding {
-    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<ArrayRef> {
-        Ok(ALPArray::try_new(
-            slice(array.encoded(), start, end)?,
-            array.exponents(),
-            array
-                .patches()
-                .map(|p| p.slice(start, end))
-                .transpose()?
-                .flatten(),
-        )?
-        .into_array())
     }
 }

@@ -1,7 +1,7 @@
 use crate::Array;
 use crate::compute::{
     FillNullFn, IsSortedFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, UncompressedSizeFn,
+    SearchSortedUsizeFn, TakeFn, TakeFromFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -56,13 +56,6 @@ pub trait ComputeVTable {
     ///
     /// See: [`SearchSortedUsizeFn`].
     fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<&dyn Array>> {
-        None
-    }
-
-    /// Perform zero-copy slicing of an array.
-    ///
-    /// See: [`SliceFn`].
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         None
     }
 

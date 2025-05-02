@@ -5,6 +5,7 @@ mod array;
 pub mod compress;
 mod compute;
 mod iter;
+mod ops;
 mod serde;
 
 #[doc(hidden)]

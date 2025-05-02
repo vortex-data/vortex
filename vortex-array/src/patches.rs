@@ -16,7 +16,7 @@ use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
     SearchResult, SearchSortedSide, cast, filter, scalar_at, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, slice, take,
+    search_sorted_usize_many, take,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -287,8 +287,8 @@ impl Patches {
         }
 
         // Slice out the values and indices
-        let values = slice(self.values(), patch_start, patch_stop)?;
-        let indices = slice(self.indices(), patch_start, patch_stop)?;
+        let values = self.values().slice(patch_start, patch_stop)?;
+        let indices = self.indices().slice(patch_start, patch_stop)?;
 
         Ok(Some(Self::new(
             stop - start,

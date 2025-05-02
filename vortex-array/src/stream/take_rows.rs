@@ -7,7 +7,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::compute::{SearchSortedSide, search_sorted_usize, slice, sub_scalar, take};
+use crate::compute::{SearchSortedSide, search_sorted_usize, sub_scalar, take};
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
@@ -89,7 +89,7 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
 
             // TODO(ngates): this is probably too heavy to run on the event loop. We should spawn
             //  onto a worker pool.
-            let indices_for_batch = slice(this.indices, left, right)?.to_primitive()?;
+            let indices_for_batch = this.indices.slice(left, right)?.to_primitive()?;
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
                 sub_scalar(&indices_for_batch.to_array(), Scalar::from(curr_offset as $T))?
             });

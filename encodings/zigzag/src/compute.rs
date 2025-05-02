@@ -1,5 +1,5 @@
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
+    FilterKernel, FilterKernelAdapter, ScalarAtFn, TakeFn, filter, scalar_at, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -14,10 +14,6 @@ use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -55,12 +51,6 @@ impl ScalarAtFn<&ZigZagArray> for ZigZagEncoding {
                 array.dtype().nullability(),
             ))
         })
-    }
-}
-
-impl SliceFn<&ZigZagArray> for ZigZagEncoding {
-    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 

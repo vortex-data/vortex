@@ -2,7 +2,6 @@ use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, Transpose};
 use num_traits::{WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::slice;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
@@ -108,7 +107,9 @@ pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
         )
     });
 
-    slice(&decoded, array.offset(), array.offset() + array.len())?.to_primitive()
+    decoded
+        .slice(array.offset(), array.offset() + array.len())?
+        .to_primitive()
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

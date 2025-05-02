@@ -10,6 +10,7 @@ use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
 use vortex::arrays::ChunkedArray;
 use vortex::compute::slice;
+use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::{DType, Nullability, StructDType};
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::{Array, ArrayRef, ToCanonical};
@@ -60,7 +61,7 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
         let end = min(offset + DUCKDB_STANDARD_VECTOR_SIZE, array.len());
         let is_end = end == array.len();
 
-        let slice = slice(array, offset, end)?;
+        let slice = array.slice(offset, end)?;
         let mut data_chunk_handle = unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };
         let cache: &mut ConversionCache = unsafe { into_conversion_cache(cache) };
 

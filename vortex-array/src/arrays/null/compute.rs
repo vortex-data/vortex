@@ -7,7 +7,7 @@ use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn,
+    ScalarAtFn, TakeFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
@@ -16,10 +16,6 @@ use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -51,12 +47,6 @@ impl MaskKernel for NullEncoding {
 }
 
 register_kernel!(MaskKernelAdapter(NullEncoding).lift());
-
-impl SliceFn<&NullArray> for NullEncoding {
-    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(stop - start).into_array())
-    }
-}
 
 impl ScalarAtFn<&NullArray> for NullEncoding {
     fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
@@ -101,13 +91,13 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::null::NullArray;
-    use crate::compute::{scalar_at, slice, take};
+    use crate::compute::{scalar_at, take};
     use crate::{ArrayExt, IntoArray};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = slice(&nulls, 0, 4).unwrap().as_::<NullArray>().clone();
+        let sliced = nulls.slice(0, 4).unwrap().as_::<NullArray>().clone();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));

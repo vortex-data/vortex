@@ -8,9 +8,9 @@ use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumKernel, SumKernelAdapter, TakeFn,
+    IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SumKernel, SumKernelAdapter, TakeFn,
     UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
-    slice, sum, take, uncompressed_size,
+    sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -22,10 +22,6 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -59,16 +55,6 @@ impl ScalarAtFn<&ExtensionArray> for ExtensionEncoding {
             array.ext_dtype().clone(),
             scalar_at(array.storage(), index)?,
         ))
-    }
-}
-
-impl SliceFn<&ExtensionArray> for ExtensionEncoding {
-    fn slice(&self, array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            slice(array.storage(), start, stop)?,
-        )
-        .into_array())
     }
 }
 

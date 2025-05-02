@@ -1,5 +1,6 @@
 mod array;
 pub mod compute;
+mod ops;
 mod patch;
 mod serde;
 
@@ -16,7 +17,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::patches::Patches;
     use crate::validity::Validity;
 
@@ -67,7 +68,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = slice(&arr, 4, 12).unwrap();
+        let sliced = arr.slice(4, 12).unwrap();
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -97,7 +98,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = slice(&arr, 4, 12).unwrap();
+        let sliced = arr.slice(4, 12).unwrap();
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
