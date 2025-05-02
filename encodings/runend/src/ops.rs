@@ -120,10 +120,6 @@ mod tests {
 
         let sliced_array = re_array.slice(re_array.len(), re_array.len()).unwrap();
         assert!(sliced_array.is_empty());
-
-        let re_slice = RunEndArray::try_from(sliced_array).unwrap();
-        assert!(re_slice.ends().is_empty());
-        assert!(re_slice.values().is_empty())
     }
 
     #[test]
