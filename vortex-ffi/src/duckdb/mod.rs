@@ -1,15 +1,15 @@
 mod cache;
 
 use std::cmp::min;
-use std::ffi::{c_char, c_int, c_uint};
+use std::ffi::{c_char, c_int, c_uchar, c_uint};
 use std::ptr;
 use std::sync::Arc;
 
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
+use itertools::Itertools;
 use vortex::arrays::ChunkedArray;
 use vortex::compute::slice;
-use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::{DType, Nullability, StructDType};
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::{Array, ArrayRef, ToCanonical};
@@ -81,6 +81,7 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     type_array: *const duckdb_logical_type,
+    nullable: *const c_uchar,
     names: *const *const c_char,
     len: c_int,
     error: *mut *mut vx_error,
@@ -92,8 +93,13 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
             .collect();
 
         let types = (0..len)
-            .map(|i| LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) }))
-            .map(|type_| DType::from_duckdb(type_, Nullable))
+            .map(|i| {
+                (
+                    LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) }),
+                    *nullable.offset(i as isize) != 0,
+                )
+            })
+            .map(|(type_, nullable)| DType::from_duckdb(type_, nullable.into()))
             .collect::<VortexResult<Vec<DType>>>()?;
 
         let file_dtype = DType::Struct(
@@ -115,6 +121,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
 pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     array: *mut vx_array,
     chunk: duckdb_data_chunk,
+    nullable: *const c_uchar,
 ) -> *mut vx_array {
     let array = unsafe { array.as_ref().vortex_expect("null array") };
 
@@ -132,9 +139,13 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
 
     let chunk = DataChunkHandle::new_unowned(chunk);
 
+    let nullable = (0..chunk.num_columns())
+        .map(|i| *nullable.offset(i as isize) != 0)
+        .collect_vec();
+
     let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
         chunk: &chunk,
-        nullable: None,
+        nullable: Some(&nullable),
         names: Some(struct_type.names().clone()),
     })
     .vortex_expect("from_duckdb convert");
