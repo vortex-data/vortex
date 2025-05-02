@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::arrays::BoolEncoding;
-use crate::compute::{FillNullFn, IsSortedFn, MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{FillNullFn, IsSortedFn, MinMaxFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 mod cast;
@@ -12,7 +12,6 @@ mod is_constant;
 mod is_sorted;
 mod mask;
 mod min_max;
-mod scalar_at;
 mod sum;
 mod take;
 mod uncompressed_size;
@@ -27,10 +26,6 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 

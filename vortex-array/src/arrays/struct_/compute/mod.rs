@@ -4,23 +4,18 @@ mod mask;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxFn, MinMaxResult, ScalarAtFn, TakeFn, UncompressedSizeFn, filter, is_constant_opts,
-    scalar_at, take, uncompressed_size,
+    MinMaxFn, MinMaxResult, TakeFn, UncompressedSizeFn, filter, is_constant_opts, take,
+    uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -31,19 +26,6 @@ impl ComputeVTable for StructEncoding {
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&StructArray> for StructEncoding {
-    fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::struct_(
-            array.dtype().clone(),
-            array
-                .fields()
-                .iter()
-                .map(|field| scalar_at(field, index))
-                .try_collect()?,
-        ))
     }
 }
 

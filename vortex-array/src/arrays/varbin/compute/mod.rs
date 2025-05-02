@@ -1,11 +1,8 @@
 pub use min_max::compute_min_max;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::VarBinEncoding;
-use crate::arrays::varbin::{VarBinArray, varbin_scalar};
-use crate::compute::{IsSortedFn, MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{IsSortedFn, MinMaxFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 mod cast;
@@ -23,10 +20,6 @@ impl ComputeVTable for VarBinEncoding {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -37,11 +30,5 @@ impl ComputeVTable for VarBinEncoding {
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&VarBinArray> for VarBinEncoding {
-    fn scalar_at(&self, array: &VarBinArray, index: usize) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(array.bytes_at(index)?, array.dtype()))
     }
 }

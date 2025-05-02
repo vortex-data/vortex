@@ -1,4 +1,5 @@
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
@@ -11,7 +12,15 @@ impl ArrayOperationsImpl for BoolArray {
         )
         .into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            self.boolean_buffer().value(index),
+            self.dtype().nullability(),
+        ))
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

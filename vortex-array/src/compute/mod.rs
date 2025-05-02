@@ -27,7 +27,7 @@ pub use min_max::{MinMaxFn, MinMaxResult, min_max};
 pub use nan_count::*;
 pub use numeric::*;
 pub use optimize::*;
-pub use scalar_at::{ScalarAtFn, scalar_at};
+pub use scalar_at::scalar_at;
 pub use search_sorted::*;
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};

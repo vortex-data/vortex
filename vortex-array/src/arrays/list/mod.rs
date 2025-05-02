@@ -167,6 +167,17 @@ impl ArrayOperationsImpl for ListArray {
         )?
         .into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        let elem = self.elements_at(index)?;
+        let scalars: Vec<Scalar> = (0..elem.len()).map(|i| scalar_at(&elem, i)).try_collect()?;
+
+        Ok(Scalar::list(
+            Arc::new(elem.dtype().clone()),
+            scalars,
+            self.dtype().nullability(),
+        ))
+    }
 }
 
 impl ArrayVariantsImpl for ListArray {

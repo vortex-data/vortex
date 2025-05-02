@@ -9,19 +9,14 @@ mod sum;
 mod take;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantEncoding;
 use crate::arrays::constant::ConstantArray;
-use crate::compute::{ScalarAtFn, SearchSortedFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{SearchSortedFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for ConstantEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }
@@ -32,12 +27,6 @@ impl ComputeVTable for ConstantEncoding {
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&ConstantArray> for ConstantEncoding {
-    fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.scalar().clone())
     }
 }
 

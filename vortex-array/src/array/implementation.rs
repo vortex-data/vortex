@@ -5,6 +5,7 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::convert::IntoArray;
@@ -169,6 +170,15 @@ impl<A: ArrayImpl + 'static> Array for A {
         }
 
         Ok(sliced)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        if index >= self.len() {
+            vortex_bail!("Index out of bounds: {} >= {}", index, self.len());
+        }
+        let scalar = ArrayOperationsImpl::_scalar_at(self, index)?;
+        assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
     }
 
     /// Returns whether the item at `index` is valid.

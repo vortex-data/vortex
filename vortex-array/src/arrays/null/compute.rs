@@ -1,13 +1,12 @@
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxFn, MinMaxResult,
-    ScalarAtFn, TakeFn, UncompressedSizeFn,
+    TakeFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
@@ -15,10 +14,6 @@ use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl ComputeVTable for NullEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -47,12 +42,6 @@ impl MaskKernel for NullEncoding {
 }
 
 register_kernel!(MaskKernelAdapter(NullEncoding).lift());
-
-impl ScalarAtFn<&NullArray> for NullEncoding {
-    fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
-    }
-}
 
 impl TakeFn<&NullArray> for NullEncoding {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

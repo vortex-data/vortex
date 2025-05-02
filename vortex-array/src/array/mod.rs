@@ -22,6 +22,7 @@ pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arrays::{
     BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
@@ -72,6 +73,9 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
+
+    /// Fetch the scalar at the given index.
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -196,6 +200,10 @@ impl Array for Arc<dyn Array> {
 
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
         self.as_ref().slice(start, end)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        self.as_ref().scalar_at(index)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
