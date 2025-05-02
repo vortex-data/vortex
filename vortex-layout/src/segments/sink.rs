@@ -16,3 +16,13 @@ pub trait SegmentWriter: Send {
     //  to align the the first segment to 512, and then assume that coalescing captures the rest.
     async fn put(&mut self, buffer: Vec<ByteBuffer>) -> VortexResult<SegmentId>;
 }
+
+pub trait ConcurrentSegmentWriter: SegmentWriter {
+    /// Splits this writer into multiple writers that maintain a sequential ordering guarantee.
+    ///
+    /// Creates `splits` additional writers, returning them in a vector. The original writer
+    /// is modified to become the last writer in the sequence. This guarantees that segments
+    /// written to writers with lower indices will be processed before segments written to
+    /// writers with higher indices, with the original writer processing its segments last.
+    fn split_off(&mut self, splits: usize) -> VortexResult<Vec<Box<dyn ConcurrentSegmentWriter>>>;
+}

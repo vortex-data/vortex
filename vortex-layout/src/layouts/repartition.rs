@@ -7,7 +7,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 use crate::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 pub struct RepartitionStrategy {
@@ -63,7 +63,7 @@ impl RepartitionWriter {
         }
     }
 
-    async fn maybe_flush_chunk(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn maybe_flush_chunk(&mut self, segments: &mut dyn ConcurrentSegmentWriter) -> VortexResult<()> {
         if self.nbytes >= self.options.block_size_minimum {
             let nblocks = self.row_count / self.options.block_len_multiple;
 
@@ -114,7 +114,7 @@ impl RepartitionWriter {
 impl LayoutWriter for RepartitionWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -143,7 +143,7 @@ impl LayoutWriter for RepartitionWriter {
         Ok(())
     }
 
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, segment_writer: &mut dyn ConcurrentSegmentWriter) -> VortexResult<()> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .to_canonical()?
@@ -152,7 +152,7 @@ impl LayoutWriter for RepartitionWriter {
         self.writer.flush(segment_writer).await
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(&mut self, segment_writer: &mut dyn ConcurrentSegmentWriter) -> VortexResult<LayoutRef> {
         self.writer.finish(segment_writer).await
     }
 }

@@ -6,9 +6,9 @@ use std::task::{Context, Poll};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_io::VortexWrite;
-use vortex_layout::segments::{SegmentId, SegmentWriter};
+use vortex_layout::segments::{ConcurrentSegmentWriter, SegmentId, SegmentWriter};
 
 use super::ordered::{OrderedBuffers, Region};
 use crate::footer::SegmentSpec;
@@ -34,20 +34,38 @@ impl SegmentWriter for InOrderSegmentWriter {
     }
 }
 
-impl InOrderSegmentWriter {
-    pub fn split(self, splits: usize) -> VortexResult<Vec<Self>> {
-        Ok(self
+impl ConcurrentSegmentWriter for InOrderSegmentWriter {
+    fn split_off(&mut self, splits: usize) -> VortexResult<Vec<Box<dyn ConcurrentSegmentWriter>>> {
+        let unwritten_region = Region {
+            start: self.region.start + self.region_offset,
+            end: self.region.end,
+        };
+        let mut regions: Vec<_> = self
             .buffers
             .lock()
-            .split_region(&self.region, splits)?
-            .map(|region| Self {
-                buffers: self.buffers.clone(),
-                region,
-                region_offset: 0,
+            .split_region(&unwritten_region, splits + 1)?
+            .collect();
+        // assign last splits region to self
+        let last = regions
+            .pop()
+            .vortex_expect("there must be at least 1 split");
+        self.region = last;
+        self.region_offset = 0;
+
+        Ok(regions
+            .into_iter()
+            .map(|region| {
+                Box::new(Self {
+                    buffers: self.buffers.clone(),
+                    region,
+                    region_offset: 0,
+                }) as Box<dyn ConcurrentSegmentWriter>
             })
             .collect())
     }
+}
 
+impl InOrderSegmentWriter {
     async fn next_segment_id_once_active(&self) -> VortexResult<SegmentId> {
         WaitRegionFuture {
             buffers: self.buffers.clone(),
@@ -61,10 +79,12 @@ impl InOrderSegmentWriter {
         writer: &mut futures::io::Cursor<W>,
         segment_specs: &mut Vec<SegmentSpec>,
     ) -> VortexResult<()> {
-        let completed = {
-            let mut guard = self.buffers.lock();
-            guard.completed_buffers()?
-        };
+        let completed = self.buffers.lock().take_buffers()?;
+        // we are the only writer if here, reclaim the entire region
+        self.region = Region::default();
+        self.region_offset = 0;
+
+        // TODO(os): spawn everything below
         for buffers in completed.into_values() {
             // The API requires us to write these buffers contiguously. Therefore, we can only
             // respect the alignment of the first one.

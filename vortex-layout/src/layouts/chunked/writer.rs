@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
 use crate::{IntoLayout, LayoutRef, LayoutWriterExt};
@@ -61,7 +61,7 @@ impl ChunkedLayoutWriter {
 impl LayoutWriter for ChunkedLayoutWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -87,12 +87,18 @@ impl LayoutWriter for ChunkedLayoutWriter {
         Ok(())
     }
 
-    async fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        _segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         // We flush each chunk as we write it, so there's nothing to do here.
         Ok(())
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         // Call finish on each chunk's writer
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {

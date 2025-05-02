@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 use crate::{LayoutRef, LayoutWriter};
 
 /// A layout writer that computes aggregate statistics for all fields.
@@ -70,7 +70,7 @@ impl FileStatsLayoutWriter {
 impl LayoutWriter for FileStatsLayoutWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         if chunk.dtype().is_struct() {
@@ -84,11 +84,17 @@ impl LayoutWriter for FileStatsLayoutWriter {
         self.inner.push_chunk(segment_writer, chunk).await
     }
 
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         self.inner.flush(segment_writer).await
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         self.inner.finish(segment_writer).await
     }
 }

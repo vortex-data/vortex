@@ -8,7 +8,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 use crate::writer::LayoutWriter;
 use crate::{IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt};
 
@@ -58,7 +58,7 @@ impl FlatLayoutWriter {
 impl LayoutWriter for FlatLayoutWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -151,11 +151,17 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    async fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        _segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         Ok(())
     }
 
-    async fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        _segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))

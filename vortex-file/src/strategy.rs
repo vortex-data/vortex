@@ -19,21 +19,38 @@ use vortex_layout::layouts::repartition::{
     RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
 };
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
+use vortex_layout::scan::TaskExecutor;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
-use vortex_layout::segments::SegmentWriter;
+use vortex_layout::segments::ConcurrentSegmentWriter;
 use vortex_layout::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
 /// The default Vortex file layout strategy.
-#[derive(Clone, Debug, Default)]
-pub struct VortexLayoutStrategy;
+#[derive(Clone, Default)]
+pub struct VortexLayoutStrategy {
+    executor: Option<Arc<dyn TaskExecutor>>,
+}
+
+impl VortexLayoutStrategy {
+    #[cfg(feature = "tokio")]
+    pub fn with_tokio_executor(mut self, handle: tokio::runtime::Handle) -> Self {
+        self.executor = Some(Arc::new(handle));
+        self
+    }
+}
 
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return Ok(StructLayoutWriter::try_new_with_strategy(ctx, dtype, self)?.boxed());
+            return Ok(StructLayoutWriter::try_new_with_strategy(
+                ctx,
+                dtype,
+                self.executor.clone(),
+                self.clone(),
+            )?
+            .boxed());
         }
 
         // We buffer arrays per column, before flushing them into a chunked layout.
@@ -133,7 +150,7 @@ struct BtrBlocksCompressedWriter {
 impl LayoutWriter for BtrBlocksCompressedWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         let chunk = chunk.to_canonical()?.into_array();
@@ -201,11 +218,17 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
             .await
     }
 
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         self.child.flush(segment_writer).await
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         self.child.finish(segment_writer).await
     }
 }
@@ -239,7 +262,7 @@ struct BufferedWriter {
 impl LayoutWriter for BufferedWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         self.nbytes += chunk.nbytes() as u64;
@@ -259,14 +282,20 @@ impl LayoutWriter for BufferedWriter {
         Ok(())
     }
 
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         for chunk in self.chunks.drain(..) {
             self.child.push_chunk(segment_writer, chunk).await?;
         }
         self.child.flush(segment_writer).await
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         self.child.finish(segment_writer).await
     }
 }

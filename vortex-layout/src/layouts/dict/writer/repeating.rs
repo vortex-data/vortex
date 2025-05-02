@@ -9,7 +9,7 @@ use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 use crate::{IntoLayout, LayoutRef, LayoutWriter};
 
 pub struct DictLayoutWriter {
@@ -33,7 +33,10 @@ impl DictLayoutWriter {
 }
 
 impl DictLayoutWriter {
-    async fn flush_last(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush_last(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         if let Some((last_values, last_codes)) = self.writers.last_mut() {
             last_values.flush(segment_writer).await?;
             last_codes.flush(segment_writer).await?;
@@ -43,7 +46,7 @@ impl DictLayoutWriter {
 
     async fn new_dict(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         encoded_dtype: &DType,
     ) -> VortexResult<()> {
         self.flush_last(segment_writer).await?;
@@ -61,7 +64,7 @@ impl DictLayoutWriter {
 
     async fn push_encoded(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         match self.writers.last_mut() {
@@ -72,7 +75,7 @@ impl DictLayoutWriter {
 
     async fn push_values(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         values: ArrayRef,
     ) -> VortexResult<()> {
         match self.writers.last_mut() {
@@ -86,7 +89,7 @@ impl DictLayoutWriter {
 impl LayoutWriter for DictLayoutWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -128,7 +131,10 @@ impl LayoutWriter for DictLayoutWriter {
         Ok(())
     }
 
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<()> {
         if let Some(mut encoder) = self.encoder.take() {
             self.push_values(segment_writer, encoder.values()?).await?;
             self.flush_last(segment_writer).await?;
@@ -136,7 +142,10 @@ impl LayoutWriter for DictLayoutWriter {
         Ok(())
     }
 
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef> {
         if self.encoder.is_some() {
             vortex_bail!("flush not called before finish")
         }

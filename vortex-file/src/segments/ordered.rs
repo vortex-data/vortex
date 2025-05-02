@@ -28,10 +28,13 @@ impl Region {
         if step == 0 {
             vortex_bail!("region space exhausted!");
         }
-        Ok((self.start..self.end).step_by(step).map(move |start| Self {
-            start,
-            end: start + step,
-        }))
+        Ok((self.start..self.end)
+            .step_by(step)
+            .skip(1)
+            .map(move |start| Self {
+                start,
+                end: start + step,
+            }))
     }
 }
 
@@ -57,7 +60,7 @@ impl OrderedBuffers {
     pub fn finish_region(&mut self, region: &Region) {
         self.active_regions.remove(&region);
         if let Ok(first) = self.first_region() {
-            if let Some(waker) = self.wakers.get(&first) {
+            if let Some(waker) = self.wakers.remove(&first) {
                 waker.wake_by_ref();
             }
         }
@@ -93,13 +96,15 @@ impl OrderedBuffers {
             .ok_or_else(|| vortex_err!("no active regions"))
     }
 
-    pub fn completed_buffers(&mut self) -> VortexResult<BTreeMap<usize, Vec<ByteBuffer>>> {
-        let completed_until = self.first_region()?;
-        let mut completed = std::mem::take(&mut self.data);
-        // truncate completed to include only completed regions
-        let in_progress = completed.split_off(&completed_until.start);
-        self.data = in_progress;
-        Ok(completed)
+    pub fn take_buffers(&mut self) -> VortexResult<BTreeMap<usize, Vec<ByteBuffer>>> {
+        if self.active_regions.len() > 1 {
+            vortex_bail!("there are more than one active writers");
+        }
+        if !self.wakers.is_empty() {
+            vortex_bail!("there is an inflight write");
+        }
+        self.active_regions = [Region::default()].into();
+        Ok(std::mem::take(&mut self.data))
     }
 
     pub fn next_segment_id(&mut self) -> SegmentId {

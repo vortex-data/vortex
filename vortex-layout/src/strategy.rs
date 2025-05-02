@@ -7,9 +7,7 @@ use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::layouts::flat::writer::FlatLayoutWriter;
-use crate::layouts::struct_::writer::StructLayoutWriter;
-use crate::writer::{LayoutWriter, LayoutWriterExt};
+use crate::writer::LayoutWriter;
 
 /// A trait for creating new layout writers given a DType.
 pub trait LayoutStrategy: 'static + Send + Sync {

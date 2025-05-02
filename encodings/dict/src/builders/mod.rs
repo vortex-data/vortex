@@ -22,7 +22,7 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
     max_len: usize::MAX,
 };
 
-pub trait DictEncoder: Send {
+pub trait DictEncoder: Send + Sync {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
     fn values(&mut self) -> VortexResult<ArrayRef>;

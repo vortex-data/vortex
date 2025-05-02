@@ -73,7 +73,7 @@ struct DelegatingDictLayoutWriter {
 impl LayoutWriter for DelegatingDictLayoutWriter {
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn crate::segments::SegmentWriter,
+        segment_writer: &mut dyn crate::segments::ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -106,7 +106,7 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
 
     async fn flush(
         &mut self,
-        segment_writer: &mut dyn crate::segments::SegmentWriter,
+        segment_writer: &mut dyn crate::segments::ConcurrentSegmentWriter,
     ) -> VortexResult<()> {
         match self.writer.as_mut() {
             None => vortex_bail!("flush called before push_chunk"),
@@ -116,7 +116,7 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
 
     async fn finish(
         &mut self,
-        segment_writer: &mut dyn crate::segments::SegmentWriter,
+        segment_writer: &mut dyn crate::segments::ConcurrentSegmentWriter,
     ) -> VortexResult<LayoutRef> {
         match self.writer.as_mut() {
             None => vortex_bail!("finish called before push_chunk"),

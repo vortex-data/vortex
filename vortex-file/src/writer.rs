@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use std::sync::Arc;
 
 use futures::StreamExt;
 use vortex_array::ArrayContext;
@@ -9,7 +8,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::{IoDispatcher, VortexWrite};
 use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
-use vortex_layout::scan::TaskExecutor;
 use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
@@ -27,17 +25,15 @@ pub struct VortexWriteOptions {
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
     io_dispatcher: IoDispatcher,
-    executor: Option<Arc<dyn TaskExecutor>>,
 }
 
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy),
+            strategy: Box::new(VortexLayoutStrategy::default()),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             io_dispatcher: IoDispatcher::shared(),
-            executor: None,
             max_variable_length_statistics_size: 64,
         }
     }

@@ -3,7 +3,7 @@ use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
 use crate::LayoutRef;
-use crate::segments::SegmentWriter;
+use crate::segments::ConcurrentSegmentWriter;
 
 /// A strategy for writing chunks of an array into a layout.
 // [layout writer]
@@ -12,15 +12,19 @@ pub trait LayoutWriter: Send {
     /// Push a chunk into the layout writer.
     async fn push_chunk(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()>;
 
     /// Flush any buffered chunks.
-    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()>;
+    async fn flush(&mut self, segment_writer: &mut dyn ConcurrentSegmentWriter)
+    -> VortexResult<()>;
 
     /// Write any final data (e.g. stats) and return the finished [`LayoutRef`].
-    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef>;
+    async fn finish(
+        &mut self,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
+    ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]
 
@@ -37,7 +41,7 @@ pub trait LayoutWriterExt: LayoutWriter {
     /// Push a single chunk into the layout writer and return the finished [`LayoutRef`].
     async fn push_one(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<LayoutRef> {
         self.push_chunk(segment_writer, chunk)?;
@@ -49,7 +53,7 @@ pub trait LayoutWriterExt: LayoutWriter {
     /// [`LayoutRef`].
     async fn push_all<I: IntoIterator<Item = VortexResult<ArrayRef>>>(
         &mut self,
-        segment_writer: &mut dyn SegmentWriter,
+        segment_writer: &mut dyn ConcurrentSegmentWriter,
         iter: I,
     ) -> VortexResult<LayoutRef> {
         for chunk in iter.into_iter() {
