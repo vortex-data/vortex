@@ -13,7 +13,7 @@
 namespace duckdb {
 
 struct VortexWriteBindData : public TableFunctionData {
-	//! The column ids that are not null
+	//! True is the column is nullable
 	vector<unsigned char> column_nullable;
 
 	vector<LogicalType> sql_types;
