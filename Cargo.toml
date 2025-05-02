@@ -3,6 +3,7 @@ members = [
     "bench-vortex",
     "encodings/*",
     "fuzz",
+    "geo",
     "pyvortex",
     "vortex",
     "vortex-array",
@@ -71,7 +72,7 @@ bit-vec = "0.8.0"
 bytes = "1.10"
 bzip2 = "0.5.0"
 cfg-if = "1"
-chrono = "0.4.40"
+chrono = "0.4.41"
 clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
