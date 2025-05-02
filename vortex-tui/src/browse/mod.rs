@@ -57,100 +57,37 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     // We send the key-up to the list state if we're looking at
                     // the Layouts tab.
                     match app.current_tab {
-                        Tab::Layout => {
-                            app.layouts_list_state.select_previous();
-                        }
-                        Tab::Segments => {
-                            app.segment_grid_state.vertical_scroll =
-                                app.segment_grid_state.vertical_scroll.saturating_sub(10);
-                            app.segment_grid_state.vertical_scroll_state = app
-                                .segment_grid_state
-                                .vertical_scroll_state
-                                .position(app.segment_grid_state.vertical_scroll);
-                        }
+                        Tab::Layout => app.layouts_list_state.select_previous(),
+                        Tab::Segments => app.segment_grid_state.scroll_up(10),
                     }
                 }
                 (KeyCode::Down | KeyCode::Char('j'), _)
                 | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
-                    Tab::Layout => {
-                        app.layouts_list_state.select_next();
-                    }
-                    Tab::Segments => {
-                        app.segment_grid_state.vertical_scroll = app
-                            .segment_grid_state
-                            .vertical_scroll
-                            .saturating_add(10)
-                            .min(app.segment_grid_state.max_vertical_scroll);
-                        app.segment_grid_state.vertical_scroll_state = app
-                            .segment_grid_state
-                            .vertical_scroll_state
-                            .position(app.segment_grid_state.vertical_scroll);
-                    }
+                    Tab::Layout => app.layouts_list_state.select_next(),
+                    Tab::Segments => app.segment_grid_state.scroll_down(10),
                 },
                 (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                     match app.current_tab {
-                        Tab::Layout => {
-                            app.layouts_list_state.scroll_up_by(10);
-                        }
-                        Tab::Segments => {
-                            app.segment_grid_state.vertical_scroll =
-                                app.segment_grid_state.vertical_scroll.saturating_sub(100);
-                            app.segment_grid_state.vertical_scroll_state = app
-                                .segment_grid_state
-                                .vertical_scroll_state
-                                .position(app.segment_grid_state.vertical_scroll);
-                        }
+                        Tab::Layout => app.layouts_list_state.scroll_up_by(10),
+                        Tab::Segments => app.segment_grid_state.scroll_up(100),
                     }
                 }
                 (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                     match app.current_tab {
-                        Tab::Layout => {
-                            app.layouts_list_state.scroll_down_by(10);
-                        }
-                        Tab::Segments => {
-                            app.segment_grid_state.vertical_scroll = app
-                                .segment_grid_state
-                                .vertical_scroll
-                                .saturating_add(100)
-                                .min(app.segment_grid_state.max_vertical_scroll);
-                            app.segment_grid_state.vertical_scroll_state = app
-                                .segment_grid_state
-                                .vertical_scroll_state
-                                .position(app.segment_grid_state.vertical_scroll);
-                        }
+                        Tab::Layout => app.layouts_list_state.scroll_down_by(10),
+                        Tab::Segments => app.segment_grid_state.scroll_down(100),
                     }
                 }
                 (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
                     match app.current_tab {
-                        Tab::Layout => {
-                            app.layouts_list_state.select_first();
-                        }
-                        Tab::Segments => {
-                            app.segment_grid_state.horizontal_scroll =
-                                app.segment_grid_state.horizontal_scroll.saturating_sub(200);
-                            app.segment_grid_state.horizontal_scroll_state = app
-                                .segment_grid_state
-                                .horizontal_scroll_state
-                                .position(app.segment_grid_state.horizontal_scroll);
-                        }
+                        Tab::Layout => app.layouts_list_state.select_first(),
+                        Tab::Segments => app.segment_grid_state.scroll_left(200),
                     }
                 }
                 (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
                     match app.current_tab {
-                        Tab::Layout => {
-                            app.layouts_list_state.select_last();
-                        }
-                        Tab::Segments => {
-                            app.segment_grid_state.horizontal_scroll = app
-                                .segment_grid_state
-                                .horizontal_scroll
-                                .saturating_add(200)
-                                .min(app.segment_grid_state.max_horizontal_scroll);
-                            app.segment_grid_state.horizontal_scroll_state = app
-                                .segment_grid_state
-                                .horizontal_scroll_state
-                                .position(app.segment_grid_state.horizontal_scroll);
-                        }
+                        Tab::Layout => app.layouts_list_state.select_last(),
+                        Tab::Segments => app.segment_grid_state.scroll_right(200),
                     }
                 }
                 (KeyCode::Enter, _) => {
@@ -172,30 +109,13 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                             // Reset the list scroll state.
                             app.layouts_list_state = ListState::default().with_selected(Some(0));
                         }
-                        Tab::Segments => {
-                            app.segment_grid_state.horizontal_scroll =
-                                app.segment_grid_state.horizontal_scroll.saturating_sub(20);
-                            app.segment_grid_state.horizontal_scroll_state = app
-                                .segment_grid_state
-                                .horizontal_scroll_state
-                                .position(app.segment_grid_state.horizontal_scroll);
-                        }
+                        Tab::Segments => app.segment_grid_state.scroll_left(20),
                     }
                 }
                 (KeyCode::Right | KeyCode::Char('l'), _)
                 | (KeyCode::Char('b'), KeyModifiers::ALT) => match app.current_tab {
                     Tab::Layout => {}
-                    Tab::Segments => {
-                        app.segment_grid_state.horizontal_scroll = app
-                            .segment_grid_state
-                            .horizontal_scroll
-                            .saturating_add(20)
-                            .min(app.segment_grid_state.max_horizontal_scroll);
-                        app.segment_grid_state.horizontal_scroll_state = app
-                            .segment_grid_state
-                            .horizontal_scroll_state
-                            .position(app.segment_grid_state.horizontal_scroll);
-                    }
+                    Tab::Segments => app.segment_grid_state.scroll_right(20),
                 },
 
                 (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {

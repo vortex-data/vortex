@@ -34,6 +34,38 @@ pub struct SegmentGridState<'a> {
     pub max_vertical_scroll: usize,
 }
 
+impl SegmentGridState<'_> {
+    pub fn scroll_up(&mut self, amount: usize) {
+        self.vertical_scroll = self.vertical_scroll.saturating_sub(amount);
+        self.vertical_scroll_state = self.vertical_scroll_state.position(self.vertical_scroll);
+    }
+
+    pub fn scroll_down(&mut self, amount: usize) {
+        self.vertical_scroll = self
+            .vertical_scroll
+            .saturating_add(amount)
+            .min(self.max_vertical_scroll);
+        self.vertical_scroll_state = self.vertical_scroll_state.position(self.vertical_scroll);
+    }
+
+    pub fn scroll_left(&mut self, amount: usize) {
+        self.horizontal_scroll = self.horizontal_scroll.saturating_sub(amount);
+        self.horizontal_scroll_state = self
+            .horizontal_scroll_state
+            .position(self.horizontal_scroll);
+    }
+
+    pub fn scroll_right(&mut self, amount: usize) {
+        self.horizontal_scroll = self
+            .horizontal_scroll
+            .saturating_add(amount)
+            .min(self.max_horizontal_scroll);
+        self.horizontal_scroll_state = self
+            .horizontal_scroll_state
+            .position(self.horizontal_scroll);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NodeContents<'a> {
     title: Arc<str>,
