@@ -141,12 +141,8 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     format
                 };
-                let opts = DuckdbTpcOptions::default()
-                    .with_scale_factor(1)
-                    .with_base_dir("tpch".to_data_path())
-                    .with_dataset(TpcDataset::TpcH)
-                    .with_duckdb_path(duckdb_resolved_path.clone())
-                    .with_format(format);
+                let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
+                    .with_duckdb_path(duckdb_resolved_path.clone());
                 generate_tpc(opts)?;
             }
 

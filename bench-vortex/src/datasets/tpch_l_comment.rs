@@ -18,12 +18,8 @@ impl Dataset for TPCHLCommentChunked {
 
     async fn to_vortex_array(&self) -> ArrayRef {
         let duckdb_resolved_path = get_executable_path(&None);
-        let opts = DuckdbTpcOptions::default()
-            .with_scale_factor(1)
-            .with_base_dir("tpch".to_data_path())
-            .with_dataset(TpcDataset::TpcH)
-            .with_duckdb_path(duckdb_resolved_path.clone())
-            .with_format(Format::Csv);
+        let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv)
+            .with_duckdb_path(duckdb_resolved_path.clone());
         let data_dir = generate_tpc(opts).expect("gen tpch");
 
         let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;

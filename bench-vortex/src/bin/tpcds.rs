@@ -102,12 +102,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     for format in formats {
-        let opts = DuckdbTpcOptions::default()
-            .with_scale_factor(1)
-            .with_base_dir("tpcds".to_data_path())
-            .with_dataset(TpcDataset::TpcDs)
-            .with_duckdb_path(duckdb_resolved_path.clone())
-            .with_format(format);
+        let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format)
+            .with_duckdb_path(duckdb_resolved_path.clone());
         generate_tpc(opts).expect("gen tpch-ds");
     }
 

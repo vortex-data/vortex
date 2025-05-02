@@ -5,8 +5,8 @@ use std::time::Duration;
 use anyhow::Result;
 use xshell::Shell;
 
+use crate::Format;
 use crate::ddb::DuckDBExecutor;
-use crate::{Format, IdempotentPath};
 
 pub enum TpcDataset {
     TpcH,
@@ -40,13 +40,13 @@ impl DuckdbTpcOptions {
     }
 }
 
-impl Default for DuckdbTpcOptions {
-    fn default() -> Self {
+impl DuckdbTpcOptions {
+    pub fn new(base_dir: PathBuf, dataset: TpcDataset, format: Format) -> Self {
         Self {
             scale_factor: 1,
-            base_dir: "tpch".to_data_path(),
-            dataset: TpcDataset::TpcH,
-            format: Format::Csv,
+            base_dir,
+            dataset,
+            format,
             duckdb_path: None,
         }
     }
