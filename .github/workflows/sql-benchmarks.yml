@@ -82,6 +82,15 @@ jobs:
         run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
+      - name: Where am I
+        shell: bash
+        run: |
+          pwd
+          ls -al
+          ls -al ..
+          ls -al vortex
+          ls -al ../../
+
       - name: Generate data
         shell: bash
         run: |
