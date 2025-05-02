@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsSortedFn, LikeFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
+    FillNullFn, IsSortedFn, MinMaxFn, NaNCountFn, OptimizeFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, TakeFn, TakeFromFn, UncompressedSizeFn,
 };
 
@@ -14,13 +14,6 @@ pub trait ComputeVTable {
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        None
-    }
-
-    /// Perform a SQL LIKE operation on two arrays.
-    ///
-    /// See: [`LikeFn`].
-    fn like_fn(&self) -> Option<&dyn LikeFn<&dyn Array>> {
         None
     }
 
