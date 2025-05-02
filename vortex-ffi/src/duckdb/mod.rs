@@ -142,7 +142,7 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     let chunk = DataChunkHandle::new_unowned(chunk);
 
     let nullable = (0..chunk.num_columns())
-        .map(|i| *nullable.offset(i as isize) != 0)
+        .map(|i| *nullable.add(i) != 0)
         .collect_vec();
 
     let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
