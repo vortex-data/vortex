@@ -118,7 +118,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     })
 }
 
-/// Requires a vortex array, a duckdb data chunk and a nullable array (equal to |chunk.columns).
+/// Requires a vortex array, a duckdb data chunk and a nullable array (equal to |chunk.columns|).
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     array: *mut vx_array,
