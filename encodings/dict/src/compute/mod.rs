@@ -7,8 +7,8 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FillNullFn, FilterKernel, FilterKernelAdapter, IsSortedKernel, MinMaxFn, ScalarAtFn, TakeFn,
-    filter, scalar_at, take,
+    FillNullFn, FilterKernel, FilterKernelAdapter, MinMaxFn, ScalarAtFn, TakeFn, filter, scalar_at,
+    take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
