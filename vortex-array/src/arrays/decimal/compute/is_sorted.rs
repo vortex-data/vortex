@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -40,12 +41,12 @@ where
             })
         }
         Mask::Values(mask_values) => {
-            let buf = array.buffer::<T>();
-
+            let values = array.buffer::<T>();
             let iter = mask_values
                 .boolean_buffer()
-                .set_indices()
-                .map(|idx| buf[idx]);
+                .iter()
+                .zip_eq(values)
+                .map(|(is_valid, v)| is_valid.then_some(v));
 
             Ok(if strict {
                 IsSortedIteratorExt::is_strict_sorted(iter)
@@ -58,6 +59,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::types::Decimal128Type;
+    use arrow_cast::parse::parse_decimal;
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
 
@@ -67,10 +70,14 @@ mod tests {
 
     #[test]
     fn test_is_sorted() {
-        let sorted = buffer![100i128, 200i128, 200i128];
-        let unsorted = buffer![200i128, 100i128, 200i128];
-
         let dtype = DecimalDType::new(19, 2);
+        let i100 =
+            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
+        let i200 =
+            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
+
+        let sorted = buffer![i100, i200, i200];
+        let unsorted = buffer![i200, i100, i200];
 
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
@@ -81,8 +88,16 @@ mod tests {
 
     #[test]
     fn test_is_strict_sorted() {
-        let strict_sorted = buffer![100i128, 200i128, 300i128];
-        let sorted = buffer![100i128, 200i128, 200i128];
+        let dtype = DecimalDType::new(19, 2);
+        let i100 =
+            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
+        let i200 =
+            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
+        let i300 =
+            parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale()).unwrap();
+
+        let strict_sorted = buffer![i100, i200, i300];
+        let sorted = buffer![i100, i200, i200];
 
         let dtype = DecimalDType::new(19, 2);
 

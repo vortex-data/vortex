@@ -168,9 +168,9 @@ impl<E: Encoding + IsSortedKernel> Kernel for IsSortedKernelAdapter<E> {
         };
 
         let is_sorted = if strict {
-            E::is_sorted(&self.0, array)?
-        } else {
             E::is_strict_sorted(&self.0, array)?
+        } else {
+            E::is_sorted(&self.0, array)?
         };
 
         Ok(Some(Scalar::from(is_sorted).into()))

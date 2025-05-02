@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -67,12 +68,11 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
             })
         }
         Mask::Values(mask_values) => {
-            let slice = array.as_slice::<T>();
-
             let iter = mask_values
                 .boolean_buffer()
-                .set_indices()
-                .map(|idx| ComparablePrimitive(slice[idx]));
+                .iter()
+                .zip_eq(array.as_slice::<T>())
+                .map(|(is_valid, value)| is_valid.then_some(ComparablePrimitive::from(value)));
 
             Ok(if strict {
                 iter.is_strict_sorted()
@@ -94,9 +94,9 @@ mod tests {
     #[rstest]
     #[case(PrimitiveArray::from_iter([1, 2, 3, 4, 5]), true)]
     #[case(PrimitiveArray::from_iter([1, 1, 2, 3, 4, 5]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2), None]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1), None]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), true)]
+    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2)]), true)]
+    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
+    #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(is_sorted(&array).vortex_unwrap(), expected);
     }
