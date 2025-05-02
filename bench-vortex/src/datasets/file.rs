@@ -128,7 +128,6 @@ pub async fn register_vortex_files(
     Ok(())
 }
 
-#[allow(dead_code)]
 async fn ensure_parquet_file_exists(
     object_store: &dyn ObjectStore,
     parquet_url: &Url,

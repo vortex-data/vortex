@@ -81,7 +81,7 @@ pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf
 }
 
 /// Finds the path to the DuckDB executable
-pub fn build_executable_path() {
+pub fn build_vortex_duckdb() {
     // Try to find the 'vortex' top-level directory. This is preferred over logic along
     // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
     let mut repo_root = None;

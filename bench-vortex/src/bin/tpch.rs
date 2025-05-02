@@ -129,7 +129,7 @@ fn main() -> anyhow::Result<()> {
 
     let duckdb_resolved_path = ddb::get_executable_path(&args.duckdb_path);
     if args.duckdb_path.is_none() && !args.skip_rebuild {
-        ddb::build_executable_path();
+        ddb::build_vortex_duckdb();
     }
 
     let url = match args.use_remote_data_dir {

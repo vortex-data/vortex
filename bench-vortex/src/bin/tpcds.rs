@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
 
     let duckdb_resolved_path = ddb::get_executable_path(&args.duckdb_path);
     if args.duckdb_path.is_none() && !args.skip_rebuild {
-        ddb::build_executable_path();
+        ddb::build_vortex_duckdb();
     }
 
     for format in formats {
@@ -204,9 +204,7 @@ async fn bench_main(
                 }
             }
             Engine::DataFusion => {
-                if false {
-                    todo!("add schemas for tpcds")
-                }
+                // TODO: add schemas for tpcds.
                 let ctx = load_datasets(&url, format, BenchmarkDataset::TpcDS, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
