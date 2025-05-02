@@ -309,7 +309,7 @@ mod tests {
             .unwrap()
         );
         assert!(
-            is_sorted(&PrimitiveArray::new(
+            !is_sorted(&PrimitiveArray::new(
                 buffer!(0, 1, 2, 3),
                 Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array())
             ))
