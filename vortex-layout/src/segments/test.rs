@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::sink::SegmentWriter;
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
@@ -20,8 +21,9 @@ impl SegmentSource for TestSegments {
     }
 }
 
+#[async_trait]
 impl SegmentWriter for TestSegments {
-    fn put(&mut self, data: &[ByteBuffer]) -> SegmentId {
+    async fn put(&mut self, data: Vec<ByteBuffer>) -> VortexResult<SegmentId> {
         let id = u32::try_from(self.segments.len())
             .vortex_expect("Cannot store more than u32::MAX segments");
 
@@ -32,6 +34,6 @@ impl SegmentWriter for TestSegments {
         }
         self.segments.push(buffer.freeze());
 
-        id.into()
+        Ok(id.into())
     }
 }

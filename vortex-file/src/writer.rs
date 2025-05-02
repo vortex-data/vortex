@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -12,7 +13,7 @@ use vortex_layout::scan::TaskExecutor;
 use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
-use crate::segments::writer::BufferedSegmentWriter;
+use crate::segments::writer::InOrderSegmentWriter;
 use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
@@ -88,30 +89,24 @@ impl VortexWriteOptions {
 
         // Our buffered message writer accumulates messages for each batch so we can flush them
         // into the file.
-        let mut segment_writer = BufferedSegmentWriter::default();
+        let mut segment_writer = InOrderSegmentWriter::default();
         let mut segment_specs = vec![];
 
         // Then write the stream via the root layout
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            layout_writer.push_chunk(&mut segment_writer, chunk)?;
+            layout_writer.push_chunk(&mut segment_writer, chunk).await?;
             // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
-            segment_writer
-                .flush_async(&mut write, &mut segment_specs)
-                .await?;
+            segment_writer.flush(&mut write, &mut segment_specs).await?;
         }
 
         // Flush the final layout messages into the file
-        layout_writer.flush(&mut segment_writer)?;
-        segment_writer
-            .flush_async(&mut write, &mut segment_specs)
-            .await?;
+        layout_writer.flush(&mut segment_writer).await?;
+        segment_writer.flush(&mut write, &mut segment_specs).await?;
 
         // Finish the layouts and flush the finishing messages into the file
-        let layout = layout_writer.finish(&mut segment_writer)?;
-        segment_writer
-            .flush_async(&mut write, &mut segment_specs)
-            .await?;
+        let layout = layout_writer.finish(&mut segment_writer).await?;
+        segment_writer.flush(&mut write, &mut segment_specs).await?;
 
         // We write our footer components in order of least likely to be needed to most likely.
         // DType is the least likely to be needed, as many readers may provide this from an

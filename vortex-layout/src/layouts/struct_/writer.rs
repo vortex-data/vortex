@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
@@ -58,8 +59,9 @@ impl StructLayoutWriter {
     }
 }
 
+#[async_trait]
 impl LayoutWriter for StructLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -83,24 +85,24 @@ impl LayoutWriter for StructLayoutWriter {
             // TODO(joe): handle struct validity
             for column_chunk in struct_array.fields()[i].to_array_iterator() {
                 let column_chunk = column_chunk?;
-                self.column_strategies[i].push_chunk(segment_writer, column_chunk)?;
+                self.column_strategies[i].push_chunk(segment_writer, column_chunk).await?;
             }
         }
 
         Ok(())
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         for writer in self.column_strategies.iter_mut() {
-            writer.flush(segment_writer)?;
+            writer.flush(segment_writer).await?;
         }
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
-            column_layouts.push(writer.finish(segment_writer)?);
+            column_layouts.push(writer.finish(segment_writer).await?);
         }
         Ok(StructLayout::new(self.row_count, self.dtype.clone(), column_layouts).into_layout())
     }

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -65,8 +66,9 @@ impl FileStatsLayoutWriter {
     }
 }
 
+#[async_trait]
 impl LayoutWriter for FileStatsLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -79,14 +81,14 @@ impl LayoutWriter for FileStatsLayoutWriter {
         } else {
             self.stats_accumulators[0].push_chunk(&chunk)?;
         }
-        self.inner.push_chunk(segment_writer, chunk)
+        self.inner.push_chunk(segment_writer, chunk).await
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        self.inner.flush(segment_writer)
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.inner.flush(segment_writer).await
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.inner.finish(segment_writer)
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+        self.inner.finish(segment_writer).await
     }
 }

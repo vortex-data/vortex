@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use arcref::ArcRef;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
@@ -56,8 +57,9 @@ impl ChunkedLayoutWriter {
     }
 }
 
+#[async_trait]
 impl LayoutWriter for ChunkedLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -78,24 +80,24 @@ impl LayoutWriter for ChunkedLayoutWriter {
             .options
             .chunk_strategy
             .new_writer(&self.ctx, chunk.dtype())?;
-        chunk_writer.push_chunk(segment_writer, chunk)?;
-        chunk_writer.flush(segment_writer)?;
+        chunk_writer.push_chunk(segment_writer, chunk).await?;
+        chunk_writer.flush(segment_writer).await?;
         self.chunks.push(chunk_writer);
 
         Ok(())
     }
 
-    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         // We flush each chunk as we write it, so there's nothing to do here.
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         // Call finish on each chunk's writer
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {
             // FIXME(ngates): we should try calling finish after each chunk.
-            children.push(writer.finish(segment_writer)?);
+            children.push(writer.finish(segment_writer).await?);
         }
 
         // If there's only one child, there's no point even writing a stats table since

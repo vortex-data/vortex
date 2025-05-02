@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -128,8 +129,9 @@ struct BtrBlocksCompressedWriter {
     previous_chunk: Option<PreviousCompression>,
 }
 
+#[async_trait]
 impl LayoutWriter for BtrBlocksCompressedWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -194,15 +196,17 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
 
         compressed_chunk.statistics().inherit(chunk.statistics());
 
-        self.child.push_chunk(segment_writer, compressed_chunk)
+        self.child
+            .push_chunk(segment_writer, compressed_chunk)
+            .await
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        self.child.flush(segment_writer)
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+        self.child.flush(segment_writer).await
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.child.finish(segment_writer)
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+        self.child.finish(segment_writer).await
     }
 }
 
@@ -231,8 +235,9 @@ struct BufferedWriter {
     child: Box<dyn LayoutWriter>,
 }
 
+#[async_trait]
 impl LayoutWriter for BufferedWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -245,7 +250,7 @@ impl LayoutWriter for BufferedWriter {
             while self.nbytes > self.buffer_size {
                 if let Some(chunk) = self.chunks.pop_front() {
                     self.nbytes -= chunk.nbytes() as u64;
-                    self.child.push_chunk(segment_writer, chunk)?;
+                    self.child.push_chunk(segment_writer, chunk).await?;
                 } else {
                     break;
                 }
@@ -254,15 +259,15 @@ impl LayoutWriter for BufferedWriter {
         Ok(())
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         for chunk in self.chunks.drain(..) {
-            self.child.push_chunk(segment_writer, chunk)?;
+            self.child.push_chunk(segment_writer, chunk).await?;
         }
-        self.child.flush(segment_writer)
+        self.child.flush(segment_writer).await
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.child.finish(segment_writer)
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+        self.child.finish(segment_writer).await
     }
 }
 

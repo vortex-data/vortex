@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use async_trait::async_trait;
 use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
@@ -62,7 +63,7 @@ impl RepartitionWriter {
         }
     }
 
-    fn maybe_flush_chunk(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn maybe_flush_chunk(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
         if self.nbytes >= self.options.block_size_minimum {
             let nblocks = self.row_count / self.options.block_len_multiple;
 
@@ -102,15 +103,16 @@ impl RepartitionWriter {
                 .to_canonical()?
                 .into_array();
 
-            self.writer.push_chunk(segments, chunk)?;
+            self.writer.push_chunk(segments, chunk).await?;
         }
 
         Ok(())
     }
 }
 
+#[async_trait]
 impl LayoutWriter for RepartitionWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -135,22 +137,22 @@ impl LayoutWriter for RepartitionWriter {
             self.chunks.push_back(c);
             offset = end;
 
-            self.maybe_flush_chunk(segment_writer)?;
+            self.maybe_flush_chunk(segment_writer).await?;
         }
 
         Ok(())
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .to_canonical()?
                 .into_array();
-        self.writer.push_chunk(segment_writer, chunk)?;
-        self.writer.flush(segment_writer)
+        self.writer.push_chunk(segment_writer, chunk).await?;
+        self.writer.flush(segment_writer).await
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.writer.finish(segment_writer)
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+        self.writer.finish(segment_writer).await
     }
 }

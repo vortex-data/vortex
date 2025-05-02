@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dict::builders::DictEncoder;
@@ -32,20 +33,20 @@ impl DictLayoutWriter {
 }
 
 impl DictLayoutWriter {
-    fn flush_last(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush_last(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         if let Some((last_values, last_codes)) = self.writers.last_mut() {
-            last_values.flush(segment_writer)?;
-            last_codes.flush(segment_writer)?;
+            last_values.flush(segment_writer).await?;
+            last_codes.flush(segment_writer).await?;
         }
         Ok(())
     }
 
-    fn new_dict(
+    async fn new_dict(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         encoded_dtype: &DType,
     ) -> VortexResult<()> {
-        self.flush_last(segment_writer)?;
+        self.flush_last(segment_writer).await?;
 
         let codes_dtype = if self.dtype.is_nullable() {
             encoded_dtype.as_nullable()
@@ -58,31 +59,32 @@ impl DictLayoutWriter {
         Ok(())
     }
 
-    fn push_encoded(
+    async fn push_encoded(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         match self.writers.last_mut() {
-            Some((_, codes)) => codes.push_chunk(segment_writer, chunk),
+            Some((_, codes)) => codes.push_chunk(segment_writer, chunk).await,
             None => vortex_bail!("no active codes writer"),
         }
     }
 
-    fn push_values(
+    async fn push_values(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         values: ArrayRef,
     ) -> VortexResult<()> {
         match self.writers.last_mut() {
-            Some((values_writer, _)) => values_writer.push_chunk(segment_writer, values),
+            Some((values_writer, _)) => values_writer.push_chunk(segment_writer, values).await,
             None => vortex_bail!("no active values writer"),
         }
     }
 }
 
+#[async_trait]
 impl LayoutWriter for DictLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -99,25 +101,25 @@ impl LayoutWriter for DictLayoutWriter {
             match self.encoder.take() {
                 None => match start_encoding(&self.strategy.options.constraints, &remaining)? {
                     EncodingState::Continue((encoder, encoded)) => {
-                        self.new_dict(segment_writer, encoded.dtype())?;
-                        self.push_encoded(segment_writer, encoded)?;
+                        self.new_dict(segment_writer, encoded.dtype()).await?;
+                        self.push_encoded(segment_writer, encoded).await?;
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
-                        self.new_dict(segment_writer, encoded.dtype())?;
-                        self.push_encoded(segment_writer, encoded)?;
-                        self.push_values(segment_writer, values)?;
+                        self.new_dict(segment_writer, encoded.dtype()).await?;
+                        self.push_encoded(segment_writer, encoded).await?;
+                        self.push_values(segment_writer, values).await?;
                         to_be_encoded = Some(unencoded);
                     }
                 },
                 Some(encoder) => match encode_chunk(encoder, &remaining)? {
                     EncodingState::Continue((encoder, encoded)) => {
-                        self.push_encoded(segment_writer, encoded)?;
+                        self.push_encoded(segment_writer, encoded).await?;
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
-                        self.push_encoded(segment_writer, encoded)?;
-                        self.push_values(segment_writer, values)?;
+                        self.push_encoded(segment_writer, encoded).await?;
+                        self.push_values(segment_writer, values).await?;
                         to_be_encoded = Some(unencoded);
                     }
                 },
@@ -126,15 +128,15 @@ impl LayoutWriter for DictLayoutWriter {
         Ok(())
     }
 
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         if let Some(mut encoder) = self.encoder.take() {
-            self.push_values(segment_writer, encoder.values()?)?;
-            self.flush_last(segment_writer)?;
+            self.push_values(segment_writer, encoder.values()?).await?;
+            self.flush_last(segment_writer).await?;
         }
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         if self.encoder.is_some() {
             vortex_bail!("flush not called before finish")
         }

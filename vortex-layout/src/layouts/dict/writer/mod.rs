@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use arcref::ArcRef;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -68,8 +69,9 @@ struct DelegatingDictLayoutWriter {
     writer: Option<Box<dyn LayoutWriter>>,
 }
 
+#[async_trait]
 impl LayoutWriter for DelegatingDictLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
         chunk: ArrayRef,
@@ -82,7 +84,7 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
             self.dtype
         );
         match self.writer.as_mut() {
-            Some(writer) => writer.push_chunk(segment_writer, chunk),
+            Some(writer) => writer.push_chunk(segment_writer, chunk).await,
             None => {
                 let compressed = BtrBlocksCompressor.compress(&chunk)?;
                 let mut writer = if !compressed.is_encoding(DictEncoding.id()) {
@@ -95,30 +97,30 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
                     )
                     .boxed()
                 };
-                writer.push_chunk(segment_writer, chunk)?;
+                writer.push_chunk(segment_writer, chunk).await?;
                 self.writer = Some(writer);
                 Ok(())
             }
         }
     }
 
-    fn flush(
+    async fn flush(
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
     ) -> VortexResult<()> {
         match self.writer.as_mut() {
             None => vortex_bail!("flush called before push_chunk"),
-            Some(writer) => writer.flush(segment_writer),
+            Some(writer) => writer.flush(segment_writer).await,
         }
     }
 
-    fn finish(
+    async fn finish(
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
     ) -> VortexResult<LayoutRef> {
         match self.writer.as_mut() {
             None => vortex_bail!("finish called before push_chunk"),
-            Some(writer) => writer.finish(segment_writer),
+            Some(writer) => writer.finish(segment_writer).await,
         }
     }
 }

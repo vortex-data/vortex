@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext, ArrayRef};
@@ -53,8 +54,9 @@ impl FlatLayoutWriter {
     }
 }
 
+#[async_trait]
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(
+    async fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
@@ -141,7 +143,7 @@ impl LayoutWriter for FlatLayoutWriter {
                 include_padding: self.options.include_padding,
             },
         )?;
-        let segment_id = segment_writer.put(&buffers);
+        let segment_id = segment_writer.put(buffers).await?;
 
         self.layout =
             Some(FlatLayout::new(row_count, self.dtype.clone(), segment_id).into_layout());
@@ -149,11 +151,11 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
+    async fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
         Ok(())
     }
 
-    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+    async fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))
@@ -192,6 +194,7 @@ mod tests {
             let layout =
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
                     .push_one(&mut segments, array.to_array())
+                    .await
                     .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
