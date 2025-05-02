@@ -25,6 +25,7 @@ use crate::{
 
 mod accessor;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 

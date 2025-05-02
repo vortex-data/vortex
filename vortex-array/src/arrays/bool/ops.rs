@@ -1,19 +1,17 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::SliceFn;
-use crate::{Array, ArrayRef};
+use crate::arrays::BoolArray;
+use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
-impl SliceFn<&BoolArray> for BoolEncoding {
-    fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl ArrayOperationsImpl for BoolArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(BoolArray::new(
-            array.boolean_buffer().slice(start, stop - start),
-            array.validity().slice(start, stop)?,
+            self.boolean_buffer().slice(start, stop - start),
+            self.validity().slice(start, stop)?,
         )
         .into_array())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,12 +10,12 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use super::BinaryView;
+use crate::Array;
 use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::compute::{IsSortedFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{IsSortedFn, MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
@@ -27,10 +27,6 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -46,20 +42,6 @@ impl ComputeVTable for VarBinViewEncoding {
 impl ScalarAtFn<&VarBinViewArray> for VarBinViewEncoding {
     fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
         Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
-    }
-}
-
-impl SliceFn<&VarBinViewArray> for VarBinViewEncoding {
-    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let views = array.views().slice(start..stop);
-
-        Ok(VarBinViewArray::try_new(
-            views,
-            array.buffers().to_vec(),
-            array.dtype().clone(),
-            array.validity().slice(start, stop)?,
-        )?
-        .into_array())
     }
 }
 

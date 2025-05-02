@@ -1,28 +1,27 @@
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::{SliceFn, slice};
-use crate::{Array, ArrayRef};
+use crate::compute::slice;
+use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
-impl SliceFn<&ChunkedArray> for ChunkedEncoding {
-    fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
-        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
+impl ArrayOperationsImpl for ChunkedArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let (offset_chunk, offset_in_first_chunk) = self.find_chunk_idx(start);
+        let (length_chunk, length_in_last_chunk) = self.find_chunk_idx(stop);
 
-        if array.is_empty() && (start != 0 || stop != 0) {
+        if self.is_empty() && (start != 0 || stop != 0) {
             vortex_bail!(ComputeError: "Empty chunked array can't be sliced from {start} to {stop}");
-        } else if array.is_empty() {
-            return Ok(ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array());
+        } else if self.is_empty() {
+            return Ok(ChunkedArray::new_unchecked(vec![], self.dtype().clone()).into_array());
         }
 
         if length_chunk == offset_chunk {
-            let chunk = array.chunk(offset_chunk)?;
+            let chunk = self.chunk(offset_chunk)?;
             return slice(chunk, offset_in_first_chunk, length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
-            .map(|i| array.chunk(i).cloned())
+            .map(|i| self.chunk(i).cloned())
             .collect::<VortexResult<Vec<_>>>()?;
         if let Some(c) = chunks.first_mut() {
             *c = slice(c, offset_in_first_chunk, c.len())?;
@@ -34,7 +33,7 @@ impl SliceFn<&ChunkedArray> for ChunkedEncoding {
             *c = slice(c, 0, length_in_last_chunk)?;
         }
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, self.dtype().clone()).into_array())
     }
 }
 

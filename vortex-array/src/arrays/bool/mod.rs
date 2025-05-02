@@ -1,5 +1,6 @@
 mod array;
 pub mod compute;
+mod ops;
 mod patch;
 mod serde;
 

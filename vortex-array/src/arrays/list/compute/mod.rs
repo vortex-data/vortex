@@ -9,17 +9,13 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
-    ScalarAtFn, SliceFn, UncompressedSizeFn, scalar_at, slice, uncompressed_size,
+    ScalarAtFn, UncompressedSizeFn, scalar_at, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, register_kernel};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -46,17 +42,6 @@ impl ScalarAtFn<&ListArray> for ListEncoding {
             scalars,
             array.dtype().nullability(),
         ))
-    }
-}
-
-impl SliceFn<&ListArray> for ListEncoding {
-    fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ListArray::try_new(
-            array.elements().clone(),
-            slice(array.offsets(), start, stop + 1)?,
-            array.validity().slice(start, stop)?,
-        )?
-        .into_array())
     }
 }
 

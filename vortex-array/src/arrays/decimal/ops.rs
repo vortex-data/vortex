@@ -2,20 +2,19 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
-use crate::compute::SliceFn;
+use crate::arrays::{DecimalArray, NativeDecimalType};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, match_each_decimal_value_type};
+use crate::{Array, ArrayOperationsImpl, ArrayRef, match_each_decimal_value_type};
 
-impl SliceFn<&DecimalArray> for DecimalEncoding {
-    fn slice(&self, array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(array.values_type, |$S| {
+impl ArrayOperationsImpl for DecimalArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        match_each_decimal_value_type!(self.values_type, |$S| {
             slice_typed(
-                array.buffer::<$S>(),
+                self.buffer::<$S>(),
                 start,
                 stop,
-                array.decimal_dtype(),
-                array.validity.clone(),
+                self.decimal_dtype(),
+                self.validity.clone(),
             )
         })
     }

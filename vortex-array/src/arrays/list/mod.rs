@@ -21,8 +21,8 @@ use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -155,6 +155,17 @@ impl ArrayImpl for ListArray {
 impl ArrayStatisticsImpl for ListArray {
     fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
+    }
+}
+
+impl ArrayOperationsImpl for ListArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ListArray::try_new(
+            self.elements().clone(),
+            slice(self.offsets(), start, stop + 1)?,
+            self.validity().slice(start, stop)?,
+        )?
+        .into_array())
     }
 }
 
