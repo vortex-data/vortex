@@ -161,7 +161,6 @@ fn compute_funcs(encodings: &[ArrayRef]) {
         "fill_null",
         "scalar_at",
         "search_sorted",
-        "slice",
         "take",
     ]);
     let mut colours = Vec::new();
@@ -173,7 +172,6 @@ fn compute_funcs(encodings: &[ArrayRef]) {
             encoding.fill_null_fn().is_some(),
             encoding.scalar_at_fn().is_some(),
             encoding.search_sorted_fn().is_some(),
-            encoding.slice_fn().is_some(),
             encoding.take_fn().is_some(),
         ]
         .into_iter()

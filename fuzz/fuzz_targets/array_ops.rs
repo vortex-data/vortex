@@ -8,7 +8,7 @@ use vortex_array::arrays::{
     VarBinViewEncoding,
 };
 use vortex_array::compute::{
-    SearchResult, SearchSortedSide, compare, filter, scalar_at, search_sorted, slice, take,
+    SearchResult, SearchSortedSide, compare, filter, scalar_at, search_sorted, take,
 };
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef};
