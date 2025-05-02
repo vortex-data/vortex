@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ratatui::widgets::ListState;
-use vortex::dtype::{DType, PType};
+use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex::stats::stats_from_bitset_bytes;
@@ -99,8 +99,7 @@ impl LayoutCursor {
                             layout.metadata().as_ref().map(|b| b.as_ref()),
                         )
                         .expect("dict metadata");
-                        DType::from(PType::from(metadata.codes_ptype()))
-                            .with_nullability(dtype.nullability())
+                        DType::from(metadata.codes_ptype()).with_nullability(dtype.nullability())
                     }
                     _ => vortex_panic!("can't have more than 2 children for dict layout"),
                 }
