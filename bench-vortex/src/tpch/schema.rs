@@ -7,16 +7,16 @@ use arrow_schema::{DataType, Field, Schema};
 
 pub static NATION: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
-        Field::new("n_nationkey", DataType::Int64, false),
+        Field::new("n_nationkey", DataType::Int32, false),
         Field::new("n_name", DataType::Utf8View, false),
-        Field::new("n_regionkey", DataType::Int64, false),
+        Field::new("n_regionkey", DataType::Int32, false),
         Field::new("n_comment", DataType::Utf8View, true),
     ])
 });
 
 pub static REGION: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
-        Field::new("r_regionkey", DataType::Int64, false),
+        Field::new("r_regionkey", DataType::Int32, false),
         Field::new("r_name", DataType::Utf8View, false),
         Field::new("r_comment", DataType::Utf8View, true),
     ])
@@ -63,7 +63,7 @@ pub static CUSTOMER: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("c_custkey", DataType::Int64, false),
         Field::new("c_name", DataType::Utf8View, false),
         Field::new("c_address", DataType::Utf8View, false),
-        Field::new("c_nationkey", DataType::Int64, false),
+        Field::new("c_nationkey", DataType::Int32, false),
         Field::new("c_phone", DataType::Utf8View, false),
         Field::new("c_acctbal", DataType::Decimal128(15, 2), false),
         Field::new("c_mktsegment", DataType::Utf8View, false),

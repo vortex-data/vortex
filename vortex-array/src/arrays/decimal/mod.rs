@@ -118,10 +118,14 @@ impl DecimalArray {
 
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
         if self.values_type != T::VALUES_TYPE {
+            // TODO(joe): remove me
             vortex_panic!(
-                "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
+                "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}, buffer len bytes {:?}, len {:?}, val len {:?}",
                 T::VALUES_TYPE,
-                self.values_type
+                self.values_type,
+                self.byte_buffer().len(),
+                self.len(),
+                self.validity.maybe_len(),
             );
         }
         Buffer::<T>::from_byte_buffer(self.values.clone())
