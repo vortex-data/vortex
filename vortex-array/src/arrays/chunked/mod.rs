@@ -22,6 +22,7 @@ use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Enco
 
 mod canonical;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 

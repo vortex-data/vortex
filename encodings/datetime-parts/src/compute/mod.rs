@@ -4,9 +4,9 @@ mod filter;
 mod is_constant;
 mod take;
 
-use vortex_array::compute::{ScalarAtFn, SliceFn, TakeFn, scalar_at, slice};
+use vortex_array::Array;
+use vortex_array::compute::{ScalarAtFn, TakeFn, scalar_at};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, PType};
@@ -21,32 +21,11 @@ impl ComputeVTable for DateTimePartsEncoding {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
     // TODO(joe): implement `between_fn` this is used at lot.
-}
-
-impl SliceFn<&DateTimePartsArray> for DateTimePartsEncoding {
-    fn slice(
-        &self,
-        array: &DateTimePartsArray,
-        start: usize,
-        stop: usize,
-    ) -> VortexResult<ArrayRef> {
-        Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            slice(array.days(), start, stop)?,
-            slice(array.seconds(), start, stop)?,
-            slice(array.subseconds(), start, stop)?,
-        )?
-        .into_array())
-    }
 }
 
 impl ScalarAtFn<&DateTimePartsArray> for DateTimePartsEncoding {

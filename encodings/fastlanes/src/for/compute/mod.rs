@@ -4,7 +4,7 @@ mod is_constant;
 use num_traits::WrappingSub;
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, ScalarAtFn, SearchResult, SearchSortedFn, SearchSortedSide,
-    SliceFn, TakeFn, filter, scalar_at, search_sorted, slice, take,
+    TakeFn, filter, scalar_at, search_sorted, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -22,10 +22,6 @@ impl ComputeVTable for FoREncoding {
     }
 
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -74,16 +70,6 @@ impl ScalarAtFn<&FoRArray> for FoREncoding {
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
-    }
-}
-
-impl SliceFn<&FoRArray> for FoREncoding {
-    fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        FoRArray::try_new(
-            slice(array.encoded(), start, stop)?,
-            array.reference_scalar().clone(),
-        )
-        .map(|a| a.into_array())
     }
 }
 

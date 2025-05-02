@@ -10,7 +10,7 @@ use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray};
-use crate::compute::{fill_null, filter, scalar_at, slice, take};
+use crate::compute::{fill_null, filter, scalar_at, take};
 use crate::patches::Patches;
 use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
@@ -129,7 +129,7 @@ impl Validity {
 
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Self> {
         match self {
-            Self::Array(a) => Ok(Self::Array(slice(a, start, stop)?)),
+            Self::Array(a) => Ok(Self::Array(a.slice(start, stop)?)),
             _ => Ok(self.clone()),
         }
     }

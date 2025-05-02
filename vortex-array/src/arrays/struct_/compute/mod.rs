@@ -10,18 +10,14 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, UncompressedSizeFn, filter,
-    is_constant_opts, scalar_at, slice, take, uncompressed_size,
+    MinMaxFn, MinMaxResult, ScalarAtFn, TakeFn, UncompressedSizeFn, filter, is_constant_opts,
+    scalar_at, take, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -62,23 +58,6 @@ impl TakeFn<&StructArray> for StructEncoding {
             array.struct_dtype().clone(),
             indices.len(),
             array.validity().take(indices)?,
-        )
-        .map(|a| a.into_array())
-    }
-}
-
-impl SliceFn<&StructArray> for StructEncoding {
-    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let fields = array
-            .fields()
-            .iter()
-            .map(|field| slice(field, start, stop))
-            .try_collect()?;
-        StructArray::try_new_with_dtype(
-            fields,
-            array.struct_dtype().clone(),
-            stop - start,
-            array.validity().slice(start, stop)?,
         )
         .map(|a| a.into_array())
     }

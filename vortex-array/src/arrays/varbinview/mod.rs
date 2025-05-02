@@ -25,6 +25,7 @@ use crate::{
 
 mod accessor;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 
@@ -575,7 +576,7 @@ mod test {
     use crate::Canonical;
     use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
 
     #[test]
     pub fn varbin_view() {
@@ -594,12 +595,10 @@ mod test {
 
     #[test]
     pub fn slice_array() {
-        let binary_arr = slice(
-            &VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]),
-            1,
-            2,
-        )
-        .unwrap();
+        let binary_arr =
+            VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
+                .slice(1, 2)
+                .unwrap();
         assert_eq!(
             scalar_at(&binary_arr, 0).unwrap(),
             Scalar::from("hello world this is a long string")

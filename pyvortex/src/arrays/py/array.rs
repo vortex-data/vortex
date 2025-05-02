@@ -10,8 +10,8 @@ use vortex::mask::Mask;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata,
+    ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
 use crate::arrays::py::PyEncodingClass;
@@ -45,13 +45,19 @@ impl ArrayImpl for PyArrayInstance {
         self.cls.clone()
     }
 
-    fn _with_children(&self, _children: &[vortex::ArrayRef]) -> VortexResult<Self> {
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
         todo!()
     }
 }
 
 impl ArrayCanonicalImpl for PyArrayInstance {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+}
+
+impl ArrayOperationsImpl for PyArrayInstance {
+    fn _slice(&self, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
         todo!()
     }
 }

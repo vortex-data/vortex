@@ -5,8 +5,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -84,6 +84,16 @@ impl ArrayImpl for FoRArray {
 impl ArrayCanonicalImpl for FoRArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         decompress(self).map(Canonical::Primitive)
+    }
+}
+
+impl ArrayOperationsImpl for FoRArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        FoRArray::try_new(
+            self.encoded().slice(start, stop)?,
+            self.reference_scalar().clone(),
+        )
+        .map(|a| a.into_array())
     }
 }
 

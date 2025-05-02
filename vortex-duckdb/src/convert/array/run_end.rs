@@ -99,7 +99,6 @@ mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use itertools::Itertools;
     use vortex_array::arrays::StructArray;
-    use vortex_array::compute::slice;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_runend::RunEndArray;
@@ -114,7 +113,7 @@ mod tests {
         )
         .unwrap();
 
-        let arr = slice(arr.to_array().as_ref(), 1, 5).unwrap();
+        let arr = arr.to_array().slice(1, 5).unwrap();
 
         let struct_ = StructArray::from_fields(&[("a", arr)]).unwrap();
 
@@ -138,7 +137,7 @@ mod tests {
         )
         .unwrap();
 
-        let arr = slice(arr.to_array().as_ref(), 900, 2948).unwrap();
+        let arr = arr.slice(900, 2948).unwrap();
 
         let struct_ = StructArray::from_fields(&[("a", arr)]).unwrap();
 

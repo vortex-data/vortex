@@ -7,9 +7,9 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayOperationsImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
 };
 
 mod compute;
@@ -87,6 +87,12 @@ impl ArrayStatisticsImpl for NullArray {
 impl ArrayCanonicalImpl for NullArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Null(self.clone()))
+    }
+}
+
+impl ArrayOperationsImpl for NullArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(stop - start).into_array())
     }
 }
 

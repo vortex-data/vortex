@@ -9,9 +9,10 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding,
 };
+
 mod compute;
 mod serde;
 
@@ -83,6 +84,15 @@ impl ArrayStatisticsImpl for ExtensionArray {
 impl ArrayCanonicalImpl for ExtensionArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Extension(self.clone()))
+    }
+}
+
+impl ArrayOperationsImpl for ExtensionArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(
+            ExtensionArray::new(self.ext_dtype().clone(), self.storage().slice(start, stop)?)
+                .into_array(),
+        )
     }
 }
 

@@ -10,7 +10,7 @@ use vortex_scalar::{ListScalar, NumericOperator};
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
-use crate::compute::{cast, numeric, slice};
+use crate::compute::{cast, numeric};
 use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -131,7 +131,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let offsets = numeric(
             &cast(
-                &slice(list.offsets(), 1, list.offsets().len())?,
+                &list.offsets().slice(1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(cursor, list.len()),
@@ -141,7 +141,9 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         if !list.is_empty() {
             let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
-            let sliced_values = slice(list.elements(), 0, last_used_index.as_() - cursor_usize)?;
+            let sliced_values = list
+                .elements()
+                .slice(0, last_used_index.as_() - cursor_usize)?;
             self.value_builder.ensure_capacity(sliced_values.len());
             self.value_builder.extend_from_array(&sliced_values)?;
         }

@@ -111,7 +111,6 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::slice;
     use vortex_array::{Array, ArrayExt, ToCanonical};
     use vortex_mask::Mask;
 
@@ -157,7 +156,7 @@ mod tests {
 
     #[test]
     fn filter_sliced_run_end() {
-        let arr = slice(&ree_array(), 2, 7).unwrap();
+        let arr = ree_array().slice(2, 7).unwrap();
         let filtered = filter_run_end(
             arr.as_::<RunEndArray>(),
             &Mask::from_iter([true, false, false, true, true]),

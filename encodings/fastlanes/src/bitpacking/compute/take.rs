@@ -132,7 +132,7 @@ mod test {
     use rand::distr::Uniform;
     use rand::{Rng, rng};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::compute::{scalar_at, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, buffer};
@@ -172,7 +172,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
-        let sliced = slice(&bitpacked, 128, 2050).unwrap();
+        let sliced = bitpacked.slice(128, 2050).unwrap();
 
         let primitive_result = take(&sliced, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();

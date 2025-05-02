@@ -1,16 +1,15 @@
-use vortex_array::Array;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::compute::SliceFn;
-use crate::{ArrayRef, SparseArray, SparseEncoding};
+use crate::SparseArray;
 
-impl SliceFn<&SparseArray> for SparseEncoding {
-    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let new_patches = array.patches().slice(start, stop)?;
+impl ArrayOperationsImpl for SparseArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let new_patches = self.patches().slice(start, stop)?;
 
         let Some(new_patches) = new_patches else {
-            return Ok(ConstantArray::new(array.fill_scalar().clone(), stop - start).into_array());
+            return Ok(ConstantArray::new(self.fill_scalar().clone(), stop - start).into_array());
         };
 
         // If the number of values in the sparse array matches the array length, then all
@@ -20,7 +19,7 @@ impl SliceFn<&SparseArray> for SparseEncoding {
         }
 
         Ok(
-            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
+            SparseArray::try_new_from_patches(new_patches, self.fill_scalar().clone())?
                 .into_array(),
         )
     }
@@ -28,7 +27,7 @@ impl SliceFn<&SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::slice;
+
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
@@ -40,7 +39,7 @@ mod tests {
         let indices = buffer![0u8].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
-        let sliced = slice(&sparse, 0, 1000).unwrap();
+        let sliced = sparse.slice(0, 1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 

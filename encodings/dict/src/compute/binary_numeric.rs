@@ -37,10 +37,9 @@ register_kernel!(NumericKernelAdapter(DictEncoding).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
-    use vortex_array::compute::slice;
+    use vortex_array::{Array, ArrayRef};
 
     use crate::builders::dict_encode;
 
@@ -54,7 +53,7 @@ mod tests {
             Some(5),
         ]);
         let dict = dict_encode(&reference).unwrap();
-        slice(&dict, 1, 4).unwrap()
+        dict.slice(1, 4).unwrap()
     }
 
     #[test]

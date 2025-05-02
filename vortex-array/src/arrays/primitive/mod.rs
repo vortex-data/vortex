@@ -22,6 +22,7 @@ use crate::{
 
 mod compute;
 mod native_value;
+mod ops;
 mod patch;
 mod serde;
 mod top_value;

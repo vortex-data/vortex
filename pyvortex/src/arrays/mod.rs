@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{Operator, compare, scalar_at, slice, take};
+use vortex::compute::{Operator, compare, scalar_at, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
 use vortex::nbytes::NBytes;
@@ -551,7 +551,7 @@ impl PyArray {
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        let inner = slice(&slf, start, end)?;
+        let inner = slf.slice(start, end)?;
         Ok(PyArrayRef::from(inner))
     }
 

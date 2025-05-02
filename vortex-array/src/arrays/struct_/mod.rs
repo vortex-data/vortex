@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
@@ -11,8 +12,8 @@ use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding,
 };
 
 mod compute;
@@ -222,6 +223,23 @@ impl StructArrayTrait for StructArray {
 impl ArrayCanonicalImpl for StructArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Struct(self.clone()))
+    }
+}
+
+impl ArrayOperationsImpl for StructArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let fields = self
+            .fields()
+            .iter()
+            .map(|field| field.slice(start, stop))
+            .try_collect()?;
+        StructArray::try_new_with_dtype(
+            fields,
+            self.struct_dtype().clone(),
+            stop - start,
+            self.validity().slice(start, stop)?,
+        )
+        .map(|a| a.into_array())
     }
 }
 

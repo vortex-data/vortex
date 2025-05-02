@@ -19,6 +19,7 @@ use crate::delta::serde::DeltaMetadata;
 
 mod compress;
 mod compute;
+mod ops;
 mod serde;
 
 #[derive(Clone, Debug)]

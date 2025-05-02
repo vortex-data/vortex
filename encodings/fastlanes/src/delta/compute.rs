@@ -1,8 +1,6 @@
-use std::cmp::min;
-
-use vortex_array::compute::{ScalarAtFn, SliceFn, scalar_at, slice};
+use vortex_array::compute::{ScalarAtFn, scalar_at};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -12,63 +10,18 @@ impl ComputeVTable for DeltaEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
 }
 
 impl ScalarAtFn<&DeltaArray> for DeltaEncoding {
     fn scalar_at(&self, array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = slice(array, index, index + 1)?.to_primitive()?;
+        let decompressed = array.slice(index, index + 1)?.to_primitive()?;
         scalar_at(&decompressed, 0)
-    }
-}
-
-impl SliceFn<&DeltaArray> for DeltaEncoding {
-    fn slice(&self, array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let physical_start = start + array.offset();
-        let physical_stop = stop + array.offset();
-
-        let start_chunk = physical_start / 1024;
-        let stop_chunk = physical_stop.div_ceil(1024);
-
-        let bases = array.bases();
-        let deltas = array.deltas();
-        let validity = array.validity();
-        let lanes = array.lanes();
-
-        let new_bases = slice(
-            bases,
-            min(start_chunk * lanes, array.bases_len()),
-            min(stop_chunk * lanes, array.bases_len()),
-        )?;
-
-        let new_deltas = slice(
-            deltas,
-            min(start_chunk * 1024, array.deltas_len()),
-            min(stop_chunk * 1024, array.deltas_len()),
-        )?;
-
-        let new_validity = validity.slice(start, stop)?;
-
-        let logical_len = stop - start;
-
-        let arr = DeltaArray::try_new(
-            new_bases,
-            new_deltas,
-            new_validity,
-            physical_start % 1024,
-            logical_len,
-        )?;
-
-        Ok(arr.into_array())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::{scalar_at, slice};
+    use vortex_array::compute::scalar_at;
     use vortex_error::VortexError;
 
     use super::*;
@@ -121,231 +74,5 @@ mod test {
             scalar_at(&delta, 2001),
             Err(VortexError::OutOfBounds(2001, 0, 2000, _))
         ));
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_first_chunk_of_two() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 10, 250)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            (10u32..250).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_second_chunk_of_two() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 1024 + 10, 1024 + 250)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_span_two_chunks_chunk_of_two() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 1000, 1048)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            (1000u32..1048).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_span_two_chunks_chunk_of_four() {
-        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 2040, 2050)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            (2040u32..2050).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_whole() {
-        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 0, 4096)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            (0u32..4096).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_non_jagged_array_empty() {
-        let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 0, 0)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-
-        assert_eq!(
-            slice(&delta, 4096, 4096)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-
-        assert_eq!(
-            slice(&delta, 1024, 1024)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-    }
-
-    #[test]
-    fn test_slice_jagged_array_second_chunk_of_two() {
-        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 1024 + 10, 1024 + 250)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_slice_jagged_array_empty() {
-        let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
-
-        assert_eq!(
-            slice(&delta, 0, 0)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-
-        assert_eq!(
-            slice(&delta, 4000, 4000)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-
-        assert_eq!(
-            slice(&delta, 1024, 1024)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_of_non_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        let sliced = slice(&delta, 10, 1013).unwrap();
-        let sliced_again = slice(&sliced, 0, 2).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            vec![10, 11]
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_of_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
-
-        let sliced = slice(&delta, 10, 1013).unwrap();
-        let sliced_again = slice(&sliced, 0, 2).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            vec![10, 11]
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_second_chunk_of_non_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        let sliced = slice(&delta, 1034, 1050).unwrap();
-        let sliced_again = slice(&sliced, 0, 2).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_second_chunk_of_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
-
-        let sliced = slice(&delta, 1034, 1050).unwrap();
-        let sliced_again = slice(&sliced, 0, 2).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
-
-        let sliced = slice(&delta, 1010, 1050).unwrap();
-        let sliced_again = slice(&sliced, 5, 20).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
-    }
-
-    #[test]
-    fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
-        let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
-
-        let sliced = slice(&delta, 1010, 1050).unwrap();
-        let sliced_again = slice(&sliced, 5, 20).unwrap();
-
-        assert_eq!(
-            sliced_again.to_primitive().unwrap().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
     }
 }

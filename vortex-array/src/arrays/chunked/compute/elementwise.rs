@@ -2,7 +2,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::Array;
 use crate::arrays::ChunkedArray;
-use crate::compute::{ComputeFn, InvocationArgs, Output, slice};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 
 impl ChunkedArray {
     /// Invoke an element-wise compute function over a chunked array.
@@ -34,7 +34,7 @@ impl ChunkedArray {
             inputs.push(chunk.clone());
             for i in 1..args.inputs.len() {
                 let input = args.inputs[i].array().vortex_expect("checked already");
-                let sliced = slice(input, idx, idx + chunk.len())?;
+                let sliced = input.slice(idx, idx + chunk.len())?;
                 inputs.push(sliced);
             }
 

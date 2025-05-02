@@ -25,6 +25,7 @@ mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 
@@ -318,7 +319,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
 
     #[fixture]
@@ -348,7 +349,7 @@ mod test {
 
     #[rstest]
     pub fn slice_array(binary_array: ArrayRef) {
-        let binary_arr = slice(&binary_array, 1, 2).unwrap();
+        let binary_arr = binary_array.slice(1, 2).unwrap();
         assert_eq!(
             scalar_at(&binary_arr, 0).unwrap(),
             "hello world this is a long string".into()

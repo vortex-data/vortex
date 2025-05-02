@@ -7,7 +7,7 @@ use jni::sys::{
 };
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{scalar_at, slice};
+use vortex::compute::scalar_at;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::nbytes::NBytes;
@@ -215,7 +215,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = slice(array_ref.inner.as_ref(), start as usize, end as usize)?;
+        let sliced_array = array_ref
+            .inner
+            .as_ref()
+            .slice(start as usize, end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }

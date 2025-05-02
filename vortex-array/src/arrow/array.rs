@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use arrow_array::{Array, ArrayRef as ArrowArrayRef};
+use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
@@ -10,8 +10,9 @@ use crate::arcref::ArcRef;
 use crate::stats::StatsSetRef;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId,
 };
 
 /// A Vortex array that wraps an in-memory Arrow array.
@@ -54,6 +55,17 @@ impl ArrowArray {
 impl ArrayCanonicalImpl for ArrowArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         todo!()
+    }
+}
+
+impl ArrayOperationsImpl for ArrowArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let inner = self.inner.slice(start, stop - start);
+        let new_array = Self {
+            inner,
+            dtype: self.dtype.clone(),
+        };
+        Ok(new_array.into_array())
     }
 }
 

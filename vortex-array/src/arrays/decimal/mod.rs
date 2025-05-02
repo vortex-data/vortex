@@ -1,4 +1,5 @@
 mod compute;
+mod ops;
 mod serde;
 
 use vortex_buffer::{Buffer, ByteBuffer};

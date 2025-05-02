@@ -7,8 +7,8 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -105,6 +105,16 @@ impl ArrayCanonicalImpl for ByteBoolArray {
         let boolean_buffer = BooleanBuffer::from(self.as_slice());
         let validity = self.validity().clone();
         Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+    }
+}
+
+impl ArrayOperationsImpl for ByteBoolArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ByteBoolArray::new(
+            self.buffer().slice(start..stop),
+            self.validity().slice(start, stop)?,
+        )
+        .into_array())
     }
 }
 
