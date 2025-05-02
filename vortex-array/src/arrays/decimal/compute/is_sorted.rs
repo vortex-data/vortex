@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
-use crate::compute::{IsSortedFn, IsSortedIteratorExt};
-use crate::{Array, match_each_decimal_value_type};
+use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::{Array, match_each_decimal_value_type, register_kernel};
 
-impl IsSortedFn<&DecimalArray> for DecimalEncoding {
+impl IsSortedKernel for DecimalEncoding {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
         is_decimal_sorted(array, false)
     }
@@ -14,6 +14,8 @@ impl IsSortedFn<&DecimalArray> for DecimalEncoding {
         is_decimal_sorted(array, true)
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(DecimalEncoding).lift());
 
 fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
     match_each_decimal_value_type!(array.values_type, |$S| {

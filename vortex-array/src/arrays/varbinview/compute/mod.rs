@@ -13,14 +13,10 @@ use crate::Array;
 use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbin::varbin_scalar;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::compute::{IsSortedFn, MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }

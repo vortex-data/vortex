@@ -8,19 +8,15 @@ use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedFn, MinMaxFn, MinMaxResult, ScalarAtFn, SumKernel, SumKernelAdapter, TakeFn,
-    UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
-    sum, take, uncompressed_size,
+    IsSortedKernel, IsSortedKernelAdapter, MinMaxFn, MinMaxResult, ScalarAtFn, SumKernel,
+    SumKernelAdapter, TakeFn, UncompressedSizeFn, filter, is_constant_opts, is_sorted,
+    is_strict_sorted, min_max, scalar_at, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl ComputeVTable for ExtensionEncoding {
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -104,7 +100,7 @@ impl UncompressedSizeFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl IsSortedFn<&ExtensionArray> for ExtensionEncoding {
+impl IsSortedKernel for ExtensionEncoding {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
         is_sorted(array.storage())
     }
@@ -113,3 +109,5 @@ impl IsSortedFn<&ExtensionArray> for ExtensionEncoding {
         is_strict_sorted(array.storage())
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(ExtensionEncoding).lift());

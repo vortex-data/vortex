@@ -8,8 +8,9 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedFn, MinMaxFn, MinMaxResult,
-    ScalarAtFn, UncompressedSizeFn, scalar_at, uncompressed_size,
+    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
+    IsSortedKernelAdapter, MinMaxFn, MinMaxResult, ScalarAtFn, UncompressedSizeFn, scalar_at,
+    uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, register_kernel};
@@ -24,10 +25,6 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -72,7 +69,8 @@ impl UncompressedSizeFn<&ListArray> for ListEncoding {
     }
 }
 
-impl IsSortedFn<&ListArray> for ListEncoding {
+// TODO(ngates): why do we report the wrong thing?
+impl IsSortedKernel for ListEncoding {
     fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
         Ok(false)
     }
@@ -81,6 +79,8 @@ impl IsSortedFn<&ListArray> for ListEncoding {
         Ok(false)
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(ListEncoding).lift());
 
 #[cfg(test)]
 mod test {

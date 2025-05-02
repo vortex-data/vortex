@@ -2,12 +2,12 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{IsSortedFn, IsSortedIteratorExt};
+use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
+use crate::{Array, register_kernel};
 
-impl IsSortedFn<&PrimitiveArray> for PrimitiveEncoding {
+impl IsSortedKernel for PrimitiveEncoding {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
         match_each_native_ptype!(array.ptype(), |$P| {
             compute_is_sorted::<$P>(array, false)
@@ -20,6 +20,8 @@ impl IsSortedFn<&PrimitiveArray> for PrimitiveEncoding {
         })
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(PrimitiveEncoding).lift());
 
 #[derive(Copy, Clone)]
 struct ComparablePrimitive<T: NativePType>(T);
