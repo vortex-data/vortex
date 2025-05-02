@@ -118,7 +118,7 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
     })
 }
 
-/// Requires a vortex array, a duckdb data chunk and a nullable array (equal to |chunk.columns|).
+/// Requires a vortex array, a duckdb data chunk and a nullable array (equal to len(chunk.columns)).
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     array: *mut vx_array,
@@ -142,7 +142,7 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     let chunk = DataChunkHandle::new_unowned(chunk);
 
     let nullable = (0..chunk.num_columns())
-        .map(|i| *nullable.offset(i as isize) != 0)
+        .map(|i| *nullable.add(i) != 0)
         .collect_vec();
 
     let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
