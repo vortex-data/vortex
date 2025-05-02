@@ -1,5 +1,5 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{MaskKernel, MaskKernelAdapter, ScalarAtFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
@@ -12,10 +12,6 @@ use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -38,16 +34,6 @@ impl ScalarAtFn<&ByteBoolArray> for ByteBoolEncoding {
             array.buffer()[index] == 1,
             array.dtype().nullability(),
         ))
-    }
-}
-
-impl SliceFn<&ByteBoolArray> for ByteBoolEncoding {
-    fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(
-            array.buffer().slice(start..stop),
-            array.validity().slice(start, stop)?,
-        )
-        .into_array())
     }
 }
 

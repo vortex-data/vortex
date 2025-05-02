@@ -1,9 +1,11 @@
+use vortex_array::compute::slice;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical,
+    try_from_array_ref,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -74,6 +76,12 @@ impl ArrayImpl for ZigZagArray {
 impl ArrayCanonicalImpl for ZigZagArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         zigzag_decode(self.encoded().to_primitive()?).map(Canonical::Primitive)
+    }
+}
+
+impl ArrayOperationsImpl for ZigZagArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ZigZagArray::try_new(slice(self.encoded(), start, stop)?)?.into_array())
     }
 }
 

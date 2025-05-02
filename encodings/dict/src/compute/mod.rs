@@ -9,7 +9,7 @@ mod optimize;
 
 use vortex_array::compute::{
     FillNullFn, FilterKernel, FilterKernelAdapter, IsSortedFn, LikeFn, MinMaxFn, OptimizeFn,
-    ScalarAtFn, SliceFn, TakeFn, filter, scalar_at, slice, take,
+    ScalarAtFn, TakeFn, filter, scalar_at, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -37,10 +37,6 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
@@ -75,14 +71,6 @@ impl FilterKernel for DictEncoding {
 }
 
 register_kernel!(FilterKernelAdapter(DictEncoding).lift());
-
-impl SliceFn<&DictArray> for DictEncoding {
-    // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        DictArray::try_new(slice(array.codes(), start, stop)?, array.values().clone())
-            .map(|a| a.into_array())
-    }
-}
 
 #[cfg(test)]
 mod test {

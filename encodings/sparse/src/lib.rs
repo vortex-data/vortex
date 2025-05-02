@@ -20,6 +20,7 @@ use crate::serde::SparseMetadata;
 
 mod canonical;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 

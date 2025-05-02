@@ -7,6 +7,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 
 mod array;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 

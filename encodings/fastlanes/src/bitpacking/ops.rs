@@ -1,36 +1,34 @@
 use std::cmp::max;
 
-use vortex_array::compute::SliceFn;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::BitPackedArray;
 
-impl SliceFn<&BitPackedArray> for BitPackedEncoding {
-    fn slice(&self, array: &BitPackedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let offset_start = start + array.offset() as usize;
-        let offset_stop = stop + array.offset() as usize;
+impl ArrayOperationsImpl for BitPackedArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let offset_start = start + self.offset() as usize;
+        let offset_stop = stop + self.offset() as usize;
         let offset = offset_start % 1024;
         let block_start = max(0, offset_start - offset);
         let block_stop = offset_stop.div_ceil(1024) * 1024;
 
-        let encoded_start = (block_start / 8) * array.bit_width() as usize;
-        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+        let encoded_start = (block_start / 8) * self.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * self.bit_width() as usize;
 
         // slice the buffer using the encoded start/stop values
         // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
         unsafe {
             BitPackedArray::new_unchecked_with_offset(
-                array.packed().slice(encoded_start..encoded_stop),
-                array.ptype(),
-                array.validity().slice(start, stop)?,
-                array
-                    .patches()
+                self.packed().slice(encoded_start..encoded_stop),
+                self.ptype(),
+                self.validity().slice(start, stop)?,
+                self.patches()
                     .map(|p| p.slice(start, stop))
                     .transpose()?
                     .flatten(),
-                array.bit_width(),
+                self.bit_width(),
                 stop - start,
                 offset as u16,
             )
