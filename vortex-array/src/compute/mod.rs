@@ -20,7 +20,7 @@ pub use invert::*;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-pub use like::{LikeFn, LikeOptions, like};
+pub use like::*;
 pub use list::*;
 pub use mask::*;
 pub use min_max::{MinMaxFn, MinMaxResult, min_max};
