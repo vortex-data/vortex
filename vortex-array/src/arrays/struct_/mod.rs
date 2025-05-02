@@ -7,7 +7,6 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::compute::slice;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
@@ -232,7 +231,7 @@ impl ArrayOperationsImpl for StructArray {
         let fields = self
             .fields()
             .iter()
-            .map(|field| slice(field, start, stop))
+            .map(|field| field.slice(start, stop))
             .try_collect()?;
         StructArray::try_new_with_dtype(
             fields,

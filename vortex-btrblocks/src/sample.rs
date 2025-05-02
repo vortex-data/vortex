@@ -1,7 +1,6 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexExpect;
 
@@ -21,7 +20,7 @@ pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u32, sample_count:
     ChunkedArray::try_new(
         slices
             .into_iter()
-            .map(|(start, end)| slice(&input, start, end).vortex_expect("slice"))
+            .map(|(start, end)| input.slice(start, end).vortex_expect("slice"))
             .collect(),
         input.dtype().clone(),
     )

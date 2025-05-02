@@ -39,7 +39,6 @@ mod tests {
 
     use crate::Array;
     use crate::arrays::DecimalArray;
-    use crate::compute::slice;
     use crate::validity::Validity;
 
     #[test]
@@ -51,7 +50,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = slice(&array, 1, 3).unwrap();
+        let sliced = array.slice(1, 3).unwrap();
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_any().downcast_ref::<DecimalArray>().unwrap();
@@ -67,7 +66,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = slice(&array, 1, 3).unwrap();
+        let sliced = array.slice(1, 3).unwrap();
         assert_eq!(sliced.len(), 2);
     }
 }

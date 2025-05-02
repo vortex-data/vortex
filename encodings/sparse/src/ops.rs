@@ -27,7 +27,7 @@ impl ArrayOperationsImpl for SparseArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::slice;
+
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
@@ -39,7 +39,7 @@ mod tests {
         let indices = buffer![0u8].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
-        let sliced = slice(&sparse, 0, 1000).unwrap();
+        let sliced = sparse.slice(0, 1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 

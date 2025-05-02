@@ -1,5 +1,4 @@
 use vortex_array::arrays::VarBinArray;
-use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayExt, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -13,10 +12,11 @@ impl ArrayOperationsImpl for FSSTArray {
             self.dtype().clone(),
             self.symbols().clone(),
             self.symbol_lengths().clone(),
-            slice(self.codes(), start, stop)?
+            self.codes()
+                .slice(start, stop)?
                 .as_::<VarBinArray>()
                 .clone(),
-            slice(self.uncompressed_lengths(), start, stop)?,
+            self.uncompressed_lengths().slice(start, stop)?,
         )?
         .into_array())
     }

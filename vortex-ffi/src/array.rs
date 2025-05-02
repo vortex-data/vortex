@@ -5,7 +5,7 @@
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
-use vortex::compute::{scalar_at, slice};
+use vortex::compute::scalar_at;
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
@@ -78,7 +78,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 ) -> *const vx_array {
     let array = array.as_ref().vortex_expect("array null");
     try_or(error, ptr::null_mut(), || {
-        let sliced = slice(array.inner.as_ref(), start as usize, stop as usize)?;
+        let sliced = array.inner.as_ref().slice(start as usize, stop as usize)?;
         Ok(Box::into_raw(Box::new(vx_array { inner: sliced })))
     })
 }

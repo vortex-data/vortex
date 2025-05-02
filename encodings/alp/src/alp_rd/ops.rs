@@ -1,4 +1,3 @@
-use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -14,9 +13,9 @@ impl ArrayOperationsImpl for ALPRDArray {
 
         Ok(ALPRDArray::try_new(
             self.dtype().clone(),
-            slice(self.left_parts(), start, stop)?,
+            self.left_parts().slice(start, stop)?,
             self.left_parts_dictionary().clone(),
-            slice(self.right_parts(), start, stop)?,
+            self.right_parts().slice(start, stop)?,
             self.right_bit_width(),
             left_parts_exceptions,
         )?
@@ -27,9 +26,8 @@ impl ArrayOperationsImpl for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::slice;
+    use vortex_array::{Array, ToCanonical};
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -42,7 +40,7 @@ mod test {
 
         assert!(encoded.left_parts_patches().is_some());
 
-        let decoded = slice(&encoded, 1, 3).unwrap().to_primitive().unwrap();
+        let decoded = encoded.slice(1, 3).unwrap().to_primitive().unwrap();
 
         assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
     }

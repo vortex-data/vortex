@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 pub use compress::*;
-use vortex_array::compute::slice;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
@@ -91,7 +90,7 @@ impl ArrayCanonicalImpl for FoRArray {
 impl ArrayOperationsImpl for FoRArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
-            slice(self.encoded(), start, stop)?,
+            self.encoded().slice(start, stop)?,
             self.reference_scalar().clone(),
         )
         .map(|a| a.into_array())

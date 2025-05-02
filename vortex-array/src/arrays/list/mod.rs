@@ -15,7 +15,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
-use crate::compute::{scalar_at, slice};
+use crate::compute::scalar_at;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
@@ -110,7 +110,7 @@ impl ListArray {
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        slice(self.elements(), start, end)
+        self.elements().slice(start, end)
     }
 
     // TODO: fetches the offsets of the array ignoring validity
@@ -162,7 +162,7 @@ impl ArrayOperationsImpl for ListArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
             self.elements().clone(),
-            slice(self.offsets(), start, stop + 1)?,
+            self.offsets().slice(start, stop + 1)?,
             self.validity().slice(start, stop)?,
         )?
         .into_array())

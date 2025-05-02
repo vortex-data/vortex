@@ -1,4 +1,3 @@
-use vortex_array::compute::slice;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -8,9 +7,9 @@ impl ArrayOperationsImpl for DateTimePartsArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             self.dtype().clone(),
-            slice(self.days(), start, stop)?,
-            slice(self.seconds(), start, stop)?,
-            slice(self.subseconds(), start, stop)?,
+            self.days().slice(start, stop)?,
+            self.seconds().slice(start, stop)?,
+            self.subseconds().slice(start, stop)?,
         )?
         .into_array())
     }

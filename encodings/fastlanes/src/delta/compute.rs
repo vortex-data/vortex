@@ -1,4 +1,4 @@
-use vortex_array::compute::{ScalarAtFn, scalar_at, slice};
+use vortex_array::compute::{ScalarAtFn, scalar_at};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ToCanonical};
 use vortex_error::VortexResult;
@@ -14,7 +14,7 @@ impl ComputeVTable for DeltaEncoding {
 
 impl ScalarAtFn<&DeltaArray> for DeltaEncoding {
     fn scalar_at(&self, array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = slice(array, index, index + 1)?.to_primitive()?;
+        let decompressed = array.slice(index, index + 1)?.to_primitive()?;
         scalar_at(&decompressed, 0)
     }
 }

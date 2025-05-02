@@ -30,7 +30,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Slice(range) => {
-                current_array = slice(&current_array, range.start, range.end).vortex_unwrap();
+                current_array = current_array.slice(range.start, range.end).vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Take(indices) => {

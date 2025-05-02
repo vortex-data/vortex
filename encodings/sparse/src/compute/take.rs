@@ -31,7 +31,7 @@ impl TakeFn<&SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::compute::{scalar_at, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -58,7 +58,7 @@ mod test {
     #[test]
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
-        let sparse = slice(&sparse, 30, 40).unwrap();
+        let sparse = sparse.slice(30, 40).unwrap();
         let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
         assert_eq!(scalar_at(&sparse, 0).unwrap(), test_array_fill_value());
         assert_eq!(scalar_at(&sparse, 1).unwrap(), Scalar::from(Some(0.47)));

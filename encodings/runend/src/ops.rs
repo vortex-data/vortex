@@ -1,5 +1,5 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{scalar_at, slice};
+use vortex_array::compute::scalar_at;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 
@@ -25,8 +25,8 @@ impl ArrayOperationsImpl for RunEndArray {
         }
 
         Ok(RunEndArray::with_offset_and_length(
-            slice(self.ends(), slice_begin, slice_end)?,
-            slice(self.values(), slice_begin, slice_end)?,
+            self.ends().slice(slice_begin, slice_end)?,
+            self.values().slice(slice_begin, slice_end)?,
             if new_length == 0 {
                 0
             } else {
@@ -40,7 +40,7 @@ impl ArrayOperationsImpl for RunEndArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::slice;
+
     use vortex_array::{Array, ArrayStatistics, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -49,15 +49,12 @@ mod tests {
 
     #[test]
     fn slice_array() {
-        let arr = slice(
-            &RunEndArray::try_new(
-                buffer![2u32, 5, 10].into_array(),
-                buffer![1i32, 2, 3].into_array(),
-            )
-            .unwrap(),
-            3,
-            8,
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
+        .unwrap()
+        .slice(3, 8)
         .unwrap();
         assert_eq!(
             arr.dtype(),
@@ -73,19 +70,16 @@ mod tests {
 
     #[test]
     fn double_slice() {
-        let arr = slice(
-            &RunEndArray::try_new(
-                buffer![2u32, 5, 10].into_array(),
-                buffer![1i32, 2, 3].into_array(),
-            )
-            .unwrap(),
-            3,
-            8,
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
+        .unwrap()
+        .slice(3, 8)
         .unwrap();
         assert_eq!(arr.len(), 5);
 
-        let doubly_sliced = slice(&arr, 0, 3).unwrap();
+        let doubly_sliced = arr.slice(0, 3).unwrap();
 
         assert_eq!(
             doubly_sliced.to_primitive().unwrap().as_slice::<i32>(),
@@ -95,15 +89,12 @@ mod tests {
 
     #[test]
     fn slice_end_inclusive() {
-        let arr = slice(
-            &RunEndArray::try_new(
-                buffer![2u32, 5, 10].into_array(),
-                buffer![1i32, 2, 3].into_array(),
-            )
-            .unwrap(),
-            4,
-            10,
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
+        .unwrap()
+        .slice(4, 10)
         .unwrap();
         assert_eq!(
             arr.dtype(),

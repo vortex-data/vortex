@@ -149,7 +149,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{filter, slice};
+    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::Buffer;
@@ -175,7 +175,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
-        let sliced = slice(&bitpacked, 128, 2050).unwrap();
+        let sliced = bitpacked.slice(128, 2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 

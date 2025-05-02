@@ -42,13 +42,13 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
 
     use crate::ToCanonical;
+    use crate::array::Array;
     use crate::arrays::BoolArray;
-    use crate::compute::slice;
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(&arr, 4, 12).unwrap();
+        let sliced = arr.slice(4, 12).unwrap();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), 12);
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(&arr, 4, 15).unwrap();
+        let sliced = arr.slice(4, 15).unwrap();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[255, 127]);

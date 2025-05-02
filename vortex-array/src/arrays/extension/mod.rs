@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::compute::slice;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
@@ -90,11 +89,10 @@ impl ArrayCanonicalImpl for ExtensionArray {
 
 impl ArrayOperationsImpl for ExtensionArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            self.ext_dtype().clone(),
-            slice(self.storage(), start, stop)?,
+        Ok(
+            ExtensionArray::new(self.ext_dtype().clone(), self.storage().slice(start, stop)?)
+                .into_array(),
         )
-        .into_array())
     }
 }
 

@@ -1,6 +1,5 @@
 use bytes::Bytes;
 use vortex_array::arcref::ArcRef;
-use vortex_array::compute::slice;
 use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -177,6 +176,6 @@ fn encode_chunk(
 
 fn remainder(array: &dyn Array, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
     (encoded_len < array.len())
-        .then(|| slice(array, encoded_len, array.len()))
+        .then(|| array.slice(encoded_len, array.len()))
         .transpose()
 }

@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 
 use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::slice;
 use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
@@ -84,8 +83,8 @@ impl RepartitionWriter {
                 let len = chunk.len();
 
                 if len > remaining {
-                    let left = slice(&chunk, 0, remaining)?;
-                    let right = slice(&chunk, remaining, len)?;
+                    let left = chunk.slice(0, remaining)?;
+                    let right = chunk.slice(remaining, len)?;
                     self.row_count += right.len();
                     self.nbytes += right.nbytes();
                     self.chunks.push_front(right);
@@ -124,7 +123,7 @@ impl LayoutWriter for RepartitionWriter {
         let mut offset = 0;
         while offset < chunk.len() {
             let end = (offset + self.options.block_len_multiple).min(chunk.len());
-            let c = slice(&chunk, offset, end)?;
+            let c = chunk.slice(offset, end)?;
             self.row_count += c.len();
             self.nbytes += c.nbytes();
             self.chunks.push_back(c);

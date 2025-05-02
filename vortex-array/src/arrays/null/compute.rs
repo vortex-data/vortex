@@ -91,13 +91,13 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::null::NullArray;
-    use crate::compute::{scalar_at, slice, take};
+    use crate::compute::{scalar_at, take};
     use crate::{ArrayExt, IntoArray};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = slice(&nulls, 0, 4).unwrap().as_::<NullArray>().clone();
+        let sliced = nulls.slice(0, 4).unwrap().as_::<NullArray>().clone();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));

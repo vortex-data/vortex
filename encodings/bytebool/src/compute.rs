@@ -86,7 +86,7 @@ impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at, slice};
+    use vortex_array::compute::{Operator, compare, scalar_at};
 
     use super::*;
 
@@ -95,7 +95,7 @@ mod tests {
         let original = vec![Some(true), Some(true), None, Some(false), None];
         let vortex_arr = ByteBoolArray::from(original);
 
-        let sliced_arr = slice(&vortex_arr, 1, 4).unwrap();
+        let sliced_arr = vortex_arr.slice(1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
 
         let s = scalar_at(&sliced_arr, 0).unwrap();

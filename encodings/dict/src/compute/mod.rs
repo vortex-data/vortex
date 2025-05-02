@@ -73,7 +73,7 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at, slice};
+    use vortex_array::compute::{Operator, compare, scalar_at};
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -168,7 +168,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(&reference).unwrap();
-        slice(&dict, 1, 4).unwrap()
+        dict.slice(1, 4).unwrap()
     }
 
     #[test]
