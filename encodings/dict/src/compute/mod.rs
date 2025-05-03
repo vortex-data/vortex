@@ -7,8 +7,7 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FillNullFn, FilterKernel, FilterKernelAdapter, MinMaxFn, ScalarAtFn, TakeFn, filter, scalar_at,
-    take,
+    FilterKernel, FilterKernelAdapter, MinMaxFn, ScalarAtFn, TakeFn, filter, scalar_at, take,
 };
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
@@ -19,10 +18,6 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }

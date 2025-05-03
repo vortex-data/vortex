@@ -1,81 +1,137 @@
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use std::sync::LazyLock;
+
+use vortex_dtype::DType;
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::compute::cast;
+use crate::arcref::ArcRef;
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
 
-/// Implementation of fill_null for an encoding.
-///
-/// SAFETY: the fill value is guaranteed to be non-null.
-pub trait FillNullFn<A> {
-    // TODO(ngates): take &Scalar
-    fn fill_null(&self, array: A, fill_value: Scalar) -> VortexResult<ArrayRef>;
+pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    FILL_NULL_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into(), fill_value.into()],
+            options: &(),
+        })?
+        .unwrap_array()
 }
 
-impl<E: Encoding> FillNullFn<&dyn Array> for E
-where
-    E: for<'a> FillNullFn<&'a E::Array>,
-{
-    fn fill_null(&self, array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        FillNullFn::fill_null(self, array_ref, fill_value)
+pub trait FillNullKernel: Encoding {
+    fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
+}
+
+pub struct FillNullKernelRef(ArcRef<dyn Kernel>);
+inventory::collect!(FillNullKernelRef);
+
+#[derive(Debug)]
+pub struct FillNullKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + FillNullKernel> FillNullKernelAdapter<E> {
+    pub const fn lift(&'static self) -> FillNullKernelRef {
+        FillNullKernelRef(ArcRef::new_ref(self))
     }
 }
 
-pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
-    if !array.dtype().is_nullable() {
-        return Ok(array.to_array());
+impl<E: Encoding + FillNullKernel> Kernel for FillNullKernelAdapter<E> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+        let inputs = FillNullArgs::try_from(args)?;
+        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
+        Ok(Some(
+            E::fill_null(&self.0, array, inputs.fill_value)?.into(),
+        ))
     }
-
-    if array.invalid_count()? == 0 {
-        return cast(array, fill_value.dtype());
-    }
-
-    if fill_value.is_null() {
-        vortex_bail!("Cannot fill_null with a null value")
-    }
-
-    if !array.dtype().eq_ignore_nullability(fill_value.dtype()) {
-        vortex_bail!(MismatchedTypes: array.dtype(), fill_value.dtype())
-    }
-
-    let fill_value_nullability = fill_value.dtype().nullability();
-    let filled = fill_null_impl(array, fill_value)?;
-
-    assert_eq!(
-        filled.len(),
-        array.len(),
-        "FillNull length mismatch {}",
-        array.encoding()
-    );
-    assert_eq!(
-        filled.dtype().nullability(),
-        fill_value_nullability,
-        "FillNull nullability mismatch {}",
-        array.encoding()
-    );
-
-    Ok(filled)
 }
 
-fn fill_null_impl(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
-    if let Some(fill_null_fn) = array.vtable().fill_null_fn() {
-        return fill_null_fn.fill_null(array, fill_value);
+pub static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
+    for kernel in inventory::iter::<FillNullKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+struct FillNull;
+
+impl ComputeFnVTable for FillNull {
+    fn invoke(
+        &self,
+        args: &InvocationArgs,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
+        let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
+
+        if !array.dtype().is_nullable() {
+            return Ok(array.to_array().into());
+        }
+
+        if array.invalid_count()? == 0 {
+            return Ok(cast(array, fill_value.dtype())?.into());
+        }
+
+        if fill_value.is_null() {
+            vortex_bail!("Cannot fill_null with a null value")
+        }
+
+        for kernel in kernels {
+            if let Some(output) = kernel.invoke(args)? {
+                return Ok(output);
+            }
+        }
+        if let Some(output) = array.invoke(&FILL_NULL_FN, args)? {
+            return Ok(output);
+        }
+
+        log::debug!("FillNullFn not implemented for {}", array.encoding());
+        if !array.is_canonical() {
+            let canonical_arr = array.to_canonical()?.into_array();
+            return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());
+        }
+
+        vortex_bail!("fill null not implemented for DType {}", array.dtype())
     }
 
-    log::debug!("FillNullFn not implemented for {}", array.encoding());
-    let canonical_arr = array.to_canonical()?.into_array();
-    if let Some(fill_null_fn) = canonical_arr.vtable().fill_null_fn() {
-        return fill_null_fn.fill_null(&canonical_arr, fill_value);
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
+        if !array.dtype().eq_ignore_nullability(fill_value.dtype()) {
+            vortex_bail!("FillNull value must match array type (ignoring nullability)");
+        }
+        Ok(fill_value.dtype().clone())
     }
 
-    vortex_bail!(
-        "fill null not implemented for canonical encoding {}, fallback from {}",
-        canonical_arr.encoding(),
-        array.encoding()
-    )
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+        let FillNullArgs { array, .. } = FillNullArgs::try_from(args)?;
+        Ok(array.len())
+    }
+
+    fn is_elementwise(&self) -> bool {
+        true
+    }
+}
+
+struct FillNullArgs<'a> {
+    array: &'a dyn Array,
+    fill_value: &'a Scalar,
+}
+
+impl<'a> TryFrom<&InvocationArgs<'a>> for FillNullArgs<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 2 {
+            vortex_bail!("FillNull requires 2 arguments");
+        }
+
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("FillNull requires an array"))?;
+        let fill_value = value.inputs[1]
+            .scalar()
+            .ok_or_else(|| vortex_err!("FillNull requires a scalar"))?;
+
+        Ok(FillNullArgs { array, fill_value })
+    }
 }

@@ -23,7 +23,7 @@ impl TakeFn<&BoolArray> for BoolEncoding {
                 )
                 .into_array());
             }
-            Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
+            Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {

@@ -1,12 +1,12 @@
-use vortex_array::compute::{FillNullFn, fill_null};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl FillNullFn<&RunEndArray> for RunEndEncoding {
-    fn fill_null(&self, array: &RunEndArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
+impl FillNullKernel for RunEndEncoding {
+    fn fill_null(&self, array: &RunEndArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         Ok(RunEndArray::with_offset_and_length(
             array.ends().clone(),
             fill_null(array.values(), fill_value)?,
@@ -16,3 +16,5 @@ impl FillNullFn<&RunEndArray> for RunEndEncoding {
         .into_array())
     }
 }
+
+register_kernel!(FillNullKernelAdapter(RunEndEncoding).lift());

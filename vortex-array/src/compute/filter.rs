@@ -230,7 +230,7 @@ impl TryFrom<&dyn Array> for Mask {
         }
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = fill_null(array, Scalar::bool(false, array.dtype().nullability()))?;
+        let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
 
         Self::try_from(&array.to_bool()?)
     }

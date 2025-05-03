@@ -1,18 +1,11 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, MinMaxFn, NaNCountFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn,
-    TakeFromFn, UncompressedSizeFn,
+    MinMaxFn, NaNCountFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn,
+    UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// Fill null values with given desired value. Resulting array is NonNullable
-    ///
-    /// See: [`FillNullFn`]
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
     /// Compute the min, max of an array.
     ///
     /// See: [`MinMaxFn`].

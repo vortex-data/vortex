@@ -178,7 +178,7 @@ impl SparseArray {
         let non_top_mask = Mask::from_buffer(
             fill_null(
                 &compare(array, &fill_array, Operator::NotEq)?,
-                Scalar::bool(true, Nullability::NonNullable),
+                &Scalar::bool(true, Nullability::NonNullable),
             )?
             .to_bool()?
             .boolean_buffer()
