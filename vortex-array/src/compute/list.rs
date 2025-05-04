@@ -62,13 +62,12 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     let matching_elements = compare(elems, &rhs, Operator::Eq)?;
     let matches = matching_elements.to_bool()?;
 
-    // Fast path: all elements match or none match.
+    // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
-        return match pred.as_bool().value() {
+        if matches!(pred.as_bool().value(), None | Some(false)) {
             // TODO(aduffy): how do we handle null?
-            None | Some(false) => Ok(ConstantArray::new::<bool>(false, matches.len()).into_array()),
-            Some(true) => Ok(ConstantArray::new::<bool>(true, matches.len()).into_array()),
-        };
+            return Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array());
+        }
     }
 
     match_each_integer_ptype!(ends.ptype(), |$T| {
@@ -250,6 +249,24 @@ mod tests {
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("a"), None, Some("b")]]),
         None,
         bool_array(vec![false, true, true], None)
+    )]
+    // Case 3: list(utf8) with all elements matching, but some empty lists
+    #[case(
+        nonnull_strings(vec![vec![], vec!["a"], vec!["a"]]),
+        Some("a"),
+        bool_array(vec![false, true, true], None)
+    )]
+    // Case 4: list(utf8) all lists empty.
+    #[case(
+        nonnull_strings(vec![vec![], vec![], vec![]]),
+        Some("a"),
+        bool_array(vec![false, false, false], None)
+    )]
+    // Case 5: list(utf8) no elements matching.
+    #[case(
+        nonnull_strings(vec![vec!["b"], vec![], vec!["b"]]),
+        Some("a"),
+        bool_array(vec![false, false, false], None)
     )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
