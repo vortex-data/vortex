@@ -47,7 +47,7 @@ impl Kernel for ToArrowCanonical {
         let arrow_type = arrow_type
             .cloned()
             .map(Ok)
-            .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
+            .unwrap_or_else(|| array.dtype().to_arrow_field())?;
 
         let arrow_array = match (array.to_canonical()?, &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),

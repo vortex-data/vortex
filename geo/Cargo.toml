@@ -1,5 +1,6 @@
 [package]
 name = "geo"
+description = "Geospatial extensions for Vortex"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true

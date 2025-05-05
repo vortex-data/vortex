@@ -2,32 +2,31 @@ use std::convert::Into;
 use std::iter;
 use std::sync::{Arc, LazyLock};
 
+use arrow_array::cast::__private::DataType;
 use arrow_buffer::ScalarBuffer;
 use geoarrow::ArrayBase;
 use geoarrow::array::{CoordBuffer, PointArray, SeparatedCoordBuffer};
 use geoarrow_schema::Dimension;
+use vortex::arcref::ArcRef;
 use vortex::arrays::ExtensionArray;
-use vortex::arrow::compute::ToArrowArgs;
+use vortex::arrow::ArrowArray;
+use vortex::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use vortex::compute::{InvocationArgs, Kernel, Output};
-use vortex::dtype::{DType, ExtDType, ExtID, Nullability, StructDType};
+use vortex::dtype::arrow::DTypeConversion;
+use vortex::dtype::{ExtDType, ExtID};
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::{Array, ArrayRef, ArrayVisitor, register_kernel};
+use vortex::{Array, ArrayRef, ArrayVisitor, ToCanonical, register_kernel};
 
-pub static WKB_ID: &'static str = "geovortex.wkb";
-pub static POINT_ID: &'static str = "geovortex.point";
-pub static LINESTRING_ID: &'static str = "geovortex.linestring";
-pub static POLYGON_ID: &'static str = "geovortex.polygon";
-
-pub static WKB: LazyLock<ExtID> = LazyLock::new(|| ExtID::new(WKB_ID.into()));
+pub static WKB_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.wkb"));
 /// Point is an N-dimensional point. It is stored using one value per variant here.
 /// The actual point is based on something like a Struct of the components.
-pub static POINT: LazyLock<ExtID> = LazyLock::new(|| ExtID::new(POINT_ID.into()));
+pub static POINT_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.point"));
 
-pub static LINESTRING: LazyLock<ExtID> = LazyLock::new(|| ExtID::new(LINESTRING_ID.into()));
+pub static LINESTRING_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.linestring"));
 
 /// Polygon consists of a pair of "rings", which are lists of points defining the
 /// exterior and interior boundaries of the polygon.
-pub static POLYGON: LazyLock<ExtID> = LazyLock::new(|| ExtID::new(POLYGON_ID.into()));
+pub static POLYGON_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.polygon"));
 
 pub enum GeometryArray {
     Point(ExtensionArray),
@@ -43,7 +42,7 @@ pub enum GeometryArray {
 impl TryFrom<&dyn Array> for GeometryArray {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> VortexResult<Self> {
+    fn try_from(value: &dyn Array) -> VortexResult<Self> {
         let extension = value
             .as_any()
             .downcast_ref::<ExtensionArray>()
@@ -65,11 +64,11 @@ impl TryFrom<&ExtensionArray> for GeometryArray {
     type Error = VortexError;
 
     fn try_from(extension: &ExtensionArray) -> Result<Self, Self::Error> {
-        match extension.id() {
-            POINT => Ok(GeometryArray::Point(extension.clone())),
-            LINESTRING => Ok(GeometryArray::LineString(extension.clone())),
-            POLYGON => Ok(GeometryArray::Polygon(extension.clone())),
-            WKB => Ok(GeometryArray::WKB(extension.clone())),
+        match extension.id().as_ref() {
+            x if x == POINT_ID.as_ref() => Ok(GeometryArray::Point(extension.clone())),
+            x if x == LINESTRING_ID.as_ref() => Ok(GeometryArray::LineString(extension.clone())),
+            x if x == POLYGON_ID.as_ref() => Ok(GeometryArray::Polygon(extension.clone())),
+            x if x == WKB_ID.as_ref() => Ok(GeometryArray::WKB(extension.clone())),
             _ => Err(vortex_err!("Unsupported geometry type {}", extension.id())),
         }
     }
@@ -89,10 +88,13 @@ impl Kernel for ToGeoArrow {
                 if let Ok(geometry_array) = GeometryArray::try_from(ext_array) {
                     // based on the particular geometry, encode into GeoArrow type.
                     match geometry_array {
-                        GeometryArray::Point(ext) => make_point_array(ext),
-                        GeometryArray::LineString(_) => {}
-                        GeometryArray::Polygon(_) => {}
-                        GeometryArray::WKB(_) => {}
+                        GeometryArray::Point(ext) => Ok(Some(Output::Array(
+                            ArrowArray::new(make_point_array(&ext)?, array.dtype().nullability())
+                                .into_array(),
+                        ))),
+                        GeometryArray::LineString(_) => todo!(),
+                        GeometryArray::Polygon(_) => todo!(),
+                        GeometryArray::WKB(_) => todo!(),
                     }
                 } else {
                     Ok(None)
@@ -101,10 +103,38 @@ impl Kernel for ToGeoArrow {
         }
     }
 }
+register_kernel!(ToArrowKernelRef(ArcRef::new_ref(&ToGeoArrow)));
+
+#[derive(Debug)]
+pub struct GeoArrowConversion;
+
+impl DTypeConversion for GeoArrowConversion {
+    fn can_convert_arrow(&self, data_type: &DataType) -> bool {
+        // Only if the DType includes a field type
+        todo!()
+    }
+
+    fn can_convert_vortex(&self, ext_dtype: &ExtDType) -> bool {
+        // This converter only matches the geometry types defined by this crate
+        ext_dtype.id().as_ref() == POINT_ID.as_ref()
+            || ext_dtype.id().as_ref() == LINESTRING_ID.as_ref()
+            || ext_dtype.id().as_ref() == POLYGON_ID.as_ref()
+            || ext_dtype.id().as_ref() == WKB_ID.as_ref()
+    }
+
+    fn to_arrow(&self, dtype: &ExtDType) -> VortexResult<DataType> {
+        // Convert into a DataType. This actually requires us to return a full Field type instead
+        todo!()
+    }
+
+    fn to_vortex(&self, data_type: DataType) -> VortexResult<Box<Self>> {
+        todo!()
+    }
+}
 
 fn make_point_array(point_array: &ExtensionArray) -> VortexResult<arrow_array::ArrayRef> {
     // Based on the number of child arrays, we can convert all of these directly into Arrow types.
-    let mut dimensions = point_array.storage().children();
+    let dimensions = point_array.storage().children();
     let dim = match dimensions.len() {
         2 => Dimension::XY,
         3 => Dimension::XYZ,
@@ -113,19 +143,33 @@ fn make_point_array(point_array: &ExtensionArray) -> VortexResult<arrow_array::A
         }
     };
 
-    let buffers: [ScalarBuffer<f64>; 4] = dimensions
+    let buffers: Vec<ScalarBuffer<f64>> = dimensions
         .into_iter()
         // Take the first 3 dimensions
         .take(3)
+        .map(|x| {
+            x.to_primitive()
+                .vortex_expect("to_primitive")
+                .into_buffer::<f64>()
+                .into_arrow_scalar_buffer()
+        })
         // Pad the rest with empty ScalarBuffer, per the expectation of the PointArray constructor
         .chain(iter::repeat(ScalarBuffer::from(Vec::<f64>::new())))
         .take(4)
-        .into();
+        .collect::<Vec<_>>();
 
     let nulls = point_array.validity_mask()?.to_null_buffer();
 
     Ok(PointArray::new(
-        CoordBuffer::Separated(SeparatedCoordBuffer::new(buffers, dim)),
+        CoordBuffer::Separated(SeparatedCoordBuffer::new(
+            [
+                buffers[0].clone(),
+                buffers[1].clone(),
+                buffers[2].clone(),
+                buffers[3].clone(),
+            ],
+            dim,
+        )),
         nulls,
         // TODO(aduffy): include CRS information from metadata
         Arc::default(),
@@ -133,36 +177,20 @@ fn make_point_array(point_array: &ExtensionArray) -> VortexResult<arrow_array::A
     .into_array_ref())
 }
 
-// Register the ToArrow kernel that can handle the geospatial data types.
-register_kernel!(ToGeoArrow);
-
-fn make_point_dtype<const N: usize>(
-    dims: [&ArrayRef; N],
-    nullability: Nullability,
-) -> Arc<ExtDType> {
-    let point_struct = StructDType::from_iter(iter::zip(["x", "y", "z"], dims.iter()));
-
-    Arc::new(ExtDType::new(
-        POINT.clone(),
-        Arc::new(DType::Struct(Arc::new(point_struct), nullability)),
-        None,
-    ))
-}
-
 pub type GeoArrowRef = Arc<dyn ArrayBase>;
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use geoarrow::array::NativeArrayDyn;
+
     use vortex::Array;
     use vortex::arrays::{ExtensionArray, StructArray};
-    use vortex::arrow::compute::{to_arrow, to_arrow_preferred};
+    use vortex::arrow::compute::to_arrow_preferred;
     use vortex::builders::{ArrayBuilder, PrimitiveBuilder};
-    use vortex::dtype::{ExtDType, FieldNames, Nullability};
+    use vortex::dtype::{ExtDType, Nullability};
     use vortex::validity::Validity;
 
-    use crate::types::{POINT, make_point_dtype};
+    use crate::types::POINT_ID;
 
     #[test]
     fn test_convert_to_arrow() {
@@ -193,7 +221,7 @@ mod tests {
 
         let ext = ExtensionArray::new(
             Arc::new(ExtDType::new(
-                POINT.clone(),
+                POINT_ID.clone(),
                 Arc::new(storage.dtype().clone()),
                 None,
             )),
@@ -202,9 +230,6 @@ mod tests {
 
         // We need to preserve the field information as well for access to the schema type.
         let arrow_points = to_arrow_preferred(&ext).unwrap();
-
-        NativeArrayDyn::from_arrow_array(arrow_points)
-        geoarrow::array::from_arrow_array()
 
         assert_eq!(arrow_points.len(), 5);
     }

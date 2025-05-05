@@ -6,6 +6,7 @@ members = [
     "geo",
     "pyvortex",
     "vortex",
+    "vortex-arcref",
     "vortex-array",
     "vortex-btrblocks",
     "vortex-buffer",
@@ -173,6 +174,7 @@ witchcraft-metrics = "1.0.1"
 # BEGIN crates published by this project
 vortex = { version = "0.32.0", path = "./vortex" }
 vortex-alp = { version = "0.32.0", path = "./encodings/alp", default-features = false }
+vortex-arcref = { version = "0.32.0", path = "./vortex-arcref", default-features = false }
 vortex-array = { version = "0.32.0", path = "./vortex-array", default-features = false }
 vortex-btrblocks = { version = "0.32.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.32.0", path = "./vortex-buffer", default-features = false }

@@ -12,6 +12,9 @@ pub use extension::*;
 pub use field::*;
 pub use field_mask::*;
 pub use half;
+#[cfg(feature = "arrow")]
+#[doc = "Re-export of [`inventory`](https://docs.rs/inventory/latest/inventory/)"]
+pub use inventory;
 pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;

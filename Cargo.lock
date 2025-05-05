@@ -6392,6 +6392,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-arcref"
+version = "0.32.0"
+
+[[package]]
 name = "vortex-array"
 version = "0.32.0"
 dependencies = [
@@ -6428,6 +6432,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "static_assertions",
+ "vortex-arcref",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6578,6 +6583,7 @@ dependencies = [
  "arrow-schema",
  "flatbuffers",
  "half",
+ "inventory",
  "itertools 0.14.0",
  "jiff",
  "num-traits",
@@ -6587,6 +6593,7 @@ dependencies = [
  "serde_json",
  "serde_test",
  "static_assertions",
+ "vortex-arcref",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",

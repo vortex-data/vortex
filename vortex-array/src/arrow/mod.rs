@@ -10,6 +10,7 @@ mod convert;
 mod datum;
 mod record_batch;
 
+pub use array::ArrowArray;
 pub use datum::*;
 
 use crate::arrow::compute::ToArrowOptions;

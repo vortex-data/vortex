@@ -3,7 +3,7 @@
 //! Apache Arrow's type system includes physical information, which could lead to ambiguities as
 //! Vortex treats encodings as separate from logical types.
 //!
-//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow_dtype`] use a simple algorithm,
+//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow_field`] use a simple algorithm,
 //! where every logical type is encoded in its simplest corresponding Arrow type. This reflects the
 //! reality that most compute engines don't make use of the entire type range arrow-rs supports.
 //!
@@ -15,11 +15,12 @@ use std::sync::Arc;
 use arrow_schema::{
     DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
 };
+use vortex_arcref::ArcRef;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, ExtDType, FieldName, Nullability, PType, StructDType};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -150,7 +151,7 @@ impl DType {
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
             builder.push(FieldRef::from(Field::new(
                 field_name.to_string(),
-                field_dtype.to_arrow_dtype()?,
+                field_dtype.to_arrow_field()?.data_type().clone(),
                 field_dtype.is_nullable(),
             )));
         }
@@ -159,62 +160,127 @@ impl DType {
     }
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
-    pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
+    pub fn to_arrow_field(&self) -> VortexResult<Field> {
         Ok(match self {
-            DType::Null => DataType::Null,
-            DType::Bool(_) => DataType::Boolean,
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 => DataType::UInt8,
-                PType::U16 => DataType::UInt16,
-                PType::U32 => DataType::UInt32,
-                PType::U64 => DataType::UInt64,
-                PType::I8 => DataType::Int8,
-                PType::I16 => DataType::Int16,
-                PType::I32 => DataType::Int32,
-                PType::I64 => DataType::Int64,
-                PType::F16 => DataType::Float16,
-                PType::F32 => DataType::Float32,
-                PType::F64 => DataType::Float64,
+            DType::Null => Field::new("_default", DataType::Null, true),
+            DType::Bool(n) => Field::new("_default", DataType::Boolean, (*n).into()),
+            DType::Primitive(ptype, n) => match ptype {
+                PType::U8 => Field::new("_default", DataType::UInt8, (*n).into()),
+                PType::U16 => Field::new("_default", DataType::UInt16, (*n).into()),
+                PType::U32 => Field::new("_default", DataType::UInt32, (*n).into()),
+                PType::U64 => Field::new("_default", DataType::UInt64, (*n).into()),
+                PType::I8 => Field::new("_default", DataType::Int8, (*n).into()),
+                PType::I16 => Field::new("_default", DataType::Int16, (*n).into()),
+                PType::I32 => Field::new("_default", DataType::Int32, (*n).into()),
+                PType::I64 => Field::new("_default", DataType::Int64, (*n).into()),
+                PType::F16 => Field::new("_default", DataType::Float16, (*n).into()),
+                PType::F32 => Field::new("_default", DataType::Float32, (*n).into()),
+                PType::F64 => Field::new("_default", DataType::Float64, (*n).into()),
             },
-            DType::Decimal(dt, _) => {
+            DType::Decimal(dt, n) => {
                 if dt.scale() > DECIMAL128_MAX_SCALE {
-                    DataType::Decimal256(dt.precision(), dt.scale())
+                    Field::new(
+                        "_default",
+                        DataType::Decimal256(dt.precision(), dt.scale()),
+                        (*n).into(),
+                    )
                 } else {
-                    DataType::Decimal128(dt.precision(), dt.scale())
+                    Field::new(
+                        "_default",
+                        DataType::Decimal128(dt.precision(), dt.scale()),
+                        (*n).into(),
+                    )
                 }
             }
-            DType::Utf8(_) => DataType::Utf8View,
-            DType::Binary(_) => DataType::BinaryView,
-            DType::Struct(struct_dtype, _) => {
+            DType::Utf8(n) => Field::new("_default", DataType::Utf8View, (*n).into()),
+            DType::Binary(n) => Field::new("_default", DataType::BinaryView, (*n).into()),
+            DType::Struct(struct_dtype, n) => {
                 let mut fields = Vec::with_capacity(struct_dtype.names().len());
                 for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
                 {
                     fields.push(FieldRef::from(Field::new(
                         field_name.to_string(),
-                        field_dt.to_arrow_dtype()?,
+                        field_dt.to_arrow_field()?.data_type().clone(),
                         field_dt.is_nullable(),
                     )));
                 }
 
-                DataType::Struct(Fields::from(fields))
+                Field::new(
+                    "_default",
+                    DataType::Struct(Fields::from(fields)),
+                    (*n).into(),
+                )
             }
             // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
             // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
             // Arrow dtype because we do not how large our offsets are.
-            DType::List(l, _) => DataType::List(FieldRef::new(Field::new_list_field(
-                l.to_arrow_dtype()?,
-                l.nullability().into(),
-            ))),
+            DType::List(elem_type, n) => Field::new(
+                "_default",
+                DataType::List(FieldRef::new(Field::new_list_field(
+                    elem_type.to_arrow_field()?.data_type().clone(),
+                    elem_type.nullability().into(),
+                ))),
+                (*n).into(),
+            ),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {
-                    make_arrow_temporal_dtype(ext_dtype)
+                    Field::new(
+                        "_default",
+                        make_arrow_temporal_dtype(ext_dtype),
+                        ext_dtype.storage_dtype().is_nullable(),
+                    )
                 } else {
-                    vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
+                    // See if any dynamically registered kernels can handle it.
+                    for converter in inventory::iter::<DTypeConversionRef> {
+                        if converter.0.can_convert_vortex(ext_dtype.as_ref()) {
+                            return converter.0.to_arrow(ext_dtype.as_ref());
+                        }
+                    }
+                    vortex_bail!(
+                        "No registered converter for extension type \"{}\"",
+                        ext_dtype.id()
+                    )
                 }
             }
         })
     }
+}
+
+/// Type-erased pointer to a [`DTypeConversion`] implementation.
+pub struct DTypeConversionRef(ArcRef<dyn DTypeConversion>);
+inventory::collect!(DTypeConversionRef);
+
+/// Conversion for extension types.
+///
+/// If we have custom conversions we can register them via a plugin. This is something that is
+/// determined elsewhere however.
+pub trait DTypeConversion: Send + Sync {
+    /// If this returns `true`, the implementor is able to convert the given Vortex [`DType`] to
+    /// an Arrow [`Field`]. The caller can then call the `to_vortex` method with the argument.
+    fn can_convert_arrow(&self, data_type: &Field) -> bool;
+    /// If this returns `true`, the implementor is able to convert the given Arrow [`DataType`]
+    /// to a Vortex [`DType`].
+    ///
+    /// The caller can safely provide this as an argument to `to_vortex`.
+    fn can_convert_vortex(&self, ext_dtype: &ExtDType) -> bool;
+
+    /// Convert the given Vortex [`DType`] to an Arrow [`Field`].
+    fn to_arrow(&self, dtype: &ExtDType) -> VortexResult<Field>;
+
+    /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
+    fn to_vortex(&self, field: &Field) -> VortexResult<Arc<DType>>;
+}
+
+/// Register an extension type globally. This should be a type that implements
+/// the [`DTypeConversion`] trait.
+#[macro_export]
+macro_rules! register_extension_type {
+    ($extension:expr) => {{
+        $crate::inventory::submit! {
+            $extension
+        }
+    }};
 }
 
 #[cfg(test)]
@@ -226,34 +292,41 @@ mod test {
 
     #[test]
     fn test_dtype_conversion_success() {
-        assert_eq!(DType::Null.to_arrow_dtype().unwrap(), DataType::Null);
+        assert_eq!(
+            DType::Null.to_arrow_field().unwrap().data_type(),
+            &DataType::Null
+        );
 
         assert_eq!(
             DType::Bool(Nullability::NonNullable)
-                .to_arrow_dtype()
-                .unwrap(),
-            DataType::Boolean
+                .to_arrow_field()
+                .unwrap()
+                .data_type(),
+            &DataType::Boolean
         );
 
         assert_eq!(
             DType::Primitive(PType::U64, Nullability::NonNullable)
-                .to_arrow_dtype()
-                .unwrap(),
-            DataType::UInt64
+                .to_arrow_field()
+                .unwrap()
+                .data_type(),
+            &DataType::UInt64
         );
 
         assert_eq!(
             DType::Utf8(Nullability::NonNullable)
-                .to_arrow_dtype()
-                .unwrap(),
-            DataType::Utf8View
+                .to_arrow_field()
+                .unwrap()
+                .data_type(),
+            &DataType::Utf8View
         );
 
         assert_eq!(
             DType::Binary(Nullability::NonNullable)
-                .to_arrow_dtype()
-                .unwrap(),
-            DataType::BinaryView
+                .to_arrow_field()
+                .unwrap()
+                .data_type(),
+            &DataType::BinaryView
         );
 
         assert_eq!(
@@ -264,9 +337,10 @@ mod test {
                 ])),
                 Nullability::NonNullable,
             )
-            .to_arrow_dtype()
-            .unwrap(),
-            DataType::Struct(Fields::from(vec![
+            .to_arrow_field()
+            .unwrap()
+            .data_type(),
+            &DataType::Struct(Fields::from(vec![
                 FieldRef::from(Field::new("field_a", DataType::Boolean, false)),
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
@@ -280,15 +354,18 @@ mod test {
             Nullability::Nullable,
         );
 
-        let arrow_list_non_nullable = list_non_nullable.to_arrow_dtype().unwrap();
+        let arrow_list_non_nullable = list_non_nullable
+            .to_arrow_field()
+            .unwrap()
+            .data_type()
+            .clone();
 
         let list_nullable = DType::List(
             Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
             Nullability::Nullable,
         );
-        let arrow_list_nullable = list_nullable.to_arrow_dtype().unwrap();
+        let arrow_list_nullable = list_nullable.to_arrow_field().unwrap().data_type().clone();
 
-        assert_ne!(arrow_list_non_nullable, arrow_list_nullable);
         assert_eq!(
             arrow_list_nullable,
             DataType::new_list(DataType::Int64, true)
@@ -307,7 +384,7 @@ mod test {
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             None,
         )))
-        .to_arrow_dtype()
+        .to_arrow_field()
         .unwrap();
     }
 
