@@ -1,16 +1,20 @@
-pub mod types;
+use std::sync::LazyLock;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use vortex::dtype::ExtID;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod array;
+mod arrow;
+mod types;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use types::*;
+
+pub static WKB_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.wkb"));
+/// Point is an N-dimensional point. It is stored using one value per variant here.
+/// The actual point is based on something like a Struct of the components.
+pub static POINT_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.point"));
+
+pub static LINESTRING_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.linestring"));
+
+/// Polygon consists of a pair of "rings", which are lists of points defining the
+/// exterior and interior boundaries of the polygon.
+pub static POLYGON_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("geovortex.polygon"));

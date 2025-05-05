@@ -51,8 +51,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
         .clone();
 
     if let Some(arrow_type) = &options.arrow_type {
-        // The full schema is separate from the arrow type instead
-        if arrow.data_type() != arrow_type {
+        if arrow.data_type() != arrow_type.data_type() {
             vortex_bail!(
                 "Arrow array type mismatch: expected {:?}, got {:?}",
                 &options.arrow_type,
@@ -118,7 +117,7 @@ impl ComputeFnVTable for ToArrow {
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
         Ok(arrow_type
-            .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
+            .map(|arrow_type| DType::from_arrow(arrow_type))
             // .ok_or_else(|| vortex_err!("inconvertible DType"))
             .unwrap_or_else(|| array.dtype().clone()))
     }
@@ -148,7 +147,7 @@ pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 
 pub struct ToArrowArgs<'a> {
     pub array: &'a dyn Array,
-    pub arrow_type: Option<&'a DataType>,
+    pub arrow_type: Option<&'a Field>,
 }
 
 impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {

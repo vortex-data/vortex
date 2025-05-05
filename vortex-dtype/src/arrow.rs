@@ -16,7 +16,7 @@ use arrow_schema::{
     DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
 };
 use vortex_arcref::ArcRef;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
@@ -132,7 +132,24 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
 
 impl FromArrowType<&Field> for DType {
     fn from_arrow(field: &Field) -> Self {
-        Self::from_arrow((field.data_type(), field.is_nullable().into()))
+        match field.extension_type_name() {
+            None => Self::from_arrow((field.data_type(), field.is_nullable().into())),
+            Some(ext_type) => {
+                // Arrow extension types dispatch via the `DTypeConversion` plugins.
+                for converter in inventory::iter::<DTypeConversionRef> {
+                    if converter.0.can_convert_to_vortex(field) {
+                        return converter
+                            .0
+                            .to_vortex(field)
+                            .vortex_expect("arrow extension type to vortex dtype");
+                    }
+                }
+                vortex_panic!(
+                    "No supported conversion for Arrow extension type: {}",
+                    ext_type
+                )
+            }
+        }
     }
 }
 
@@ -159,7 +176,7 @@ impl DType {
         Ok(builder.finish())
     }
 
-    /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
+    /// Returns the Arrow [`Field`] that best represents the Vortex type.
     pub fn to_arrow_field(&self) -> VortexResult<Field> {
         Ok(match self {
             DType::Null => Field::new("_default", DataType::Null, true),
@@ -233,7 +250,7 @@ impl DType {
                 } else {
                     // See if any dynamically registered kernels can handle it.
                     for converter in inventory::iter::<DTypeConversionRef> {
-                        if converter.0.can_convert_vortex(ext_dtype.as_ref()) {
+                        if converter.0.can_convert_to_arrow(ext_dtype.as_ref()) {
                             return converter.0.to_arrow(ext_dtype.as_ref());
                         }
                     }
@@ -247,6 +264,16 @@ impl DType {
     }
 }
 
+/// Convert a Vortex logical type into an Arrow physical type.
+///
+/// This function will perform lookups for plugins that are available at link time which implement
+/// the [`DTypeConversion`] trait.
+///
+/// See [`DTypeConversionRef`] documentation for more information.
+pub fn try_to_arrow(dtype: &DType) -> VortexResult<Field> {
+    dtype.to_arrow_field()
+}
+
 /// Type-erased pointer to a [`DTypeConversion`] implementation.
 pub struct DTypeConversionRef(ArcRef<dyn DTypeConversion>);
 inventory::collect!(DTypeConversionRef);
@@ -258,18 +285,18 @@ inventory::collect!(DTypeConversionRef);
 pub trait DTypeConversion: Send + Sync {
     /// If this returns `true`, the implementor is able to convert the given Vortex [`DType`] to
     /// an Arrow [`Field`]. The caller can then call the `to_vortex` method with the argument.
-    fn can_convert_arrow(&self, data_type: &Field) -> bool;
+    fn can_convert_to_vortex(&self, data_type: &Field) -> bool;
     /// If this returns `true`, the implementor is able to convert the given Arrow [`DataType`]
     /// to a Vortex [`DType`].
     ///
     /// The caller can safely provide this as an argument to `to_vortex`.
-    fn can_convert_vortex(&self, ext_dtype: &ExtDType) -> bool;
+    fn can_convert_to_arrow(&self, ext_dtype: &ExtDType) -> bool;
+
+    /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
+    fn to_vortex(&self, field: &Field) -> VortexResult<DType>;
 
     /// Convert the given Vortex [`DType`] to an Arrow [`Field`].
     fn to_arrow(&self, dtype: &ExtDType) -> VortexResult<Field>;
-
-    /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
-    fn to_vortex(&self, field: &Field) -> VortexResult<Arc<DType>>;
 }
 
 /// Register an extension type globally. This should be a type that implements

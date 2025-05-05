@@ -49,7 +49,7 @@ impl Kernel for ToArrowCanonical {
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_field())?;
 
-        let arrow_array = match (array.to_canonical()?, &arrow_type) {
+        let arrow_array = match (array.to_canonical()?, arrow_type.data_type()) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
             (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
@@ -352,7 +352,8 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = to_arrow(&decimal_vortex, &DataType::Decimal128(19, 2)).unwrap();
+        let arrow_field = Field::new("_default", DataType::Decimal128(19, 2), false);
+        let arrow = to_arrow(&decimal_vortex, &arrow_field).unwrap();
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(
