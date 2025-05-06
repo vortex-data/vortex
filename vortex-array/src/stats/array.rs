@@ -139,7 +139,17 @@ impl StatsSetRef<'_> {
                 self.set(stat, Precision::exact(nbytes.clone()));
                 Some(nbytes)
             }
-            Stat::NaNCount => Some(nan_count(self.dyn_array_ref)?.into()),
+            Stat::NaNCount => {
+                Stat::NaNCount
+                    .dtype(self.dyn_array_ref.dtype())
+                    .is_some()
+                    .then(|| {
+                        // NaNCount is supported for this dtype.
+                        nan_count(self.dyn_array_ref)
+                    })
+                    .transpose()?
+                    .map(|s| s.into())
+            }
         })
     }
 

@@ -253,6 +253,10 @@ mod tests {
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
+            if stat.dtype(canonical.as_ref().dtype()).is_none() {
+                continue;
+            }
+
             let canonical_stat =
                 canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let reference_stat =

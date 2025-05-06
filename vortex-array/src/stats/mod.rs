@@ -174,6 +174,7 @@ impl Stat {
         matches!(self, Stat::Min | Stat::Max)
     }
 
+    /// Return the [`DType`] of the statistic scalar assuming the array is of the given [`DType`].
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
         Some(match self {
             Self::IsConstant => DType::Bool(NonNullable),
@@ -183,7 +184,13 @@ impl Stat {
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Self::NaNCount => DType::Primitive(PType::U64, NonNullable),
+            Self::NaNCount => match data_type {
+                DType::Primitive(ptype, ..) if ptype.is_float() => {
+                    DType::Primitive(PType::U64, NonNullable)
+                }
+                // Any other type does not support NaN count
+                _ => return None,
+            },
             Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
