@@ -243,16 +243,20 @@ impl<A: ArrayImpl + 'static> Array for A {
     fn to_canonical(&self) -> VortexResult<Canonical> {
         let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
         assert_eq!(
-            canonical.as_ref().len(),
             self.len(),
-            "Canonical length mismatch {}",
+            canonical.as_ref().len(),
+            "Canonical length mismatch {}. Expected {} but encoded into {}.",
             self.encoding(),
+            self.len(),
+            canonical.as_ref().len()
         );
         assert_eq!(
-            canonical.as_ref().dtype(),
             self.dtype(),
-            "Canonical dtype mismatch {}",
+            canonical.as_ref().dtype(),
+            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
             self.encoding(),
+            self.dtype(),
+            canonical.as_ref().dtype()
         );
         canonical.as_ref().statistics().inherit(self.statistics());
         Ok(canonical)
