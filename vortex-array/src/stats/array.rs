@@ -3,9 +3,8 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_dtype::Nullability;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::ScalarValue;
 
 use super::{
     Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
@@ -134,13 +133,12 @@ impl StatsSetRef<'_> {
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
-            Stat::UncompressedSizeInBytes => Some(
-                Scalar::primitive(
-                    self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64,
-                    Nullability::NonNullable,
-                )
-                .into_value(),
-            ),
+            Stat::UncompressedSizeInBytes => {
+                let nbytes: ScalarValue =
+                    (self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64).into();
+                self.set(stat, Precision::exact(nbytes.clone()));
+                Some(nbytes)
+            }
             Stat::NaNCount => Some(nan_count(self.dyn_array_ref)?.into()),
         })
     }
