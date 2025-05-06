@@ -1,10 +1,8 @@
 use std::convert::Into;
 use std::sync::Arc;
 
-use geoarrow::ArrayBase;
-use vortex::dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
+use vortex::dtype::{DType, ExtDType, ExtMetadata, Nullability, PType, StructDType};
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex::{Array, ArrayVisitor};
 
 use crate::{LINESTRING_ID, POINT_ID, POLYGON_ID, WKB_ID};
 
@@ -32,21 +30,22 @@ pub struct GeoMetadata<'a> {
 }
 
 /// Owned version of a [`GeoMetadata`].
+#[derive(Debug, Clone)]
 pub struct OwnedGeoMetadata {
     pub dimension: Dimension,
     pub crs: Option<String>,
 }
 
-impl<'a> ToOwned for GeoMetadata<'a> {
-    type Owned = OwnedGeoMetadata;
-
-    fn to_owned(&self) -> Self::Owned {
-        OwnedGeoMetadata {
-            dimension: self.dimension,
-            crs: self.crs.map(|x| x.to_owned()),
-        }
-    }
-}
+// impl<'a> ToOwned for GeoMetadata<'a> {
+//     type Owned = OwnedGeoMetadata;
+//
+//     fn to_owned(&self) -> Self::Owned {
+//         OwnedGeoMetadata {
+//             dimension: self.dimension,
+//             crs: self.crs.map(|x| x.to_owned()),
+//         }
+//     }
+// }
 
 // TODO(aduffy): add more geometry types like MultiPolygon.
 /// Zero-copy view of an `ExtDType` as one of the GeoVortex builtin geometry types.
@@ -59,26 +58,26 @@ pub enum GeometryType<'a> {
     WKB(GeoMetadata<'a>),
 }
 
-impl ToOwned for GeometryType {
-    type Owned = OwnedGeometryType;
-
-    fn to_owned(&self) -> Self::Owned {
-        match self {
-            GeometryType::Point(GeoMetadata { dimension, crs }) => {
-                OwnedGeometryType::Point(*dimension, crs.map(|x| x.to_owned()))
-            }
-            GeometryType::LineString(GeoMetadata { dimension, crs }) => {
-                OwnedGeometryType::LineString(*dimension, crs.map(|x| x.to_owned()))
-            }
-            GeometryType::Polygon(GeoMetadata { dimension, crs }) => {
-                OwnedGeometryType::Polygon(*dimension, crs.map(|x| x.to_owned()))
-            }
-            GeometryType::WKB(GeoMetadata { dimension, crs }) => {
-                OwnedGeometryType::WKB(*dimension, crs.map(|x| x.to_owned()))
-            }
-        }
-    }
-}
+// impl ToOwned for GeometryType<'_> {
+//     type Owned = OwnedGeometryType;
+//
+//     fn to_owned(&self) -> Self::Owned {
+//         match self {
+//             GeometryType::Point(GeoMetadata { dimension, crs }) => {
+//                 OwnedGeometryType::Point(*dimension, crs.map(|x| x.to_owned()))
+//             }
+//             GeometryType::LineString(GeoMetadata { dimension, crs }) => {
+//                 OwnedGeometryType::LineString(*dimension, crs.map(|x| x.to_owned()))
+//             }
+//             GeometryType::Polygon(GeoMetadata { dimension, crs }) => {
+//                 OwnedGeometryType::Polygon(*dimension, crs.map(|x| x.to_owned()))
+//             }
+//             GeometryType::WKB(GeoMetadata { dimension, crs }) => {
+//                 OwnedGeometryType::WKB(*dimension, crs.map(|x| x.to_owned()))
+//             }
+//         }
+//     }
+// }
 
 /// An owned geometry type.
 pub enum OwnedGeometryType {
@@ -145,7 +144,11 @@ impl From<OwnedGeometryType> for ExtDType {
                     )),
                     false.into(),
                 );
-                ExtDType::new(POLYGON_ID.clone(), Arc::new(storage_dtype))
+                ExtDType::new(
+                    POLYGON_ID.clone(),
+                    Arc::new(storage_dtype),
+                    Some(ExtMetadata::new(ext_meta.into())),
+                )
             }
             OwnedGeometryType::WKB(..) => ExtDType::new(
                 WKB_ID.clone(),
@@ -158,24 +161,25 @@ impl From<OwnedGeometryType> for ExtDType {
 
 fn point_dtype(dimension: Dimension) -> StructDType {
     match dimension {
-        Dimension::XY => {
-            StructDType::from_iter([("x", PType::F64.into()), ("y", PType::F64.into())])
-        }
+        Dimension::XY => StructDType::from_iter([
+            ("x", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+        ]),
         Dimension::XYZ => StructDType::from_iter([
-            ("x", PType::F64.into()),
-            ("y", PType::F64.into()),
-            ("z", PType::F64.into()),
+            ("x", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("z", DType::Primitive(PType::F64, Nullability::NonNullable)),
         ]),
         Dimension::XYM => StructDType::from_iter([
-            ("x", PType::F64.into()),
-            ("y", PType::F64.into()),
-            ("m", PType::F64.into()),
+            ("x", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("m", DType::Primitive(PType::F64, Nullability::NonNullable)),
         ]),
         Dimension::XYZM => StructDType::from_iter([
-            ("x", PType::F64.into()),
-            ("y", PType::F64.into()),
-            ("z", PType::F64.into()),
-            ("m", PType::F64.into()),
+            ("x", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("z", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ("m", DType::Primitive(PType::F64, Nullability::NonNullable)),
         ]),
     }
 }
@@ -184,18 +188,11 @@ impl<'a> TryFrom<&'a ExtMetadata> for GeoMetadata<'a> {
     type Error = VortexError;
 
     fn try_from(metadata: &'a ExtMetadata) -> VortexResult<Self> {
-        let Some(meta) = metadata else {
-            return Ok(Self {
-                dimension: Dimension::default(),
-                crs: None,
-            });
-        };
-
-        let bytes = meta.as_ref();
+        let bytes = metadata.as_ref();
         if bytes.is_empty() {
             vortex_bail!("If metadata is provided must not be empty");
         } else {
-            let dimension = match *bytes[0] {
+            let dimension = match bytes[0] {
                 x if x == Dimension::XY as u8 => Dimension::XY,
                 x if x == Dimension::XYZ as u8 => Dimension::XYZ,
                 x if x == Dimension::XYM as u8 => Dimension::XYM,
@@ -217,19 +214,21 @@ impl<'a> TryFrom<&'a ExtDType> for GeometryType<'a> {
     type Error = VortexError;
 
     fn try_from(ext_dtype: &'a ExtDType) -> VortexResult<Self> {
+        // Metadata must be provided.
+        let Some(metadata) = ext_dtype.metadata() else {
+            vortex_bail!("Metadata must be provided for geometry types");
+        };
         match ext_dtype.id().as_ref() {
-            x if x == POINT_ID.as_ref() => Ok(GeometryType::Point(GeoMetadata::try_from(
-                ext_dtype.metadata(),
-            )?)),
-            x if x == LINESTRING_ID.as_ref() => Ok(GeometryType::LineString(
-                GeoMetadata::try_from(ext_dtype.metadata())?,
-            )),
-            x if x == POLYGON_ID.as_ref() => Ok(GeometryType::Polygon(GeoMetadata::try_from(
-                ext_dtype.metadata(),
-            )?)),
-            x if x == WKB_ID.as_ref() => Ok(GeometryType::WKB(GeoMetadata::try_from(
-                ext_dtype.metadata(),
-            )?)),
+            x if x == POINT_ID.as_ref() => {
+                Ok(GeometryType::Point(GeoMetadata::try_from(metadata)?))
+            }
+            x if x == LINESTRING_ID.as_ref() => {
+                Ok(GeometryType::LineString(GeoMetadata::try_from(metadata)?))
+            }
+            x if x == POLYGON_ID.as_ref() => {
+                Ok(GeometryType::Polygon(GeoMetadata::try_from(metadata)?))
+            }
+            x if x == WKB_ID.as_ref() => Ok(GeometryType::WKB(GeoMetadata::try_from(metadata)?)),
             _ => Err(vortex_err!("Unsupported geometry type {}", ext_dtype.id())),
         }
     }

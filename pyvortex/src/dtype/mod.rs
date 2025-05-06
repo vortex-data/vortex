@@ -137,7 +137,7 @@ impl PyDType {
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_field()?.data_type().into_pyarrow(py)
+        self.0.to_arrow()?.into_pyarrow(py)
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {

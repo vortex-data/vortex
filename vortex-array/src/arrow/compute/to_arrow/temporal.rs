@@ -43,7 +43,7 @@ impl Kernel for ToArrowTemporal {
         let arrow_type = arrow_type
             .cloned()
             .map(Ok)
-            .unwrap_or_else(|| array.dtype().to_arrow_field())?;
+            .unwrap_or_else(|| array.dtype().to_arrow())?;
 
         let arrow_array: ArrowArrayRef = match (array.temporal_metadata(), &arrow_type) {
             (TemporalMetadata::Date(TimeUnit::D), DataType::Date32) => {

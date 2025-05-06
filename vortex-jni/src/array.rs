@@ -78,7 +78,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |env| {
-        let preferred_arrow_type = array_ref.inner.dtype().to_arrow_field()?;
+        let preferred_arrow_type = array_ref.inner.dtype().to_arrow()?;
         let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
 
         let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;

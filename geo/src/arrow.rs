@@ -9,13 +9,13 @@ use vortex::arrays::ExtensionArray;
 use vortex::arrow::ArrowArray;
 use vortex::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use vortex::compute::{InvocationArgs, Kernel, Output};
-use vortex::dtype::arrow::DTypeConversion;
+use vortex::dtype::arrow::ArrowToDType;
 use vortex::dtype::{DType, ExtDType};
 use vortex::error::{VortexResult, vortex_bail};
 use vortex::{Array, ToCanonical, register_kernel};
 
 use crate::array::GeometryArray;
-use crate::{Dimension, GeoMetadata, GeometryType, OwnedGeometryType};
+use crate::{Dimension, GeoMetadata, OwnedGeometryType};
 
 /// Kernel that allows converting a Vortex extension array with geometry type into a GeoArrow
 /// array layout.
@@ -43,12 +43,14 @@ impl Kernel for ToGeoArrow {
                             )
                             .into_array_ref()
                         }
-                        GeometryArray::LineString(array, metadata) => todo!(),
-                        GeometryArray::Polygon(array, metadata) => todo!(),
-                        GeometryArray::WKB(array, metadata) => todo!(),
+                        GeometryArray::LineString(..) => todo!(),
+                        GeometryArray::Polygon(..) => todo!(),
+                        GeometryArray::WKB(..) => todo!(),
                     };
 
-                    Ok(Output::Array(ArrowArray::new(array, array.is_nullable())))
+                    Ok(Some(Output::Array(
+                        ArrowArray::new(array, ext_array.dtype().nullability()).into_array(),
+                    )))
                 } else {
                     Ok(None)
                 }
@@ -58,6 +60,7 @@ impl Kernel for ToGeoArrow {
 }
 register_kernel!(ToArrowKernelRef(ArcRef::new_ref(&ToGeoArrow)));
 
+/// ZST that holds the VTable for building a `DType` from an Arrow [`Field`] type.
 #[derive(Debug)]
 pub struct GeoArrowConversion;
 
@@ -67,8 +70,8 @@ static GEOARROW_POLYGON: &str = "geoarrow.polygon";
 static GEOARROW_WKB: &str = "geoarrow.wkb";
 
 // Conversion between Vortex geospatial extension types and GeoArrow extension types.
-impl DTypeConversion for GeoArrowConversion {
-    fn can_convert_to_vortex(&self, field: &Field) -> bool {
+impl ArrowToDType for GeoArrowConversion {
+    fn can_convert(&self, field: &Field) -> bool {
         // The field needs to support all of our types
         if let Some(ext_type) = field.extension_type_name() {
             if ext_type == GEOARROW_POINT
@@ -80,10 +83,6 @@ impl DTypeConversion for GeoArrowConversion {
             }
         }
         false
-    }
-
-    fn can_convert_to_arrow(&self, ext_dtype: &ExtDType) -> bool {
-        GeometryType::try_from(ext_dtype).is_ok()
     }
 
     fn to_vortex(&self, field: &Field) -> VortexResult<DType> {
@@ -100,14 +99,14 @@ impl DTypeConversion for GeoArrowConversion {
                     }
                     3 => {
                         // Can be either XYZ or XYM
-                        if fields.iter().any(|x| x.name().to_lowercase() == "m") {
+                        if $fields.iter().any(|x| x.name().to_lowercase() == "m") {
                             Dimension::XYM
                         } else {
                             Dimension::XYZ
                         }
                     }
                     4 => Dimension::XYZM,
-                    _ => vortex_bail!("Unsupported field layout for Point geometry: {:?}", fields),
+                    _ => vortex_bail!("Unsupported field layout for Point geometry: {:?}", $fields),
                 }
             }};
         }
@@ -190,12 +189,6 @@ impl DTypeConversion for GeoArrowConversion {
         };
 
         Ok(DType::Extension(Arc::new(ext_dtype)))
-    }
-
-    fn to_arrow(&self, dtype: &ExtDType) -> VortexResult<Field> {
-        // Convert into a DataType. This actually requires us to return a full Field type instead
-        // Field is just a carrier for type logic.
-        todo!()
     }
 }
 
@@ -286,7 +279,7 @@ fn coordinate_buffer<'a>(
         }
         _ => {
             vortex_bail!(
-                "child count {} invalid for expected Dimension {}",
+                "child count {} invalid for expected Dimension {:?}",
                 children.len(),
                 meta.dimension
             )

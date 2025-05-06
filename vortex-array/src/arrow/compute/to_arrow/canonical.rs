@@ -47,9 +47,9 @@ impl Kernel for ToArrowCanonical {
         let arrow_type = arrow_type
             .cloned()
             .map(Ok)
-            .unwrap_or_else(|| array.dtype().to_arrow_field())?;
+            .unwrap_or_else(|| array.dtype().to_arrow())?;
 
-        let arrow_array = match (array.to_canonical()?, arrow_type.data_type()) {
+        let arrow_array = match (array.to_canonical()?, arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
             (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
@@ -110,9 +110,9 @@ impl Kernel for ToArrowCanonical {
             (Canonical::Struct(array), DataType::Struct(fields)) => {
                 to_arrow_struct(array, fields.as_ref())
             }
-            (Canonical::List(array), DataType::List(field)) => to_arrow_list::<i32>(array, field),
+            (Canonical::List(array), DataType::List(field)) => to_arrow_list::<i32>(array, &field),
             (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, field)
+                to_arrow_list::<i64>(array, &field)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -144,11 +144,11 @@ impl Kernel for ToArrowCanonical {
                 // Datetime and interval types are handled by a different kernel.
                 return Ok(None);
             }
-            _ => vortex_bail!(
+            (_, arrow_type) => vortex_bail!(
                 "Cannot convert canonical array {} with dtype {} to: {:?}",
                 array.encoding(),
                 array.dtype(),
-                &arrow_type
+                arrow_type
             ),
         }?;
 
@@ -353,7 +353,7 @@ mod tests {
             Validity::NonNullable,
         );
         let arrow_field = Field::new("_default", DataType::Decimal128(19, 2), false);
-        let arrow = to_arrow(&decimal_vortex, &arrow_field).unwrap();
+        let arrow = to_arrow(&decimal_vortex, arrow_field.data_type()).unwrap();
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(

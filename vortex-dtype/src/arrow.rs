@@ -1,20 +1,20 @@
-//! Convert between Vortex [`crate::DType`] and Apache Arrow [`arrow_schema::DataType`].
+//! Convert between Vortex [`DType`] and Apache Arrow [`DataType`].
 //!
 //! Apache Arrow's type system includes physical information, which could lead to ambiguities as
 //! Vortex treats encodings as separate from logical types.
 //!
-//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow_field`] use a simple algorithm,
+//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow`] use a simple algorithm,
 //! where every logical type is encoded in its simplest corresponding Arrow type. This reflects the
 //! reality that most compute engines don't make use of the entire type range arrow-rs supports.
 //!
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
+#[allow(clippy::disallowed_types)]
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_schema::{
-    DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
-};
+use arrow_schema::{DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaRef};
 use vortex_arcref::ArcRef;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
@@ -135,15 +135,20 @@ impl FromArrowType<&Field> for DType {
         match field.extension_type_name() {
             None => Self::from_arrow((field.data_type(), field.is_nullable().into())),
             Some(ext_type) => {
-                // Arrow extension types dispatch via the `DTypeConversion` plugins.
-                for converter in inventory::iter::<DTypeConversionRef> {
-                    if converter.0.can_convert_to_vortex(field) {
+                // Check the registry for any Vortex extension types that represent the Arrow
+                // extension type named here.
+                for converter in inventory::iter::<ArrowToDTypeRef> {
+                    if converter.0.can_convert(field) {
                         return converter
                             .0
                             .to_vortex(field)
                             .vortex_expect("arrow extension type to vortex dtype");
                     }
                 }
+
+                // TODO(aduffy): should we just fallback to storage DType array and erase
+                //  the type information instead? But if we do that, we lose ability to
+                //  roundtrip back to Arrow.
                 vortex_panic!(
                     "No supported conversion for Arrow extension type: {}",
                     ext_type
@@ -156,151 +161,118 @@ impl FromArrowType<&Field> for DType {
 impl DType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
     pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
-        let DType::Struct(struct_dtype, nullable) = self else {
-            vortex_bail!("only DType::Struct can be converted to arrow schema");
+        let DataType::Struct(fields) = self.to_arrow()? else {
+            vortex_bail!(
+                "Cannot convert non-struct dtype to Arrow schema: {:?}",
+                self
+            )
         };
-
-        if *nullable != Nullability::NonNullable {
-            vortex_bail!("top-level struct in Schema must be NonNullable");
-        }
-
-        let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
-        for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-            builder.push(FieldRef::from(Field::new(
-                field_name.to_string(),
-                field_dtype.to_arrow_field()?.data_type().clone(),
-                field_dtype.is_nullable(),
-            )));
-        }
-
-        Ok(builder.finish())
+        Ok(Schema::new(fields))
     }
 
     /// Returns the Arrow [`Field`] that best represents the Vortex type.
-    pub fn to_arrow_field(&self) -> VortexResult<Field> {
+    pub fn to_arrow(&self) -> VortexResult<DataType> {
         Ok(match self {
-            DType::Null => Field::new("_default", DataType::Null, true),
-            DType::Bool(n) => Field::new("_default", DataType::Boolean, (*n).into()),
-            DType::Primitive(ptype, n) => match ptype {
-                PType::U8 => Field::new("_default", DataType::UInt8, (*n).into()),
-                PType::U16 => Field::new("_default", DataType::UInt16, (*n).into()),
-                PType::U32 => Field::new("_default", DataType::UInt32, (*n).into()),
-                PType::U64 => Field::new("_default", DataType::UInt64, (*n).into()),
-                PType::I8 => Field::new("_default", DataType::Int8, (*n).into()),
-                PType::I16 => Field::new("_default", DataType::Int16, (*n).into()),
-                PType::I32 => Field::new("_default", DataType::Int32, (*n).into()),
-                PType::I64 => Field::new("_default", DataType::Int64, (*n).into()),
-                PType::F16 => Field::new("_default", DataType::Float16, (*n).into()),
-                PType::F32 => Field::new("_default", DataType::Float32, (*n).into()),
-                PType::F64 => Field::new("_default", DataType::Float64, (*n).into()),
+            DType::Null => DataType::Null,
+            DType::Bool(_) => DataType::Boolean,
+            DType::Primitive(ptype, _) => match ptype {
+                PType::U8 => DataType::UInt8,
+                PType::U16 => DataType::UInt16,
+                PType::U32 => DataType::UInt32,
+                PType::U64 => DataType::UInt64,
+                PType::I8 => DataType::Int8,
+                PType::I16 => DataType::Int16,
+                PType::I32 => DataType::Int32,
+                PType::I64 => DataType::Int64,
+                PType::F16 => DataType::Float16,
+                PType::F32 => DataType::Float32,
+                PType::F64 => DataType::Float64,
             },
-            DType::Decimal(dt, n) => {
+            DType::Decimal(dt, _) => {
                 if dt.scale() > DECIMAL128_MAX_SCALE {
-                    Field::new(
-                        "_default",
-                        DataType::Decimal256(dt.precision(), dt.scale()),
-                        (*n).into(),
-                    )
+                    DataType::Decimal256(dt.precision(), dt.scale())
                 } else {
-                    Field::new(
-                        "_default",
-                        DataType::Decimal128(dt.precision(), dt.scale()),
-                        (*n).into(),
-                    )
+                    DataType::Decimal128(dt.precision(), dt.scale())
                 }
             }
-            DType::Utf8(n) => Field::new("_default", DataType::Utf8View, (*n).into()),
-            DType::Binary(n) => Field::new("_default", DataType::BinaryView, (*n).into()),
-            DType::Struct(struct_dtype, n) => {
+            DType::Utf8(_) => DataType::Utf8View,
+            DType::Binary(_) => DataType::BinaryView,
+            DType::Struct(struct_dtype, _) => {
                 let mut fields = Vec::with_capacity(struct_dtype.names().len());
                 for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
                 {
-                    fields.push(FieldRef::from(Field::new(
+                    let mut field = Field::new(
                         field_name.to_string(),
-                        field_dt.to_arrow_field()?.data_type().clone(),
+                        field_dt.to_arrow()?,
                         field_dt.is_nullable(),
-                    )));
+                    );
+
+                    // Optionally: attach any Arrow extension type metadata, if an ArrowMetadata
+                    // kernel is defined for the extension type.
+                    if let DType::Extension(ext_type) = field_dt {
+                        for kernel in inventory::iter::<ArrowMetadataRef>() {
+                            if let Some(datum) = kernel.0.arrow_metadata(ext_type.as_ref()) {
+                                field = field.with_metadata(datum);
+                                break;
+                            }
+                        }
+                    }
+
+                    fields.push(field);
                 }
 
-                Field::new(
-                    "_default",
-                    DataType::Struct(Fields::from(fields)),
-                    (*n).into(),
-                )
+                DataType::Struct(Fields::from(fields))
             }
             // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
             // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
             // Arrow dtype because we do not how large our offsets are.
-            DType::List(elem_type, n) => Field::new(
-                "_default",
-                DataType::List(FieldRef::new(Field::new_list_field(
-                    elem_type.to_arrow_field()?.data_type().clone(),
-                    elem_type.nullability().into(),
-                ))),
-                (*n).into(),
-            ),
+            DType::List(elem_type, _) => DataType::List(FieldRef::new(Field::new_list_field(
+                elem_type.to_arrow()?,
+                elem_type.nullability().into(),
+            ))),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {
-                    Field::new(
-                        "_default",
-                        make_arrow_temporal_dtype(ext_dtype),
-                        ext_dtype.storage_dtype().is_nullable(),
-                    )
+                    make_arrow_temporal_dtype(ext_dtype)
                 } else {
-                    // See if any dynamically registered kernels can handle it.
-                    for converter in inventory::iter::<DTypeConversionRef> {
-                        if converter.0.can_convert_to_arrow(ext_dtype.as_ref()) {
-                            return converter.0.to_arrow(ext_dtype.as_ref());
-                        }
-                    }
-                    vortex_bail!(
-                        "No registered converter for extension type \"{}\"",
-                        ext_dtype.id()
-                    )
+                    ext_dtype.storage_dtype().to_arrow()?
                 }
             }
         })
     }
 }
 
-/// Convert a Vortex logical type into an Arrow physical type.
-///
-/// This function will perform lookups for plugins that are available at link time which implement
-/// the [`DTypeConversion`] trait.
-///
-/// See [`DTypeConversionRef`] documentation for more information.
-pub fn try_to_arrow(dtype: &DType) -> VortexResult<Field> {
-    dtype.to_arrow_field()
+/// Type-erased pointer to a [`ArrowToDType`] implementation.
+pub struct ArrowToDTypeRef(ArcRef<dyn ArrowToDType>);
+inventory::collect!(ArrowToDTypeRef);
+
+/// Get Arrow extension type metadata for a type.
+pub trait ArrowMetadata: 'static + Send + Sync {
+    /// Optionally get the Arrow metadata for this type. None indicates it is not an Arrow
+    /// extension type, Some indicates that it is.
+    #[allow(clippy::disallowed_types)]
+    fn arrow_metadata(&self, vortex_extension_type: &ExtDType) -> Option<HashMap<String, String>>;
 }
 
-/// Type-erased pointer to a [`DTypeConversion`] implementation.
-pub struct DTypeConversionRef(ArcRef<dyn DTypeConversion>);
-inventory::collect!(DTypeConversionRef);
+/// Type-erased pointer to a thing that can implement the DType conversion instead.
+pub struct ArrowMetadataRef(ArcRef<dyn ArrowMetadata>);
+inventory::collect!(ArrowMetadataRef);
 
 /// Conversion for extension types.
 ///
 /// If we have custom conversions we can register them via a plugin. This is something that is
 /// determined elsewhere however.
-pub trait DTypeConversion: Send + Sync {
+pub trait ArrowToDType: Send + Sync {
     /// If this returns `true`, the implementor is able to convert the given Vortex [`DType`] to
     /// an Arrow [`Field`]. The caller can then call the `to_vortex` method with the argument.
-    fn can_convert_to_vortex(&self, data_type: &Field) -> bool;
-    /// If this returns `true`, the implementor is able to convert the given Arrow [`DataType`]
-    /// to a Vortex [`DType`].
-    ///
-    /// The caller can safely provide this as an argument to `to_vortex`.
-    fn can_convert_to_arrow(&self, ext_dtype: &ExtDType) -> bool;
+    fn can_convert(&self, data_type: &Field) -> bool;
 
     /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
     fn to_vortex(&self, field: &Field) -> VortexResult<DType>;
-
-    /// Convert the given Vortex [`DType`] to an Arrow [`Field`].
-    fn to_arrow(&self, dtype: &ExtDType) -> VortexResult<Field>;
 }
 
 /// Register an extension type globally. This should be a type that implements
-/// the [`DTypeConversion`] trait.
+/// the [`ArrowToDType`] trait.
 #[macro_export]
 macro_rules! register_extension_type {
     ($extension:expr) => {{
@@ -319,41 +291,28 @@ mod test {
 
     #[test]
     fn test_dtype_conversion_success() {
-        assert_eq!(
-            DType::Null.to_arrow_field().unwrap().data_type(),
-            &DataType::Null
-        );
+        assert_eq!(DType::Null.to_arrow().unwrap(), DataType::Null);
 
         assert_eq!(
-            DType::Bool(Nullability::NonNullable)
-                .to_arrow_field()
-                .unwrap()
-                .data_type(),
-            &DataType::Boolean
+            DType::Bool(Nullability::NonNullable).to_arrow().unwrap(),
+            DataType::Boolean
         );
 
         assert_eq!(
             DType::Primitive(PType::U64, Nullability::NonNullable)
-                .to_arrow_field()
-                .unwrap()
-                .data_type(),
-            &DataType::UInt64
+                .to_arrow()
+                .unwrap(),
+            DataType::UInt64
         );
 
         assert_eq!(
-            DType::Utf8(Nullability::NonNullable)
-                .to_arrow_field()
-                .unwrap()
-                .data_type(),
-            &DataType::Utf8View
+            DType::Utf8(Nullability::NonNullable).to_arrow().unwrap(),
+            DataType::Utf8View
         );
 
         assert_eq!(
-            DType::Binary(Nullability::NonNullable)
-                .to_arrow_field()
-                .unwrap()
-                .data_type(),
-            &DataType::BinaryView
+            DType::Binary(Nullability::NonNullable).to_arrow().unwrap(),
+            DataType::BinaryView
         );
 
         assert_eq!(
@@ -364,10 +323,9 @@ mod test {
                 ])),
                 Nullability::NonNullable,
             )
-            .to_arrow_field()
-            .unwrap()
-            .data_type(),
-            &DataType::Struct(Fields::from(vec![
+            .to_arrow()
+            .unwrap(),
+            DataType::Struct(Fields::from(vec![
                 FieldRef::from(Field::new("field_a", DataType::Boolean, false)),
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
@@ -381,17 +339,13 @@ mod test {
             Nullability::Nullable,
         );
 
-        let arrow_list_non_nullable = list_non_nullable
-            .to_arrow_field()
-            .unwrap()
-            .data_type()
-            .clone();
+        let arrow_list_non_nullable = list_non_nullable.to_arrow().unwrap();
 
         let list_nullable = DType::List(
             Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
             Nullability::Nullable,
         );
-        let arrow_list_nullable = list_nullable.to_arrow_field().unwrap().data_type().clone();
+        let arrow_list_nullable = list_nullable.to_arrow().unwrap();
 
         assert_eq!(
             arrow_list_nullable,
@@ -411,7 +365,7 @@ mod test {
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             None,
         )))
-        .to_arrow_field()
+        .to_arrow()
         .unwrap();
     }
 

@@ -220,7 +220,7 @@ impl PyArray {
         if let Some(chunked_array) = array.as_opt::<ChunkedArray>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
-            let arrow_dtype = chunked_array.dtype().to_arrow_field()?;
+            let arrow_dtype = chunked_array.dtype().to_arrow()?;
 
             let chunks = chunked_array
                 .chunks()

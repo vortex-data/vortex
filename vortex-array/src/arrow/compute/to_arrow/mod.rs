@@ -6,7 +6,7 @@ use std::any::Any;
 use std::sync::LazyLock;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::{DataType, Field};
+use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -28,7 +28,7 @@ pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
 }
 
 /// Convert a Vortex array to an Arrow array of the given type.
-pub fn to_arrow(array: &dyn Array, arrow_type: &Field) -> VortexResult<ArrowArrayRef> {
+pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowArrayRef> {
     to_arrow_opts(
         array,
         &ToArrowOptions {
@@ -51,7 +51,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
         .clone();
 
     if let Some(arrow_type) = &options.arrow_type {
-        if arrow.data_type() != arrow_type.data_type() {
+        if arrow.data_type() != arrow_type {
             vortex_bail!(
                 "Arrow array type mismatch: expected {:?}, got {:?}",
                 &options.arrow_type,
@@ -65,7 +65,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
 
 pub struct ToArrowOptions {
     /// The Arrow data type to convert to, if specified.
-    pub arrow_type: Option<Field>,
+    pub arrow_type: Option<DataType>,
 }
 
 impl Options for ToArrowOptions {
@@ -117,7 +117,7 @@ impl ComputeFnVTable for ToArrow {
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
         Ok(arrow_type
-            .map(|arrow_type| DType::from_arrow(arrow_type))
+            .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
             // .ok_or_else(|| vortex_err!("inconvertible DType"))
             .unwrap_or_else(|| array.dtype().clone()))
     }
@@ -147,7 +147,7 @@ pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 
 pub struct ToArrowArgs<'a> {
     pub array: &'a dyn Array,
-    pub arrow_type: Option<&'a Field>,
+    pub arrow_type: Option<&'a DataType>,
 }
 
 impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {
@@ -260,7 +260,7 @@ mod tests {
         );
 
         assert_eq!(
-            &to_arrow(&array, &array.dtype().to_arrow_field().unwrap()).unwrap(),
+            &to_arrow(&array, &array.dtype().to_arrow().unwrap()).unwrap(),
             &arrow_array
         );
     }
