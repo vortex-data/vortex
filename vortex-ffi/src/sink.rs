@@ -53,12 +53,6 @@ pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
                     })),
                 })),
             })
-            // unsafe { sink_out.write() };
-            // unsafe {
-            //     stream_out.write()
-            // };
-            // Bo
-            // Ok(())
         },
     )
 }
