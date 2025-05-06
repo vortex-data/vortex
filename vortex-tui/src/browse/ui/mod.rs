@@ -1,12 +1,13 @@
-mod encodings;
 mod layouts;
+mod segments;
 
-use encodings::encodings_ui;
 use layouts::render_layouts;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Tabs};
+pub use segments::SegmentGridState;
 
 use super::app::{AppState, KeyMode, Tab};
+use crate::browse::ui::segments::segments_ui;
 
 pub fn render_app(app: &mut AppState, frame: &mut Frame) {
     // Render the outer tab view, then render the inner frame view.
@@ -26,7 +27,7 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().magenta())
-        .title_top("vx-browse")
+        .title_top("Vortex Browser")
         .title_bottom(bottom_text)
         .title_alignment(Alignment::Center);
 
@@ -47,12 +48,12 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame) {
     // Display a tab indicator.
     let selected_tab = match app.current_tab {
         Tab::Layout => 0,
-        Tab::Encodings => 1,
+        Tab::Segments => 1,
     };
 
     let tabs = Tabs::new([
         "File Layout",
-        "Arrays",
+        "Segments",
         // TODO(aduffy): add SQL query interface
         // "Query",
     ])
@@ -67,8 +68,6 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame) {
         Tab::Layout => {
             render_layouts(app, app_view, frame.buffer_mut());
         }
-        Tab::Encodings => {
-            frame.render_widget(encodings_ui(app), app_view);
-        }
+        Tab::Segments => segments_ui(app, app_view, frame.buffer_mut()),
     }
 }

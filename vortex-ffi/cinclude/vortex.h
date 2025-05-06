@@ -299,14 +299,23 @@ unsigned int vx_array_to_duckdb_chunk(struct vx_array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Returns an empty vortex array constructed from three arrays of len `len`, the (types, null, names).
+ */
 struct vx_array *vx_array_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
+                                                         const unsigned char *nullable,
                                                          const char *const *names,
                                                          int len,
                                                          struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct vx_array *vx_array_append_duckdb_chunk(struct vx_array *array, duckdb_data_chunk chunk);
+/**
+ * Requires a vortex array, a duckdb data chunk and a nullable array (equal to len(chunk.columns)).
+ */
+struct vx_array *vx_array_append_duckdb_chunk(struct vx_array *array,
+                                              duckdb_data_chunk chunk,
+                                              const unsigned char *nullable);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)

@@ -1,40 +1,14 @@
 use crate::Array;
 use crate::compute::{
-    FillNullFn, IsSortedFn, MinMaxFn, NaNCountFn, OptimizeFn, SearchSortedFn, SearchSortedUsizeFn,
-    TakeFn, TakeFromFn, UncompressedSizeFn,
+    NaNCountFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn, UncompressedSizeFn,
 };
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// Fill null values with given desired value. Resulting array is NonNullable
-    ///
-    /// See: [`FillNullFn`]
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        None
-    }
-
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        None
-    }
-
-    /// Compute the min, max of an array.
-    ///
-    /// See: [`MinMaxFn`].
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        None
-    }
-
     /// Compute nan count of the array
     ///
     /// See: [`NaNCountFn`]
     fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
-        None
-    }
-
-    /// Try and optimize the layout of an array.
-    ///
-    /// See: [`OptimizeFn`]
-    fn optimize_fn(&self) -> Option<&dyn OptimizeFn<&dyn Array>> {
         None
     }
 

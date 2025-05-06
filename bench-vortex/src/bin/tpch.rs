@@ -8,7 +8,7 @@ use bench_vortex::df::write_execution_plan;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
-use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
+use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
@@ -16,7 +16,7 @@ use bench_vortex::tpch::{
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
-    BenchmarkDataset, Engine, Format, Target, ddb, default_env_filter, vortex_panic,
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, vortex_panic,
 };
 use clap::{Parser, ValueEnum, value_parser};
 use datafusion::execution::context::SessionContext;
@@ -123,34 +123,34 @@ fn main() -> anyhow::Result<()> {
         _guard
     };
 
+    let formats = args.targets.iter().map(|t| t.format()).collect_vec();
+
     let runtime = new_tokio_runtime(args.threads);
+
+    let duckdb_resolved_path = ddb::get_executable_path(&args.duckdb_path);
+    if args.duckdb_path.is_none() && !args.skip_rebuild {
+        ddb::build_vortex_duckdb();
+    }
 
     let url = match args.use_remote_data_dir {
         None => {
-            let data_dir = match args.data_generator {
-                DataGenerator::Dbgen => {
-                    let db_gen_options =
-                        DBGenOptions::default().with_scale_factor(args.scale_factor);
-                    DBGen::new(db_gen_options).generate()?
-                }
-                DataGenerator::Duckdb => todo!("not implemented yet, will be support this soon"),
-                // TODO(joe) re-enable this once its correct.
-                // DataGenerator::Duckdb => {
-                //     generate_tpc(DuckdbTpcOptions::default().with_scale_factor(args.scale_factor))?
-                // }
-            };
+            for format in formats {
+                // Arrow uses csv
+                let format = if format == Format::Arrow {
+                    Format::Csv
+                } else {
+                    format
+                };
+                let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
+                    .with_duckdb_path(duckdb_resolved_path.clone());
+                generate_tpc(opts)?;
+            }
 
-            info!(
-                "Using existing or generating new files located at {}.",
-                data_dir.display()
-            );
-            Url::parse(
-                format!(
-                    "file:{}/",
-                    data_dir.to_str().vortex_expect("path should be utf8")
-                )
-                .as_ref(),
-            )?
+            let data_dir = "tpch".to_data_path();
+            let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
+
+            info!("Using existing or generating new files located at {data_dir}.");
+            Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
         }
         Some(tpch_benchmark_remote_data_dir) => {
             // e.g. "s3://vortex-bench-dev-eu/parquet/"
@@ -187,8 +187,7 @@ fn main() -> anyhow::Result<()> {
         args.all_metrics,
         args.export_spans,
         args.emit_plan,
-        &args.duckdb_path,
-        args.skip_rebuild,
+        duckdb_resolved_path,
     ))
 }
 
@@ -306,8 +305,7 @@ async fn bench_main(
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
-    duckdb_path: &Option<PathBuf>,
-    skip_duckdb_build: bool,
+    duckdb_resolved_path: PathBuf,
 ) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -346,17 +344,18 @@ async fn bench_main(
 
     assert!(!tpch_queries.is_empty(), "No queries to run");
 
-    let duckdb_resolved_path = targets
-        .iter()
-        .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(duckdb_path, skip_duckdb_build));
-
     for target in &targets {
         let engine = target.engine();
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx = load_datasets(&url, format, disable_datafusion_cache).await?;
+                let ctx = load_datasets(
+                    &url,
+                    format,
+                    BenchmarkDataset::TpcH,
+                    disable_datafusion_cache,
+                )
+                .await?;
 
                 let mut plans = Vec::new();
 
@@ -408,13 +407,12 @@ async fn bench_main(
             }
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let duckdb_path = duckdb_resolved_path.as_ref().vortex_expect("created above");
                 let temp_dir = tempdir()?;
                 let duckdb_file = temp_dir
                     .path()
                     .join(format!("duckdb-file-{}.db", format.name()));
 
-                let executor = DuckDBExecutor::new(duckdb_path.clone(), duckdb_file);
+                let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {

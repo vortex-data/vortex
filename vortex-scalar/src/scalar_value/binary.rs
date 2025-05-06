@@ -4,7 +4,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::ScalarValue;
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 
 impl<'a> TryFrom<&'a ScalarValue> for ByteBuffer {
     type Error = VortexError;

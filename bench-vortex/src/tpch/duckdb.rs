@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -6,8 +5,8 @@ use std::time::Duration;
 use anyhow::Result;
 use xshell::Shell;
 
+use crate::Format;
 use crate::ddb::DuckDBExecutor;
-use crate::{Format, IdempotentPath};
 
 pub enum TpcDataset {
     TpcH,
@@ -41,13 +40,13 @@ impl DuckdbTpcOptions {
     }
 }
 
-impl Default for DuckdbTpcOptions {
-    fn default() -> Self {
+impl DuckdbTpcOptions {
+    pub fn new(base_dir: PathBuf, dataset: TpcDataset, format: Format) -> Self {
         Self {
             scale_factor: 1,
-            base_dir: "tpch-duckdb".to_data_path(),
-            dataset: TpcDataset::TpcH,
-            format: Format::Csv,
+            base_dir,
+            dataset,
+            format,
             duckdb_path: None,
         }
     }
@@ -115,13 +114,13 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     match opts.format {
         Format::Csv => {
             command.arg("-c").arg(format!(
-                "export database '{}' (format CSV, delimiter '|', header false);",
+                "EXPORT DATABASE '{}' (FORMAT CSV, delimiter '|', header false, FILE_EXTENSION tbl);",
                 output_dir.to_string_lossy(),
             ));
         }
         Format::Parquet => {
             command.arg("-c").arg(format!(
-                "export database '{}' (format PARQUET);",
+                "EXPORT DATABASE '{}' (format PARQUET);",
                 output_dir.to_string_lossy(),
             ));
         }
@@ -133,12 +132,11 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
             }
 
             command.arg("-c").arg(format!(
-                "export database '{}' (format VORTEX);",
+                "EXPORT DATABASE '{}' (format VORTEX);",
                 output_dir.to_string_lossy(),
             ));
         }
-        Format::OnDiskDuckDB => { /* Do nothing */ }
-        _ => todo!(),
+        Format::OnDiskDuckDB | Format::Arrow => { /* Do nothing */ }
     };
 
     let output = command.output()?;
@@ -147,14 +145,6 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
-    }
-
-    if opts.format == Format::Csv {
-        // rename .csv files into the expected .tbl extension
-        sh.read_dir(&output_dir)?
-            .into_iter()
-            .filter(|p| p.extension().is_some_and(|ext| ext == "csv"))
-            .try_for_each(|p| fs::rename(p.clone(), p.with_extension("tbl")))?;
     }
 
     // Write a success file to indicate this scale-factor is created.

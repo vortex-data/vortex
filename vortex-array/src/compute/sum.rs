@@ -1,14 +1,12 @@
 use std::sync::LazyLock;
 
 use vortex_dtype::{DType, PType};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arcref::ArcRef;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProvider};
 
@@ -34,7 +32,7 @@ impl ComputeFnVTable for Sum {
         args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
-        let SumArgs { array } = SumArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
 
         // Compute the expected dtype of the sum.
         let sum_dtype = self.return_dtype(args)?;
@@ -55,7 +53,7 @@ impl ComputeFnVTable for Sum {
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let SumArgs { array } = SumArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
         Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))
@@ -68,28 +66,6 @@ impl ComputeFnVTable for Sum {
 
     fn is_elementwise(&self) -> bool {
         false
-    }
-}
-
-struct SumArgs<'a> {
-    array: &'a dyn Array,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for SumArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 1 {
-            vortex_bail!(
-                "Sum function requires exactly one argument, got {}",
-                value.inputs.len()
-            );
-        }
-        let array = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Invalid argument type for sum function"))?;
-
-        Ok(SumArgs { array })
     }
 }
 
@@ -123,7 +99,7 @@ impl<E: Encoding + SumKernel> SumKernelAdapter<E> {
 
 impl<E: Encoding + SumKernel> Kernel for SumKernelAdapter<E> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let SumArgs { array } = SumArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
         let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
             return Ok(None);
         };

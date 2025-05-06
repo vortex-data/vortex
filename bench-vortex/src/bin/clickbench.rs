@@ -208,7 +208,14 @@ fn main() -> anyhow::Result<()> {
         .targets
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| ddb::build_and_get_executable_path(&args.duckdb_path, false));
+        .then(|| {
+            let path = ddb::get_executable_path(&args.duckdb_path);
+            // If the path is to the duckdb-vortex extension, try to rebuild
+            if args.duckdb_path.is_none() {
+                ddb::build_vortex_duckdb();
+            }
+            path
+        });
 
     for target in args.targets.iter() {
         let engine = target.engine();
@@ -230,13 +237,12 @@ fn main() -> anyhow::Result<()> {
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
-        init_data_source(
+        tokio_runtime.block_on(init_data_source(
             file_format,
             &base_url,
             args.single_file,
             &engine_ctx,
-            &tokio_runtime,
-        )?;
+        ))?;
 
         let bench_measurements = execute_queries(
             &queries,
@@ -357,12 +363,11 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 /// Configures the data source format for benchmark queries based on the specified format and engine.
 ///
 /// Parquet files are registered directly. Vortex files are created form Parquet files.
-fn init_data_source(
+async fn init_data_source(
     file_format: Format,
     base_url: &Url,
     single_file: bool,
     engine_ctx: &EngineCtx,
-    tokio_runtime: &Runtime,
 ) -> anyhow::Result<()> {
     let dataset = BenchmarkDataset::ClickBench { single_file };
 
@@ -370,15 +375,15 @@ fn init_data_source(
         let file_path = base_url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("invalid file URL: {}", base_url))?;
-        tokio_runtime.block_on(bench_vortex::file::convert_parquet_to_vortex(
-            &file_path, dataset,
-        ))?
+        bench_vortex::file::convert_parquet_to_vortex(&file_path, dataset).await?
     }
 
     match engine_ctx {
         EngineCtx::DataFusion(ctx) => match file_format {
             Format::Parquet | Format::OnDiskVortex => {
-                dataset.register_tables(&ctx.session, base_url, file_format)?
+                dataset
+                    .register_tables(&ctx.session, base_url, file_format)
+                    .await?
             }
             _ => {
                 vortex_panic!(

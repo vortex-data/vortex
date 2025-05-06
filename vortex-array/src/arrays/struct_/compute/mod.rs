@@ -9,18 +9,14 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxFn, MinMaxResult, TakeFn, UncompressedSizeFn, filter, is_constant_opts, take,
-    uncompressed_size,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeFn, UncompressedSizeFn, filter,
+    is_constant_opts, take, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 
@@ -66,12 +62,14 @@ impl FilterKernel for StructEncoding {
 
 register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
-impl MinMaxFn<&StructArray> for StructEncoding {
+impl MinMaxKernel for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(StructEncoding).lift());
 
 impl IsConstantKernel for StructEncoding {
     fn is_constant(

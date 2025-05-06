@@ -1,6 +1,10 @@
 use crate::Array;
 use crate::arrays::ChunkedEncoding;
+<<<<<<< HEAD
 use crate::compute::{FillNullFn, IsSortedFn, MinMaxFn, TakeFn, UncompressedSizeFn};
+=======
+use crate::compute::{ScalarAtFn, TakeFn, UncompressedSizeFn};
+>>>>>>> develop
 use crate::vtable::ComputeVTable;
 
 mod cast;
@@ -18,19 +22,19 @@ mod take;
 mod uncompressed_size;
 
 impl ComputeVTable for ChunkedEncoding {
+<<<<<<< HEAD
     fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
         Some(self)
     }
 
     fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
+=======
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
+>>>>>>> develop
         Some(self)
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 

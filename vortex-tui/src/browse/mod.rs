@@ -48,42 +48,46 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 (KeyCode::Tab, _) => {
                     // toggle between tabs
                     app.current_tab = match app.current_tab {
-                        Tab::Layout => Tab::Encodings,
-                        Tab::Encodings => Tab::Layout,
+                        Tab::Layout => Tab::Segments,
+                        Tab::Segments => Tab::Layout,
                     };
                 }
                 (KeyCode::Up | KeyCode::Char('k'), _)
                 | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                     // We send the key-up to the list state if we're looking at
                     // the Layouts tab.
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_up_by(1);
+                    match app.current_tab {
+                        Tab::Layout => app.layouts_list_state.select_previous(),
+                        Tab::Segments => app.segment_grid_state.scroll_up(10),
                     }
                 }
                 (KeyCode::Down | KeyCode::Char('j'), _)
-                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_down_by(1);
-                    }
-                }
+                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
+                    Tab::Layout => app.layouts_list_state.select_next(),
+                    Tab::Segments => app.segment_grid_state.scroll_down(10),
+                },
                 (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_up_by(10);
+                    match app.current_tab {
+                        Tab::Layout => app.layouts_list_state.scroll_up_by(10),
+                        Tab::Segments => app.segment_grid_state.scroll_up(100),
                     }
                 }
                 (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.scroll_down_by(10);
+                    match app.current_tab {
+                        Tab::Layout => app.layouts_list_state.scroll_down_by(10),
+                        Tab::Segments => app.segment_grid_state.scroll_down(100),
                     }
                 }
                 (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.select_first();
+                    match app.current_tab {
+                        Tab::Layout => app.layouts_list_state.select_first(),
+                        Tab::Segments => app.segment_grid_state.scroll_left(200),
                     }
                 }
                 (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
-                    if app.current_tab == Tab::Layout {
-                        app.layouts_list_state.select_last();
+                    match app.current_tab {
+                        Tab::Layout => app.layouts_list_state.select_last(),
+                        Tab::Segments => app.segment_grid_state.scroll_right(200),
                     }
                 }
                 (KeyCode::Enter, _) => {
@@ -98,13 +102,21 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 }
                 (KeyCode::Left | KeyCode::Char('h'), _)
                 | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                    if app.current_tab == Tab::Layout {
-                        // Ascend back up to the Parent node
-                        app.cursor = app.cursor.parent();
-                        // Reset the list scroll state.
-                        app.layouts_list_state = ListState::default().with_selected(Some(0));
+                    match app.current_tab {
+                        Tab::Layout => {
+                            // Ascend back up to the Parent node
+                            app.cursor = app.cursor.parent();
+                            // Reset the list scroll state.
+                            app.layouts_list_state = ListState::default().with_selected(Some(0));
+                        }
+                        Tab::Segments => app.segment_grid_state.scroll_left(20),
                     }
                 }
+                (KeyCode::Right | KeyCode::Char('l'), _)
+                | (KeyCode::Char('b'), KeyModifiers::ALT) => match app.current_tab {
+                    Tab::Layout => {}
+                    Tab::Segments => app.segment_grid_state.scroll_right(20),
+                },
 
                 (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                     app.key_mode = KeyMode::Search;

@@ -3,7 +3,7 @@ use vortex_dtype::half::f16;
 use vortex_error::{VortexError, vortex_err};
 
 use crate::ScalarValue;
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 
 macro_rules! primitive_scalar {
     ($T:ty) => {

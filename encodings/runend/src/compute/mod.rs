@@ -10,20 +10,12 @@ pub(crate) mod take;
 mod take_from;
 
 use vortex_array::Array;
-use vortex_array::compute::{FillNullFn, IsSortedFn, MinMaxFn, ScalarAtFn, TakeFn, TakeFromFn};
+use vortex_array::compute::{ScalarAtFn, TakeFn, TakeFromFn};
 use vortex_array::vtable::ComputeVTable;
 
 use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -33,10 +25,6 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }

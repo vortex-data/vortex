@@ -22,7 +22,7 @@ mod primitive;
 mod proto;
 mod pvalue;
 mod scalar_type;
-mod scalarvalue;
+mod scalar_value;
 mod struct_;
 mod utf8;
 
@@ -34,7 +34,7 @@ pub use extension::*;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
-pub use scalarvalue::*;
+pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};

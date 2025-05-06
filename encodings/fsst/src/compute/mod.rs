@@ -32,7 +32,7 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
             take(array.codes(), indices)?.as_::<VarBinArray>().clone(),
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
-                Scalar::new(
+                &Scalar::new(
                     array.uncompressed_lengths_dtype().clone(),
                     ScalarValue::from(0),
                 ),

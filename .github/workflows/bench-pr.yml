@@ -50,7 +50,11 @@ jobs:
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.12
         with:
-          version: v1.2.1
+          version: v1.2.2
+
+      # TODO(joe): remove ninja once duckdb is not built by the benchmark
+      - name: Install gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
 
       - name: Build binary
         shell: bash
@@ -81,9 +85,6 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
-
-      - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip
 
       - name: Compare results
         shell: bash

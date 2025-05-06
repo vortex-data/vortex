@@ -38,11 +38,7 @@ impl DuckDBExecutor {
     }
 }
 
-/// Finds the path to the DuckDB executable
-pub fn build_and_get_executable_path(
-    user_supplied_path_flag: &Option<PathBuf>,
-    skip_duckdb_build: bool,
-) -> PathBuf {
+pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     let validate_path = |duckdb_path: &PathBuf| {
         assert!(
             duckdb_path.as_path().exists(),
@@ -77,40 +73,61 @@ pub fn build_and_get_executable_path(
         .expect("failed to find the vortex repo")
         .join("duckdb-vortex");
 
-    if !skip_duckdb_build {
-        let mut command = Command::new("make");
-        command
-            .current_dir(&duckdb_vortex_path)
-            .env("GEN", "ninja")
-            .arg("release");
-
-        info!(
-            "Building duckdb vortex extension at {}, with command {:?}",
-            duckdb_vortex_path.display(),
-            command
-        );
-
-        let output = command
-            .output()
-            .expect("Trying to build duckdb vortex extension");
-
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
-        }
-
-        info!(
-            "Built duckdb vortex extension at {}",
-            duckdb_vortex_path.display()
-        );
-    }
-
     let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
 
     validate_path(&duckdb_path);
 
     duckdb_path
+}
+
+/// Finds the path to the DuckDB executable
+pub fn build_vortex_duckdb() {
+    // Try to find the 'vortex' top-level directory. This is preferred over logic along
+    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
+    let mut repo_root = None;
+    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
+
+    while current_dir.file_name().is_some() {
+        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
+            repo_root = Some(current_dir.to_string_lossy().into_owned());
+            break;
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    let mut command = Command::new("make");
+    command
+        .current_dir(&duckdb_vortex_path)
+        .env("GEN", "ninja")
+        .arg("release");
+
+    info!(
+        "Building duckdb vortex extension at {}, with command {:?}",
+        duckdb_vortex_path.display(),
+        command
+    );
+
+    let output = command
+        .output()
+        .expect("Trying to build duckdb vortex extension");
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
+
+    info!(
+        "Built duckdb vortex extension at {}",
+        duckdb_vortex_path.display()
+    );
 }
 
 enum DuckDBObject {
@@ -183,6 +200,7 @@ fn create_table_registration(
 }
 
 /// Resolves the storage URL based on dataset and format requirements
+#[allow(dead_code)]
 fn resolve_storage_url(base_url: &Url, file_format: Format, dataset: BenchmarkDataset) -> Url {
     if file_format == Format::OnDiskVortex {
         match dataset.vortex_path(base_url) {
@@ -229,7 +247,9 @@ pub fn register_tables(
         f => f,
     };
 
+    // println!("base url {}", base_url);
     let effective_url = resolve_storage_url(base_url, load_format, dataset);
+    // let effective_url = base_url;
     let extension = match load_format {
         Format::Parquet => "parquet",
         Format::OnDiskVortex => "vortex",

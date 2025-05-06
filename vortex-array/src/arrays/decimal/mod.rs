@@ -122,7 +122,7 @@ impl DecimalArray {
             vortex_panic!(
                 "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
                 T::VALUES_TYPE,
-                self.values_type
+                self.values_type,
             );
         }
         Buffer::<T>::from_byte_buffer(self.values.clone())

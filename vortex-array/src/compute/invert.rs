@@ -4,7 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::arcref::ArcRef;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ToCanonical};
 
@@ -26,7 +26,7 @@ impl ComputeFnVTable for Invert {
         args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
-        let InvertArgs { array } = InvertArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
 
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
@@ -49,7 +49,8 @@ impl ComputeFnVTable for Invert {
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let InvertArgs { array } = InvertArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+
         if !matches!(array.dtype(), DType::Bool(..)) {
             vortex_bail!("Expected boolean array, got {}", array.dtype());
         }
@@ -57,7 +58,7 @@ impl ComputeFnVTable for Invert {
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let InvertArgs { array } = InvertArgs::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
         Ok(array.len())
     }
 
