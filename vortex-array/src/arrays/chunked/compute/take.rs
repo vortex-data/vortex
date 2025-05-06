@@ -6,9 +6,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::{
-    SearchSortedSide, TakeFn, cast, scalar_at, search_sorted_usize, sub_scalar, take,
-};
+use crate::compute::{SearchSortedSide, TakeFn, cast, search_sorted_usize, sub_scalar, take};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeFn<&ChunkedArray> for ChunkedEncoding {
@@ -66,7 +64,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResu
     let mut pos = 0;
     while pos < indices.len() {
         // Locate the chunk index for the current index
-        let idx = usize::try_from(&scalar_at(indices, pos)?)?;
+        let idx = usize::try_from(&indices.scalar_at(pos)?)?;
         let (chunk_idx, _idx_in_chunk) = chunked.find_chunk_idx(idx);
 
         // Find the end of this chunk, and locate that position in the indices array.

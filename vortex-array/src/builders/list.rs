@@ -193,7 +193,6 @@ mod tests {
     use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
-    use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{IntoArray as _, ToCanonical};
 
@@ -381,12 +380,12 @@ mod tests {
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
         assert_eq!(
-            scalar_at(&one_trailing_unused_element, 0).unwrap(),
-            scalar_at(&canon_values, 0).unwrap()
+            one_trailing_unused_element.scalar_at(0).unwrap(),
+            canon_values.scalar_at(0).unwrap()
         );
         assert_eq!(
-            scalar_at(&second_array, 0).unwrap(),
-            scalar_at(&canon_values, 1).unwrap()
+            second_array.scalar_at(0).unwrap(),
+            canon_values.scalar_at(1).unwrap()
         );
     }
 }

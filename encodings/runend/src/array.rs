@@ -1,9 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{
-    SearchSortedSide, scalar_at, search_sorted_usize, search_sorted_usize_many,
-};
+use vortex_array::compute::{SearchSortedSide, search_sorted_usize, search_sorted_usize_many};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
@@ -43,7 +41,7 @@ impl RunEndArray {
         let length = if ends.is_empty() {
             0
         } else {
-            scalar_at(&ends, ends.len() - 1)?.as_ref().try_into()?
+            ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?
         };
         Self::with_offset_and_length(ends, values, 0, length)
     }
@@ -62,7 +60,7 @@ impl RunEndArray {
         }
 
         if offset != 0 {
-            let first_run_end: usize = scalar_at(&ends, 0)?.as_ref().try_into()?;
+            let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
@@ -244,7 +242,6 @@ impl ArrayStatisticsImpl for RunEndArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::scalar_at;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -267,9 +264,9 @@ mod tests {
         // 0, 1 => 1
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
-        assert_eq!(scalar_at(&arr, 0).unwrap(), 1.into());
-        assert_eq!(scalar_at(&arr, 2).unwrap(), 2.into());
-        assert_eq!(scalar_at(&arr, 5).unwrap(), 3.into());
-        assert_eq!(scalar_at(&arr, 9).unwrap(), 3.into());
+        assert_eq!(arr.scalar_at(0).unwrap(), 1.into());
+        assert_eq!(arr.scalar_at(2).unwrap(), 2.into());
+        assert_eq!(arr.scalar_at(5).unwrap(), 3.into());
+        assert_eq!(arr.scalar_at(9).unwrap(), 3.into());
     }
 }

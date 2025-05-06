@@ -1,9 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts, scalar_at,
-};
+use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts};
 use crate::{Array, register_kernel};
 
 impl IsConstantKernel for ChunkedEncoding {
@@ -23,7 +21,7 @@ impl IsConstantKernel for ChunkedEncoding {
             Some(true) => {}
         }
 
-        let first_value = scalar_at(first_chunk, 0)?.into_nullable();
+        let first_value = first_chunk.scalar_at(0)?.into_nullable();
 
         for chunk in chunks {
             if chunk.is_empty() {
@@ -37,7 +35,7 @@ impl IsConstantKernel for ChunkedEncoding {
                 Some(true) => {}
             }
 
-            if first_value != scalar_at(chunk, 0)?.into_nullable() {
+            if first_value != chunk.scalar_at(0)?.into_nullable() {
                 return Ok(Some(false));
             }
         }

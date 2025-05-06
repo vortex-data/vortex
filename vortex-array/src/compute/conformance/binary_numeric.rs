@@ -1,18 +1,18 @@
+use itertools::Itertools;
 use num_traits::Num;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
 use crate::compute::numeric::numeric;
-use crate::compute::scalar_at;
 use crate::{Array, ArrayRef, ToCanonical};
 
 fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
     // Not fast, but obviously correct
     (0..array.len())
-        .map(|index| scalar_at(array, index))
-        .collect::<VortexResult<Vec<_>>>()
+        .map(|index| array.scalar_at(index))
+        .try_collect()
         .vortex_unwrap()
 }
 

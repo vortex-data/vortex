@@ -576,7 +576,6 @@ mod test {
     use crate::Canonical;
     use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::compute::scalar_at;
 
     #[test]
     pub fn varbin_view() {
@@ -584,11 +583,11 @@ mod test {
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
         assert_eq!(binary_arr.len(), 2);
         assert_eq!(
-            scalar_at(&binary_arr, 0).unwrap(),
+            binary_arr.scalar_at(0).unwrap(),
             Scalar::from("hello world")
         );
         assert_eq!(
-            scalar_at(&binary_arr, 1).unwrap(),
+            binary_arr.scalar_at(1).unwrap(),
             Scalar::from("hello world this is a long string")
         );
     }
@@ -600,7 +599,7 @@ mod test {
                 .slice(1, 2)
                 .unwrap();
         assert_eq!(
-            scalar_at(&binary_arr, 0).unwrap(),
+            binary_arr.scalar_at(0).unwrap(),
             Scalar::from("hello world this is a long string")
         );
     }
@@ -613,8 +612,8 @@ mod test {
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
         let var_bin = flattened.into_varbinview().unwrap().into_array();
-        assert_eq!(scalar_at(&var_bin, 0).unwrap(), Scalar::from("string1"));
-        assert_eq!(scalar_at(&var_bin, 1).unwrap(), Scalar::from("string2"));
+        assert_eq!(var_bin.scalar_at(0).unwrap(), Scalar::from("string1"));
+        assert_eq!(var_bin.scalar_at(1).unwrap(), Scalar::from("string2"));
     }
 
     #[test]

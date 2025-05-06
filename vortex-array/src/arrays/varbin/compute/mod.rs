@@ -2,8 +2,7 @@ pub use min_max::compute_min_max;
 
 use crate::Array;
 use crate::arrays::VarBinEncoding;
-use crate::arrays::varbin::{VarBinArray, varbin_scalar};
-use crate::compute::{ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 mod cast;

@@ -1,8 +1,6 @@
 use crate::Array;
 use crate::arrays::PrimitiveEncoding;
-use crate::compute::{
-    NaNCountFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, UncompressedSizeFn,
-};
+use crate::compute::{NaNCountFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 mod between;

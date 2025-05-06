@@ -59,7 +59,6 @@ mod mask;
 mod min_max;
 mod nan_count;
 mod numeric;
-mod scalar_at;
 mod search_sorted;
 mod sum;
 mod take;

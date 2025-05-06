@@ -118,7 +118,6 @@ pub fn decompress(array: &ALPArray) -> VortexResult<PrimitiveArray> {
 mod tests {
     use core::f64;
 
-    use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
     use vortex_scalar::Scalar;
@@ -187,19 +186,10 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         let decoded = decompress(&encoded).unwrap();
-        assert_eq!(
-            scalar_at(&decoded, 0).unwrap(),
-            scalar_at(&array, 0).unwrap()
-        );
-        assert_eq!(
-            scalar_at(&decoded, 1).unwrap(),
-            scalar_at(&array, 1).unwrap()
-        );
+        assert_eq!(decoded.scalar_at(0).unwrap(), array.scalar_at(0).unwrap());
+        assert_eq!(decoded.scalar_at(1).unwrap(), array.scalar_at(1).unwrap());
         assert!(!decoded.is_valid(2).unwrap());
-        assert_eq!(
-            scalar_at(&decoded, 3).unwrap(),
-            scalar_at(&array, 3).unwrap()
-        );
+        assert_eq!(decoded.scalar_at(3).unwrap(), array.scalar_at(3).unwrap());
     }
 
     #[test]
@@ -218,12 +208,12 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         for idx in 0..3 {
-            let s = scalar_at(&encoded, idx).unwrap();
+            let s = encoded.scalar_at(idx).unwrap();
             assert!(s.is_valid());
         }
 
         assert!(!encoded.is_valid(4).unwrap());
-        let s = scalar_at(&encoded, 4).unwrap();
+        let s = encoded.scalar_at(4).unwrap();
         assert!(s.is_null());
 
         let _decoded = decompress(&encoded).unwrap();
@@ -251,18 +241,9 @@ mod tests {
             decompressed.as_slice::<f64>()
         );
         assert_eq!(original.validity(), decompressed.validity());
-        assert_eq!(
-            scalar_at(&original, 0).unwrap(),
-            Scalar::null_typed::<f64>()
-        );
-        assert_eq!(
-            scalar_at(&original, 1).unwrap(),
-            Scalar::null_typed::<f64>()
-        );
-        assert_eq!(
-            scalar_at(&original, 2).unwrap(),
-            Scalar::null_typed::<f64>()
-        );
+        assert_eq!(original.scalar_at(0).unwrap(), Scalar::null_typed::<f64>());
+        assert_eq!(original.scalar_at(1).unwrap(), Scalar::null_typed::<f64>());
+        assert_eq!(original.scalar_at(2).unwrap(), Scalar::null_typed::<f64>());
     }
 
     #[test]

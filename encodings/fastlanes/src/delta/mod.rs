@@ -5,7 +5,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{ComputeVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, Encoding, ProstMetadata,
@@ -18,7 +18,6 @@ use vortex_mask::Mask;
 use crate::delta::serde::DeltaMetadata;
 
 mod compress;
-mod compute;
 mod ops;
 mod serde;
 
@@ -279,3 +278,5 @@ impl ArrayVariantsImpl for DeltaArray {
 }
 
 impl PrimitiveArrayTrait for DeltaArray {}
+
+impl ComputeVTable for DeltaEncoding {}

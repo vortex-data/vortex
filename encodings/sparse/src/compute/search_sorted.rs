@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 
 use vortex_array::Array;
-use vortex_array::compute::{
-    SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, scalar_at,
-};
+use vortex_array::compute::{SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -78,11 +76,11 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
             // If fill value is present in patches this would be the index of the next or previous value after the fill value depending on the side
             SearchResult::Found(_) => match side {
                 SearchSortedSide::Left => {
-                    usize::try_from(&scalar_at(array.patches().indices(), fill_index - 1)?)? + 1
+                    usize::try_from(&array.patches().indices().scalar_at(fill_index - 1)?)? + 1
                 }
                 SearchSortedSide::Right => {
                     if fill_index < array.patches().num_patches() {
-                        usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?
+                        usize::try_from(&array.patches().indices().scalar_at(fill_index)?)?
                     } else {
                         fill_result_index
                     }
@@ -92,7 +90,7 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
             // This will then be min/maxed with result of searching for value in patches
             SearchResult::NotFound(_) => {
                 if fill_index < array.patches().num_patches() {
-                    usize::try_from(&scalar_at(array.patches().indices(), fill_index)?)?
+                    usize::try_from(&array.patches().indices().scalar_at(fill_index)?)?
                 } else {
                     fill_result_index
                 }

@@ -6,10 +6,13 @@ use vortex_array::{
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical,
     try_from_array_ref,
 };
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
+use vortex_scalar::{PrimitiveScalar, Scalar};
+use zigzag::ZigZag as ExternalZigZag;
 
+use crate::compute::ZigZagEncoded;
 use crate::zigzag_decode;
 
 #[derive(Clone, Debug)]
@@ -82,6 +85,27 @@ impl ArrayOperationsImpl for ZigZagArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ZigZagArray::try_new(self.encoded().slice(start, stop)?)?.into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        let scalar = self.encoded().scalar_at(index)?;
+        if scalar.is_null() {
+            return Ok(scalar.reinterpret_cast(self.ptype()));
+        }
+
+        let pscalar = PrimitiveScalar::try_from(&scalar)?;
+        match_each_unsigned_integer_ptype!(pscalar.ptype(), |$P| {
+            Ok(Scalar::primitive(
+                <<$P as ZigZagEncoded>::Int>::decode(pscalar.typed_value::<$P>().ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot decode provided scalar: expected {}, got ptype {}",
+                        std::any::type_name::<$P>(),
+                        pscalar.ptype()
+                    )
+                })?),
+                self.dtype().nullability(),
+            ))
+        })
+    }
 }
 
 impl ArrayStatisticsImpl for ZigZagArray {
@@ -119,7 +143,6 @@ impl PrimitiveArrayTrait for ZigZagArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::compute::scalar_at;
     use vortex_array::vtable::EncodingVTable;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
@@ -147,7 +170,7 @@ mod test {
 
         let sliced = ZigZagArray::try_from(zigzag.slice(0, 2).unwrap()).unwrap();
         assert_eq!(
-            scalar_at(&sliced, sliced.len() - 1).unwrap(),
+            sliced.scalar_at(sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)
         );
 

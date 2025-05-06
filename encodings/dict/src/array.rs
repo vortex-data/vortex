@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{cast, scalar_at, take, take_into};
+use vortex_array::compute::{cast, take, take_into};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
@@ -127,7 +127,7 @@ impl ArrayCanonicalImpl for DictArray {
 
 impl ArrayValidityImpl for DictArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        let scalar = scalar_at(self.codes(), index).map_err(|err| {
+        let scalar = self.codes().scalar_at(index).map_err(|err| {
             err.with_context(format!(
                 "Failed to get index {} from DictArray codes",
                 index

@@ -1,9 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{
-    IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted, scalar_at,
-};
+use crate::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
 use crate::{Array, register_kernel};
 
 impl IsSortedKernel for ChunkedEncoding {
@@ -30,8 +28,8 @@ fn is_sorted_impl(
             continue;
         }
 
-        let first = scalar_at(chunk, 0)?;
-        let last = scalar_at(chunk, chunk.len() - 1)?;
+        let first = chunk.scalar_at(0)?;
+        let last = chunk.scalar_at(chunk.len() - 1)?;
 
         first_last.push((first, last));
     }

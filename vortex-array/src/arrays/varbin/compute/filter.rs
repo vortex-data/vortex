@@ -191,7 +191,6 @@ mod test {
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
     };
-    use crate::compute::scalar_at;
     use crate::validity::Validity;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
@@ -211,8 +210,8 @@ mod test {
         let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2).unwrap();
 
         assert_eq!(buf.len(), 2);
-        assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
-        assert_eq!(scalar_at(&buf, 1).unwrap(), "filter".into());
+        assert_eq!(buf.scalar_at(0).unwrap(), "hello".into());
+        assert_eq!(buf.scalar_at(1).unwrap(), "filter".into());
     }
 
     #[test]
@@ -231,9 +230,9 @@ mod test {
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3).unwrap();
 
         assert_eq!(buf.len(), 3);
-        assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
-        assert_eq!(scalar_at(&buf, 1).unwrap(), "filter".into());
-        assert_eq!(scalar_at(&buf, 2).unwrap(), "filter3".into());
+        assert_eq!(buf.scalar_at(0).unwrap(), "hello".into());
+        assert_eq!(buf.scalar_at(1).unwrap(), "filter".into());
+        assert_eq!(buf.scalar_at(2).unwrap(), "filter3".into());
     }
 
     #[test]
@@ -261,11 +260,11 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 5);
 
-        assert_eq!(scalar_at(&buf, 0).unwrap(), nullable_scalar_str("one"));
-        assert_eq!(scalar_at(&buf, 1).unwrap(), null);
-        assert_eq!(scalar_at(&buf, 2).unwrap(), nullable_scalar_str("three"));
-        assert_eq!(scalar_at(&buf, 3).unwrap(), nullable_scalar_str("five"));
-        assert_eq!(scalar_at(&buf, 4).unwrap(), nullable_scalar_str("six"));
+        assert_eq!(buf.scalar_at(0).unwrap(), nullable_scalar_str("one"));
+        assert_eq!(buf.scalar_at(1).unwrap(), null);
+        assert_eq!(buf.scalar_at(2).unwrap(), nullable_scalar_str("three"));
+        assert_eq!(buf.scalar_at(3).unwrap(), nullable_scalar_str("five"));
+        assert_eq!(buf.scalar_at(4).unwrap(), nullable_scalar_str("six"));
     }
 
     #[test]
@@ -284,8 +283,8 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);
 
-        assert_eq!(scalar_at(&buf, 0).unwrap(), null);
-        assert_eq!(scalar_at(&buf, 1).unwrap(), nullable_scalar_str("two"));
+        assert_eq!(buf.scalar_at(0).unwrap(), null);
+        assert_eq!(buf.scalar_at(1).unwrap(), nullable_scalar_str("two"));
     }
 
     #[test]
@@ -305,7 +304,7 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);
 
-        assert_eq!(scalar_at(&buf, 0).unwrap(), null);
-        assert_eq!(scalar_at(&buf, 1).unwrap(), null);
+        assert_eq!(buf.scalar_at(0).unwrap(), null);
+        assert_eq!(buf.scalar_at(1).unwrap(), null);
     }
 }

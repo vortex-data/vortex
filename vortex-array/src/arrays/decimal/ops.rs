@@ -52,7 +52,6 @@ mod tests {
 
     use crate::Array;
     use crate::arrays::DecimalArray;
-    use crate::compute::scalar_at;
     use crate::validity::Validity;
 
     #[test]
@@ -93,7 +92,7 @@ mod tests {
         );
 
         assert_eq!(
-            scalar_at(&array, 0).unwrap(),
+            array.scalar_at(0).unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),
                 DecimalDType::new(3, 2),

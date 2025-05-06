@@ -1,5 +1,5 @@
 use vortex_array::Array;
-use vortex_array::compute::{ScalarAtFn, SearchSortedFn, TakeFn};
+use vortex_array::compute::{ SearchSortedFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
 
 use crate::BitPackedEncoding;
@@ -7,15 +7,10 @@ use crate::BitPackedEncoding;
 mod between;
 mod filter;
 mod is_constant;
-mod scalar_at;
 mod search_sorted;
 mod take;
 
 impl ComputeVTable for BitPackedEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }

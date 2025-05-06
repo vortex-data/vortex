@@ -5,21 +5,16 @@ pub(crate) mod filter;
 mod invert;
 mod is_sorted;
 mod min_max;
-mod scalar_at;
 pub(crate) mod take;
 mod take_from;
 
 use vortex_array::Array;
-use vortex_array::compute::{ScalarAtFn, TakeFn, TakeFromFn};
+use vortex_array::compute::{TakeFn, TakeFromFn};
 use vortex_array::vtable::ComputeVTable;
 
 use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }

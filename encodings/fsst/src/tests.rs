@@ -1,5 +1,5 @@
 use vortex_array::arrays::builder::VarBinBuilder;
-use vortex_array::compute::{filter, scalar_at, take};
+use vortex_array::compute::{filter, take};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
@@ -10,7 +10,7 @@ use crate::{FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!(scalar_at(&$arr, $n).unwrap(), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
     };
 }
 
@@ -100,8 +100,8 @@ fn test_fsst_array_ops() {
 
     for i in 0..fsst_array.len() {
         assert_eq!(
-            scalar_at(&fsst_array, i).unwrap(),
-            scalar_at(&canonical_array, i).unwrap(),
+            fsst_array.scalar_at(i).unwrap(),
+            canonical_array.scalar_at(i).unwrap(),
         );
     }
 }

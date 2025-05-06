@@ -3,8 +3,9 @@ use std::cmp::max;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
-use crate::BitPackedArray;
+use crate::{BitPackedArray, unpack_single};
 
 impl ArrayOperationsImpl for BitPackedArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -35,13 +36,27 @@ impl ArrayOperationsImpl for BitPackedArray {
         }
         .map(|a| a.into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        if let Some(patches) = self.patches() {
+            if let Some(patch) = patches.get_patched(index)? {
+                return Ok(patch);
+            }
+        }
+        unpack_single(self, index)?.cast(self.dtype())
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, take};
+    use vortex_array::compute::take;
+    use vortex_array::patches::Patches;
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray};
+    use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
+    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_scalar::Scalar;
 
     use crate::BitPackedArray;
 
@@ -51,8 +66,8 @@ mod test {
             BitPackedArray::encode(&PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)), 6)
                 .unwrap();
         let sliced = BitPackedArray::try_from(arr.slice(1024, 2048).unwrap()).unwrap();
-        assert_eq!(scalar_at(&sliced, 0).unwrap(), (1024u32 % 64).into());
-        assert_eq!(scalar_at(&sliced, 1023).unwrap(), (2047u32 % 64).into());
+        assert_eq!(sliced.scalar_at(0).unwrap(), (1024u32 % 64).into());
+        assert_eq!(sliced.scalar_at(1023).unwrap(), (2047u32 % 64).into());
         assert_eq!(sliced.offset(), 0);
         assert_eq!(sliced.len(), 1024);
     }
@@ -64,8 +79,8 @@ mod test {
                 .unwrap()
                 .into_array();
         let sliced = BitPackedArray::try_from(arr.slice(512, 1434).unwrap()).unwrap();
-        assert_eq!(scalar_at(&sliced, 0).unwrap(), (512u32 % 64).into());
-        assert_eq!(scalar_at(&sliced, 921).unwrap(), (1433u32 % 64).into());
+        assert_eq!(sliced.scalar_at(0).unwrap(), (512u32 % 64).into());
+        assert_eq!(sliced.scalar_at(921).unwrap(), (1433u32 % 64).into());
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
     }
@@ -79,12 +94,9 @@ mod test {
         .unwrap();
 
         let compressed = packed.slice(768, 9999).unwrap();
+        assert_eq!(compressed.scalar_at(0).unwrap(), ((768 % 63) as u8).into());
         assert_eq!(
-            scalar_at(&compressed, 0).unwrap(),
-            ((768 % 63) as u8).into()
-        );
-        assert_eq!(
-            scalar_at(&compressed, compressed.len() - 1).unwrap(),
+            compressed.scalar_at(compressed.len() - 1).unwrap(),
             ((9998 % 63) as u8).into()
         );
     }
@@ -98,12 +110,9 @@ mod test {
         .unwrap();
 
         let compressed = packed.slice(7168, 9216).unwrap();
+        assert_eq!(compressed.scalar_at(0).unwrap(), ((7168 % 63) as u8).into());
         assert_eq!(
-            scalar_at(&compressed, 0).unwrap(),
-            ((7168 % 63) as u8).into()
-        );
-        assert_eq!(
-            scalar_at(&compressed, compressed.len() - 1).unwrap(),
+            compressed.scalar_at(compressed.len() - 1).unwrap(),
             ((9215 % 63) as u8).into()
         );
     }
@@ -115,17 +124,17 @@ mod test {
                 .unwrap()
                 .into_array();
         let sliced = BitPackedArray::try_from(arr.slice(512, 1434).unwrap()).unwrap();
-        assert_eq!(scalar_at(&sliced, 0).unwrap(), (512u32 % 64).into());
-        assert_eq!(scalar_at(&sliced, 921).unwrap(), (1433u32 % 64).into());
+        assert_eq!(sliced.scalar_at(0).unwrap(), (512u32 % 64).into());
+        assert_eq!(sliced.scalar_at(921).unwrap(), (1433u32 % 64).into());
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
         let doubly_sliced = BitPackedArray::try_from(sliced.slice(127, 911).unwrap()).unwrap();
         assert_eq!(
-            scalar_at(&doubly_sliced, 0).unwrap(),
+            doubly_sliced.scalar_at(0).unwrap(),
             ((512u32 + 127) % 64).into()
         );
         assert_eq!(
-            scalar_at(&doubly_sliced, 783).unwrap(),
+            doubly_sliced.scalar_at(783).unwrap(),
             ((512u32 + 910) % 64).into()
         );
         assert_eq!(doubly_sliced.offset(), 639);
@@ -166,5 +175,52 @@ mod test {
 
         let taken = take(&sliced, &PrimitiveArray::from_iter([101i64, 1125, 1138])).unwrap();
         assert_eq!(taken.len(), 3);
+    }
+
+    #[test]
+    fn scalar_at_invalid_patches() {
+        // SAFETY: using unsigned PType
+        let packed_array = unsafe {
+            BitPackedArray::new_unchecked(
+                ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
+                PType::U32,
+                Validity::AllInvalid,
+                Some(Patches::new(
+                    8,
+                    0,
+                    buffer![1u32].into_array(),
+                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                )),
+                1,
+                8,
+            )
+        }
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            packed_array.scalar_at(1).unwrap(),
+            Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
+        );
+    }
+
+    #[test]
+    fn scalar_at() {
+        let values = (0u32..257).collect::<Buffer<_>>();
+        let uncompressed = values.clone().into_array();
+        let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
+        assert!(packed.patches().is_some());
+
+        let patches = packed.patches().unwrap().indices().clone();
+        assert_eq!(
+            usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
+            256
+        );
+
+        values.iter().enumerate().for_each(|(i, v)| {
+            assert_eq!(
+                u32::try_from(packed.scalar_at(i).unwrap().as_ref()).unwrap(),
+                *v
+            );
+        });
     }
 }

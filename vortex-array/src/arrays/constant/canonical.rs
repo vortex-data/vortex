@@ -218,7 +218,6 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsProviderExt, StatsSet};
 
     #[test]
@@ -226,7 +225,7 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(scalar_at(&actual, 33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -239,7 +238,7 @@ mod tests {
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(scalar_at(&canonical, i).unwrap(), "four".into());
+            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
         }
     }
 
@@ -274,8 +273,8 @@ mod tests {
         );
         let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
         let canonical_const = const_array.to_primitive().unwrap();
-        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), scalar);
-        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), f16_scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
     }
 
     #[test]

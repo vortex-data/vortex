@@ -6,7 +6,7 @@ use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
-    MinMaxKernelAdapter, MinMaxResult, ScalarAtFn, TakeFn, UncompressedSizeFn,
+    MinMaxKernelAdapter, MinMaxResult, TakeFn, UncompressedSizeFn,
 };
 use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
@@ -78,7 +78,7 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::null::NullArray;
-    use crate::compute::{scalar_at, take};
+    use crate::compute::take;
     use crate::{ArrayExt, IntoArray};
 
     #[test]
@@ -106,7 +106,7 @@ mod test {
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = scalar_at(&nulls, 0).unwrap();
+        let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

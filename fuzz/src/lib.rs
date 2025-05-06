@@ -17,7 +17,7 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::{Operator, SearchResult, SearchSortedSide, scalar_at};
+use vortex_array::compute::{Operator, SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;

@@ -132,7 +132,7 @@ mod test {
     use rand::distr::Uniform;
     use rand::{Rng, rng};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, take};
+    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, buffer};
@@ -201,11 +201,11 @@ mod test {
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(scalar_at(&packed, *i as usize).unwrap().as_ref()).unwrap(),
+                    u32::try_from(&packed.scalar_at(*i as usize).unwrap()).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
-                    u32::try_from(scalar_at(&taken, ti).unwrap().as_ref()).unwrap(),
+                    u32::try_from(&taken.scalar_at(ti).unwrap()).unwrap(),
                     values[*i as usize]
                 );
             });

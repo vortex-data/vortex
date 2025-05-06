@@ -45,13 +45,12 @@ impl ArrayOperationsImpl for ChunkedArray {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, NativePType, Nullability, Nullability, PType, PType};
+    use vortex_dtype::{DType, NativePType, Nullability, PType};
 
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, PrimitiveArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::canonical::ToCanonical;
-    use crate::compute::scalar_at;
-    use crate::{Array, ArrayExt, IntoArray};
+    use crate::{ArrayExt, IntoArray};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -132,8 +131,8 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
     }
 
     #[test]
@@ -148,10 +147,10 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
-        assert_eq!(scalar_at(&array, 2).unwrap(), 3u64.into());
-        assert_eq!(scalar_at(&array, 3).unwrap(), 4u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
     }
 
     #[test]
@@ -166,9 +165,9 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(scalar_at(&array, 0).unwrap(), 1u64.into());
-        assert_eq!(scalar_at(&array, 1).unwrap(), 2u64.into());
-        assert_eq!(scalar_at(&array, 2).unwrap(), 3u64.into());
-        assert_eq!(scalar_at(&array, 3).unwrap(), 4u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
     }
 }

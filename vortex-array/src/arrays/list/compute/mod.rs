@@ -1,15 +1,12 @@
 mod mask;
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use crate::arrays::{ListArray, ListEncoding, StructArray, StructEncoding};
+use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
-    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, ScalarAtFn,
-    UncompressedSizeFn, scalar_at, uncompressed_size,
+    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, UncompressedSizeFn,
+    uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, register_kernel};
@@ -17,19 +14,6 @@ use crate::{Array, register_kernel};
 impl ComputeVTable for ListEncoding {
     fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&ListArray> for ListEncoding {
-    fn scalar_at(&self, array: &ListArray, index: usize) -> VortexResult<Scalar> {
-        let elem = array.elements_at(index)?;
-        let scalars: Vec<Scalar> = (0..elem.len()).map(|i| scalar_at(&elem, i)).try_collect()?;
-
-        Ok(Scalar::list(
-            Arc::new(elem.dtype().clone()),
-            scalars,
-            array.dtype().nullability(),
-        ))
     }
 }
 

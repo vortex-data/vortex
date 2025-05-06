@@ -8,7 +8,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -227,14 +226,7 @@ pub fn search_sorted<T: Into<Scalar>>(
     }
 
     // Fallback to a generic search_sorted using scalar_at
-    if array.vtable().scalar_at_fn().is_some() {
-        return Ok(SearchSorted::search_sorted(array, &scalar, side));
-    }
-
-    vortex_bail!(
-        NotImplemented: "search_sorted",
-        array.encoding()
-    )
+    Ok(SearchSorted::search_sorted(array, &scalar, side))
 }
 
 pub fn search_sorted_usize(
@@ -257,19 +249,13 @@ pub fn search_sorted_usize(
     }
 
     // Or fallback all the way to a generic search_sorted using scalar_at
-    if array.vtable().scalar_at_fn().is_some() {
-        // Try to downcast the usize to the array type, if the downcast fails, then we know the
-        // usize is too large and the value is greater than the highest value in the array.
-        let Ok(target) = target.cast(array.dtype()) else {
-            return Ok(SearchResult::NotFound(array.len()));
-        };
-        return Ok(SearchSorted::search_sorted(array, &target, side));
-    }
 
-    vortex_bail!(
-    NotImplemented: "search_sorted_usize",
-        array.encoding()
-    )
+    // Try to downcast the usize to the array type, if the downcast fails, then we know the
+    // usize is too large and the value is greater than the highest value in the array.
+    let Ok(target) = target.cast(array.dtype()) else {
+        return Ok(SearchResult::NotFound(array.len()));
+    };
+    Ok(SearchSorted::search_sorted(array, &target, side))
 }
 
 /// Search for many elements in the array.
@@ -478,7 +464,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
 
 impl IndexOrd<Scalar> for dyn Array + '_ {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> Option<Ordering> {
-        let scalar_a = scalar_at(self, idx).ok()?;
+        let scalar_a = self.scalar_at(idx).ok()?;
         scalar_a.partial_cmp(elem)
     }
 

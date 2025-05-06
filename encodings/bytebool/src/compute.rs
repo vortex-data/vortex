@@ -1,20 +1,15 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, ScalarAtFn, TakeFn};
+use vortex_array::compute::{MaskKernel, MaskKernelAdapter, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
@@ -27,15 +22,6 @@ impl MaskKernel for ByteBoolEncoding {
 }
 
 register_kernel!(MaskKernelAdapter(ByteBoolEncoding).lift());
-
-impl ScalarAtFn<&ByteBoolArray> for ByteBoolEncoding {
-    fn scalar_at(&self, array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(
-            array.buffer()[index] == 1,
-            array.dtype().nullability(),
-        ))
-    }
-}
 
 impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -86,7 +72,7 @@ impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at};
+    use vortex_array::compute::{Operator, compare};
 
     use super::*;
 
@@ -98,15 +84,15 @@ mod tests {
         let sliced_arr = vortex_arr.slice(1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
 
-        let s = scalar_at(&sliced_arr, 0).unwrap();
+        let s = sliced_arr.scalar_at(0).unwrap();
         assert_eq!(s.as_bool().value(), Some(true));
 
-        let s = scalar_at(&sliced_arr, 1).unwrap();
+        let s = sliced_arr.scalar_at(1).unwrap();
         assert!(!sliced_arr.is_valid(1).unwrap());
         assert!(s.is_null());
         assert_eq!(s.as_bool().value(), None);
 
-        let s = scalar_at(&sliced_arr, 2).unwrap();
+        let s = sliced_arr.scalar_at(2).unwrap();
         assert_eq!(s.as_bool().value(), Some(false));
     }
 
@@ -118,7 +104,7 @@ mod tests {
         let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = scalar_at(&arr, i).unwrap();
+            let s = arr.scalar_at(i).unwrap();
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(true));
         }
@@ -132,7 +118,7 @@ mod tests {
         let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = scalar_at(&arr, i).unwrap();
+            let s = arr.scalar_at(i).unwrap();
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(false));
         }
@@ -146,16 +132,16 @@ mod tests {
         let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
 
         for i in 0..3 {
-            let s = scalar_at(&arr, i).unwrap();
+            let s = arr.scalar_at(i).unwrap();
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(true));
         }
 
-        let s = scalar_at(&arr, 3).unwrap();
+        let s = arr.scalar_at(3).unwrap();
         assert!(s.is_valid());
         assert_eq!(s.as_bool().value(), Some(false));
 
-        let s = scalar_at(&arr, 4).unwrap();
+        let s = arr.scalar_at(4).unwrap();
         assert!(s.is_null());
     }
 

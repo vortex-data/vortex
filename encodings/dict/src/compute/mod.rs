@@ -6,31 +6,17 @@ mod is_sorted;
 mod like;
 mod min_max;
 
-use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, ScalarAtFn, TakeFn, filter, scalar_at, take,
-};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, TakeFn, filter, take};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
-    }
-}
-
-impl ScalarAtFn<&DictArray> for DictEncoding {
-    fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
-        let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
-        scalar_at(array.values(), dict_index)
     }
 }
 
@@ -55,7 +41,7 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare, scalar_at};
+    use vortex_array::compute::{Operator, compare};
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -159,15 +145,15 @@ mod test {
         let compared = compare(&sliced, &ConstantArray::new(42, 3), Operator::Eq).unwrap();
 
         assert_eq!(
-            scalar_at(&compared, 0).unwrap(),
+            compared.scalar_at(0).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            scalar_at(&compared, 1).unwrap(),
+            compared.scalar_at(1).unwrap(),
             Scalar::null(DType::Bool(Nullability::Nullable))
         );
         assert_eq!(
-            scalar_at(&compared, 2).unwrap(),
+            compared.scalar_at(2).unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
     }

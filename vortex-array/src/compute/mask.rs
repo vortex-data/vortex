@@ -22,7 +22,7 @@ use crate::{Array, ArrayRef};
 /// ```
 /// use vortex_array::IntoArray;
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// use vortex_array::compute::{scalar_at, mask};
+/// use vortex_array::compute::{ mask};
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;
 ///
@@ -37,7 +37,7 @@ use crate::{Array, ArrayRef};
 /// assert_eq!(masked.len(), 5);
 /// assert!(!masked.is_valid(0).unwrap());
 /// assert!(!masked.is_valid(1).unwrap());
-/// assert_eq!(scalar_at(&masked, 2).unwrap(), Scalar::from(Some(1)));
+/// assert_eq!(masked.scalar_at(2).unwrap(), Scalar::from(Some(1)));
 /// assert!(!masked.is_valid(3).unwrap());
 /// assert!(!masked.is_valid(4).unwrap());
 /// ```

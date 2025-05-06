@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::arrays::BoolEncoding;
-use crate::compute::{ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 mod cast;

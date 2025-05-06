@@ -33,9 +33,9 @@ use crate::{ExprRef, VortexExpr};
 ///     .unwrap()
 ///     .maybe_null_field_by_name("x copy")
 ///     .unwrap();
-/// assert_eq!(scalar_at(&x_copy, 0).unwrap(), Scalar::from(100));
-/// assert_eq!(scalar_at(&x_copy, 1).unwrap(), Scalar::from(110));
-/// assert_eq!(scalar_at(&x_copy, 2).unwrap(), Scalar::from(200));
+/// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
+/// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
+/// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
 /// ```
 ///
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

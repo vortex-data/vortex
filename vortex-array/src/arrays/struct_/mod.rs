@@ -8,7 +8,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::compute::scalar_at;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
@@ -249,7 +248,7 @@ impl ArrayOperationsImpl for StructArray {
             self.dtype().clone(),
             self.fields()
                 .iter()
-                .map(|field| scalar_at(field, index))
+                .map(|field| field.scalar_at(index))
                 .try_collect()?,
         ))
     }

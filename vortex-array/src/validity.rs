@@ -10,7 +10,7 @@ use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray};
-use crate::compute::{fill_null, filter, scalar_at, take};
+use crate::compute::{fill_null, filter, take};
 use crate::patches::Patches;
 use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
@@ -113,7 +113,7 @@ impl Validity {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => {
-                let scalar = scalar_at(a, index)?;
+                let scalar = a.scalar_at(index)?;
                 scalar
                     .as_bool()
                     .value()

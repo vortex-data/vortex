@@ -3,8 +3,8 @@ mod is_constant;
 
 use num_traits::WrappingSub;
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, ScalarAtFn, SearchResult, SearchSortedFn, SearchSortedSide,
-    TakeFn, filter, scalar_at, search_sorted, take,
+    FilterKernel, FilterKernelAdapter, SearchResult, SearchSortedFn, SearchSortedSide, TakeFn,
+    filter, search_sorted, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -17,10 +17,6 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ComputeVTable for FoREncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }
@@ -51,27 +47,6 @@ impl FilterKernel for FoREncoding {
 }
 
 register_kernel!(FilterKernelAdapter(FoREncoding).lift());
-
-impl ScalarAtFn<&FoRArray> for FoREncoding {
-    fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
-        let encoded_pvalue = scalar_at(array.encoded(), index)?.reinterpret_cast(array.ptype());
-        let encoded_pvalue = encoded_pvalue.as_primitive();
-        let reference = array.reference_scalar();
-        let reference = reference.as_primitive();
-
-        Ok(match_each_integer_ptype!(array.ptype(), |$P| {
-            encoded_pvalue
-                .typed_value::<$P>()
-                .map(|v|
-                     v.wrapping_add(
-                         reference
-                             .typed_value::<$P>()
-                             .vortex_expect("FoRArray Reference value cannot be null")))
-                .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
-                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
-        }))
-    }
-}
 
 impl SearchSortedFn<&FoRArray> for FoREncoding {
     fn search_sorted(
@@ -120,24 +95,13 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
     use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
-    use vortex_array::compute::{SearchResult, SearchSortedSide, scalar_at, search_sorted};
+    use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
     use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_error::VortexUnwrap;
 
     use crate::FoRArray;
-
-    #[test]
-    fn for_scalar_at() {
-        let for_arr =
-            FoRArray::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
-        assert_eq!(scalar_at(&for_arr, 0).unwrap(), (-100).into());
-        assert_eq!(scalar_at(&for_arr, 1).unwrap(), 1100.into());
-        assert_eq!(scalar_at(&for_arr, 2).unwrap(), 1500.into());
-        assert_eq!(scalar_at(&for_arr, 3).unwrap(), 1900.into());
-    }
 
     #[apply(search_sorted_conformance)]
     fn for_search_sorted(

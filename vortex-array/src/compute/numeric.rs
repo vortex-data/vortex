@@ -267,7 +267,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{scalar_at, sub_scalar};
+    use crate::compute::sub_scalar;
 
     #[test]
     fn test_scalar_subtract_unsigned() {
@@ -302,7 +302,7 @@ mod test {
             .unwrap();
 
         let actual = (0..result.len())
-            .map(|index| scalar_at(&result, index).unwrap())
+            .map(|index| result.scalar_at(index).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
             actual,

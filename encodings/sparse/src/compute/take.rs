@@ -31,7 +31,7 @@ impl TakeFn<&SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, take};
+    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -60,9 +60,9 @@ mod test {
         let sparse = sparse_array();
         let sparse = sparse.slice(30, 40).unwrap();
         let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
-        assert_eq!(scalar_at(&sparse, 0).unwrap(), test_array_fill_value());
-        assert_eq!(scalar_at(&sparse, 1).unwrap(), Scalar::from(Some(0.47)));
-        assert_eq!(scalar_at(&sparse, 2).unwrap(), test_array_fill_value());
+        assert_eq!(sparse.scalar_at(0).unwrap(), test_array_fill_value());
+        assert_eq!(sparse.scalar_at(1).unwrap(), Scalar::from(Some(0.47)));
+        assert_eq!(sparse.scalar_at(2).unwrap(), test_array_fill_value());
     }
 
     #[test]
@@ -80,7 +80,7 @@ mod test {
         let sparse = sparse_array();
         let taken = take(&sparse, &buffer![69].into_array()).unwrap();
         assert_eq!(taken.len(), 1);
-        assert_eq!(scalar_at(&taken, 0).unwrap(), test_array_fill_value());
+        assert_eq!(taken.scalar_at(0).unwrap(), test_array_fill_value());
     }
 
     #[test]

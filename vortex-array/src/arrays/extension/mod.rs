@@ -6,7 +6,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::compute::scalar_at;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
@@ -100,7 +99,7 @@ impl ArrayOperationsImpl for ExtensionArray {
     fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
             self.ext_dtype().clone(),
-            scalar_at(self.storage(), index)?,
+            self.storage().scalar_at(index)?,
         ))
     }
 }

@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{Operator, compare, invert, scalar_at};
+use crate::compute::{Operator, compare, invert};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
@@ -56,7 +56,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     // If the list array is constant, we perform a single comparison.
     if array.is_constant() && array.len() > 1 {
         let contains = list_contains(&array.slice(0, 1)?, value)?;
-        return Ok(ConstantArray::new(scalar_at(&contains, 0)?, array.len()).into_array());
+        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
     // Canonicalize to a list array.
@@ -157,7 +157,7 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// ```rust
 /// use vortex_array::arrays::{ListArray, VarBinArray};
 /// use vortex_array::{Array, IntoArray};
-/// use vortex_array::compute::{list_elem_len, scalar_at};
+/// use vortex_array::compute::{list_elem_len};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_dtype::DType;
@@ -168,9 +168,9 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
 /// let lens = list_elem_len(&list_array).unwrap();
-/// assert_eq!(scalar_at(&lens, 0).unwrap(), 1u32.into());
-/// assert_eq!(scalar_at(&lens, 1).unwrap(), 2u32.into());
-/// assert_eq!(scalar_at(&lens, 2).unwrap(), 2u32.into());
+/// assert_eq!(lens.scalar_at(0).unwrap(), 1u32.into());
+/// assert_eq!(lens.scalar_at(1).unwrap(), 2u32.into());
+/// assert_eq!(lens.scalar_at(2).unwrap(), 2u32.into());
 /// ```
 pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::List(..)) {
@@ -180,7 +180,7 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
     // Short-circuit for constant list arrays.
     if array.is_constant() && array.len() > 1 {
         let elem_lens = list_elem_len(&array.slice(0, 1)?)?;
-        return Ok(ConstantArray::new(scalar_at(&elem_lens, 0)?, array.len()).into_array());
+        return Ok(ConstantArray::new(elem_lens.scalar_at(0)?, array.len()).into_array());
     }
 
     let list_array = array.to_list()?;

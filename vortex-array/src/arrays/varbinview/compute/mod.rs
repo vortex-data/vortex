@@ -11,7 +11,7 @@ use super::BinaryView;
 use crate::Array;
 use crate::arrays::VarBinViewEncoding;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::compute::{IsSortedFn, MinMaxFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for VarBinViewEncoding {
