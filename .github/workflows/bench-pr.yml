@@ -54,7 +54,7 @@ jobs:
 
       # TODO(joe): remove ninja once duckdb is not built by the benchmark
       - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip ninja
+        run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
 
       - name: Build binary
         shell: bash
