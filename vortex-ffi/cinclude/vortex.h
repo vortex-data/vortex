@@ -94,15 +94,14 @@ typedef struct vx_dtype vx_dtype;
  */
 typedef struct vx_array vx_array;
 
+typedef struct vx_array_sink vx_array_sink;
+
 /**
  * FFI-exposed stream interface.
  */
 typedef struct vx_array_stream vx_array_stream;
 
-/**
- * An array stream sink writing all values into file path used in creation.
- */
-typedef struct vx_array_stream_file_sink vx_array_stream_file_sink;
+typedef struct vx_array_stream_writer vx_array_stream_writer;
 
 #if defined(ENABLE_DUCKDB_FFI)
 typedef struct vx_conversion_cache vx_conversion_cache;
@@ -171,6 +170,14 @@ typedef struct vx_file_scan_options {
    */
   int split_by_row_count;
 } vx_file_scan_options;
+
+/**
+ * An array stream sink writing all values into file path used in creation.
+ */
+typedef struct vx_array_stream_sink {
+  struct vx_array_sink sink;
+  struct vx_array_stream stream;
+} vx_array_stream_sink;
 
 
 
@@ -380,24 +387,18 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
 void vx_file_reader_free(struct vx_file_reader *file);
 
 /**
- * Opens an array stream
+ * Given an path to a (non-existent file) and an array stream, this function
+ * writes the stream to the file.
  */
-struct vx_array_stream_file_sink *vx_array_stream_file_sink_open(const char *path,
-                                                                 const struct vx_dtype *dtype,
-                                                                 struct vx_error **error);
+struct vx_array_stream_writer *vx_array_stream_file_writer_open(const char *path,
+                                                                struct vx_array_stream *stream,
+                                                                struct vx_error **error);
 
 /**
- * Pushed a single array chunk into a file sink.
+ * Writer an array stream writer await the writing of the file to disk, returning any errors.
+ * *Note*: This function will only return when the inner array stream has been exhausted.
  */
-void vx_array_stream_file_sink_push_array(struct vx_array_stream_file_sink *array_stream,
-                                          const struct vx_array *array,
-                                          struct vx_error **error);
-
-/**
- * Closes a array stream ensuring that all array pushed into the sink are written to the file.
- */
-void vx_array_stream_file_sink_close(struct vx_array_stream_file_sink *array_stream,
-                                     struct vx_error **error);
+void vx_array_stream_writer_close(struct vx_array_stream_writer *writer, struct vx_error **error);
 
 /**
  * Initialize native logging with the specified level.
@@ -406,6 +407,21 @@ void vx_array_stream_file_sink_close(struct vx_array_stream_file_sink *array_str
  * logger will be installed.
  */
 void vx_init_logging(enum vx_log_level level);
+
+struct vx_array_stream_sink *vx_array_stream_sink_create(const struct vx_dtype *dtype,
+                                                         struct vx_error **error);
+
+/**
+ * Pushed a single array chunk into a file sink.
+ */
+void vx_array_sink_push(struct vx_array_sink *sink,
+                        const struct vx_array *array,
+                        struct vx_error **error);
+
+/**
+ * Closes an array sink.
+ */
+void vx_array_sink_close(struct vx_array_stream_sink *sink);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

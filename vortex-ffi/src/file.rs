@@ -1,6 +1,7 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
+use std::ptr::null_mut;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
@@ -13,6 +14,7 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use tokio::fs::File;
+use tokio::task::JoinHandle;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -204,6 +206,12 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     })
 }
 
+#[allow(non_camel_case_types)]
+struct vx_array_stream_writer {
+    // To support other writes use an enum of writers here.
+    writer: JoinHandle<VortexResult<File>>,
+}
+
 /// Free the file and all associated resources.
 ///
 /// This function will not automatically free any :c:func:`vx_array_stream` that were built from
@@ -211,6 +219,43 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
     drop(Box::from_raw(file));
+}
+
+/// Given an path to a (non-existent file) and an array stream, this function
+/// writes the stream to the file.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_stream_file_writer_open(
+    path: *const c_char,
+    stream: *mut vx_array_stream,
+    error: *mut *mut vx_error,
+) -> *mut vx_array_stream_writer {
+    try_or(error, null_mut(), || {
+        let stream = unsafe { stream.as_ref() }.expect("null array stream");
+        let path = unsafe { CStr::from_ptr(path) }.to_str()?;
+        let file = RUNTIME.block_on(File::create(path))?;
+
+        let writer = RUNTIME.spawn(VortexWriteOptions::default().write(file, stream));
+
+        Ok(Box::into_raw(Box::new(vx_array_stream_writer { writer })))
+    })
+}
+
+/// Writer an array stream writer await the writing of the file to disk, returning any errors.
+/// *Note*: This function will only return when the inner array stream has been exhausted.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_stream_writer_close(
+    writer: *mut vx_array_stream_writer,
+    error: *mut *mut vx_error,
+) {
+    try_or(error, (), || {
+        let writer = unsafe { writer.as_ref() }.expect("null writer");
+
+        RUNTIME.block_on(async {
+            let file = writer.await??;
+            file.sync_all().await?;
+            VortexResult::Ok(())
+        })
+    })
 }
 
 fn make_object_store(
