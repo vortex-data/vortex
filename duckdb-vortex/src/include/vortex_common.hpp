@@ -69,7 +69,7 @@ struct VortexFileReader {
 		return duckdb::make_uniq<VortexFileReader>(file);
 	}
 
-	DType DType() {
+	struct DType DType() {
 		return ::DType(vx_file_dtype(file), false);
 	}
 
