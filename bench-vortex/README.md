@@ -46,5 +46,5 @@ Failed to compress to parquet: No such file or directory (os error 2)
 You likely do not have the required packages installed. On macOS, try this:
 
 ```
-brew install duckdb cmake ninja  pkg-config 
+brew install duckdb cmake ninja pkg-config 
 ```
