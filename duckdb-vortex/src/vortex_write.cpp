@@ -23,7 +23,7 @@ struct VortexWriteBindData : public TableFunctionData {
 struct VortexWriteGlobalData : public GlobalFunctionData {
 	std::string file_name;
 	std::unique_ptr<VortexFileReader> file;
-	unique_ptr<ArrayStreamFileSink> sink;
+	unique_ptr<ArrayStreamSink> sink;
 };
 
 struct VortexWriteLocalData : public LocalFunctionData {};
@@ -102,7 +102,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		}
 
 		auto dtype = DType::FromDuckDBTable(column_types, bind.column_nullable, column_names);
-		gstate->sink = ArrayStreamFileSink::Open(file_path, std::move(dtype));
+		gstate->sink = ArrayStreamSink::Create(file_path, std::move(dtype));
 		return std::move(gstate);
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,

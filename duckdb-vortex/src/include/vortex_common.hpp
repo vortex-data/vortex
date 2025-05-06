@@ -9,8 +9,6 @@
 struct DType {
 	explicit DType(vx_dtype *dtype): dtype(dtype) {}
 
-	DType(const vx_dtype *dtype, bool owned): dtype(const_cast<vx_dtype *>(dtype)), owned(owned) {}
-
 	static duckdb::unique_ptr<DType> FromDuckDBTable(
 		std::vector<duckdb_logical_type> column_types,
 		std::vector<unsigned char> column_nullable,
@@ -34,13 +32,12 @@ struct DType {
 
 
 	~DType() {
-		if (owned && dtype != nullptr) {
+		if (dtype != nullptr) {
 			vx_dtype_free(dtype);
 		}
 	}
 
 	vx_dtype *dtype;
-	bool owned = true;
 };
 
 struct VortexConversionCache {
@@ -70,7 +67,7 @@ struct VortexFileReader {
 	}
 
 	struct DType DType() {
-		return ::DType(vx_file_dtype(file), false);
+		return ::DType(vx_file_dtype(file));
 	}
 
 	vx_file_reader *file;
@@ -124,37 +121,47 @@ struct VortexArrayStream {
 	vx_array_stream *array_stream;
 };
 
-struct ArrayStreamFileSink {
-	explicit ArrayStreamFileSink(vx_array_stream_file_sink *sink, duckdb::unique_ptr<DType> dtype) : sink(sink), dtype(std::move(dtype)) {
+struct ArrayStreamSink {
+	explicit ArrayStreamSink(vx_array_sink *sink, vx_array_stream_writer *writer, duckdb::unique_ptr<DType> dtype) : sink(sink), writer(writer), dtype(std::move(dtype)) {
 	}
 
-	static duckdb::unique_ptr<ArrayStreamFileSink> Open(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
+	static duckdb::unique_ptr<ArrayStreamSink> Create(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
 	    vx_error *error = nullptr;
-        auto sink = vx_array_stream_file_sink_open(file_path.c_str(), dtype->dtype, &error);
+	    vx_array_sink *sink;
+	    vx_array_stream *stream;
+        vx_array_stream_sink_create(dtype->dtype, &sink, &stream, &error);
         HandleError(error);
-        return duckdb::make_uniq<ArrayStreamFileSink>(sink, std::move(dtype));
+
+        auto writer = vx_array_stream_file_writer_open(file_path.c_str(), stream, &error);
+        HandleError(error);
+
+
+        return duckdb::make_uniq<ArrayStreamSink>(sink, writer, std::move(dtype));
 	}
 
 	void PushChunk(duckdb::DataChunk &chunk) {
 		vx_error *error = nullptr;
 		auto array = VortexArray::FromDuckDBChunk(*dtype, chunk);
-		vx_array_stream_file_sink_push_array(sink, array->array, &error);
+		vx_array_sink_push(sink, array->array, &error);
 		HandleError(error);
 	}
 
 	void Close() {
+		vx_array_sink_close(sink);
 		vx_error *error;
-		vx_array_stream_file_sink_close(sink, &error);
+		vx_array_stream_writer_close(writer, &error);
 		HandleError(error);
+
 		this->sink = nullptr;
 	}
 
-	~ArrayStreamFileSink() {
+	~ArrayStreamSink() {
 		// "should dctor a sink, before closing it
 		D_ASSERT(sink == nullptr);
 	}
 
 
-	vx_array_stream_file_sink* sink;
+	vx_array_sink *sink;
+	vx_array_stream_writer *writer;
 	duckdb::unique_ptr<DType> dtype;
 };

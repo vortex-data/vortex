@@ -1,5 +1,3 @@
-use std::ptr;
-
 use mpsc::Sender;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -12,14 +10,6 @@ use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 
-/// An array stream sink writing all values into file path used in creation.
-#[allow(non_camel_case_types)]
-#[repr(C)]
-pub struct vx_array_stream_sink {
-    pub sink: vx_array_sink,
-    pub stream: vx_array_stream,
-}
-
 #[allow(non_camel_case_types)]
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
@@ -29,21 +19,21 @@ pub struct vx_array_sink {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
     dtype: *const DType,
+    sink_out: *mut *mut vx_array_sink,
+    stream_out: *mut *mut vx_array_stream,
     error: *mut *mut vx_error,
-) -> *mut vx_array_stream_sink {
-    try_or(error, ptr::null_mut(), || {
+) {
+    try_or(error, (), || {
         let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
         let (tx, rx) = mpsc::channel(32);
         let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
-        Ok(Box::into_raw(Box::new(vx_array_stream_sink {
-            sink: vx_array_sink { sink: tx },
-            stream: vx_array_stream {
-                inner: Some(Box::new(ArrayStreamInner {
-                    stream: array_stream.boxed(),
-                })),
-            },
-        })))
+        unsafe {sink_out.write(Box::into_raw( Box::new(vx_array_sink { sink: tx })))};
+        unsafe {stream_out.write(Box::into_raw( Box::new(vx_array_stream {
+            inner: Some(Box::new(ArrayStreamInner {
+                stream: array_stream.boxed(),
+            }))})))};
+        Ok(())
     })
 }
 
@@ -63,6 +53,6 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 
 /// Closes an array sink.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_sink_close(sink: *mut vx_array_stream_sink) {
+pub unsafe extern "C-unwind" fn vx_array_sink_close(sink: *mut vx_array_sink) {
     let _ = Box::from_raw(sink);
 }

@@ -17,7 +17,7 @@ pub struct vx_array_stream {
 
 /// FFI-compatible interface for dealing with a stream array.
 pub struct ArrayStreamInner {
-    pub(crate) stream: Pin<Box<dyn ArrayStream>>,
+    pub(crate) stream: Pin<Box<dyn ArrayStream + Send>>,
 }
 
 /// Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

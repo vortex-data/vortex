@@ -171,14 +171,6 @@ typedef struct vx_file_scan_options {
   int split_by_row_count;
 } vx_file_scan_options;
 
-/**
- * An array stream sink writing all values into file path used in creation.
- */
-typedef struct vx_array_stream_sink {
-  struct vx_array_sink sink;
-  struct vx_array_stream stream;
-} vx_array_stream_sink;
-
 
 
 /**
@@ -364,12 +356,9 @@ struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *fil
 void vx_file_statistics_free(struct vx_file_statistics *stat);
 
 /**
- * Get a readonly pointer to the DType of the data inside of the file.
- *
- * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
- * dereferenced after the file has been freed.
+ * Get the DType of the data inside of the file.
  */
-const struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
+struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
  * Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
@@ -408,8 +397,10 @@ void vx_array_stream_writer_close(struct vx_array_stream_writer *writer, struct 
  */
 void vx_init_logging(enum vx_log_level level);
 
-struct vx_array_stream_sink *vx_array_stream_sink_create(const struct vx_dtype *dtype,
-                                                         struct vx_error **error);
+void vx_array_stream_sink_create(const struct vx_dtype *dtype,
+                                 struct vx_array_sink **sink_out,
+                                 struct vx_array_stream **stream_out,
+                                 struct vx_error **error);
 
 /**
  * Pushed a single array chunk into a file sink.
@@ -421,7 +412,7 @@ void vx_array_sink_push(struct vx_array_sink *sink,
 /**
  * Closes an array sink.
  */
-void vx_array_sink_close(struct vx_array_stream_sink *sink);
+void vx_array_sink_close(struct vx_array_sink *sink);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
