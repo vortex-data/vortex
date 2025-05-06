@@ -2,7 +2,6 @@ use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
-use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -63,7 +62,7 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
         DType::List(..) => {
             let mut builder = builder_with_capacity(array.dtype(), indices.len());
             for idx in indices {
-                builder.append_scalar(&scalar_at(array, *idx)?)?;
+                builder.append_scalar(&array.scalar_at(*idx)?)?;
             }
             Ok(builder.finish())
         }

@@ -133,7 +133,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let scalar = if u.arbitrary()? {
-                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
                         random_scalar(u, current_array.dtype())?
@@ -169,7 +170,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 5 => {
                     let scalar = if u.arbitrary()? {
-                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
                         random_scalar(u, current_array.dtype())?

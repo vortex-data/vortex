@@ -6,7 +6,6 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
-use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::expr::Identity;
 use vortex::layout::{

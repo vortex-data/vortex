@@ -7,6 +7,7 @@ use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
+use vortex::scalar::Scalar;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
@@ -58,6 +59,10 @@ impl ArrayCanonicalImpl for PyArrayInstance {
 
 impl ArrayOperationsImpl for PyArrayInstance {
     fn _slice(&self, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
