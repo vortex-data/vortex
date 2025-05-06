@@ -8,9 +8,9 @@ use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedKernel, IsSortedKernelAdapter, MinMaxFn, MinMaxResult, ScalarAtFn, SumKernel,
-    SumKernelAdapter, TakeFn, UncompressedSizeFn, filter, is_constant_opts, is_sorted,
-    is_strict_sorted, min_max, scalar_at, sum, take, uncompressed_size,
+    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
+    ScalarAtFn, SumKernel, SumKernelAdapter, TakeFn, UncompressedSizeFn, filter, is_constant_opts,
+    is_sorted, is_strict_sorted, min_max, scalar_at, sum, take, uncompressed_size,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -22,10 +22,6 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 
@@ -71,7 +67,7 @@ impl TakeFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
+impl MinMaxKernel for ExtensionEncoding {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(
             min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
@@ -81,6 +77,8 @@ impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
         )
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(ExtensionEncoding).lift());
 
 impl IsConstantKernel for ExtensionEncoding {
     fn is_constant(

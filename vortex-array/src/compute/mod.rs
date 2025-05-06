@@ -6,7 +6,7 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
-use std::any::Any;
+use std::any::{Any, type_name};
 use std::fmt::{Debug, Formatter};
 use std::sync::RwLock;
 
@@ -23,7 +23,7 @@ use itertools::Itertools;
 pub use like::*;
 pub use list::*;
 pub use mask::*;
-pub use min_max::{MinMaxFn, MinMaxResult, min_max};
+pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
 pub use scalar_at::{ScalarAtFn, scalar_at};
@@ -33,7 +33,7 @@ pub use take::{TakeFn, take, take_into};
 pub use take_from::TakeFromFn;
 pub use uncompressed_size::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -199,6 +199,58 @@ pub struct InvocationArgs<'a> {
     pub options: &'a dyn Options,
 }
 
+/// For unary compute functions, it's useful to just have this short-cut.
+pub struct UnaryArgs<'a, O: Options> {
+    pub array: &'a dyn Array,
+    pub options: &'a O,
+}
+
+impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for UnaryArgs<'a, O> {
+    type Error = VortexError;
+
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 1 {
+            vortex_bail!("Expected 1 input, found {}", value.inputs.len());
+        }
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
+        let options =
+            value.options.as_any().downcast_ref::<O>().ok_or_else(|| {
+                vortex_err!("Expected options to be of type {}", type_name::<O>())
+            })?;
+        Ok(UnaryArgs { array, options })
+    }
+}
+
+/// For binary compute functions, it's useful to just have this short-cut.
+pub struct BinaryArgs<'a, O: Options> {
+    pub lhs: &'a dyn Array,
+    pub rhs: &'a dyn Array,
+    pub options: &'a O,
+}
+
+impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for BinaryArgs<'a, O> {
+    type Error = VortexError;
+
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 2 {
+            vortex_bail!("Expected 2 input, found {}", value.inputs.len());
+        }
+        let lhs = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
+        let rhs = value.inputs[1]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected input 1 to be an array"))?;
+        let options =
+            value.options.as_any().downcast_ref::<O>().ok_or_else(|| {
+                vortex_err!("Expected options to be of type {}", type_name::<O>())
+            })?;
+        Ok(BinaryArgs { lhs, rhs, options })
+    }
+}
+
 /// Input to a compute function.
 pub enum Input<'a> {
     Scalar(&'a Scalar),
@@ -334,7 +386,7 @@ impl From<Scalar> for Output {
 }
 
 /// Options for a compute function invocation.
-pub trait Options {
+pub trait Options: 'static {
     fn as_any(&self) -> &dyn Any;
 }
 

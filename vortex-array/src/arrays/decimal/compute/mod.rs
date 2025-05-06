@@ -10,7 +10,7 @@ mod uncompressed_size;
 
 use crate::Array;
 use crate::arrays::DecimalEncoding;
-use crate::compute::{MinMaxFn, ScalarAtFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{ScalarAtFn, TakeFn, UncompressedSizeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for DecimalEncoding {
@@ -19,10 +19,6 @@ impl ComputeVTable for DecimalEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 

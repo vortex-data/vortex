@@ -9,18 +9,14 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
-    IsSortedKernelAdapter, MinMaxFn, MinMaxResult, ScalarAtFn, UncompressedSizeFn, scalar_at,
-    uncompressed_size,
+    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, ScalarAtFn,
+    UncompressedSizeFn, scalar_at, uncompressed_size,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, register_kernel};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 
@@ -42,12 +38,14 @@ impl ScalarAtFn<&ListArray> for ListEncoding {
     }
 }
 
-impl MinMaxFn<&ListArray> for ListEncoding {
+impl MinMaxKernel for ListEncoding {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
         Ok(None)
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(ListEncoding).lift());
 
 impl IsConstantKernel for ListEncoding {
     fn is_constant(

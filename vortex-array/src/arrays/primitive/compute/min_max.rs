@@ -4,18 +4,20 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{MinMaxFn, MinMaxResult};
+use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
+use crate::{Array, register_kernel};
 
-impl MinMaxFn<&PrimitiveArray> for PrimitiveEncoding {
+impl MinMaxKernel for PrimitiveEncoding {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |$T| {
             compute_min_max_with_validity::<$T>(array)
         })
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(PrimitiveEncoding).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
