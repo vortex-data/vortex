@@ -23,7 +23,6 @@ bit-vec = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
-flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
@@ -48,6 +47,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }

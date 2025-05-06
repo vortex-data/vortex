@@ -24,13 +24,21 @@ impl FileStatsLayoutWriter {
         inner: Box<dyn LayoutWriter>,
         dtype: &DType,
         stats: Arc<[Stat]>,
+        max_variable_length_statistics_size: usize,
     ) -> VortexResult<Self> {
         let stats_accumulators = match dtype.as_struct() {
             Some(dtype) => dtype
                 .fields()
-                .map(|field_dtype| StatsAccumulator::new(field_dtype, &stats))
+                .map(|field_dtype| {
+                    StatsAccumulator::new(&field_dtype, &stats, max_variable_length_statistics_size)
+                })
                 .collect(),
-            None => [StatsAccumulator::new(dtype.clone(), &stats)].into(),
+            None => [StatsAccumulator::new(
+                dtype,
+                &stats,
+                max_variable_length_statistics_size,
+            )]
+            .into(),
         };
 
         Ok(Self {

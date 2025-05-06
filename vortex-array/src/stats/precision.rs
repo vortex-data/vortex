@@ -25,8 +25,8 @@ where
 {
     fn clone(&self) -> Self {
         match self {
-            Self::Exact(e) => Self::Exact(e.clone()),
-            Self::Inexact(ie) => Self::Inexact(ie.clone()),
+            Exact(e) => Exact(e.clone()),
+            Inexact(ie) => Inexact(ie.clone()),
         }
     }
 }
@@ -129,7 +129,8 @@ impl<T> Precision<T> {
         Ok(precision)
     }
 
-    pub(crate) fn into_inner(self) -> T {
+    /// Unwrap the underlying value
+    pub fn into_inner(self) -> T {
         match self {
             Exact(val) | Inexact(val) => val,
         }

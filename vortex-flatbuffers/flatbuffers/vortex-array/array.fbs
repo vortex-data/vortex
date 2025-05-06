@@ -34,10 +34,17 @@ table ArrayNode {
     stats: ArrayStats;
 }
 
+enum Precision: uint8 {
+    Inexact = 0,
+    Exact = 1,
+}
+
 table ArrayStats {
     /// Protobuf serialized ScalarValue
     min: [ubyte];
+    min_precision: Precision;
     max: [ubyte];
+    max_precision: Precision;
     sum: [ubyte];
     is_sorted: bool = null;
     is_strict_sorted: bool = null;

@@ -27,6 +27,11 @@ impl BufferString {
     pub fn into_inner(self) -> ByteBuffer {
         self.0
     }
+
+    /// Returns reference to the inner [`ByteBuffer`].
+    pub fn inner(&self) -> &ByteBuffer {
+        &self.0
+    }
 }
 
 impl Debug for BufferString {

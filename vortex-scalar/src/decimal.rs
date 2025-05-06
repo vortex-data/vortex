@@ -32,7 +32,7 @@ pub enum DecimalValue {
 }
 
 /// Type of decimal scalar values.
-pub trait NativeDecimalType: Copy + Eq + Ord {
+pub trait NativeDecimalType: Copy + Eq + Ord + Default + Send + Sync + 'static {
     const VALUES_TYPE: DecimalValueType;
 }
 

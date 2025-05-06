@@ -12,7 +12,9 @@ impl<'a> TryFrom<&'a ScalarValue> for ByteBuffer {
     fn try_from(scalar: &'a ScalarValue) -> VortexResult<Self> {
         Ok(scalar
             .as_buffer()?
-            .vortex_expect("Can't convert null scalar into a byte buffer"))
+            .vortex_expect("Can't convert null scalar into a byte buffer")
+            .as_ref()
+            .clone())
     }
 }
 
@@ -20,7 +22,7 @@ impl<'a> TryFrom<&'a ScalarValue> for Option<ByteBuffer> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a ScalarValue) -> VortexResult<Self> {
-        scalar.as_buffer()
+        Ok(scalar.as_buffer()?.as_ref().map(|b| b.as_ref().clone()))
     }
 }
 

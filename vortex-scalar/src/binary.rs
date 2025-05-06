@@ -11,7 +11,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 #[derive(Debug, Hash)]
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
-    value: Option<ByteBuffer>,
+    value: Option<Arc<ByteBuffer>>,
 }
 
 impl Display for BinaryScalar<'_> {
@@ -48,13 +48,73 @@ impl Ord for BinaryScalar<'_> {
 }
 
 impl<'a> BinaryScalar<'a> {
+    pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
+        if !matches!(dtype, DType::Binary(..)) {
+            vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
+        }
+        Ok(Self {
+            dtype,
+            value: value.as_buffer()?,
+        })
+    }
+
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
     pub fn value(&self) -> Option<ByteBuffer> {
-        self.value.as_ref().cloned()
+        self.value.as_ref().map(|v| v.as_ref().clone())
+    }
+
+    /// Construct a value at most `max_length` in size that's greater than ourselves.
+    ///
+    /// Will return None if constructing greater value overflows
+    pub fn upper_bound(self, max_length: usize) -> Option<Self> {
+        if let Some(value) = self.value {
+            if value.len() > max_length {
+                let sliced = value.slice(0..max_length);
+                drop(value);
+                let mut sliced_mut = sliced.into_mut();
+                for b in sliced_mut.iter_mut().rev() {
+                    let (incr, overflow) = b.overflowing_add(1);
+                    *b = incr;
+                    if !overflow {
+                        return Some(Self {
+                            dtype: self.dtype,
+                            value: Some(Arc::new(sliced_mut.freeze())),
+                        });
+                    }
+                }
+                None
+            } else {
+                Some(Self {
+                    dtype: self.dtype,
+                    value: Some(value),
+                })
+            }
+        } else {
+            Some(self)
+        }
+    }
+
+    /// Construct a value at most `max_length` in size that's less than ourselves.
+    pub fn lower_bound(self, max_length: usize) -> Self {
+        if let Some(value) = self.value {
+            if value.len() > max_length {
+                Self {
+                    dtype: self.dtype,
+                    value: Some(Arc::new(value.slice(0..max_length))),
+                }
+            } else {
+                Self {
+                    dtype: self.dtype,
+                    value: Some(value),
+                }
+            }
+        } else {
+            self
+        }
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
@@ -63,18 +123,32 @@ impl<'a> BinaryScalar<'a> {
         }
         Ok(Scalar::new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::Buffer(Arc::new(
+            ScalarValue(InnerScalarValue::Buffer(
                 self.value
                     .as_ref()
                     .vortex_expect("nullness handled in Scalar::cast")
                     .clone(),
-            ))),
+            )),
         ))
+    }
+
+    /// Length of the scalar value or None if value is null
+    pub fn len(&self) -> Option<usize> {
+        self.value.as_ref().map(|v| v.len())
     }
 
     /// Returns whether its value is non-null and empty, otherwise `None`.
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
+    }
+
+    /// Extract value as a ScalarValue
+    pub fn into_value(self) -> ScalarValue {
+        ScalarValue(
+            self.value
+                .map(InnerScalarValue::Buffer)
+                .unwrap_or_else(|| InnerScalarValue::Null),
+        )
     }
 }
 
@@ -163,5 +237,50 @@ impl From<Arc<ByteBuffer>> for Scalar {
             dtype: DType::Binary(Nullability::NonNullable),
             value: ScalarValue(InnerScalarValue::Buffer(value)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
+    use vortex_error::{VortexExpect, VortexUnwrap};
+
+    use crate::{BinaryScalar, Scalar};
+
+    #[test]
+    fn lower_bound() {
+        let binary = Scalar::binary(buffer![0u8, 5, 47, 33, 129], Nullability::NonNullable);
+        let expected = Scalar::binary(buffer![0u8, 5], Nullability::NonNullable);
+        assert_eq!(
+            BinaryScalar::try_from(&binary)
+                .vortex_unwrap()
+                .lower_bound(2),
+            BinaryScalar::try_from(&expected).vortex_unwrap()
+        );
+    }
+
+    #[test]
+    fn upper_bound() {
+        let binary = Scalar::binary(buffer![0u8, 5, 255, 234, 23], Nullability::NonNullable);
+        let expected = Scalar::binary(buffer![0u8, 6, 0], Nullability::NonNullable);
+        assert_eq!(
+            BinaryScalar::try_from(&binary)
+                .vortex_unwrap()
+                .upper_bound(3)
+                .vortex_expect("must have upper bound"),
+            BinaryScalar::try_from(&expected).vortex_unwrap()
+        );
+    }
+
+    #[test]
+    fn upper_bound_overflow() {
+        let binary = Scalar::binary(buffer![255u8, 255, 255], Nullability::NonNullable);
+        assert!(
+            BinaryScalar::try_from(&binary)
+                .vortex_unwrap()
+                .upper_bound(2)
+                .is_none()
+        );
     }
 }

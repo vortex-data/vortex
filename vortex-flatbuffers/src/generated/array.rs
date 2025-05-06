@@ -95,6 +95,91 @@ impl<'a> flatbuffers::Verifiable for Compression {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for Compression {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PRECISION: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PRECISION: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PRECISION: [Precision; 2] = [
+  Precision::Inexact,
+  Precision::Exact,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct Precision(pub u8);
+#[allow(non_upper_case_globals)]
+impl Precision {
+  pub const Inexact: Self = Self(0);
+  pub const Exact: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Inexact,
+    Self::Exact,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Inexact => Some("Inexact"),
+      Self::Exact => Some("Exact"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for Precision {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for Precision {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for Precision {
+    type Output = Precision;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for Precision {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for Precision {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for Precision {}
 /// A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
 // struct Buffer, aligned to 4
 #[repr(transparent)]
@@ -592,14 +677,16 @@ impl<'a> flatbuffers::Follow<'a> for ArrayStats<'a> {
 
 impl<'a> ArrayStats<'a> {
   pub const VT_MIN: flatbuffers::VOffsetT = 4;
-  pub const VT_MAX: flatbuffers::VOffsetT = 6;
-  pub const VT_SUM: flatbuffers::VOffsetT = 8;
-  pub const VT_IS_SORTED: flatbuffers::VOffsetT = 10;
-  pub const VT_IS_STRICT_SORTED: flatbuffers::VOffsetT = 12;
-  pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 14;
-  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 16;
-  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 18;
-  pub const VT_NAN_COUNT: flatbuffers::VOffsetT = 20;
+  pub const VT_MIN_PRECISION: flatbuffers::VOffsetT = 6;
+  pub const VT_MAX: flatbuffers::VOffsetT = 8;
+  pub const VT_MAX_PRECISION: flatbuffers::VOffsetT = 10;
+  pub const VT_SUM: flatbuffers::VOffsetT = 12;
+  pub const VT_IS_SORTED: flatbuffers::VOffsetT = 14;
+  pub const VT_IS_STRICT_SORTED: flatbuffers::VOffsetT = 16;
+  pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 18;
+  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 20;
+  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 22;
+  pub const VT_NAN_COUNT: flatbuffers::VOffsetT = 24;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -620,6 +707,8 @@ impl<'a> ArrayStats<'a> {
     if let Some(x) = args.is_constant { builder.add_is_constant(x); }
     if let Some(x) = args.is_strict_sorted { builder.add_is_strict_sorted(x); }
     if let Some(x) = args.is_sorted { builder.add_is_sorted(x); }
+    builder.add_max_precision(args.max_precision);
+    builder.add_min_precision(args.min_precision);
     builder.finish()
   }
 
@@ -633,11 +722,25 @@ impl<'a> ArrayStats<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayStats::VT_MIN, None)}
   }
   #[inline]
+  pub fn min_precision(&self) -> Precision {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Precision>(ArrayStats::VT_MIN_PRECISION, Some(Precision::Inexact)).unwrap()}
+  }
+  #[inline]
   pub fn max(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayStats::VT_MAX, None)}
+  }
+  #[inline]
+  pub fn max_precision(&self) -> Precision {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Precision>(ArrayStats::VT_MAX_PRECISION, Some(Precision::Inexact)).unwrap()}
   }
   #[inline]
   pub fn sum(&self) -> Option<flatbuffers::Vector<'a, u8>> {
@@ -698,7 +801,9 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("min", Self::VT_MIN, false)?
+     .visit_field::<Precision>("min_precision", Self::VT_MIN_PRECISION, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("max", Self::VT_MAX, false)?
+     .visit_field::<Precision>("max_precision", Self::VT_MAX_PRECISION, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("sum", Self::VT_SUM, false)?
      .visit_field::<bool>("is_sorted", Self::VT_IS_SORTED, false)?
      .visit_field::<bool>("is_strict_sorted", Self::VT_IS_STRICT_SORTED, false)?
@@ -712,7 +817,9 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
 }
 pub struct ArrayStatsArgs<'a> {
     pub min: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+    pub min_precision: Precision,
     pub max: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+    pub max_precision: Precision,
     pub sum: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
     pub is_sorted: Option<bool>,
     pub is_strict_sorted: Option<bool>,
@@ -726,7 +833,9 @@ impl<'a> Default for ArrayStatsArgs<'a> {
   fn default() -> Self {
     ArrayStatsArgs {
       min: None,
+      min_precision: Precision::Inexact,
       max: None,
+      max_precision: Precision::Inexact,
       sum: None,
       is_sorted: None,
       is_strict_sorted: None,
@@ -748,8 +857,16 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_MIN, min);
   }
   #[inline]
+  pub fn add_min_precision(&mut self, min_precision: Precision) {
+    self.fbb_.push_slot::<Precision>(ArrayStats::VT_MIN_PRECISION, min_precision, Precision::Inexact);
+  }
+  #[inline]
   pub fn add_max(&mut self, max: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_MAX, max);
+  }
+  #[inline]
+  pub fn add_max_precision(&mut self, max_precision: Precision) {
+    self.fbb_.push_slot::<Precision>(ArrayStats::VT_MAX_PRECISION, max_precision, Precision::Inexact);
   }
   #[inline]
   pub fn add_sum(&mut self, sum: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
@@ -798,7 +915,9 @@ impl core::fmt::Debug for ArrayStats<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("ArrayStats");
       ds.field("min", &self.min());
+      ds.field("min_precision", &self.min_precision());
       ds.field("max", &self.max());
+      ds.field("max_precision", &self.max_precision());
       ds.field("sum", &self.sum());
       ds.field("is_sorted", &self.is_sorted());
       ds.field("is_strict_sorted", &self.is_strict_sorted());

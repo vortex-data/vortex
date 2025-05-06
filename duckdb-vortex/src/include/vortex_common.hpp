@@ -139,7 +139,9 @@ struct ArrayStreamSink {
 
 	~ArrayStreamSink() {
 		// "should dctor a sink, before closing it
-		D_ASSERT(sink == nullptr);
+		// If you throw during writes then the stack will be unwound and the destructor is going to be called before the
+		// close method is invoked thus triggering following assertion failure and will clobber the exception printing
+		// D_ASSERT(sink == nullptr);
 	}
 
 	vx_array_sink *sink;

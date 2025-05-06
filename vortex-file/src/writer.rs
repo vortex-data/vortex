@@ -20,6 +20,7 @@ use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
+    max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
 }
 
@@ -29,6 +30,7 @@ impl Default for VortexWriteOptions {
             strategy: Box::new(VortexLayoutStrategy),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
+            max_variable_length_statistics_size: 64,
         }
     }
 }
@@ -70,6 +72,7 @@ impl VortexWriteOptions {
             self.strategy.new_writer(&ctx, stream.dtype())?,
             stream.dtype(),
             self.file_statistics.clone().into(),
+            self.max_variable_length_statistics_size,
         )?;
 
         // First we write the magic number

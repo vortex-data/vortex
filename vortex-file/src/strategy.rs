@@ -6,10 +6,10 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::stats::{PRUNING_STATS, Precision, STATS_TO_WRITE, Stat};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
@@ -21,7 +21,6 @@ use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
 use vortex_layout::segments::SegmentWriter;
 use vortex_layout::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
-use vortex_scalar::Scalar;
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -33,9 +32,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return Ok(
-                StructLayoutWriter::try_new_with_strategy(ctx, dtype, self.clone())?.boxed(),
-            );
+            return Ok(StructLayoutWriter::try_new_with_strategy(ctx, dtype, self)?.boxed());
         }
 
         // We buffer arrays per column, before flushing them into a chunked layout.
@@ -81,6 +78,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
+                max_variable_length_statistics_size: 64,
             },
         )
         .boxed();
@@ -139,17 +137,9 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         let chunk = chunk.to_canonical()?.into_array();
 
         // Compute the stats for the chunk prior to compression
-        chunk.statistics().compute_all(STATS_TO_WRITE)?;
-
-        // Persist our best guess for the uncompressed size. This isn't ideal because we may have
-        // de-duplicated in-memory buffers and all sorts of funky stuff that means this number is
-        // off.
-        chunk.statistics().set(
-            Stat::UncompressedSizeInBytes,
-            Precision::Exact(
-                Scalar::primitive(chunk.nbytes() as u64, Nullability::NonNullable).into_value(),
-            ),
-        );
+        chunk
+            .statistics()
+            .compute_all(&Stat::all().collect::<Vec<_>>())?;
 
         // If we have information about the data from the previous chunk
         let compressed_chunk = if let Some(constant) = chunk.as_constant() {

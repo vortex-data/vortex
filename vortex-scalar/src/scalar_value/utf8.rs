@@ -50,6 +50,6 @@ impl<'a> TryFrom<&'a ScalarValue> for Option<BufferString> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a ScalarValue) -> Result<Self, Self::Error> {
-        scalar.as_buffer_string()
+        Ok(scalar.as_buffer_string()?.map(|s| s.as_ref().clone()))
     }
 }

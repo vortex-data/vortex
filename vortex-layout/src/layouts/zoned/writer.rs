@@ -18,6 +18,8 @@ pub struct ZonedLayoutOptions {
     pub block_size: usize,
     /// The statistics to collect for each block.
     pub stats: Arc<[Stat]>,
+    /// Maximum length of a variable length statistics
+    pub max_variable_length_statistics_size: usize,
 }
 
 impl Default for ZonedLayoutOptions {
@@ -25,6 +27,7 @@ impl Default for ZonedLayoutOptions {
         Self {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
+            max_variable_length_statistics_size: 64,
         }
     }
 }
@@ -54,7 +57,11 @@ impl ZonedLayoutWriter {
         options: ZonedLayoutOptions,
     ) -> Self {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
-        let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
+        let stats_accumulator = StatsAccumulator::new(
+            dtype,
+            &present_stats,
+            options.max_variable_length_statistics_size,
+        );
 
         Self {
             ctx,

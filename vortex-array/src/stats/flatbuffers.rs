@@ -1,38 +1,57 @@
-use enum_iterator::all;
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
-use vortex_error::VortexError;
-use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer};
+use vortex_error::{VortexError, vortex_bail};
+use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer, array as fba};
 use vortex_scalar::ScalarValue;
 
 use super::traits::{StatsProvider, StatsProviderExt};
 use crate::stats::{Precision, Stat, StatsSet};
 
 impl WriteFlatBuffer for StatsSet {
-    type Target<'t> = crate::flatbuffers::ArrayStats<'t>;
+    type Target<'t> = fba::ArrayStats<'t>;
 
     /// All statistics written must be exact
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let min = self
+        let (min_precision, min) = self
             .get(Stat::Min)
-            .and_then(Precision::as_exact)
-            .map(|min| fbb.create_vector(&min.to_protobytes::<Vec<u8>>()));
+            .map(|sum| {
+                (
+                    if sum.is_exact() {
+                        fba::Precision::Exact
+                    } else {
+                        fba::Precision::Inexact
+                    },
+                    Some(fbb.create_vector(&sum.into_inner().to_protobytes::<Vec<u8>>())),
+                )
+            })
+            .unwrap_or_else(|| (fba::Precision::Inexact, None));
 
-        let max = self
+        let (max_precision, max) = self
             .get(Stat::Max)
-            .and_then(Precision::as_exact)
-            .map(|max| fbb.create_vector(&max.to_protobytes::<Vec<u8>>()));
+            .map(|sum| {
+                (
+                    if sum.is_exact() {
+                        fba::Precision::Exact
+                    } else {
+                        fba::Precision::Inexact
+                    },
+                    Some(fbb.create_vector(&sum.into_inner().to_protobytes::<Vec<u8>>())),
+                )
+            })
+            .unwrap_or_else(|| (fba::Precision::Inexact, None));
 
         let sum = self
             .get(Stat::Sum)
             .and_then(Precision::as_exact)
             .map(|sum| fbb.create_vector(&sum.to_protobytes::<Vec<u8>>()));
 
-        let stat_args = &crate::flatbuffers::ArrayStatsArgs {
+        let stat_args = &fba::ArrayStatsArgs {
             min,
+            min_precision,
             max,
+            max_precision,
             sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted)
@@ -54,12 +73,12 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
         };
 
-        crate::flatbuffers::ArrayStats::create(fbb, stat_args)
+        fba::ArrayStats::create(fbb, stat_args)
     }
 }
 
 impl ReadFlatBuffer for StatsSet {
-    type Source<'a> = crate::flatbuffers::ArrayStats<'a>;
+    type Source<'a> = fba::ArrayStats<'a>;
     type Error = VortexError;
 
     fn read_flatbuffer<'buf>(
@@ -67,7 +86,7 @@ impl ReadFlatBuffer for StatsSet {
     ) -> Result<Self, Self::Error> {
         let mut stats_set = StatsSet::default();
 
-        for stat in all::<Stat>() {
+        for stat in Stat::all() {
             match stat {
                 Stat::IsConstant => {
                     if let Some(is_constant) = fb.is_constant() {
@@ -89,17 +108,27 @@ impl ReadFlatBuffer for StatsSet {
                 }
                 Stat::Max => {
                     if let Some(max) = fb.max() {
+                        let value = ScalarValue::from_protobytes(max.bytes())?;
                         stats_set.set(
                             Stat::Max,
-                            Precision::Exact(ScalarValue::from_protobytes(max.bytes())?),
+                            match fb.max_precision() {
+                                fba::Precision::Exact => Precision::Exact(value),
+                                fba::Precision::Inexact => Precision::Inexact(value),
+                                _ => vortex_bail!("Corrupted max_precision field"),
+                            },
                         );
                     }
                 }
                 Stat::Min => {
                     if let Some(min) = fb.min() {
+                        let value = ScalarValue::from_protobytes(min.bytes())?;
                         stats_set.set(
                             Stat::Min,
-                            Precision::Exact(ScalarValue::from_protobytes(min.bytes())?),
+                            match fb.min_precision() {
+                                fba::Precision::Exact => Precision::Exact(value),
+                                fba::Precision::Inexact => Precision::Inexact(value),
+                                _ => vortex_bail!("Corrupted min_precision field"),
+                            },
                         );
                     }
                 }

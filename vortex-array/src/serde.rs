@@ -3,7 +3,6 @@ use std::iter;
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset, root};
-use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{
@@ -44,12 +43,10 @@ impl dyn Array + '_ {
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
-        let mut array_buffers = vec![];
-        for a in self.depth_first_traversal() {
-            for buffer in a.buffers() {
-                array_buffers.push(buffer);
-            }
-        }
+        let array_buffers = self
+            .depth_first_traversal()
+            .flat_map(|f| f.buffers())
+            .collect::<Vec<_>>();
 
         // Allocate result buffers, including a possible padding buffer for each.
         let mut buffers = vec![];
@@ -183,28 +180,28 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
             .vortex_expect("Array can have at most u16::MAX buffers");
-        let child_buffer_idx = self.buffer_idx + nbuffers;
+        let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
-        let children = self
+        let children = &self
             .array
             .children()
             .iter()
-            .scan(child_buffer_idx, |buffer_idx, child| {
+            .map(|child| {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
                     array: child,
-                    buffer_idx: *buffer_idx,
+                    buffer_idx: child_buffer_idx,
                 }
                 .write_flatbuffer(fbb);
-                *buffer_idx = u16::try_from(child.nbuffers_recursive())
+                child_buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
-                    .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
+                    .and_then(|nbuffers| nbuffers.checked_add(child_buffer_idx))
                     .vortex_expect("Too many buffers (u16) for Array");
-                Some(msg)
+                msg
             })
-            .collect_vec();
-        let children = Some(fbb.create_vector(&children));
+            .collect::<Vec<_>>();
+        let children = Some(fbb.create_vector(children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
         let stats = Some(self.array.statistics().to_owned().write_flatbuffer(fbb));

@@ -107,7 +107,7 @@ impl<T: NativeDecimalType> DecimalBuilder<T> {
     }
 }
 
-impl<T: NativeDecimalType + Default + Send + 'static> ArrayBuilder for DecimalBuilder<T> {
+impl<T: NativeDecimalType> ArrayBuilder for DecimalBuilder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }

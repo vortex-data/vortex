@@ -64,12 +64,16 @@ impl TryFrom<Scalar> for ScalarValue {
                     }
                 }
             }
-            DType::Utf8(_) => {
-                ScalarValue::Utf8(scalar.as_utf8().value().map(|s| s.as_str().to_string()))
-            }
-            DType::Binary(_) => {
-                ScalarValue::Binary(scalar.as_binary().value().map(|b| b.as_slice().to_vec()))
-            }
+            // SAFETY: By construction Utf8 scalar values are utf8
+            DType::Utf8(_) => ScalarValue::Utf8(scalar.as_utf8().value().map(|s| unsafe {
+                String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
+            })),
+            DType::Binary(_) => ScalarValue::Binary(
+                scalar
+                    .as_binary()
+                    .value()
+                    .map(|b| Vec::<u8>::from(b.into_inner())),
+            ),
             DType::Struct(..) => {
                 todo!("struct scalar conversion")
             }

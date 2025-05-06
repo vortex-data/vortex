@@ -6522,7 +6522,6 @@ dependencies = [
  "bytes",
  "dashmap",
  "flatbuffers",
- "flume",
  "futures",
  "getrandom 0.3.2",
  "itertools 0.14.0",
@@ -6546,6 +6545,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-scalar",
 ]
 
 [[package]]

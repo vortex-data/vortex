@@ -43,7 +43,7 @@ impl StructLayoutWriter {
     pub fn try_new_with_strategy<S: LayoutStrategy>(
         ctx: &ArrayContext,
         dtype: &DType,
-        factory: S,
+        factory: &S,
     ) -> VortexResult<Self> {
         let struct_dtype = dtype
             .as_struct()

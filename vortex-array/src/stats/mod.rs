@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, last};
+use enum_iterator::{Sequence, all, last};
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
@@ -35,19 +35,6 @@ pub const PRUNING_STATS: &[Stat] = &[
     Stat::Sum,
     Stat::NullCount,
     Stat::NaNCount,
-];
-
-/// Stats to keep when serializing arrays to layouts
-pub const STATS_TO_WRITE: &[Stat] = &[
-    Stat::Min,
-    Stat::Max,
-    Stat::NullCount,
-    Stat::NaNCount,
-    Stat::Sum,
-    Stat::IsConstant,
-    Stat::IsSorted,
-    Stat::IsStrictSorted,
-    Stat::UncompressedSizeInBytes,
 ];
 
 #[derive(
@@ -235,6 +222,10 @@ impl Stat {
             Self::Sum => "sum",
             Self::NaNCount => "nan_count",
         }
+    }
+
+    pub fn all() -> impl Iterator<Item = Stat> {
+        all::<Self>()
     }
 }
 

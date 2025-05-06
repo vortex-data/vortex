@@ -1,3 +1,4 @@
+mod builder;
 mod reader;
 pub mod writer;
 pub mod zone_map;
@@ -5,6 +6,7 @@ pub mod zone_map;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask, TryFromBytes};

@@ -2,13 +2,16 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
-use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
+use crate::layouts::zoned::builder::{
+    MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, StatsArrayBuilder, stats_builder_with_capacity,
+};
 
 /// A zone map containing statistics for a column.
 /// Each row of the zone map corresponds to a chunk of the column.
@@ -45,12 +48,25 @@ impl ZoneMap {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            Arc::new(StructDType::from_iter(present_stats.iter().filter_map(
-                |stat| {
-                    stat.dtype(column_dtype)
-                        .map(|dtype| (stat.name(), dtype.as_nullable()))
-                },
-            ))),
+            Arc::new(StructDType::from_iter(
+                present_stats
+                    .iter()
+                    .filter_map(|stat| {
+                        stat.dtype(column_dtype)
+                            .map(|dtype| (stat, dtype.as_nullable()))
+                    })
+                    .flat_map(|(s, dt)| match s {
+                        Stat::Max => vec![
+                            (s.name(), dt),
+                            (MAX_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
+                        ],
+                        Stat::Min => vec![
+                            (s.name(), dt),
+                            (MIN_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
+                        ],
+                        _ => vec![(s.name(), dt)],
+                    }),
+            )),
             Nullability::NonNullable,
         )
     }
@@ -68,8 +84,8 @@ impl ZoneMap {
     /// Return an aggregated stats set for the table.
     pub fn to_stats_set(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        for stat in stats {
-            let Some(array) = self.get_stat(*stat)? else {
+        for &stat in stats {
+            let Some(array) = self.get_stat(stat)? else {
                 continue;
             };
 
@@ -77,8 +93,8 @@ impl ZoneMap {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(*stat)? {
-                        stats_set.set(*stat, Precision::exact(s))
+                    if let Some(s) = array.statistics().compute_stat(stat)? {
+                        stats_set.set(stat, Precision::exact(s))
                     }
                 }
                 // These stats sum up
@@ -86,7 +102,7 @@ impl ZoneMap {
                     let sum = sum(&array)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value();
-                    stats_set.set(*stat, Precision::exact(sum));
+                    stats_set.set(stat, Precision::exact(sum));
                 }
                 // We could implement these aggregations in the future, but for now they're unused
                 Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
@@ -108,35 +124,35 @@ impl ZoneMap {
 ///  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
 ///  See: <https://github.com/vortex-data/vortex/issues/1835>
 pub struct StatsAccumulator {
-    stats: Arc<[Stat]>,
-    builders: Vec<Box<dyn ArrayBuilder>>,
+    builders: Vec<Box<dyn StatsArrayBuilder>>,
     length: usize,
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: DType, stats: &[Stat]) -> Self {
-        let (stats, builders): (Vec<Stat>, _) = stats
+    pub fn new(dtype: &DType, stats: &[Stat], max_variable_length_statistics_size: usize) -> Self {
+        let builders = stats
             .iter()
-            .filter_map(|s| {
-                s.dtype(&dtype)
-                    .map(|stat_dtype| (*s, builder_with_capacity(&stat_dtype.as_nullable(), 1024)))
+            .filter_map(|&s| {
+                s.dtype(dtype).map(|stat_dtype| {
+                    stats_builder_with_capacity(
+                        s,
+                        &stat_dtype.as_nullable(),
+                        1024,
+                        max_variable_length_statistics_size,
+                    )
+                })
             })
-            .unzip();
+            .collect::<Vec<_>>();
 
         Self {
-            stats: stats.into(),
             builders,
             length: 0,
         }
     }
 
-    pub fn stats(&self) -> &[Stat] {
-        &self.stats
-    }
-
     pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
-        for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().compute_stat(*s)? {
+        for builder in self.builders.iter_mut() {
+            if let Some(v) = array.statistics().compute_stat(builder.stat())? {
                 builder.append_scalar_value(v)?;
             } else {
                 builder.append_null();
@@ -155,27 +171,25 @@ impl StatsAccumulator {
         let mut fields = Vec::new();
         let mut stats = Vec::new();
 
-        for (stat, builder) in self
-            .stats
-            .iter()
-            .zip(self.builders.iter_mut())
+        for builder in self
+            .builders
+            .iter_mut()
             // We sort the stats so the DType is deterministic based on which stats are present.
-            .sorted_unstable_by_key(|&(&s, _)| s)
+            .sorted_unstable_by_key(|b| b.stat())
         {
             let values = builder.finish();
 
             // We drop any all-null stats columns
             if values
-                .invalid_count()
+                .all_invalid()
                 .vortex_expect("failed to get invalid count")
-                == values.len()
             {
                 continue;
             }
 
-            stats.push(*stat);
-            names.push(stat.to_string().into());
-            fields.push(values);
+            stats.push(builder.stat());
+            names.extend(values.names);
+            fields.extend(values.arrays);
         }
 
         if names.is_empty() {
@@ -187,5 +201,92 @@ impl StatsAccumulator {
                 .vortex_expect("Failed to create zone map"),
             stats: stats.into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+    use rstest::rstest;
+    use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::stats::Stat;
+    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability};
+    use vortex_error::{VortexExpect, VortexUnwrap};
+
+    use crate::layouts::zoned::zone_map::StatsAccumulator;
+    use crate::layouts::zoned::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};
+
+    #[rstest]
+    #[case(DType::Utf8(Nullability::NonNullable))]
+    #[case(DType::Binary(Nullability::NonNullable))]
+    fn truncates_accumulated_stats(#[case] dtype: DType) {
+        let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
+        builder.append_value("Value to be truncated");
+        builder.append_value("untruncated");
+        let mut builder2 = VarBinViewBuilder::with_capacity(dtype, 2);
+        builder2.append_value("Another");
+        builder2.append_value("wait a minute");
+        let mut acc =
+            StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
+        acc.push_chunk(&builder.finish()).vortex_unwrap();
+        acc.push_chunk(&builder2.finish()).vortex_unwrap();
+        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        assert_eq!(
+            stats_table.array.names().as_ref(),
+            &[
+                Stat::Max.name().into(),
+                MAX_IS_TRUNCATED.into(),
+                Stat::Min.name().into(),
+                MIN_IS_TRUNCATED.into(),
+            ]
+        );
+        assert_eq!(
+            stats_table.array.fields()[1]
+                .to_bool()
+                .vortex_unwrap()
+                .boolean_buffer(),
+            &BooleanBuffer::from(vec![false, true])
+        );
+        assert_eq!(
+            stats_table.array.fields()[3]
+                .to_bool()
+                .vortex_unwrap()
+                .boolean_buffer(),
+            &BooleanBuffer::from(vec![true, false])
+        );
+    }
+
+    #[test]
+    fn always_adds_is_truncated_column() {
+        let array = buffer![0, 1, 2].into_array();
+        let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
+        acc.push_chunk(&array).vortex_unwrap();
+        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        assert_eq!(
+            stats_table.array.names().as_ref(),
+            &[
+                Stat::Max.name().into(),
+                MAX_IS_TRUNCATED.into(),
+                Stat::Min.name().into(),
+                MIN_IS_TRUNCATED.into(),
+                Stat::Sum.name().into(),
+            ]
+        );
+        assert_eq!(
+            stats_table.array.fields()[1]
+                .to_bool()
+                .vortex_unwrap()
+                .boolean_buffer(),
+            &BooleanBuffer::from(vec![false])
+        );
+        assert_eq!(
+            stats_table.array.fields()[3]
+                .to_bool()
+                .vortex_unwrap()
+                .boolean_buffer(),
+            &BooleanBuffer::from(vec![false])
+        );
     }
 }

@@ -156,9 +156,9 @@ impl StatsSetRef<'_> {
 
     pub fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        for stat in stats {
-            if let Some(s) = self.compute_stat(*stat)? {
-                stats_set.set(*stat, Precision::exact(s))
+        for &stat in stats {
+            if let Some(s) = self.compute_stat(stat)? {
+                stats_set.set(stat, Precision::exact(s))
             }
         }
         Ok(stats_set)
