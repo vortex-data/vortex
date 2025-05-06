@@ -99,6 +99,8 @@ typedef struct vx_array vx_array;
  */
 typedef struct vx_array_stream vx_array_stream;
 
+typedef struct vx_array_stream_file_sink vx_array_stream_file_sink;
+
 #if defined(ENABLE_DUCKDB_FFI)
 typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
@@ -286,6 +288,17 @@ duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct vx_dtype *dtype,
 
 #if defined(ENABLE_DUCKDB_FFI)
 /**
+ * Converts a DuckDB type into a vortex type
+ */
+struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *type_array,
+                                                 const unsigned char *nullable,
+                                                 const char *const *names,
+                                                 int len,
+                                                 struct vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
  * Back a single chunk of the array as a duckdb data chunk.
  * The initial call should pass offset = 0.
  * The offset is returned to the caller, which can be used to request the next chunk.
@@ -299,23 +312,9 @@ unsigned int vx_array_to_duckdb_chunk(struct vx_array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-/**
- * Returns an empty vortex array constructed from three arrays of len `len`, the (types, null, names).
- */
-struct vx_array *vx_array_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
-                                                         const unsigned char *nullable,
-                                                         const char *const *names,
-                                                         int len,
-                                                         struct vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Requires a vortex array, a duckdb data chunk and a nullable array (equal to len(chunk.columns)).
- */
-struct vx_array *vx_array_append_duckdb_chunk(struct vx_array *array,
-                                              duckdb_data_chunk chunk,
-                                              const unsigned char *nullable);
+void vx_array_stream_push_duckdb_chunk(struct vx_array_stream_file_sink *array_stream,
+                                       duckdb_data_chunk chunk,
+                                       struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -373,6 +372,16 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
  * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);
+
+/**
+ * Opens an array stream
+ */
+struct vx_array_stream_file_sink *vx_array_stream_file_sink_open(const char *path,
+                                                                 const struct vx_dtype *dtype,
+                                                                 struct vx_error **error);
+
+void vx_array_stream_file_sink_close(struct vx_array_stream_file_sink *array_stream,
+                                     struct vx_error **error);
 
 /**
  * Initialize native logging with the specified level.

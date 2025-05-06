@@ -75,3 +75,35 @@ struct VortexArrayStream {
 
 	vx_array_stream *array_stream;
 };
+
+struct ArrayStreamFileSink {
+	explicit ArrayStreamFileSink(vx_array_stream_file_sink *sink) : sink(sink) {
+	}
+
+	ArrayStreamFileSink(std::string file_path, vx_dtype *dtype) {
+	    vx_error *error = nullptr;
+        sink = vx_array_stream_file_sink_open(file_path.c_str(), dtype, &error);
+        HandleError(error);
+	}
+
+	void PushChunk(duckdb::DataChunk &chunk) {
+		vx_error *error;
+		vx_array_stream_push_duckdb_chunk(sink, reinterpret_cast<duckdb_data_chunk>(&chunk), &error);
+		HandleError(error);
+	}
+
+	void Close() {
+		vx_error *error;
+		vx_array_stream_file_sink_close(sink, &error);
+		HandleError(error);
+		this->sink = nullptr;
+	}
+
+	~ArrayStreamFileSink() {
+	// "should dctor a sink, before closing it
+		D_ASSERT(sink == nullptr);
+	}
+
+
+	vx_array_stream_file_sink* sink;
+};
