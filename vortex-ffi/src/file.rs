@@ -13,18 +13,14 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use tokio::fs::File;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
 use url::Url;
-use vortex::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
-use vortex::stream::{ArrayStreamAdapter, ArrayStreamArrayExt};
+use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
@@ -215,60 +211,6 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
     drop(Box::from_raw(file));
-}
-
-/// An array stream sink writing all values into file path used in creation.
-#[allow(non_camel_case_types)]
-pub struct vx_array_stream_file_sink {
-    pub(crate) sender: mpsc::Sender<VortexResult<ArrayRef>>,
-    pub(crate) file_dtype: DType,
-    pub(crate) writer: JoinHandle<VortexResult<File>>,
-}
-
-/// Opens an array stream
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_file_sink_open(
-    path: *const c_char,
-    dtype: *const DType,
-    error: *mut *mut vx_error,
-) -> *mut vx_array_stream_file_sink {
-    try_or(error, ptr::null_mut(), || {
-        let path = CStr::from_ptr(path).to_str()?;
-        let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
-
-        let file = RUNTIME.block_on(File::create(path))?;
-
-        let (tx, rx) = mpsc::channel(32);
-        let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
-        let writer = RUNTIME.spawn(VortexWriteOptions::default().write(file, array_stream));
-
-        Ok(Box::into_raw(Box::new(vx_array_stream_file_sink {
-            sender: tx,
-            file_dtype: file_dtype.clone(),
-            writer,
-        })))
-    })
-}
-
-/// Closes a array stream ensuring that all array pushed into the sink are written to the file.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_file_sink_close(
-    array_stream: *mut vx_array_stream_file_sink,
-    error: *mut *mut vx_error,
-) {
-    try_or(error, (), || {
-        let array_stream = Box::from_raw(array_stream);
-
-        let vx_array_stream_file_sink { sender, writer, .. } = *array_stream;
-        // Close the sender stream.
-        drop(sender);
-
-        RUNTIME.block_on(async {
-            let file = writer.await??;
-            file.sync_all().await?;
-            VortexResult::Ok(())
-        })
-    })
 }
 
 fn make_object_store(

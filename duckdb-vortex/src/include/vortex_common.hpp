@@ -86,6 +86,13 @@ struct VortexArray {
 		}
 	}
 
+	static duckdb::unique_ptr<VortexArray> FromDuckDBChunk(DType &dtype, duckdb::DataChunk &chunk) {
+		vx_error *error;
+		auto array = vx_duckdb_chunk_to_array(reinterpret_cast<duckdb_data_chunk>(&chunk), dtype.dtype, &error);
+		HandleError(error);
+		return duckdb::make_uniq<VortexArray>(array);
+	}
+
 	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const VortexConversionCache *cache) const {
 		vx_error *error;
 		auto idx = vx_array_to_duckdb_chunk(array, current_row, output, cache->cache, &error);
@@ -118,18 +125,20 @@ struct VortexArrayStream {
 };
 
 struct ArrayStreamFileSink {
-	explicit ArrayStreamFileSink(vx_array_stream_file_sink *sink) : sink(sink) {
+	explicit ArrayStreamFileSink(vx_array_stream_file_sink *sink, duckdb::unique_ptr<DType> dtype) : sink(sink), dtype(std::move(dtype)) {
 	}
 
-	ArrayStreamFileSink(std::string file_path, DType &dtype) {
+	static duckdb::unique_ptr<ArrayStreamFileSink> Open(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
 	    vx_error *error = nullptr;
-        sink = vx_array_stream_file_sink_open(file_path.c_str(), dtype.dtype, &error);
+        auto sink = vx_array_stream_file_sink_open(file_path.c_str(), dtype->dtype, &error);
         HandleError(error);
+        return duckdb::make_uniq<ArrayStreamFileSink>(sink, std::move(dtype));
 	}
 
 	void PushChunk(duckdb::DataChunk &chunk) {
-		vx_error *error;
-		vx_array_stream_file_sink_push_duckdb_chunk(sink, reinterpret_cast<duckdb_data_chunk>(&chunk), &error);
+		vx_error *error = nullptr;
+		auto array = VortexArray::FromDuckDBChunk(*dtype, chunk);
+		vx_array_stream_file_sink_push_array(sink, array->array, &error);
 		HandleError(error);
 	}
 
@@ -147,4 +156,5 @@ struct ArrayStreamFileSink {
 
 
 	vx_array_stream_file_sink* sink;
+	duckdb::unique_ptr<DType> dtype;
 };

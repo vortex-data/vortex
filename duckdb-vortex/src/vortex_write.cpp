@@ -102,7 +102,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 		}
 
 		auto dtype = DType::FromDuckDBTable(column_types, bind.column_nullable, column_names);
-		gstate->sink = make_uniq<ArrayStreamFileSink>(file_path, *dtype);
+		gstate->sink = ArrayStreamFileSink::Open(file_path, std::move(dtype));
 		return std::move(gstate);
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,

@@ -2,7 +2,7 @@ mod cache;
 
 use std::cmp::min;
 use std::ffi::{c_char, c_int, c_uchar, c_uint};
-use std::ptr;
+use std::ptr::null_mut;
 use std::sync::Arc;
 
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
@@ -19,7 +19,6 @@ use vortex_duckdb::{
 use crate::array::vx_array;
 use crate::duckdb::cache::{into_conversion_cache, vx_conversion_cache};
 use crate::error::{try_or, vx_error};
-use crate::file::vx_array_stream_file_sink;
 use crate::to_string;
 
 /// Converts a DType into a duckdb
@@ -30,7 +29,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    try_or(error, ptr::null_mut(), || {
+    try_or(error, null_mut(), || {
         Ok(dtype.to_duckdb_type()?.into_owning_ptr())
     })
 }
@@ -44,7 +43,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
     len: c_int,
     error: *mut *mut vx_error,
 ) -> *mut DType {
-    try_or(error, ptr::null_mut(), || {
+    try_or(error, null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..len)
             .map(|i| to_string(*names.offset(i as isize)))
             .map(Arc::from)
@@ -114,14 +113,13 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
 
 /// Pushed a single duckdb chunk into a file sink.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_file_sink_push_duckdb_chunk(
-    array_stream: *mut vx_array_stream_file_sink,
+pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
     chunk: duckdb_data_chunk,
+    dtype: *mut DType,
     error: *mut *mut vx_error,
-) {
-    let array_stream = unsafe { array_stream.as_ref().vortex_expect("null array") };
-    try_or(error, (), || {
-        let dtype = &array_stream.file_dtype;
+) -> *mut vx_array {
+    let dtype = unsafe { dtype.as_ref().vortex_expect("null array") };
+    try_or(error, null_mut(), || {
         let struct_type = dtype.as_struct().ok_or_else(|| {
             vortex_err!("cannot push a duckdb to an array stream which is not a top level struct")
         })?;
@@ -131,13 +129,13 @@ pub unsafe extern "C-unwind" fn vx_array_stream_file_sink_push_duckdb_chunk(
             .map(|f| f.nullability() == Nullability::Nullable)
             .collect_vec();
 
-        let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
+        let array = ArrayRef::from_duckdb(&NamedDataChunk {
             chunk: &DataChunkHandle::new_unowned(chunk),
             nullable: Some(&nullable),
             names: Some(struct_type.names().clone()),
-        });
+        })?;
 
-        Ok(array_stream.sender.blocking_send(new_chunk).unwrap())
+        Ok(Box::into_raw(Box::new(vx_array { inner: array })))
     })
 }
 
