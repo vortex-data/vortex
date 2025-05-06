@@ -10,6 +10,8 @@
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 
+// TODO(joe): enable multi-threaded writes, see `VortexWriteSink`.
+
 namespace duckdb {
 
 struct VortexWriteBindData : public TableFunctionData {
@@ -39,6 +41,8 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	for (auto i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
 	}
+	// TODO(joe): go to a model of combining local chunked into arrays of a specific size
+	// before push each of these larger chunks into the global_state
 	global_state.sink->PushChunk(input);
 }
 

@@ -10,6 +10,8 @@ use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 
+/// The `sink` object is a writeable array stream, used to go from an external iterator of values
+/// into a `vx_array_stream`.
 #[allow(non_camel_case_types)]
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
