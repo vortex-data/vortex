@@ -99,6 +99,9 @@ typedef struct vx_array vx_array;
  */
 typedef struct vx_array_stream vx_array_stream;
 
+/**
+ * An array stream sink writing all values into file path used in creation.
+ */
 typedef struct vx_array_stream_file_sink vx_array_stream_file_sink;
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -312,9 +315,12 @@ unsigned int vx_array_to_duckdb_chunk(struct vx_array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-void vx_array_stream_push_duckdb_chunk(struct vx_array_stream_file_sink *array_stream,
-                                       duckdb_data_chunk chunk,
-                                       struct vx_error **error);
+/**
+ * Pushed a single duckdb chunk into a file sink.
+ */
+void vx_array_stream_file_sink_push_duckdb_chunk(struct vx_array_stream_file_sink *array_stream,
+                                                 duckdb_data_chunk chunk,
+                                                 struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -344,7 +350,7 @@ void vx_error_free(struct vx_error *error);
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_error **error);
 
-void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);
+void vx_file_write_array(const char *path, struct vx_array *array, struct vx_error **error);
 
 struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
@@ -380,6 +386,9 @@ struct vx_array_stream_file_sink *vx_array_stream_file_sink_open(const char *pat
                                                                  const struct vx_dtype *dtype,
                                                                  struct vx_error **error);
 
+/**
+ * Closes a array stream ensuring that all array pushed into the sink are written to the file.
+ */
 void vx_array_stream_file_sink_close(struct vx_array_stream_file_sink *array_stream,
                                      struct vx_error **error);
 

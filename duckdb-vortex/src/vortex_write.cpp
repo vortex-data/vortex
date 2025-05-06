@@ -39,9 +39,7 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	for (auto i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
 	}
-	std::cout << "pushing chunk \n";
 	global_state.sink->PushChunk(input);
-	std::cout << "pushed chunk \n";
 }
 
 std::vector<idx_t> TableNullability(ClientContext &context, const string &catalog_name, const string &schema,
@@ -103,18 +101,8 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 			column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
 		}
 
-		vx_dtype *dtype;
-		{
-			vx_error *error = nullptr;
-			dtype = vx_duckdb_logical_type_to_dtype(column_types.data(), bind.column_nullable.data(),
-														 column_names.data(), column_names.size(), &error);
-			HandleError(error);
-		}
-
-		std::cout << "opening sink\n";
-		gstate->sink = make_uniq<ArrayStreamFileSink>(file_path, dtype);
-		std::cout << "opened sink\n";
-		vx_dtype_free(dtype);
+		auto dtype = DType::FromDuckDBTable(column_types, bind.column_nullable, column_names);
+		gstate->sink = make_uniq<ArrayStreamFileSink>(file_path, *dtype);
 		return std::move(gstate);
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,
@@ -123,7 +111,6 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	};
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
-		std::cout << "copy_to_finalize\n";
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
 		global_state.sink->Close();
 	};

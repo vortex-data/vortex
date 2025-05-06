@@ -8,7 +8,6 @@ use std::sync::Arc;
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
-use vortex::arrays::ChunkedArray;
 use vortex::dtype::{DType, Nullability, StructDType};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::{Array, ArrayRef, ToCanonical};
