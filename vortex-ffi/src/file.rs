@@ -1,11 +1,10 @@
 //! FFI interface for Vortex File I/O.
 
-
 use std::ffi::{CStr, c_char, c_int};
 use std::ptr::null_mut;
+use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -23,7 +22,7 @@ use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
-use vortex::stream::{ArrayStreamArrayExt};
+use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
@@ -151,7 +150,13 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
 /// Get the DType of the data inside of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
-    Box::into_raw(Box::new(file.as_ref().vortex_expect("null file").inner.dtype().clone()))
+    Box::into_raw(Box::new(
+        file.as_ref()
+            .vortex_expect("null file")
+            .inner
+            .dtype()
+            .clone(),
+    ))
 }
 
 /// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
@@ -228,13 +233,12 @@ pub unsafe extern "C-unwind" fn vx_array_stream_file_writer_open(
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream_writer {
     try_or(error, null_mut(), || {
-        let vx_array_stream{inner} = *Box::from_raw(stream);
-        let stream =  inner.vortex_expect("empty array stream").stream;
+        let vx_array_stream { inner } = *Box::from_raw(stream);
+        let stream = inner.vortex_expect("empty array stream").stream;
         let path = unsafe { CStr::from_ptr(path) }.to_str()?;
         let file = RUNTIME.block_on(File::create(path))?;
 
-
-        let writer = RUNTIME.spawn( async move {
+        let writer = RUNTIME.spawn(async move {
             let stream = stream;
             VortexWriteOptions::default().write(file, stream).await
         });
@@ -251,7 +255,7 @@ pub unsafe extern "C-unwind" fn vx_array_stream_writer_close(
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
-        let writer = unsafe {Box::from_raw(writer)};
+        let writer = unsafe { Box::from_raw(writer) };
 
         RUNTIME.block_on(async {
             let file = writer.writer.await??;

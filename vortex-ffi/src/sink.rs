@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::stream::{ArrayStreamAdapter, ArrayStreamExt};
 
 use crate::array::vx_array;
@@ -29,11 +29,14 @@ pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
 
         let (tx, rx) = mpsc::channel(32);
         let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
-        unsafe {sink_out.write(Box::into_raw( Box::new(vx_array_sink { sink: tx })))};
-        unsafe {stream_out.write(Box::into_raw( Box::new(vx_array_stream {
-            inner: Some(Box::new(ArrayStreamInner {
-                stream: array_stream.boxed(),
-            }))})))};
+        unsafe { sink_out.write(Box::into_raw(Box::new(vx_array_sink { sink: tx }))) };
+        unsafe {
+            stream_out.write(Box::into_raw(Box::new(vx_array_stream {
+                inner: Some(Box::new(ArrayStreamInner {
+                    stream: array_stream.boxed(),
+                })),
+            })))
+        };
         Ok(())
     })
 }
@@ -48,7 +51,9 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     let array = unsafe { array.as_ref().vortex_expect("null array") };
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
     try_or(error, (), || {
-        sink.sink.blocking_send(Ok(array.inner.clone())).map_err(|e| vortex_err!("send error {}", e.to_string()))
+        sink.sink
+            .blocking_send(Ok(array.inner.clone()))
+            .map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }
 
