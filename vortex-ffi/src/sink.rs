@@ -1,5 +1,6 @@
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 use std::ptr;
+
 use tokio::fs::File;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -9,9 +10,10 @@ use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
+
+use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
-use crate::RUNTIME;
 
 /// An array stream sink writing all values into file path used in creation.
 #[allow(non_camel_case_types)]
