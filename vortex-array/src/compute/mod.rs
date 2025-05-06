@@ -307,15 +307,15 @@ impl Output {
     }
 
     pub fn unwrap_scalar(self) -> VortexResult<Scalar> {
-        match &self {
+        match self {
             Output::Array(_) => vortex_bail!("Expected array output, got Array"),
-            Output::Scalar(scalar) => Ok(scalar.clone()),
+            Output::Scalar(scalar) => Ok(scalar),
         }
     }
 
     pub fn unwrap_array(self) -> VortexResult<ArrayRef> {
-        match &self {
-            Output::Array(array) => Ok(array.clone()),
+        match self {
+            Output::Array(array) => Ok(array),
             Output::Scalar(_) => vortex_bail!("Expected array output, got Scalar"),
         }
     }
