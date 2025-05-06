@@ -6,6 +6,43 @@
 
 #include <duckdb/common/unique_ptr.hpp>
 
+struct DType {
+	explicit DType(vx_dtype *dtype): dtype(dtype) {}
+
+	DType(const vx_dtype *dtype, bool owned): dtype(const_cast<vx_dtype *>(dtype)), owned(owned) {}
+
+	static duckdb::unique_ptr<DType> FromDuckDBTable(
+		std::vector<duckdb_logical_type> column_types,
+		std::vector<unsigned char> column_nullable,
+		std::vector<const char *> column_names
+	) {
+		D_ASSERT(column_names.size() == column_nullable.size());
+		D_ASSERT(column_names.size() == column_types.size());
+
+		vx_error *error = nullptr;
+		auto dtype = vx_duckdb_logical_type_to_dtype(
+			column_types.data(),
+			column_nullable.data(),
+			column_names.data(),
+			column_names.size(),
+			&error
+		);
+		HandleError(error);
+
+		return duckdb::make_uniq<DType>(dtype);
+	}
+
+
+	~DType() {
+		if (owned && dtype != nullptr) {
+			vx_dtype_free(dtype);
+		}
+	}
+
+	vx_dtype *dtype;
+	bool owned = true;
+};
+
 struct VortexConversionCache {
 	explicit VortexConversionCache(const unsigned long cache_id) : cache(vx_conversion_cache_create(cache_id)) {
 	}
@@ -30,6 +67,10 @@ struct VortexFileReader {
 		auto file = vx_file_open_reader(options, &error);
 		HandleError(error);
 		return duckdb::make_uniq<VortexFileReader>(file);
+	}
+
+	DType DType() {
+		return ::DType(vx_file_dtype(file), false);
 	}
 
 	vx_file_reader *file;
@@ -74,43 +115,6 @@ struct VortexArrayStream {
 	}
 
 	vx_array_stream *array_stream;
-};
-
-struct DType {
-	explicit DType(vx_dtype *dtype): dtype(dtype) {}
-
-	DType(vx_dtype *dtype, bool owned): dtype(dtype), owned(owned) {}
-
-	static duckdb::unique_ptr<DType> FromDuckDBTable(
-		std::vector<duckdb_logical_type> column_types,
-		std::vector<unsigned char> column_nullable,
-		std::vector<const char *> column_names
-	) {
-		D_ASSERT(column_names.size() == column_nullable.size());
-		D_ASSERT(column_names.size() == column_types.size());
-
-		vx_error *error = nullptr;
-		auto dtype = vx_duckdb_logical_type_to_dtype(
-			column_types.data(),
-			column_nullable.data(),
-			column_names.data(),
-			column_names.size(),
-			&error
-		);
-		HandleError(error);
-
-		return duckdb::make_uniq<DType>(dtype);
-	}
-
-
-	~DType() {
-		if (dtype != nullptr) {
-			vx_dtype_free(dtype);
-		}
-	}
-
-	vx_dtype *dtype;
-	bool owned = true;
 };
 
 struct ArrayStreamFileSink {
