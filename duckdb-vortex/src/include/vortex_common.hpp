@@ -127,16 +127,14 @@ struct ArrayStreamSink {
 
 	static duckdb::unique_ptr<ArrayStreamSink> Create(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
 	    vx_error *error = nullptr;
-	    vx_array_sink *sink;
-	    vx_array_stream *stream;
-        vx_array_stream_sink_create(dtype->dtype, &sink, &stream, &error);
+        auto result = vx_array_stream_sink_create(dtype->dtype, &error);
         HandleError(error);
 
-        auto writer = vx_array_stream_file_writer_open(file_path.c_str(), stream, &error);
+        auto writer = vx_array_stream_file_writer_open(file_path.c_str(), result.stream, &error);
         HandleError(error);
 
 
-        return duckdb::make_uniq<ArrayStreamSink>(sink, writer, std::move(dtype));
+        return duckdb::make_uniq<ArrayStreamSink>(result.sink, writer, std::move(dtype));
 	}
 
 	void PushChunk(duckdb::DataChunk &chunk) {

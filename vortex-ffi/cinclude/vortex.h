@@ -179,6 +179,11 @@ typedef struct vx_file_scan_options {
   int split_by_row_count;
 } vx_file_scan_options;
 
+typedef struct vx_array_stream_sink_create_result {
+  struct vx_array_sink *sink;
+  struct vx_array_stream *stream;
+} vx_array_stream_sink_create_result;
+
 
 
 /**
@@ -409,10 +414,8 @@ void vx_init_logging(enum vx_log_level level);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-void vx_array_stream_sink_create(const struct vx_dtype *dtype,
-                                 struct vx_array_sink **sink_out,
-                                 struct vx_array_stream **stream_out,
-                                 struct vx_error **error);
+struct vx_array_stream_sink_create_result vx_array_stream_sink_create(const struct vx_dtype *dtype,
+                                                                      struct vx_error **error);
 
 /**
  * Pushed a single array chunk into a file sink.
