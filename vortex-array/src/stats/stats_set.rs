@@ -731,7 +731,6 @@ mod test {
         array.statistics().compute_all(&all_stats).unwrap();
 
         let stats = array.statistics().to_owned();
-        println!("{:?}", stats);
         for stat in &all_stats {
             assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
         }
