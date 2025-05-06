@@ -3,11 +3,11 @@ use std::ops::Deref;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
-use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+use crate::builders::VarBinViewBuilder;
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
@@ -37,40 +37,41 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
         )?
         .into_array())
     }
-
-    fn take_into(
-        &self,
-        array: &VarBinViewArray,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        if array.len() == 0 {
-            vortex_bail!("Cannot take_into from an empty array");
-        }
-
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!(
-                "Cannot take_into a non-varbinview builder {:?}",
-                builder.as_any().type_id()
-            );
-        };
-        // Compute the new validity
-
-        // This is valid since all elements (of all arrays) even null values are inside must be the
-        // min-max valid range.
-        let validity = array.validity().take(indices)?;
-        let mask = validity.to_mask(indices.len())?;
-        let indices = indices.to_primitive()?;
-
-        match_each_integer_ptype!(indices.ptype(), |$I| {
-            // This is valid since all elements even null values are inside the min-max valid range.
-            take_views_into(array.views(), array.buffers(), indices.as_slice::<$I>(), mask, builder)?;
-        });
-
-        Ok(())
-    }
+    //
+    // fn take_into(
+    //     &self,
+    //     array: &VarBinViewArray,
+    //     indices: &dyn Array,
+    //     builder: &mut dyn ArrayBuilder,
+    // ) -> VortexResult<()> {
+    //     if array.len() == 0 {
+    //         vortex_bail!("Cannot take_into from an empty array");
+    //     }
+    //
+    //     let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+    //         vortex_bail!(
+    //             "Cannot take_into a non-varbinview builder {:?}",
+    //             builder.as_any().type_id()
+    //         );
+    //     };
+    //     // Compute the new validity
+    //
+    //     // This is valid since all elements (of all arrays) even null values are inside must be the
+    //     // min-max valid range.
+    //     let validity = array.validity().take(indices)?;
+    //     let mask = validity.to_mask(indices.len())?;
+    //     let indices = indices.to_primitive()?;
+    //
+    //     match_each_integer_ptype!(indices.ptype(), |$I| {
+    //         // This is valid since all elements even null values are inside the min-max valid range.
+    //         take_views_into(array.views(), array.buffers(), indices.as_slice::<$I>(), mask, builder)?;
+    //     });
+    //
+    //     Ok(())
+    // }
 }
 
+#[allow(dead_code)]
 fn take_views_into<I: AsPrimitive<usize>>(
     views: &Buffer<BinaryView>,
     buffers: &[ByteBuffer],

@@ -52,23 +52,24 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         })
     }
 
-    fn take_into(
-        &self,
-        array: &PrimitiveArray,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        let indices = indices.to_primitive()?;
-        let mask = array.validity().take(&indices)?.to_mask(indices.len())?;
-
-        match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_into_impl(array.as_slice::<$T>(), indices.as_slice::<$I>(), mask, builder)
-            })
-        })
-    }
+    // fn take_into(
+    //     &self,
+    //     array: &PrimitiveArray,
+    //     indices: &dyn Array,
+    //     builder: &mut dyn ArrayBuilder,
+    // ) -> VortexResult<()> {
+    //     let indices = indices.to_primitive()?;
+    //     let mask = array.validity().take(&indices)?.to_mask(indices.len())?;
+    //
+    //     match_each_native_ptype!(array.ptype(), |$T| {
+    //         match_each_integer_ptype!(indices.ptype(), |$I| {
+    //             take_into_impl(array.as_slice::<$T>(), indices.as_slice::<$I>(), mask, builder)
+    //         })
+    //     })
+    // }
 }
 
+#[allow(dead_code)]
 fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],
     indices: &[I],
