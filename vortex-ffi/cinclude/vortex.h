@@ -94,6 +94,10 @@ typedef struct vx_dtype vx_dtype;
  */
 typedef struct vx_array vx_array;
 
+/**
+ * The `sink` object is a writeable array stream, used to go from an external iterator of values
+ * into a `vx_array_stream`.
+ */
 typedef struct vx_array_sink vx_array_sink;
 
 /**
@@ -101,6 +105,10 @@ typedef struct vx_array_sink vx_array_sink;
  */
 typedef struct vx_array_stream vx_array_stream;
 
+/**
+ * A reference to a array stream being written to an external system (e.g. a file).
+ * Must be closed with `vx_array_stream_writer_close`.
+ */
 typedef struct vx_array_stream_writer vx_array_stream_writer;
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -397,6 +405,10 @@ void vx_array_stream_writer_close(struct vx_array_stream_writer *writer, struct 
  */
 void vx_init_logging(enum vx_log_level level);
 
+/**
+ * Opens a writable array stream, where sink is used to push values into the stream.
+ * To close the stream close the sink with `vx_array_sink_close`.
+ */
 void vx_array_stream_sink_create(const struct vx_dtype *dtype,
                                  struct vx_array_sink **sink_out,
                                  struct vx_array_stream **stream_out,

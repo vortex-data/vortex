@@ -35,6 +35,14 @@ pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
 }
 
+/// A reference to a array stream being written to an external system (e.g. a file).
+/// Must be closed with `vx_array_stream_writer_close`.
+#[allow(non_camel_case_types)]
+pub struct vx_array_stream_writer {
+    // To support other writes use an enum of writers here.
+    writer: JoinHandle<VortexResult<File>>,
+}
+
 /// Options supplied for opening a file.
 #[repr(C)]
 pub struct vx_file_open_options {
@@ -207,12 +215,6 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 
         Ok(Box::into_raw(Box::new(vx_array_stream { inner })))
     })
-}
-
-#[allow(non_camel_case_types)]
-pub struct vx_array_stream_writer {
-    // To support other writes use an enum of writers here.
-    writer: JoinHandle<VortexResult<File>>,
 }
 
 /// Free the file and all associated resources.
