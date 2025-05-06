@@ -2,7 +2,7 @@ mod between;
 mod compare;
 mod nan_count;
 
-use vortex_array::compute::{NaNCountFn, TakeFn, take};
+use vortex_array::compute::{TakeFn, take};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
@@ -10,9 +10,6 @@ use vortex_error::VortexResult;
 use crate::{ALPArray, ALPEncoding};
 
 impl ComputeVTable for ALPEncoding {
-    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
-        Some(self)
-    }
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }

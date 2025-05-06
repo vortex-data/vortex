@@ -1,15 +1,8 @@
 use crate::Array;
-use crate::compute::{NaNCountFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn};
+use crate::compute::{SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn};
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
-    /// Compute nan count of the array
-    ///
-    /// See: [`NaNCountFn`]
-    fn nan_count_fn(&self) -> Option<&dyn NaNCountFn<&dyn Array>> {
-        None
-    }
-
     /// Perform a search over an ordered array.
     ///
     /// See: [`SearchSortedFn`].
