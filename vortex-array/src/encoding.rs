@@ -2,7 +2,8 @@
 
 use std::fmt::Debug;
 
-use crate::arcref::ArcRef;
+use vortex_arcref::ArcRef;
+
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, DeserializeMetadata, SerializeMetadata};
 

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
-use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
@@ -13,6 +12,7 @@ use vortex::{
     ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
+use vortex_arcref::ArcRef;
 
 use crate::arrays::py::PyEncodingClass;
 use crate::dtype::PyDType;

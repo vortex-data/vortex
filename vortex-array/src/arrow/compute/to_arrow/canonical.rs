@@ -141,7 +141,7 @@ impl Kernel for ToArrowCanonical {
                 >(array)?)
             }
             (Canonical::Extension(_), _) => {
-                // Datetime and interval types are handled by a different kernel.
+                // Extension types must implement their own kernel for support
                 return Ok(None);
             }
             (_, arrow_type) => vortex_bail!(
@@ -221,6 +221,7 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
+#[allow(clippy::use_debug)]
 fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<ArrowArrayRef> {
     let field_arrays = fields
         .iter()
@@ -263,6 +264,7 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
                 field_array.data_type().clone(),
                 target_field.is_nullable(),
             )
+            .with_metadata(target_field.metadata().clone())
         })
         .map(Arc::new)
         .collect::<Fields>();

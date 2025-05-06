@@ -6,10 +6,10 @@ use std::hash::{Hash, Hasher};
 mod compute;
 
 pub use compute::*;
+use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
 use crate::serde::ArrayParts;
 use crate::{Array, ArrayContext, ArrayRef, Canonical};

@@ -243,8 +243,25 @@ impl DType {
 }
 
 /// Type-erased pointer to a [`ArrowToDType`] implementation.
-pub struct ArrowToDTypeRef(ArcRef<dyn ArrowToDType>);
+pub struct ArrowToDTypeRef(pub ArcRef<dyn ArrowToDType>);
 inventory::collect!(ArrowToDTypeRef);
+
+impl ArrowToDTypeRef {
+    /// Attempt to convert a field to a DType. If the there is no registered converter that
+    /// can handle the field type, `None` is returned.
+    ///
+    /// If a converter is resolved, it is used to convert the Field and the result is returned in
+    /// a `Some`.
+    pub fn convert(field: impl AsRef<Field>) -> Option<VortexResult<DType>> {
+        for converter in inventory::iter::<ArrowToDTypeRef> {
+            if converter.0.can_convert(field.as_ref()) {
+                return Some(converter.0.to_vortex(field.as_ref()));
+            }
+        }
+
+        None
+    }
+}
 
 /// Get Arrow extension type metadata for a type.
 pub trait ArrowMetadata: 'static + Send + Sync {
@@ -255,7 +272,7 @@ pub trait ArrowMetadata: 'static + Send + Sync {
 }
 
 /// Type-erased pointer to a thing that can implement the DType conversion instead.
-pub struct ArrowMetadataRef(ArcRef<dyn ArrowMetadata>);
+pub struct ArrowMetadataRef(pub ArcRef<dyn ArrowMetadata>);
 inventory::collect!(ArrowMetadataRef);
 
 /// Conversion for extension types.
@@ -275,11 +292,11 @@ pub trait ArrowToDType: Send + Sync {
 /// the [`ArrowToDType`] trait.
 #[macro_export]
 macro_rules! register_extension_type {
-    ($extension:expr) => {{
+    ($extension:expr) => {
         $crate::inventory::submit! {
             $extension
         }
-    }};
+    };
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::arcref::ArcRef;
+use vortex_arcref::ArcRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow_array::array::{
     Array as ArrowArray, ArrayRef as ArrowArrayRef, ArrowPrimitiveType,
     BooleanArray as ArrowBooleanArray, GenericByteArray, NullArray as ArrowNullArray,
@@ -16,14 +18,15 @@ use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_dtype::arrow::ArrowToDTypeRef;
 use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::{DType, DecimalDType, NativePType, PType};
+use vortex_dtype::{DType, DecimalDType, FieldNames, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
-    VarBinArray, VarBinViewArray,
+    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    TemporalArray, VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
@@ -231,14 +234,30 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
+        // TODO(aduffy): If field has ExtensionType, attempt to lookup using one of the
+        //  conversion functions.
+
+        let mut field_names: Vec<Arc<str>> = Vec::with_capacity(value.fields().len());
+        let mut field_arrays = Vec::with_capacity(value.fields().len());
+
+        for (field, column) in value.fields().iter().zip(value.columns()) {
+            if field.extension_type_name().is_some() {
+                // Check if we have a conversion function. Wrap using the ExtensionArray.
+                if let Some(Ok(DType::Extension(ext_dtype))) = ArrowToDTypeRef::convert(field) {
+                    let storage = Self::from_arrow(column.clone(), field.is_nullable());
+                    field_names.push(field.name().to_string().into());
+                    field_arrays.push(ExtensionArray::new(ext_dtype, storage).into_array());
+                    continue;
+                }
+            }
+
+            field_names.push(field.name().to_string().into());
+            field_arrays.push(Self::from_arrow(column.clone(), field.is_nullable()));
+        }
+
         StructArray::try_new(
-            value.column_names().iter().map(|s| (*s).into()).collect(),
-            value
-                .columns()
-                .iter()
-                .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.clone(), field.is_nullable()))
-                .collect(),
+            FieldNames::from_iter(field_names),
+            field_arrays,
             value.len(),
             nulls(value.nulls(), nullable),
         )

@@ -106,17 +106,14 @@ impl OwnedGeometryType {
 }
 
 // We need to provide nullability info.
-impl From<OwnedGeometryType> for ExtDType {
-    fn from(value: OwnedGeometryType) -> Self {
-        let ext_meta = value.metadata();
+impl OwnedGeometryType {
+    pub fn into_ext_dtype(self: OwnedGeometryType, nullability: Nullability) -> ExtDType {
+        let ext_meta = self.metadata();
 
-        match value {
+        match self {
             OwnedGeometryType::Point(dimension, ..) => ExtDType::new(
                 POINT_ID.clone(),
-                Arc::new(DType::Struct(
-                    Arc::new(point_dtype(dimension)),
-                    false.into(),
-                )),
+                Arc::new(DType::Struct(Arc::new(point_dtype(dimension)), nullability)),
                 Some(ExtMetadata::new(ext_meta.into())),
             ),
             OwnedGeometryType::LineString(dimension, ..) => {
@@ -125,7 +122,7 @@ impl From<OwnedGeometryType> for ExtDType {
                         Arc::new(point_dtype(dimension)),
                         false.into(),
                     )),
-                    false.into(),
+                    nullability,
                 );
                 ExtDType::new(
                     LINESTRING_ID.clone(),
@@ -142,7 +139,7 @@ impl From<OwnedGeometryType> for ExtDType {
                         )),
                         false.into(),
                     )),
-                    false.into(),
+                    nullability,
                 );
                 ExtDType::new(
                     POLYGON_ID.clone(),
@@ -152,7 +149,7 @@ impl From<OwnedGeometryType> for ExtDType {
             }
             OwnedGeometryType::WKB(..) => ExtDType::new(
                 WKB_ID.clone(),
-                Arc::new(DType::Binary(false.into())),
+                Arc::new(DType::Binary(nullability)),
                 Some(ExtMetadata::new(ext_meta.into())),
             ),
         }
@@ -199,12 +196,12 @@ impl<'a> TryFrom<&'a ExtMetadata> for GeoMetadata<'a> {
                 x if x == Dimension::XYZM as u8 => Dimension::XYZM,
                 _ => vortex_bail!("Invalid dimension: {:?}", bytes),
             };
-            let crs = validate_crs(&bytes[1..])?;
+            let crs = match bytes.len() {
+                2.. => Some(validate_crs(&bytes[1..])?),
+                _ => None,
+            };
 
-            Ok(Self {
-                dimension,
-                crs: Some(crs),
-            })
+            Ok(Self { dimension, crs })
         }
     }
 }

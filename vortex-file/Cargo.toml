@@ -35,6 +35,7 @@ tracing-futures = { workspace = true, features = [
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
 vortex-alp = { workspace = true }
+vortex-arcref = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }

@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use vortex_arcref::ArcRef;
 use vortex_dtype::{DType, PType};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
@@ -7,7 +8,6 @@ use vortex_error::{
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arcref::ArcRef;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProvider};

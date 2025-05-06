@@ -36,6 +36,7 @@ tracing = { workspace = true, optional = true }
 tracing-futures = { workspace = true, features = [
     "futures-03",
 ], optional = true }
+vortex-arcref = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }

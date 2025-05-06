@@ -2,12 +2,12 @@ use std::ops::BitAnd;
 use std::sync::LazyLock;
 
 use arrow_array::BooleanArray;
+use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{

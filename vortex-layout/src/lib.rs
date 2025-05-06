@@ -8,7 +8,7 @@ pub mod layouts;
 
 pub use reader::*;
 pub use strategy::*;
-use vortex_array::arcref::ArcRef;
+use vortex_arcref::ArcRef;
 pub use vtable::*;
 pub use writer::*;
 mod reader;

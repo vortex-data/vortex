@@ -1,21 +1,25 @@
+#[allow(clippy::disallowed_types)]
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_buffer::ScalarBuffer;
+use arrow_schema::extension::{EXTENSION_TYPE_METADATA_KEY, EXTENSION_TYPE_NAME_KEY};
 use arrow_schema::{DataType, Field};
 use geoarrow::ArrayBase;
 use geoarrow::array::{CoordBuffer, PointArray, SeparatedCoordBuffer};
-use vortex::arcref::ArcRef;
+use geoarrow_schema::Crs;
 use vortex::arrays::ExtensionArray;
 use vortex::arrow::ArrowArray;
 use vortex::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use vortex::compute::{InvocationArgs, Kernel, Output};
-use vortex::dtype::arrow::ArrowToDType;
-use vortex::dtype::{DType, ExtDType};
-use vortex::error::{VortexResult, vortex_bail};
+use vortex::dtype::arrow::{ArrowMetadata, ArrowMetadataRef, ArrowToDType, ArrowToDTypeRef};
+use vortex::dtype::{DType, ExtDType, register_extension_type};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::{Array, ToCanonical, register_kernel};
+use vortex_arcref::ArcRef;
 
 use crate::array::GeometryArray;
-use crate::{Dimension, GeoMetadata, OwnedGeometryType};
+use crate::{Dimension, GeoMetadata, GeometryType, OwnedGeometryType};
 
 /// Kernel that allows converting a Vortex extension array with geometry type into a GeoArrow
 /// array layout.
@@ -28,18 +32,21 @@ impl Kernel for ToGeoArrow {
         match array.as_any().downcast_ref::<ExtensionArray>() {
             None => Ok(None),
             Some(ext_array) => {
+                let _ = GeometryArray::try_from(ext_array)?;
                 if let Ok(geometry_array) = GeometryArray::try_from(ext_array) {
                     // based on the particular geometry, encode into GeoArrow type.
                     let array = match geometry_array {
                         GeometryArray::Point(point_array, metadata) => {
-                            let coords = coordinate_buffer(point_array, metadata)?;
+                            let coords = coordinate_buffer(point_array, &metadata)?;
                             let nulls = point_array.validity_mask()?.to_null_buffer();
-
+                            let crs = match metadata.crs {
+                                None => Crs::default(),
+                                Some(wkt) => Crs::from_wkt2_2019(wkt.to_string()),
+                            };
                             PointArray::new(
                                 coords,
                                 nulls,
-                                // TODO(aduffy): include CRS information from metadata
-                                Arc::default(),
+                                Arc::new(geoarrow_schema::Metadata::new(crs, None)),
                             )
                             .into_array_ref()
                         }
@@ -52,6 +59,7 @@ impl Kernel for ToGeoArrow {
                         ArrowArray::new(array, ext_array.dtype().nullability()).into_array(),
                     )))
                 } else {
+                    println!("GeometryArray::try_from failed");
                     Ok(None)
                 }
             }
@@ -123,7 +131,7 @@ impl ArrowToDType for GeoArrowConversion {
                     dim_from_fields!(fields),
                     geoarrow_meta.crs().crs_value().map(|v| v.to_string()),
                 )
-                .into()
+                .into_ext_dtype(field.is_nullable().into())
             }
             x if x == GEOARROW_LINESTRING => {
                 let geoarrow_meta = geoarrow_schema::Metadata::try_from(field)?;
@@ -143,7 +151,7 @@ impl ArrowToDType for GeoArrowConversion {
                     dim_from_fields!(fields),
                     geoarrow_meta.crs().crs_value().map(|v| v.to_string()),
                 )
-                .into()
+                .into_ext_dtype(field.is_nullable().into())
             }
             x if x == GEOARROW_POLYGON => {
                 let geoarrow_meta = geoarrow_schema::Metadata::try_from(field)?;
@@ -169,7 +177,7 @@ impl ArrowToDType for GeoArrowConversion {
                     dim_from_fields!(fields),
                     geoarrow_meta.crs().crs_value().map(|v| v.to_string()),
                 )
-                .into()
+                .into_ext_dtype(field.is_nullable().into())
             }
             x if x == GEOARROW_WKB => {
                 let geoarrow_meta = geoarrow_schema::Metadata::try_from(field)?;
@@ -183,7 +191,7 @@ impl ArrowToDType for GeoArrowConversion {
                     Dimension::default(),
                     geoarrow_meta.crs().crs_value().map(|v| v.to_string()),
                 )
-                .into()
+                .into_ext_dtype(field.is_nullable().into())
             }
             _ => vortex_bail!("extension type {} not supported", ext_type),
         };
@@ -192,12 +200,51 @@ impl ArrowToDType for GeoArrowConversion {
     }
 }
 
+impl ArrowMetadata for GeoArrowConversion {
+    #[allow(clippy::disallowed_types)]
+    fn arrow_metadata(&self, vortex_extension_type: &ExtDType) -> Option<HashMap<String, String>> {
+        if let Ok(geometry) = GeometryType::try_from(vortex_extension_type) {
+            let mut extension_metadata = HashMap::new();
+            let ext_type_name = match geometry {
+                GeometryType::Point(_) => GEOARROW_POINT.to_string(),
+                GeometryType::LineString(_) => GEOARROW_LINESTRING.to_string(),
+                GeometryType::Polygon(_) => GEOARROW_POLYGON.to_string(),
+                GeometryType::WKB(_) => GEOARROW_WKB.to_string(),
+            };
+            extension_metadata.insert(EXTENSION_TYPE_NAME_KEY.to_string(), ext_type_name);
+
+            match geometry {
+                GeometryType::Point(meta)
+                | GeometryType::LineString(meta)
+                | GeometryType::Polygon(meta)
+                | GeometryType::WKB(meta) => {
+                    if let Some(wkt) = meta.crs {
+                        let crs = Crs::from_wkt2_2019(wkt.to_string());
+                        let metadata_json =
+                            serde_json::to_string(&geoarrow_schema::Metadata::new(crs, None))
+                                .map_err(|e| {
+                                    vortex_err!("Encoding geoarrow metadata failed: {}", e)
+                                })
+                                .vortex_expect("failed to serialize geoarrow metadata");
+                        extension_metadata
+                            .insert(EXTENSION_TYPE_METADATA_KEY.to_string(), metadata_json);
+                    }
+                }
+            };
+
+            Some(extension_metadata)
+        } else {
+            None
+        }
+    }
+}
+
+register_extension_type!(ArrowToDTypeRef(ArcRef::new_ref(&GeoArrowConversion)));
+register_extension_type!(ArrowMetadataRef(ArcRef::new_ref(&GeoArrowConversion)));
+
 /// Unpack the geoarrow CoordBuffer. Errors if the dimensions specified in the metadata do not
 /// match the actual encoding.
-fn coordinate_buffer<'a>(
-    array: &'a ExtensionArray,
-    meta: GeoMetadata<'a>,
-) -> VortexResult<CoordBuffer> {
+fn coordinate_buffer(array: &ExtensionArray, meta: &GeoMetadata) -> VortexResult<CoordBuffer> {
     let children = array.storage().children();
     match (children.len(), meta.dimension) {
         (2, Dimension::XY) => {
@@ -284,5 +331,58 @@ fn coordinate_buffer<'a>(
                 meta.dimension
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Test that round trip through GeoArrow works as expected.
+    use std::sync::Arc;
+
+    use arrow_array::{ArrayRef, StructArray};
+    use arrow_schema::Fields;
+    use geoarrow::ArrayBase;
+    use geoarrow::array::PointBuilder;
+    use geoarrow_schema::{CoordType, Dimension};
+    use vortex::arrow::{FromArrowArray, IntoArrowArray};
+    use vortex::dtype::arrow::FromArrowType;
+    use vortex::dtype::{DType, ExtDType};
+
+    use crate::OwnedGeometryType;
+
+    #[test]
+    fn test_geo_simple() {
+        // Make a square
+        let mut points =
+            PointBuilder::new_with_options(Dimension::XY, CoordType::Separated, Default::default());
+        points.push_coord(Some(&(0.0f64, 0.0f64)));
+        let points = points.finish();
+        let field_type = points.extension_field();
+        let dtype = DType::from_arrow(field_type.as_ref());
+
+        let owned_type: ExtDType =
+            OwnedGeometryType::Point(crate::Dimension::XY, None).into_ext_dtype(false.into());
+        assert_eq!(dtype, DType::Extension(Arc::new(owned_type)));
+
+        // round trip back to Arrow type.
+        assert_eq!(&dtype.to_arrow().unwrap(), field_type.data_type());
+    }
+
+    #[test]
+    fn test_arrow_extension_type() {
+        let mut points =
+            PointBuilder::new_with_options(Dimension::XY, CoordType::Separated, Default::default());
+        points.push_coord(Some(&(0.0f64, 0.0f64)));
+        let points = points.finish();
+
+        let struct_array: ArrayRef = Arc::new(StructArray::new(
+            Fields::from(vec![points.extension_field()]),
+            vec![points.to_array_ref()],
+            None,
+        ));
+
+        let imported = vortex::ArrayRef::from_arrow(struct_array.clone(), false);
+        let exported = imported.into_arrow_preferred().unwrap();
+        assert_eq!(exported.data_type(), struct_array.data_type());
     }
 }

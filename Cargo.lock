@@ -2504,7 +2504,9 @@ dependencies = [
  "arrow-schema",
  "geoarrow",
  "geoarrow-schema",
+ "serde_json",
  "vortex",
+ "vortex-arcref",
 ]
 
 [[package]]
@@ -4656,6 +4658,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-arcref",
 ]
 
 [[package]]
@@ -6726,6 +6729,7 @@ dependencies = [
  "tracing-futures",
  "uuid",
  "vortex-alp",
+ "vortex-arcref",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
@@ -6872,6 +6876,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-futures",
+ "vortex-arcref",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",

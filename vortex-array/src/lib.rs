@@ -22,7 +22,6 @@ pub use metadata::*;
 
 pub mod accessor;
 pub mod aliases;
-pub mod arcref;
 mod array;
 pub mod arrays;
 pub mod arrow;

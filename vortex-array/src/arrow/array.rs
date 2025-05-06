@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
+use vortex_arcref::ArcRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arcref::ArcRef;
 use crate::stats::StatsSetRef;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{

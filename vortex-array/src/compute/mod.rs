@@ -32,12 +32,12 @@ pub use sum::*;
 pub use take::{TakeFn, take, take_into};
 pub use take_from::TakeFromFn;
 pub use uncompressed_size::*;
+use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
 
