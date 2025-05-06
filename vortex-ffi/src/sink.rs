@@ -32,8 +32,6 @@ pub struct vx_array_stream_sink_create_result {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
     dtype: *const DType,
-    // sink_out: *mut *mut vx_array_sink,
-    // stream_out: *mut *mut vx_array_stream,
     error: *mut *mut vx_error,
 ) -> vx_array_stream_sink_create_result {
     try_or(

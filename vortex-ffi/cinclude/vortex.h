@@ -179,6 +179,9 @@ typedef struct vx_file_scan_options {
   int split_by_row_count;
 } vx_file_scan_options;
 
+/**
+ * The result of `vx_array_stream_sink_create`.
+ */
 typedef struct vx_array_stream_sink_create_result {
   struct vx_array_sink *sink;
   struct vx_array_stream *stream;
