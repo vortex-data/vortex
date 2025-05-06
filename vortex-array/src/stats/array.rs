@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_dtype::Nullability;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use super::{
     Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
@@ -12,8 +13,8 @@ use super::{
 use crate::Array;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
-    uncompressed_size,
 };
+use crate::nbytes::NBytes;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -133,7 +134,13 @@ impl StatsSetRef<'_> {
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
-            Stat::UncompressedSizeInBytes => Some(uncompressed_size(self.dyn_array_ref)?.into()),
+            Stat::UncompressedSizeInBytes => Some(
+                Scalar::primitive(
+                    self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64,
+                    Nullability::NonNullable,
+                )
+                .into_value(),
+            ),
             Stat::NaNCount => Some(nan_count(self.dyn_array_ref)?.into()),
         })
     }

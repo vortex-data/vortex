@@ -30,7 +30,6 @@ pub use search_sorted::*;
 pub use sum::*;
 pub use take::{TakeFn, take, take_into};
 pub use take_from::TakeFromFn;
-pub use uncompressed_size::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
@@ -63,7 +62,6 @@ mod search_sorted;
 mod sum;
 mod take;
 mod take_from;
-mod uncompressed_size;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.

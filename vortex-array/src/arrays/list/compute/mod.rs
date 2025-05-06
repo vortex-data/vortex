@@ -5,17 +5,12 @@ use vortex_error::VortexResult;
 use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
-    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, UncompressedSizeFn,
-    uncompressed_size,
+    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
 };
+use crate::register_kernel;
 use crate::vtable::ComputeVTable;
-use crate::{Array, register_kernel};
 
-impl ComputeVTable for ListEncoding {
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ListEncoding {}
 
 impl IsConstantKernel for ListEncoding {
     fn is_constant(
@@ -38,13 +33,6 @@ impl MinMaxKernel for ListEncoding {
 }
 
 register_kernel!(MinMaxKernelAdapter(ListEncoding).lift());
-
-impl UncompressedSizeFn<&ListArray> for ListEncoding {
-    fn uncompressed_size(&self, array: &ListArray) -> VortexResult<usize> {
-        let size = uncompressed_size(array.elements())? + uncompressed_size(array.offsets())?;
-        Ok(size + array.validity().uncompressed_size())
-    }
-}
 
 // TODO(ngates): why do we report the wrong thing?
 impl IsSortedKernel for ListEncoding {

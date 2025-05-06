@@ -8,12 +8,9 @@ mod search_sorted;
 mod sum;
 mod take;
 
-use vortex_error::VortexResult;
-
 use crate::Array;
 use crate::arrays::ConstantEncoding;
-use crate::arrays::constant::ConstantArray;
-use crate::compute::{SearchSortedFn, TakeFn, UncompressedSizeFn};
+use crate::compute::{SearchSortedFn, TakeFn};
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for ConstantEncoding {
@@ -24,22 +21,6 @@ impl ComputeVTable for ConstantEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
-impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
-    fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {
-        let scalar = array.scalar();
-
-        let size = match scalar.as_bool_opt() {
-            Some(_) => array.len() / 8,
-            None => array.scalar().nbytes() * array.len(),
-        };
-        Ok(size)
-    }
 }
 
 #[cfg(test)]
@@ -47,8 +28,8 @@ mod test {
     use vortex_dtype::half::f16;
     use vortex_scalar::Scalar;
 
-    use super::ConstantArray;
     use crate::array::Array;
+    use crate::arrays::constant::ConstantArray;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]

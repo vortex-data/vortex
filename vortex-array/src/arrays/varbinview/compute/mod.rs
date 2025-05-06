@@ -5,34 +5,14 @@ mod mask;
 mod min_max;
 mod take;
 
-use vortex_error::VortexResult;
-
-use super::BinaryView;
 use crate::Array;
 use crate::arrays::VarBinViewEncoding;
-use crate::arrays::varbinview::VarBinViewArray;
-use crate::compute::{TakeFn, UncompressedSizeFn};
+use crate::compute::TakeFn;
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for VarBinViewEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
-impl UncompressedSizeFn<&VarBinViewArray> for VarBinViewEncoding {
-    fn uncompressed_size(&self, array: &VarBinViewArray) -> VortexResult<usize> {
-        let views = array.views().len() * size_of::<BinaryView>();
-        let mut buffers_size = 0;
-        for buffer in array.buffers() {
-            buffers_size += buffer.len();
-        }
-
-        Ok(views + buffers_size + array.validity().uncompressed_size())
     }
 }
 

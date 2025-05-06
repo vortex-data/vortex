@@ -6,19 +6,14 @@ use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
-    MinMaxKernelAdapter, MinMaxResult, TakeFn, UncompressedSizeFn,
+    MinMaxKernelAdapter, MinMaxResult, TakeFn,
 };
-use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl ComputeVTable for NullEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -63,12 +58,6 @@ impl MinMaxKernel for NullEncoding {
 }
 
 register_kernel!(MinMaxKernelAdapter(NullEncoding).lift());
-
-impl UncompressedSizeFn<&NullArray> for NullEncoding {
-    fn uncompressed_size(&self, array: &NullArray) -> VortexResult<usize> {
-        Ok(array.nbytes())
-    }
-}
 
 #[cfg(test)]
 mod test {

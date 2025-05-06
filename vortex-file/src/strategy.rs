@@ -7,10 +7,10 @@ use itertools::Itertools;
 use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::nbytes::NBytes;
-use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
+use vortex_array::stats::{PRUNING_STATS, Precision, STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
@@ -22,6 +22,7 @@ use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWrite
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use vortex_scalar::Scalar;
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -136,22 +137,30 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        let chunk = chunk.to_canonical()?.into_array();
+
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        // Short circuit the decision if the chunk is constant
+        // Persist our best guess for the uncompressed size. This isn't ideal because we may have
+        // de-duplicated in-memory buffers and all sorts of funky stuff that means this number is
+        // off.
+        chunk.statistics().set(
+            Stat::UncompressedSizeInBytes,
+            Precision::Exact(
+                Scalar::primitive(chunk.nbytes() as u64, Nullability::NonNullable).into_value(),
+            ),
+        );
+
+        // If we have information about the data from the previous chunk
         let compressed_chunk = if let Some(constant) = chunk.as_constant() {
             Some(ConstantArray::new(constant, chunk.len()).into_array())
-        }
-        // If we have information about the data from the previous chunk
-        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
+        } else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
-            let canonical_chunk = chunk.to_canonical()?;
-            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
 
-            if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
-            {
+            let canonical_nbytes = chunk.as_ref().nbytes();
+
+            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk)? {
                 let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
                 // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
@@ -176,9 +185,8 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         let compressed_chunk = match compressed_chunk {
             Some(array) => array,
             None => {
-                let canonical_chunk = chunk.to_canonical()?;
-                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
-                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
+                let canonical_size = chunk.nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress(&chunk)?;
 
                 if compressed.is_canonical()
                     || ((canonical_size / compressed.nbytes() as f64) < COMPRESSION_DRIFT_THRESHOLD)

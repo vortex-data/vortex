@@ -1,7 +1,5 @@
 use crate::Array;
-use crate::compute::{
-    NaNCountFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn, UncompressedSizeFn,
-};
+use crate::compute::{NaNCountFn, SearchSortedFn, SearchSortedUsizeFn, TakeFn, TakeFromFn};
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
@@ -35,13 +33,6 @@ pub trait ComputeVTable {
     }
 
     fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
-        None
-    }
-
-    /// Approximates the uncompressed size of the array.
-    ///
-    /// See [`UncompressedSizeFn`]
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         None
     }
 }

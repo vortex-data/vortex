@@ -9,18 +9,13 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeFn, UncompressedSizeFn, filter,
-    is_constant_opts, take, uncompressed_size,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeFn, filter, is_constant_opts, take,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
 impl ComputeVTable for StructEncoding {
     fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
         Some(self)
     }
 }
@@ -96,17 +91,6 @@ impl IsConstantKernel for StructEncoding {
 }
 
 register_kernel!(IsConstantKernelAdapter(StructEncoding).lift());
-
-impl UncompressedSizeFn<&StructArray> for StructEncoding {
-    fn uncompressed_size(&self, array: &StructArray) -> VortexResult<usize> {
-        let mut sum = array.validity().uncompressed_size();
-        for child in array.children().into_iter() {
-            sum += uncompressed_size(child.as_ref())?;
-        }
-
-        Ok(sum)
-    }
-}
 
 #[cfg(test)]
 mod tests {

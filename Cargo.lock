@@ -6372,6 +6372,7 @@ dependencies = [
  "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
+ "vortex-scalar",
  "vortex-sparse",
  "vortex-zigzag",
 ]
