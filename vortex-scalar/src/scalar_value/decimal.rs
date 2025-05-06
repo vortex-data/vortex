@@ -1,4 +1,4 @@
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 use crate::{DecimalValue, ScalarValue};
 
 impl From<DecimalValue> for ScalarValue {

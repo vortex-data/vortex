@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 use crate::{Scalar, ScalarValue, i256};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]

@@ -260,7 +260,7 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets
 
-  rust-lint-n-default:
+  rust-lint-no-default:
     name: "Rust (lint, no default)"
     runs-on:
       - runs-on=${{ github.run_id }}

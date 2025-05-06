@@ -5,7 +5,7 @@ use vortex_dtype::half::f16;
 use vortex_error::{VortexError, vortex_err};
 
 use crate::ScalarValue;
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 
 impl<'a, T: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>> TryFrom<&'a ScalarValue>
     for Vec<T>
