@@ -22,7 +22,7 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
             options: &(),
         })?
         .unwrap_scalar()?;
-    MinMaxResult::from_scalar(&scalar)
+    MinMaxResult::from_scalar(scalar)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub struct MinMaxResult {
 }
 
 impl MinMaxResult {
-    pub fn from_scalar(scalar: &Scalar) -> VortexResult<Option<Self>> {
+    pub fn from_scalar(scalar: Scalar) -> VortexResult<Option<Self>> {
         if scalar.is_null() {
             Ok(None)
         } else {
@@ -130,11 +130,11 @@ fn min_max_impl(
     };
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
-            return MinMaxResult::from_scalar(&output.unwrap_scalar()?);
+            return MinMaxResult::from_scalar(output.unwrap_scalar()?);
         }
     }
     if let Some(output) = array.invoke(&MIN_MAX_FN, &args)? {
-        return MinMaxResult::from_scalar(&output.unwrap_scalar()?);
+        return MinMaxResult::from_scalar(output.unwrap_scalar()?);
     }
 
     if !array.is_canonical() {
