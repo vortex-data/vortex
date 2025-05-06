@@ -17,7 +17,9 @@ impl ArrayCanonicalImpl for ChunkedArray {
             return Ok(Canonical::empty(self.dtype()));
         }
         if self.nchunks() == 1 {
-            return self.chunks()[0].to_canonical();
+            let chunk = &self.chunks()[0];
+            let cast_chunk = cast(chunk, &self.dtype)?;
+            return cast_chunk.to_canonical();
         }
         match self.dtype() {
             DType::Struct(struct_dtype, _) => {
