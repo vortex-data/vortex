@@ -1,12 +1,12 @@
 mod compare;
 mod filter;
 
-use vortex_array::arrays::{VarBinArray};
+use vortex_array::arrays::VarBinArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{TakeFn, fill_null, take};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayExt, ArrayRef};
-use vortex_error::{VortexResult,};
+use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
@@ -45,4 +45,3 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
         builder.extend_from_array(&take(array, indices)?)
     }
 }
-

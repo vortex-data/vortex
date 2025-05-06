@@ -1,5 +1,5 @@
 use vortex_array::Array;
-use vortex_array::compute::{ SearchSortedFn, TakeFn};
+use vortex_array::compute::{SearchSortedFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
 
 use crate::BitPackedEncoding;

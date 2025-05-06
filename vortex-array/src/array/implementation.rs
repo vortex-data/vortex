@@ -174,7 +174,10 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         if index >= self.len() {
-            vortex_bail!("Index out of bounds: {} >= {}", index, self.len());
+            vortex_bail!(OutOfBounds: index, 0, self.len());
+        }
+        if self.is_invalid(index)? {
+            return Ok(Scalar::null(self.dtype().clone()));
         }
         let scalar = ArrayOperationsImpl::_scalar_at(self, index)?;
         assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
@@ -184,7 +187,7 @@ impl<A: ArrayImpl + 'static> Array for A {
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         if index >= self.len() {
-            vortex_bail!("Index out of bounds: {} >= {}", index, self.len());
+            vortex_bail!(OutOfBounds: index, 0, self.len());
         }
         ArrayValidityImpl::_is_valid(self, index)
     }

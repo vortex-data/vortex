@@ -18,7 +18,6 @@ use crate::{ExprRef, VortexExpr};
 ///
 /// ```
 /// use vortex_array::IntoArray;
-/// use vortex_array::compute::scalar_at;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;

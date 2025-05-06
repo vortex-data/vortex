@@ -7,7 +7,6 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-//! use vortex_array::compute::scalar_at;
 //! use vortex_dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
@@ -114,7 +113,6 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-/// use vortex_array::compute::scalar_at;
 /// use vortex_dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.

@@ -1,11 +1,12 @@
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, PType};
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
-use crate::{timestamp, DateTimePartsArray};
+
 use crate::timestamp::TimestampParts;
+use crate::{DateTimePartsArray, timestamp};
 
 impl ArrayOperationsImpl for DateTimePartsArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -34,13 +35,19 @@ impl ArrayOperationsImpl for DateTimePartsArray {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 
-        let days: i64 = self.days().scalar_at(index)?
+        let days: i64 = self
+            .days()
+            .scalar_at(index)?
             .cast(&DType::Primitive(PType::I64, Nullable))?
             .try_into()?;
-        let seconds: i64 = self.seconds().scalar_at(index)?
+        let seconds: i64 = self
+            .seconds()
+            .scalar_at(index)?
             .cast(&DType::Primitive(PType::I64, NonNullable))?
             .try_into()?;
-        let subseconds: i64 = self.subseconds().scalar_at(index)?
+        let subseconds: i64 = self
+            .subseconds()
+            .scalar_at(index)?
             .cast(&DType::Primitive(PType::I64, NonNullable))?
             .try_into()?;
 
