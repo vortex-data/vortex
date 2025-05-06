@@ -229,7 +229,7 @@ pub unsafe extern "C-unwind" fn vx_array_stream_file_writer_open(
 ) -> *mut vx_array_stream_writer {
     try_or(error, null_mut(), || {
         let vx_array_stream{inner} = *Box::from_raw(stream);
-        let stream =  inner.expect("empty array stream").stream;
+        let stream =  inner.vortex_expect("empty array stream").stream;
         let path = unsafe { CStr::from_ptr(path) }.to_str()?;
         let file = RUNTIME.block_on(File::create(path))?;
 

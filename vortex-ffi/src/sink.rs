@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex::stream::{ArrayStreamAdapter, ArrayStreamExt};
 
 use crate::array::vx_array;
@@ -47,7 +47,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     let array = unsafe { array.as_ref().vortex_expect("null array") };
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
     try_or(error, (), || {
-        Ok(sink.sink.blocking_send(Ok(array.inner.clone())).unwrap())
+        sink.sink.blocking_send(Ok(array.inner.clone())).map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }
 
