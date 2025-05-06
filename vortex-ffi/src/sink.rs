@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::stream::{ArrayStreamAdapter, ArrayStreamExt};
 
 use crate::array::vx_array;
@@ -15,7 +15,8 @@ pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
 }
 
-// /// Opens a writable array stream
+/// Opens a writable array stream, where sink is used to push values into the stream.
+/// To close the stream close the sink with `vx_array_sink_close`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
     dtype: *const DType,
