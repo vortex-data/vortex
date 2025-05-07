@@ -123,7 +123,7 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
     Box::into_raw(Box::new(
-        unsafe {file.as_ref()}
+        unsafe { file.as_ref() }
             .vortex_expect("null file")
             .inner
             .dtype()
