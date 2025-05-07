@@ -38,7 +38,7 @@ pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
         null_mut(),
         || {
             let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
-
+            // 32 was chosen as a default.
             let (tx, rx) = mpsc::channel(32);
             let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
             Ok(Box::into_raw(Box::new(vx_array_stream_sink_create_result {
