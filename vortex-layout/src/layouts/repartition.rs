@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use vortex_array::arcref::ArcRef;
+use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};

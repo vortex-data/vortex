@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_array::arcref::ArcRef;
+use arcref::ArcRef;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};

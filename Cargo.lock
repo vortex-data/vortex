@@ -165,6 +165,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
+name = "arcref"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28f6098a1e8ab66ff91324cce8fea6643101882cf7d09c85acdb1485ecf61e29"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4305,6 +4311,7 @@ dependencies = [
 name = "pyvortex"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "arrow",
  "futures",
  "itertools 0.14.0",
@@ -6033,6 +6040,7 @@ name = "vortex-array"
 version = "0.32.0"
 dependencies = [
  "arbitrary",
+ "arcref",
  "arrow-arith",
  "arrow-array",
  "arrow-buffer",
@@ -6337,6 +6345,7 @@ dependencies = [
 name = "vortex-file"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "async-trait",
  "bytes",
  "flatbuffers",
@@ -6481,6 +6490,7 @@ dependencies = [
 name = "vortex-layout"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",

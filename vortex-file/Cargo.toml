@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arcref = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }

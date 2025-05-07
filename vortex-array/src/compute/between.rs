@@ -1,11 +1,11 @@
 use std::any::Any;
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::arrays::ConstantArray;
 use crate::compute::{
     BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
