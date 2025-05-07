@@ -1,86 +1,58 @@
+use std::ffi::CStr;
 use std::ptr::null_mut;
 
 use mpsc::Sender;
+use tokio::fs::File;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex::file::VortexWriteOptions;
+use vortex::stream::ArrayStreamAdapter;
 
+use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
-use crate::stream::{ArrayStreamInner, vx_array_stream};
+use crate::file::vx_file_create_options;
 
 #[allow(non_camel_case_types)]
-/// The `sink` object is a writeable array stream, used to go from an external iterator of values
-/// into a `vx_array_stream`.
+/// The `sink` interface is used to collect array chunks and place them into a resource
+/// (e.g. an array stream or file (`vx_file_array_sink_create`)).
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
-}
-
-#[allow(non_camel_case_types)]
-/// The result of `vx_array_stream_sink_create`.
-pub struct vx_array_stream_sink_create_result {
-    sink:  Option<vx_array_sink>,
-    stream:  Option<vx_array_stream>,
+    writer: JoinHandle<VortexResult<File>>,
 }
 
 /// Opens a writable array stream, where sink is used to push values into the stream.
 /// To close the stream close the sink with `vx_array_sink_close`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_sink_create(
+pub unsafe extern "C-unwind" fn vx_file_array_sink_create(
+    options: *mut vx_file_create_options,
     dtype: *const DType,
     error: *mut *mut vx_error,
-) -> *mut vx_array_stream_sink_create_result {
-    try_or(
-        error,
-        null_mut(),
-        || {
-            let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
-            // 32 was chosen as a default.
-            let (tx, rx) = mpsc::channel(32);
-            let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
-            Ok(Box::into_raw(Box::new(vx_array_stream_sink_create_result {
-                sink:Some(vx_array_sink { sink: tx }),
-                stream: Some(vx_array_stream {
-                    inner: Some(Box::new(ArrayStreamInner {
-                        stream: array_stream.boxed(),
-                    })),
-                }),
-            })))
-        },
-    )
-}
+) -> *mut vx_array_sink {
+    try_or(error, null_mut(), || {
+        let options = unsafe { options.as_ref() }.vortex_expect("null options");
+        let path = unsafe { CStr::from_ptr(options.path) }
+            .to_string_lossy()
+            .to_string();
 
-/// Moves the sink out of the result type.
-/// If the sink has already been taken the second call returns null
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_sink_create_result_get_sink(result: * mut vx_array_stream_sink_create_result) -> *mut vx_array_sink {
-    let result = unsafe {result.as_mut()}.vortex_expect("null result");
-    let sink = result.sink.take();
-    let Some(sink) = sink else {
-        return null_mut();
-    };
-    Box::into_raw(Box::new(sink))
-}
+        let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
+        // The channel size 32 was chosen arbitrarily.
+        let (sink, rx) = mpsc::channel(32);
+        let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
 
-/// Moves the stream out of the result type.
-/// If the stream has already been taken the second call returns null
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_sink_create_result_get_stream(result: *mut vx_array_stream_sink_create_result) -> *mut vx_array_stream {
-    let result = unsafe {result.as_mut()}.vortex_expect("null result");
-    let stream = result.stream.take();
-    let Some(stream) = stream else {
-        return null_mut();
-    };
-    Box::into_raw(Box::new(stream))
-}
+        let writer = RUNTIME.spawn(async move {
+            let file = File::create(path).await?;
+            VortexWriteOptions::default()
+                .write(file, array_stream)
+                .await
+        });
 
-// Free the result and any element not already moved out.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_stream_sink_create_result_free(result: *mut vx_array_stream_sink_create_result) {
-    drop(Box::from_raw(result))
+        Ok(Box::into_raw(Box::new(vx_array_sink { sink, writer })))
+    })
 }
 
 /// Pushed a single array chunk into a file sink.
@@ -99,8 +71,23 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     })
 }
 
-/// Closes an array sink.
+/// Closes an array sink, must be called to ensure all the values pushed to the sink are written
+/// to the external resource.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_sink_close(sink: *mut vx_array_sink) {
-    drop(Box::from_raw(sink))
+pub unsafe extern "C-unwind" fn vx_array_sink_close(
+    sink: *mut vx_array_sink,
+    error: *mut *mut vx_error,
+) {
+    try_or(error, (), || {
+        let vx_array_sink { sink, writer } = *Box::from_raw(sink);
+        drop(sink);
+
+        RUNTIME.block_on(async {
+            let file = writer.await??;
+            file.sync_all().await?;
+            VortexResult::Ok(())
+        })?;
+
+        Ok(())
+    })
 }

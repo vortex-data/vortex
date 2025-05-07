@@ -95,8 +95,8 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_array vx_array;
 
 /**
- * The `sink` object is a writeable array stream, used to go from an external iterator of values
- * into a `vx_array_stream`.
+ * The `sink` interface is used to collect array chunks and place them into a resource
+ * (e.g. an array stream or file (`vx_file_array_sink_create`)).
  */
 typedef struct vx_array_sink vx_array_sink;
 
@@ -104,17 +104,6 @@ typedef struct vx_array_sink vx_array_sink;
  * FFI-exposed stream interface.
  */
 typedef struct vx_array_stream vx_array_stream;
-
-/**
- * The result of `vx_array_stream_sink_create`.
- */
-typedef struct vx_array_stream_sink_create_result vx_array_stream_sink_create_result;
-
-/**
- * A reference to a array stream being written to an external system (e.g. a file).
- * Must be closed with `vx_array_stream_writer_close`.
- */
-typedef struct vx_array_stream_writer vx_array_stream_writer;
 
 #if defined(ENABLE_DUCKDB_FFI)
 typedef struct vx_conversion_cache vx_conversion_cache;
@@ -183,6 +172,13 @@ typedef struct vx_file_scan_options {
    */
   int split_by_row_count;
 } vx_file_scan_options;
+
+/**
+ * Options supplied for creating a file.
+ */
+typedef struct vx_file_create_options {
+  const char *path;
+} vx_file_create_options;
 
 
 
@@ -389,20 +385,6 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
 void vx_file_reader_free(struct vx_file_reader *file);
 
 /**
- * Given an path to a (non-existent file) and an array stream, this function
- * writes the stream to the file.
- */
-struct vx_array_stream_writer *vx_array_stream_file_writer_open(const char *path,
-                                                                struct vx_array_stream *stream,
-                                                                struct vx_error **error);
-
-/**
- * Writer an array stream writer await the writing of the file to disk, returning any errors.
- * *Note*: This function will only return when the inner array stream has been exhausted.
- */
-void vx_array_stream_writer_close(struct vx_array_stream_writer *writer, struct vx_error **error);
-
-/**
  * Initialize native logging with the specified level.
  *
  * This function is optional, if it is not called then no runtime
@@ -414,22 +396,9 @@ void vx_init_logging(enum vx_log_level level);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-struct vx_array_stream_sink_create_result *vx_array_stream_sink_create(const struct vx_dtype *dtype,
-                                                                       struct vx_error **error);
-
-/**
- * Moves the sink out of the result type.
- * If the sink has already been taken the second call returns null
- */
-struct vx_array_sink *vx_array_stream_sink_create_result_get_sink(struct vx_array_stream_sink_create_result *result);
-
-/**
- * Moves the stream out of the result type.
- * If the stream has already been taken the second call returns null
- */
-struct vx_array_stream *vx_array_stream_sink_create_result_get_stream(struct vx_array_stream_sink_create_result *result);
-
-void vx_array_stream_sink_create_result_free(struct vx_array_stream_sink_create_result *result);
+struct vx_array_sink *vx_file_array_sink_create(struct vx_file_create_options *options,
+                                                const struct vx_dtype *dtype,
+                                                struct vx_error **error);
 
 /**
  * Pushed a single array chunk into a file sink.
@@ -439,9 +408,10 @@ void vx_array_sink_push(struct vx_array_sink *sink,
                         struct vx_error **error);
 
 /**
- * Closes an array sink.
+ * Closes an array sink, must be called to ensure all the values pushed to the sink are written
+ * to the external resource.
  */
-void vx_array_sink_close(struct vx_array_sink *sink);
+void vx_array_sink_close(struct vx_array_sink *sink, struct vx_error **error);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

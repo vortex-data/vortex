@@ -122,22 +122,16 @@ struct VortexArrayStream {
 };
 
 struct ArrayStreamSink {
-	explicit ArrayStreamSink(vx_array_sink *sink, vx_array_stream_writer *writer, duckdb::unique_ptr<DType> dtype) : sink(sink), writer(writer), dtype(std::move(dtype)) {
+	explicit ArrayStreamSink(vx_array_sink *sink, duckdb::unique_ptr<DType> dtype) : sink(sink), dtype(std::move(dtype)) {
 	}
 
 	static duckdb::unique_ptr<ArrayStreamSink> Create(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
 	    vx_error *error = nullptr;
-        auto result = vx_array_stream_sink_create(dtype->dtype, &error);
+		auto options = vx_file_create_options { .path = file_path.c_str() };
+        auto sink = vx_file_array_sink_create(&options, dtype->dtype, &error);
         HandleError(error);
 
-        auto sink = vx_array_stream_sink_create_result_get_sink(result);
-        auto stream = vx_array_stream_sink_create_result_get_stream(result);
-        vx_array_stream_sink_create_result_free(result);
-
-        auto writer = vx_array_stream_file_writer_open(file_path.c_str(), stream, &error);
-        HandleError(error);
-
-        return duckdb::make_uniq<ArrayStreamSink>(sink, writer, std::move(dtype));
+        return duckdb::make_uniq<ArrayStreamSink>(sink, std::move(dtype));
 	}
 
 	void PushChunk(duckdb::DataChunk &chunk) {
@@ -148,9 +142,8 @@ struct ArrayStreamSink {
 	}
 
 	void Close() {
-		vx_array_sink_close(sink);
 		vx_error *error;
-		vx_array_stream_writer_close(writer, &error);
+		vx_array_sink_close(sink, &error);
 		HandleError(error);
 
 		this->sink = nullptr;
@@ -163,6 +156,5 @@ struct ArrayStreamSink {
 
 
 	vx_array_sink *sink;
-	vx_array_stream_writer *writer;
 	duckdb::unique_ptr<DType> dtype;
 };

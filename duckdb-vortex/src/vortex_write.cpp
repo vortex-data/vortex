@@ -23,9 +23,8 @@ struct VortexWriteBindData : public TableFunctionData {
 };
 
 struct VortexWriteGlobalData : public GlobalFunctionData {
-	std::string file_name;
-	std::unique_ptr<VortexFileReader> file;
 	unique_ptr<ArrayStreamSink> sink;
+	std::mutex lock = std::mutex();
 };
 
 struct VortexWriteLocalData : public LocalFunctionData {};
@@ -35,14 +34,12 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
 	auto bind = bind_data.Cast<VortexWriteBindData>();
 
-	auto chunk = DataChunk();
-	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
-
 	for (auto i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
 	}
 	// TODO(joe): go to a model of combining local chunked into arrays of a specific size
 	// before push each of these larger chunks into the global_state
+	const std::lock_guard<std::mutex> _guard(global_state.lock);
 	global_state.sink->PushChunk(input);
 }
 
@@ -93,7 +90,6 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	                                        const string &file_path) -> unique_ptr<GlobalFunctionData> {
 		auto &bind = bind_data.Cast<VortexWriteBindData>();
 		auto gstate = make_uniq<VortexWriteGlobalData>();
-		gstate->file_name = file_path;
 
 		auto column_names = std::vector<const char *>();
 		for (const auto &col_id : bind.column_names) {
@@ -116,6 +112,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
+		const std::lock_guard<std::mutex> _guard(global_state.lock);
 		global_state.sink->Close();
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
