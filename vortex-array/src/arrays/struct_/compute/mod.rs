@@ -9,18 +9,15 @@ use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeFn, filter, is_constant_opts, take,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
+    is_constant_opts, take,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
-impl ComputeVTable for StructEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for StructEncoding {}
 
-impl TakeFn<&StructArray> for StructEncoding {
+impl TakeKernel for StructEncoding {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         StructArray::try_new_with_dtype(
             array
@@ -35,6 +32,8 @@ impl TakeFn<&StructArray> for StructEncoding {
         .map(|a| a.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(StructEncoding).lift());
 
 impl FilterKernel for StructEncoding {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {

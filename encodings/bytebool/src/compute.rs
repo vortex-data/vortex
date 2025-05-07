@@ -1,5 +1,5 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, TakeFn};
+use vortex_array::compute::{MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
@@ -9,11 +9,7 @@ use vortex_mask::Mask;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl ComputeVTable for ByteBoolEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ByteBoolEncoding {}
 
 impl MaskKernel for ByteBoolEncoding {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -23,7 +19,7 @@ impl MaskKernel for ByteBoolEncoding {
 
 register_kernel!(MaskKernelAdapter(ByteBoolEncoding).lift());
 
-impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
+impl TakeKernel for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         let indices = indices.to_primitive()?;
@@ -68,6 +64,8 @@ impl TakeFn<&ByteBoolArray> for ByteBoolEncoding {
         Ok(arr)
     }
 }
+
+register_kernel!(TakeKernelAdapter(ByteBoolEncoding).lift());
 
 #[cfg(test)]
 mod tests {

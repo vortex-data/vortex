@@ -1,11 +1,11 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::TakeFn;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl TakeFn<&SparseArray> for SparseEncoding {
+impl TakeKernel for SparseEncoding {
     fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
         let Some(new_patches) = array.patches().take(take_indices)? else {
             let result_nullability =
@@ -27,6 +27,8 @@ impl TakeFn<&SparseArray> for SparseEncoding {
         )
     }
 }
+
+register_kernel!(TakeKernelAdapter(SparseEncoding).lift());
 
 #[cfg(test)]
 mod test {

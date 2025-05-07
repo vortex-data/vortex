@@ -1,14 +1,14 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{TakeFn, take};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl TakeFn<&RunEndArray> for RunEndEncoding {
+impl TakeKernel for RunEndEncoding {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 
@@ -30,6 +30,8 @@ impl TakeFn<&RunEndArray> for RunEndEncoding {
         take_indices_unchecked(array, &checked_indices)
     }
 }
+
+register_kernel!(TakeKernelAdapter(RunEndEncoding).lift());
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(

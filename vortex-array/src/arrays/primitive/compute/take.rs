@@ -11,11 +11,11 @@ use vortex_error::VortexResult;
 
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::TakeFn;
+use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
+impl TakeKernel for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
@@ -50,6 +50,8 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         })
     }
 }
+
+register_kernel!(TakeKernelAdapter(PrimitiveEncoding).lift());
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],

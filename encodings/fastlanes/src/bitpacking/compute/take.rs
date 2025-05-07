@@ -3,10 +3,10 @@ use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{TakeFn, take};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
@@ -21,7 +21,7 @@ use crate::{BitPackedArray, BitPackedEncoding, unpack_single_primitive};
 // see https://github.com/spiraldb/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeFn<&BitPackedArray> for BitPackedEncoding {
+impl TakeKernel for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
@@ -43,6 +43,8 @@ impl TakeFn<&BitPackedArray> for BitPackedEncoding {
         Ok(taken.reinterpret_cast(ptype).into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(BitPackedEncoding).lift());
 
 fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,

@@ -28,8 +28,7 @@ pub use nan_count::*;
 pub use numeric::*;
 pub use search_sorted::*;
 pub use sum::*;
-pub use take::{TakeFn, take};
-pub use take_from::TakeFromFn;
+pub use take::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
@@ -61,7 +60,6 @@ mod numeric;
 mod search_sorted;
 mod sum;
 mod take;
-mod take_from;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
@@ -154,6 +152,11 @@ impl ComputeFn {
     pub fn is_elementwise(&self) -> bool {
         // TODO(ngates): should this just be a constant passed in the constructor?
         self.vtable.is_elementwise()
+    }
+
+    /// Returns the compute function's kernels.
+    pub fn kernels(&self) -> Vec<ArcRef<dyn Kernel>> {
+        self.kernels.read().vortex_expect("poisoned lock").to_vec()
     }
 }
 
@@ -396,7 +399,9 @@ impl Options for () {
 ///
 /// The kernel is invoked with the input arguments and options, and can return `None` if it is
 /// unable to compute the result for the given inputs due to missing implementation logic.
-/// For example, if kernel doesn't support the `LTE` operator.
+/// For example, if kernel doesn't support the `LTE` operator. By returning `None`, the kernel
+/// is indicating that it cannot compute the result for the given inputs, and another kernel should
+/// be tried. *Not* that the given inputs are invalid for the compute function.
 ///
 /// If the kernel fails to compute a result, it should return a `Some` with the error.
 pub trait Kernel: 'static + Send + Sync + Debug {
