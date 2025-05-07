@@ -1,4 +1,4 @@
-#![allow(unsafe_op_in_unsafe_fn, clippy::missing_safety_doc, clippy::panic)]
+#![allow(clippy::missing_safety_doc, clippy::panic)]
 
 //! Native interface to Vortex arrays, types, files and streams.
 
@@ -31,12 +31,12 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 });
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
-    let c_str = CStr::from_ptr(ptr);
+    let c_str = unsafe { CStr::from_ptr(ptr) };
     c_str.to_string_lossy().into_owned()
 }
 
 pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec<String> {
     (0..len)
-        .map(|i| to_string(*ptr.offset(i as isize)))
+        .map(|i| unsafe { to_string(*ptr.offset(i as isize)) })
         .collect()
 }

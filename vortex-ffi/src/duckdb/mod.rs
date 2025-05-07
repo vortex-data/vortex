@@ -88,14 +88,14 @@ pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
 ) -> *mut vx_array {
     try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..len)
-            .map(|i| to_string(*names.offset(i as isize)))
+            .map(|i| unsafe { to_string(*names.offset(i as isize)) })
             .map(Arc::from)
             .collect();
 
         let types = (0..len)
-            .map(|i| {
+            .map(|i| unsafe {
                 (
-                    LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) }),
+                    LogicalTypeHandle::new_unowned(*type_array.offset(i as isize)),
                     *nullable.offset(i as isize) != 0,
                 )
             })
@@ -124,7 +124,7 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
     chunk: duckdb_data_chunk,
     nullable: *const c_uchar,
 ) -> *mut vx_array {
-    let array = unsafe { array.as_ref().vortex_expect("null array") };
+    let array = unsafe { array.as_ref() }.vortex_expect("null array");
 
     let struct_type = array
         .inner
@@ -138,10 +138,10 @@ pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
         .downcast_ref::<ChunkedArray>()
         .vortex_expect("can only append to chunked array");
 
-    let chunk = DataChunkHandle::new_unowned(chunk);
+    let chunk = unsafe { DataChunkHandle::new_unowned(chunk) };
 
     let nullable = (0..chunk.num_columns())
-        .map(|i| *nullable.add(i) != 0)
+        .map(|i| unsafe { *nullable.add(i) } != 0)
         .collect_vec();
 
     let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
