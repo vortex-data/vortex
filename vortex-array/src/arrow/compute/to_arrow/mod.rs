@@ -5,6 +5,7 @@ mod varbin;
 use std::any::Any;
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_arcref::ArcRef;

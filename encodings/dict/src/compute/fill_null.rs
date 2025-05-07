@@ -1,13 +1,13 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{FillNullFn, Operator, compare, fill_null};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::compute::{FillNullKernel, FillNullKernelAdapter, Operator, compare, fill_null};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{DictArray, DictEncoding};
 
-impl FillNullFn<&DictArray> for DictEncoding {
-    fn fill_null(&self, array: &DictArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
+impl FillNullKernel for DictEncoding {
+    fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         // If the fill value exists in the dictionary, we can simply rewrite the null codes to
         // point to the value.
         let found_fill_values = compare(
@@ -27,7 +27,7 @@ impl FillNullFn<&DictArray> for DictEncoding {
         // Now we rewrite the nullable codes to point at the fill value.
         let codes = fill_null(
             array.codes(),
-            Scalar::new(
+            &Scalar::new(
                 array.codes().dtype().clone(),
                 ScalarValue::from(first_fill_value),
             ),
@@ -38,3 +38,5 @@ impl FillNullFn<&DictArray> for DictEncoding {
         Ok(DictArray::try_new(codes, values)?.into_array())
     }
 }
+
+register_kernel!(FillNullKernelAdapter(DictEncoding).lift());

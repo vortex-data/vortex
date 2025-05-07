@@ -1,7 +1,7 @@
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::compute::{IsConstantOpts, is_constant_opts, scalar_at};
+use crate::compute::{IsConstantOpts, is_constant_opts};
 use crate::stats::StatsSetRef;
 
 /// Extension functions for arrays that provide statistics.
@@ -29,9 +29,7 @@ impl<A: Array + 'static> ArrayStatistics for A {
     }
 
     fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant()
-            .then(|| scalar_at(self, 0).ok())
-            .flatten()
+        self.is_constant().then(|| self.scalar_at(0).ok()).flatten()
     }
 }
 

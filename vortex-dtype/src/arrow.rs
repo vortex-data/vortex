@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use arrow_schema::{DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaRef};
-use vortex_arcref::ArcRef;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};

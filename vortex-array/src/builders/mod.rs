@@ -7,7 +7,6 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-//! use vortex_array::compute::scalar_at;
 //! use vortex_dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
@@ -20,10 +19,10 @@
 //!
 //! let strings = builder.finish();
 //!
-//! assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
-//! assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
-//! assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
-//! assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
+//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
+//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
+//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
 //! ```
 
 mod bool;
@@ -114,7 +113,6 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-/// use vortex_array::compute::scalar_at;
 /// use vortex_dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
@@ -127,10 +125,10 @@ pub trait ArrayBuilder: Send {
 ///
 /// let strings = builder.finish();
 ///
-/// assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
-/// assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
-/// assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
-/// assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
+/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
+/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
+/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {

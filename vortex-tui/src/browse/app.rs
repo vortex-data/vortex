@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
@@ -20,13 +21,16 @@ use vortex_layout::{
     STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
 
+use crate::browse::ui::SegmentGridState;
+
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
     /// The layout tree browser.
     #[default]
     Layout,
-    /// The encoding tree viewer
-    Encodings,
+
+    /// Show a segment map of the file
+    Segments,
     // TODO(aduffy): SQL query page powered by DF
     // Query,
 }
@@ -207,7 +211,7 @@ pub enum KeyMode {
 /// State saved across all Tabs.
 ///
 /// Holding them all allows us to switch between tabs without resetting view state.
-pub struct AppState {
+pub struct AppState<'a> {
     pub key_mode: KeyMode,
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
@@ -218,9 +222,11 @@ pub struct AppState {
 
     /// List state for the Layouts view
     pub layouts_list_state: ListState,
+    pub segment_grid_state: SegmentGridState<'a>,
+    pub frame_size: Size,
 }
 
-impl AppState {
+impl AppState<'_> {
     pub fn clear_search(&mut self) {
         self.search_filter.clear();
         self.filter.take();
@@ -228,7 +234,7 @@ impl AppState {
 }
 
 /// Create an app backed from a file path.
-pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
+pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
     let vxf = VortexOpenOptions::file().open(path).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone());
@@ -241,6 +247,8 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         filter: None,
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
+        segment_grid_state: SegmentGridState::default(),
+        frame_size: Size::new(0, 0),
     })
 }
 

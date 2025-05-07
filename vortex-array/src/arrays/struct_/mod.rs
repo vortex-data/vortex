@@ -5,6 +5,7 @@ use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -240,6 +241,16 @@ impl ArrayOperationsImpl for StructArray {
             self.validity().slice(start, stop)?,
         )
         .map(|a| a.into_array())
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::struct_(
+            self.dtype().clone(),
+            self.fields()
+                .iter()
+                .map(|field| field.scalar_at(index))
+                .try_collect()?,
+        ))
     }
 }
 

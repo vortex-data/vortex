@@ -1,6 +1,7 @@
 use std::ops::BitAnd;
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use arrow_array::BooleanArray;
 use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
@@ -10,9 +11,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{
-    ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null, scalar_at,
-};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
@@ -23,7 +22,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical}
 /// ```
 /// use vortex_array::{Array, IntoArray};
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// use vortex_array::compute::{scalar_at, filter, mask};
+/// use vortex_array::compute::{ filter, mask};
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;
 ///
@@ -36,8 +35,8 @@ use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical}
 ///
 /// let filtered = filter(&array, &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
-/// assert_eq!(scalar_at(&filtered, 0).unwrap(), Scalar::from(Some(0_i32)));
-/// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));
+/// assert_eq!(filtered.scalar_at(0).unwrap(), Scalar::from(Some(0_i32)));
+/// assert_eq!(filtered.scalar_at(1).unwrap(), Scalar::from(Some(2_i32)));
 /// ```
 ///
 /// # Panics
@@ -103,9 +102,9 @@ impl ComputeFnVTable for Filter {
         }
 
         // Otherwise, we can use scalar_at if the mask has length 1.
-        if mask.true_count() == 1 && array.vtable().scalar_at_fn().is_some() {
+        if mask.true_count() == 1 {
             let idx = mask.first().vortex_expect("true_count == 1");
-            return Ok(ConstantArray::new(scalar_at(array, idx)?, 1)
+            return Ok(ConstantArray::new(array.scalar_at(idx)?, 1)
                 .into_array()
                 .into());
         }
@@ -230,7 +229,7 @@ impl TryFrom<&dyn Array> for Mask {
         }
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = fill_null(array, Scalar::bool(false, array.dtype().nullability()))?;
+        let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
 
         Self::try_from(&array.to_bool()?)
     }

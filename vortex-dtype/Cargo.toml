@@ -26,7 +26,6 @@ num_enum = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
 static_assertions = { workspace = true }
-vortex-arcref = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, features = ["dtype"] }

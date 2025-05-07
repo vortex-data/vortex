@@ -105,7 +105,7 @@ dependencies = [
  "arrow-schema",
  "chrono",
  "half",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "num",
 ]
 
@@ -336,9 +336,9 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cc"
-version = "1.2.20"
+version = "1.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04da6a0d40b948dfc4fa8f5bbf402b0fc1a64a28dbf7d12ffd683550f2c1b63a"
+checksum = "8691782945451c1c383942c4874dbe63814f61cb57ef773cda2972682b7bb3c0"
 dependencies = [
  "shlex",
 ]
@@ -732,9 +732,9 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
-version = "0.15.2"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -920,7 +920,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -949,9 +949,9 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jiff"
-version = "0.2.10"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a064218214dc6a10fbae5ec5fa888d80c45d611aba169222fc272072bf7aef6"
+checksum = "d07d8d955d798e7a4d6f9c58cd1f1916e790b42b092758a9ef6e16fef9f1b3fd"
 dependencies = [
  "jiff-static",
  "jiff-tzdb-platform",
@@ -964,9 +964,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.10"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "199b7932d97e325aff3a7030e141eafe7f2c6268e1d1b24859b753a627f45254"
+checksum = "f244cfe006d98d26f859c7abd1318d85327e1882dc9cef80f62daeeb0adcf300"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1101,9 +1101,9 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libm"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9627da5196e5d8ed0b0495e61e518847578da83483c37288316d9b2e03a7f72"
+checksum = "a25169bd5913a4b437588a7e3d127cd6e90127b60e0ffbd834a38f1599e016b8"
 
 [[package]]
 name = "litemap"
@@ -1587,9 +1587,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.11"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f103c6d277498fbceb16e84d317e2a400f160f46904d5f5410848c829511a3"
+checksum = "928fca9cf2aa042393a8325b9ead81d2f0df4cb12e1e24cef072922ccd99c5af"
 dependencies = [
  "bitflags 2.9.0",
 ]
@@ -1799,9 +1799,9 @@ dependencies = [
 
 [[package]]
 name = "synstructure"
-version = "0.13.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971"
+checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1872,7 +1872,7 @@ checksum = "310068873db2c5b3e7659d2cc35d21855dbafa50d1ce336397c666e3cb08137e"
 dependencies = [
  "indexmap",
  "toml_datetime",
- "winnow 0.7.7",
+ "winnow 0.7.9",
 ]
 
 [[package]]
@@ -1971,7 +1971,7 @@ dependencies = [
  "flatbuffers",
  "futures-util",
  "getrandom 0.3.2",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "humansize",
  "inventory",
  "itertools",
@@ -2531,9 +2531,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.7"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb8234a863ea0e8cd7284fcdd4f145233eb00fee02bbdd9861aec44e6477bc5"
+checksum = "d9fb597c990f03753e08d3c29efbfcf2019a003b4bf4ba19225c158e1549f0f3"
 dependencies = [
  "memchr",
 ]

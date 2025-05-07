@@ -111,7 +111,7 @@ fn compare_fsst_constant(
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{ConstantArray, VarBinArray};
-    use vortex_array::compute::{Operator, compare, scalar_at};
+    use vortex_array::compute::{Operator, compare};
     use vortex_array::{Array, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -166,12 +166,12 @@ mod tests {
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
         let equals_null = compare(&lhs, &null_rhs, Operator::Eq).unwrap();
         for idx in 0..lhs.len() {
-            assert!(scalar_at(&equals_null, idx).unwrap().is_null());
+            assert!(equals_null.scalar_at(idx).unwrap().is_null());
         }
 
         let noteq_null = compare(&lhs, &null_rhs, Operator::NotEq).unwrap();
         for idx in 0..lhs.len() {
-            assert!(scalar_at(&noteq_null, idx).unwrap().is_null());
+            assert!(noteq_null.scalar_at(idx).unwrap().is_null());
         }
     }
 }

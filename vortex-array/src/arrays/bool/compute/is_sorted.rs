@@ -1,11 +1,11 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::{IsSortedFn, IsSortedIteratorExt};
+use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::{Array, register_kernel};
 
-impl IsSortedFn<&BoolArray> for BoolEncoding {
+impl IsSortedKernel for BoolEncoding {
     fn is_sorted(&self, array: &BoolArray) -> VortexResult<bool> {
         match array.validity_mask()? {
             Mask::AllFalse(_) => Ok(true),
@@ -42,3 +42,5 @@ impl IsSortedFn<&BoolArray> for BoolEncoding {
         }
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(BoolEncoding).lift());

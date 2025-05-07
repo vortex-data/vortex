@@ -1,36 +1,18 @@
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxFn, MinMaxResult,
-    ScalarAtFn, TakeFn, UncompressedSizeFn,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
+    MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl ComputeVTable for NullEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for NullEncoding {}
 
 impl FilterKernel for NullEncoding {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -48,13 +30,7 @@ impl MaskKernel for NullEncoding {
 
 register_kernel!(MaskKernelAdapter(NullEncoding).lift());
 
-impl ScalarAtFn<&NullArray> for NullEncoding {
-    fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
-    }
-}
-
-impl TakeFn<&NullArray> for NullEncoding {
+impl TakeKernel for NullEncoding {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -71,17 +47,15 @@ impl TakeFn<&NullArray> for NullEncoding {
     }
 }
 
-impl MinMaxFn<&NullArray> for NullEncoding {
+register_kernel!(TakeKernelAdapter(NullEncoding).lift());
+
+impl MinMaxKernel for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
     }
 }
 
-impl UncompressedSizeFn<&NullArray> for NullEncoding {
-    fn uncompressed_size(&self, array: &NullArray) -> VortexResult<usize> {
-        Ok(array.nbytes())
-    }
-}
+register_kernel!(MinMaxKernelAdapter(NullEncoding).lift());
 
 #[cfg(test)]
 mod test {
@@ -91,7 +65,7 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::null::NullArray;
-    use crate::compute::{scalar_at, take};
+    use crate::compute::take;
     use crate::{ArrayExt, IntoArray};
 
     #[test]
@@ -119,7 +93,7 @@ mod test {
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = scalar_at(&nulls, 0).unwrap();
+        let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

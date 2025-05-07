@@ -73,6 +73,10 @@ impl ArrayOperationsImpl for ConstantArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.scalar().clone(), stop - start).into_array())
     }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        Ok(self.scalar().clone())
+    }
 }
 
 impl ArrayValidityImpl for ConstantArray {

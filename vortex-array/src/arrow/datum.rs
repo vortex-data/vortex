@@ -4,7 +4,6 @@ use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::scalar_at;
 use crate::{Array, ArrayRef};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
@@ -77,5 +76,5 @@ where
         );
     }
 
-    Ok(ConstantArray::new(scalar_at(&array, 0)?, len).into_array())
+    Ok(ConstantArray::new(array.scalar_at(0)?, len).into_array())
 }

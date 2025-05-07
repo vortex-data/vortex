@@ -5,16 +5,18 @@ use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
 
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
-use crate::compute::{MinMaxFn, MinMaxResult};
-use crate::{Array, match_each_decimal_value_type};
+use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::{Array, match_each_decimal_value_type, register_kernel};
 
-impl MinMaxFn<&DecimalArray> for DecimalEncoding {
+impl MinMaxKernel for DecimalEncoding {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_decimal_value_type!(array.values_type(), |$T| {
             compute_min_max_with_validity::<$T>(array)
         })
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(DecimalEncoding).lift());
 
 #[inline]
 fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option<MinMaxResult>>

@@ -59,8 +59,9 @@ jobs:
           version: v1.2.1
 
       # cat-s3 script uses gzip to append to compressed benchmark results
+      # TODO(joe): remove ninja once duckdb is not built by the benchmark
       - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash

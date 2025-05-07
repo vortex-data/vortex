@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
+use vortex::scalar::Scalar;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
@@ -58,6 +60,10 @@ impl ArrayCanonicalImpl for PyArrayInstance {
 
 impl ArrayOperationsImpl for PyArrayInstance {
     fn _slice(&self, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }

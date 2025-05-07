@@ -17,7 +17,7 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::{Operator, SearchResult, SearchSortedSide, scalar_at};
+use vortex_array::compute::{Operator, SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
@@ -133,7 +133,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let scalar = if u.arbitrary()? {
-                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
                         random_scalar(u, current_array.dtype())?
@@ -169,7 +170,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 5 => {
                     let scalar = if u.arbitrary()? {
-                        scalar_at(&current_array, u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
                         random_scalar(u, current_array.dtype())?

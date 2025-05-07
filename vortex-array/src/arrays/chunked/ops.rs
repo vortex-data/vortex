@@ -1,4 +1,5 @@
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_scalar::Scalar;
 
 use crate::arrays::chunked::ChunkedArray;
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
@@ -34,15 +35,22 @@ impl ArrayOperationsImpl for ChunkedArray {
 
         Ok(ChunkedArray::new_unchecked(chunks, self.dtype().clone()).into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        let (chunk_index, chunk_offset) = self.find_chunk_idx(index);
+        self.chunk(chunk_index)?.scalar_at(chunk_offset)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
+    use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::canonical::ToCanonical;
-    use crate::{Array, ArrayExt};
+    use crate::{ArrayExt, IntoArray};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -108,5 +116,58 @@ mod tests {
         let sliced = chunked.slice(0, 0).unwrap();
 
         assert!(sliced.is_empty());
+    }
+
+    #[test]
+    fn scalar_at_empty_children_both_sides() {
+        let array = ChunkedArray::try_new(
+            vec![
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
+                PrimitiveArray::from_iter([1u64, 2]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
+            ],
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+    }
+
+    #[test]
+    fn scalar_at_empty_children_trailing() {
+        let array = ChunkedArray::try_new(
+            vec![
+                PrimitiveArray::from_iter([1u64, 2]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
+                PrimitiveArray::from_iter([3u64, 4]).into_array(),
+            ],
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+    }
+
+    #[test]
+    fn scalar_at_empty_children_leading() {
+        let array = ChunkedArray::try_new(
+            vec![
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
+                PrimitiveArray::from_iter([1u64, 2]).into_array(),
+                PrimitiveArray::from_iter([3u64, 4]).into_array(),
+            ],
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
     }
 }

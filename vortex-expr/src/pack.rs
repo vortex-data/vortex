@@ -18,7 +18,6 @@ use crate::{ExprRef, VortexExpr};
 ///
 /// ```
 /// use vortex_array::IntoArray;
-/// use vortex_array::compute::scalar_at;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;
@@ -33,9 +32,9 @@ use crate::{ExprRef, VortexExpr};
 ///     .unwrap()
 ///     .maybe_null_field_by_name("x copy")
 ///     .unwrap();
-/// assert_eq!(scalar_at(&x_copy, 0).unwrap(), Scalar::from(100));
-/// assert_eq!(scalar_at(&x_copy, 1).unwrap(), Scalar::from(110));
-/// assert_eq!(scalar_at(&x_copy, 2).unwrap(), Scalar::from(200));
+/// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
+/// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
+/// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
 /// ```
 ///
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

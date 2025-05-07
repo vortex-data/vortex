@@ -78,7 +78,6 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 mod test {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
-    use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
@@ -149,7 +148,7 @@ mod test {
             .for_each(|(i, v)| {
                 assert_eq!(
                     *v,
-                    i8::try_from(scalar_at(&compressed, i).unwrap().as_ref()).unwrap()
+                    i8::try_from(compressed.scalar_at(i).unwrap().as_ref()).unwrap()
                 );
             });
     }

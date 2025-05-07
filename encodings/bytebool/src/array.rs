@@ -14,6 +14,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
@@ -115,6 +116,13 @@ impl ArrayOperationsImpl for ByteBoolArray {
             self.validity().slice(start, stop)?,
         )
         .into_array())
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            self.buffer()[index] == 1,
+            self.dtype().nullability(),
+        ))
     }
 }
 

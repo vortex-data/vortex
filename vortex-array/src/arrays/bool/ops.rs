@@ -1,4 +1,5 @@
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
@@ -11,12 +12,19 @@ impl ArrayOperationsImpl for BoolArray {
         )
         .into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            self.boolean_buffer().value(index),
+            self.dtype().nullability(),
+        ))
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ToCanonical;
-    use crate::compute::scalar_at;
 
     #[test]
     fn test_slice_large() {
@@ -34,14 +42,14 @@ mod tests {
 
         assert_eq!(sliced_arr.len(), 3);
 
-        let s = scalar_at(&sliced_arr, 0).unwrap();
+        let s = sliced_arr.scalar_at(0).unwrap();
         assert_eq!(s.as_bool().value(), Some(true));
 
-        let s = scalar_at(&sliced_arr, 1).unwrap();
+        let s = sliced_arr.scalar_at(1).unwrap();
         assert!(!sliced_arr.is_valid(1).unwrap());
         assert!(s.is_null());
 
-        let s = scalar_at(&sliced_arr, 2).unwrap();
+        let s = sliced_arr.scalar_at(2).unwrap();
         assert_eq!(s.as_bool().value(), Some(false));
     }
 }

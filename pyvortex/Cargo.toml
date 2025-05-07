@@ -23,6 +23,7 @@ doctest = false                 # TODO(ngates): why?
 name = "pyvortex"
 
 [dependencies]
+arcref = { workspace = true }
 arrow = { workspace = true, features = ["pyarrow"] }
 futures = { workspace = true }
 itertools = { workspace = true }
@@ -33,5 +34,4 @@ pyo3 = { workspace = true }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
-vortex-arcref = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "python"] }

@@ -1,162 +1,98 @@
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use std::sync::LazyLock;
+
+use arcref::ArcRef;
+use vortex_dtype::DType;
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::builders::ArrayBuilder;
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
-use crate::{Array, ArrayRef, IntoArray};
-
-pub trait TakeFn<A> {
-    /// Create a new array by taking the values from the `array` at the
-    /// given `indices`.
-    ///
-    /// # Panics
-    ///
-    /// Using `indices` that are invalid for the given `array` will cause a panic.
-    fn take(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef>;
-
-    /// Has the same semantics as `Self::take` but materializes the result into the provided
-    /// builder.
-    fn take_into(
-        &self,
-        array: A,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        builder.extend_from_array(&self.take(array, indices)?)
-    }
-}
-
-impl<E: Encoding> TakeFn<&dyn Array> for E
-where
-    E: for<'a> TakeFn<&'a E::Array>,
-{
-    fn take(&self, array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        TakeFn::take(self, array_ref, indices)
-    }
-
-    fn take_into(
-        &self,
-        array: &dyn Array,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        TakeFn::take_into(self, array_ref, indices, builder)
-    }
-}
+use crate::{Array, ArrayRef};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
-    //  the filter function since they're typically optimised for this case.
-    // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
-    //  such that canonicalize does less work.
-    if indices.all_invalid()? {
-        return Ok(
-            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
-                .into_array(),
-        );
-    }
-
-    if !indices.dtype().is_int() {
-        vortex_bail!(
-            "Take indices must be an integer type, got {}",
-            indices.dtype()
-        );
-    }
-
-    // We know that constant array don't need stats propagation, so we can avoid the overhead of
-    // computing derived stats and merging them in.
-    let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
-
-    let taken = take_impl(array, indices)?;
-
-    if let Some(derived_stats) = derived_stats {
-        let mut stats = taken.statistics().to_owned();
-        stats.combine_sets(&derived_stats, array.dtype())?;
-        for (stat, val) in stats.into_iter() {
-            taken.statistics().set(stat, val)
-        }
-    }
-
-    assert_eq!(
-        taken.len(),
-        indices.len(),
-        "Take length mismatch {}",
-        array.encoding()
-    );
-    // If either the indices or the array are nullable, the result should be nullable.
-    let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
-    assert_eq!(
-        taken.dtype(),
-        &array.dtype().with_nullability(expected_nullability),
-        "Take result ({}) should be nullable if either the indices ({}) or the array ({}) are nullable. ({})",
-        taken.dtype(),
-        indices.dtype().nullability().verbose_display(),
-        array.dtype().nullability().verbose_display(),
-        array.encoding(),
-    );
-
-    Ok(taken)
+    TAKE_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into(), indices.into()],
+            options: &(),
+        })?
+        .unwrap_array()
 }
 
-pub fn take_into(
-    array: &dyn Array,
-    indices: &dyn Array,
-    builder: &mut dyn ArrayBuilder,
-) -> VortexResult<()> {
-    if indices.all_invalid()? {
-        builder.append_nulls(indices.len());
-        return Ok(());
+pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
+    for kernel in inventory::iter::<TakeKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub struct Take;
+
+impl ComputeFnVTable for Take {
+    fn invoke(
+        &self,
+        args: &InvocationArgs,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
+        let TakeArgs { array, indices } = TakeArgs::try_from(args)?;
+
+        // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
+        //  the filter function since they're typically optimised for this case.
+        // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
+        //  such that canonicalize does less work.
+
+        if indices.all_invalid()? {
+            return Ok(ConstantArray::new(
+                Scalar::null(array.dtype().as_nullable()),
+                indices.len(),
+            )
+            .into_array()
+            .into());
+        }
+
+        // We know that constant array don't need stats propagation, so we can avoid the overhead of
+        // computing derived stats and merging them in.
+        let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
+
+        let taken = take_impl(array, indices, kernels)?;
+
+        if let Some(derived_stats) = derived_stats {
+            let mut stats = taken.statistics().to_owned();
+            stats.combine_sets(&derived_stats, array.dtype())?;
+            for (stat, val) in stats.into_iter() {
+                taken.statistics().set(stat, val)
+            }
+        }
+
+        Ok(taken.into())
     }
 
-    if array.is_empty() && !indices.is_empty() {
-        vortex_bail!("Cannot take_into from an empty array");
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        let TakeArgs { array, indices } = TakeArgs::try_from(args)?;
+
+        if !indices.dtype().is_int() {
+            vortex_bail!(
+                "Take indices must be an integer type, got {}",
+                indices.dtype()
+            );
+        }
+
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
+
+        Ok(array.dtype().with_nullability(expected_nullability))
     }
 
-    // If either the indices or the array are nullable, the result should be nullable.
-    let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
-    assert_eq!(
-        builder.dtype(),
-        &array.dtype().with_nullability(expected_nullability),
-        "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array ({}) are nullable. ({})",
-        builder.dtype(),
-        indices.dtype().nullability().verbose_display(),
-        array.dtype().nullability().verbose_display(),
-        array.encoding(),
-    );
-
-    if !indices.dtype().is_int() {
-        vortex_bail!(
-            "Take indices must be an integer type, got {}",
-            indices.dtype()
-        );
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+        let TakeArgs { indices, .. } = TakeArgs::try_from(args)?;
+        Ok(indices.len())
     }
 
-    let before_len = builder.len();
-
-    // We know that constant array don't need stats propagation, so we can avoid the overhead of
-    // computing derived stats and merging them in.
-    take_into_impl(array, indices, builder)?;
-
-    let after_len = builder.len();
-
-    assert_eq!(
-        after_len - before_len,
-        indices.len(),
-        "Take_into length mismatch {}",
-        array.encoding()
-    );
-
-    Ok(())
+    fn is_elementwise(&self) -> bool {
+        false
+    }
 }
 
 fn derive_take_stats(arr: &dyn Array) -> StatsSet {
@@ -178,57 +114,160 @@ fn derive_take_stats(arr: &dyn Array) -> StatsSet {
     stats
 }
 
-fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    // First look for a TakeFrom specialized on the indices.
-    if let Some(take_from_fn) = indices.vtable().take_from_fn() {
-        if let Some(arr) = take_from_fn.take_from(indices, array)? {
-            return Ok(arr);
-        }
-    }
-
-    // If TakeFn defined for the encoding, delegate to TakeFn.
-    // If we know from stats that indices are all valid, we can avoid all bounds checks.
-    if let Some(take_fn) = array.vtable().take_fn() {
-        return take_fn.take(array, indices);
-    }
-
-    // Otherwise, flatten and try again.
-    log::debug!("No take implementation found for {}", array.encoding());
-    let canonical = array.to_canonical()?.into_array();
-    let vtable = canonical.vtable();
-    let canonical_take_fn = vtable
-        .take_fn()
-        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
-
-    canonical_take_fn.take(&canonical, indices)
-}
-
-fn take_into_impl(
+fn take_impl(
     array: &dyn Array,
     indices: &dyn Array,
-    builder: &mut dyn ArrayBuilder,
-) -> VortexResult<()> {
-    let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
-    let result_dtype = array.dtype().with_nullability(result_nullability);
-    if &result_dtype != builder.dtype() {
+    kernels: &[ArcRef<dyn Kernel>],
+) -> VortexResult<ArrayRef> {
+    let args = InvocationArgs {
+        inputs: &[array.into(), indices.into()],
+        options: &(),
+    };
+
+    // First look for a TakeFrom specialized on the indices.
+    for kernel in TAKE_FROM_FN.kernels() {
+        if let Some(output) = kernel.invoke(&args)? {
+            return output.unwrap_array();
+        }
+    }
+    if let Some(output) = indices.invoke(&TAKE_FROM_FN, &args)? {
+        return output.unwrap_array();
+    }
+
+    // Then look for a Take kernel
+    for kernel in kernels {
+        if let Some(output) = kernel.invoke(&args)? {
+            return output.unwrap_array();
+        }
+    }
+    if let Some(output) = array.invoke(&TAKE_FN, &args)? {
+        return output.unwrap_array();
+    }
+
+    // Otherwise, canonicalize and try again.
+    if !array.is_canonical() {
+        log::debug!("No take implementation found for {}", array.encoding());
+        let canonical = array.to_canonical()?;
+        return take(canonical.as_ref(), indices);
+    }
+
+    vortex_bail!("No take implementation found for {}", array.encoding());
+}
+
+struct TakeArgs<'a> {
+    array: &'a dyn Array,
+    indices: &'a dyn Array,
+}
+
+impl<'a> TryFrom<&InvocationArgs<'a>> for TakeArgs<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+        if value.inputs.len() != 2 {
+            vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
+        }
+        let array = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected first input to be an array"))?;
+        let indices = value.inputs[1]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected second input to be an array"))?;
+        Ok(Self { array, indices })
+    }
+}
+
+pub trait TakeKernel: Encoding {
+    /// Create a new array by taking the values from the `array` at the
+    /// given `indices`.
+    ///
+    /// # Panics
+    ///
+    /// Using `indices` that are invalid for the given `array` will cause a panic.
+    fn take(&self, array: &Self::Array, indices: &dyn Array) -> VortexResult<ArrayRef>;
+}
+
+/// A kernel that implements the filter function.
+pub struct TakeKernelRef(pub ArcRef<dyn Kernel>);
+inventory::collect!(TakeKernelRef);
+
+#[derive(Debug)]
+pub struct TakeKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + TakeKernel> TakeKernelAdapter<E> {
+    pub const fn lift(&'static self) -> TakeKernelRef {
+        TakeKernelRef(ArcRef::new_ref(self))
+    }
+}
+
+impl<E: Encoding + TakeKernel> Kernel for TakeKernelAdapter<E> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+        let inputs = TakeArgs::try_from(args)?;
+        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
+        Ok(Some(E::take(&self.0, array, inputs.indices)?.into()))
+    }
+}
+
+pub static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("take_from".into(), ArcRef::new_ref(&TakeFrom));
+    for kernel in inventory::iter::<TakeFromKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub struct TakeFrom;
+
+impl ComputeFnVTable for TakeFrom {
+    fn invoke(
+        &self,
+        _args: &InvocationArgs,
+        _kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
         vortex_bail!(
-            "TakeIntoFn {} had a builder with a different dtype {} to the resulting array dtype {}",
-            array.encoding(),
-            builder.dtype(),
-            result_dtype,
-        );
-    }
-    if let Some(take_fn) = array.vtable().take_fn() {
-        return take_fn.take_into(array, indices, builder);
+            "TakeFrom should not be invoked directly. Its kernels are used to accelerated the Take function"
+        )
     }
 
-    // Otherwise, flatten and try again.
-    log::debug!("No take_into implementation found for {}", array.encoding());
-    let canonical = array.to_canonical()?.into_array();
-    let vtable = canonical.vtable();
-    let canonical_take_fn = vtable
-        .take_fn()
-        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        Take.return_dtype(args)
+    }
 
-    canonical_take_fn.take_into(&canonical, indices, builder)
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+        Take.return_len(args)
+    }
+
+    fn is_elementwise(&self) -> bool {
+        Take.is_elementwise()
+    }
+}
+
+pub trait TakeFromKernel: Encoding {
+    /// Create a new array by taking the values from the `array` at the
+    /// given `indices`.
+    fn take_from(&self, indices: &Self::Array, array: &dyn Array)
+    -> VortexResult<Option<ArrayRef>>;
+}
+
+pub struct TakeFromKernelRef(pub ArcRef<dyn Kernel>);
+inventory::collect!(TakeFromKernelRef);
+
+#[derive(Debug)]
+pub struct TakeFromKernelAdapter<E: Encoding>(pub E);
+
+impl<E: Encoding + TakeFromKernel> TakeFromKernelAdapter<E> {
+    pub const fn lift(&'static self) -> TakeFromKernelRef {
+        TakeFromKernelRef(ArcRef::new_ref(self))
+    }
+}
+
+impl<E: Encoding + TakeFromKernel> Kernel for TakeFromKernelAdapter<E> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+        let inputs = TakeArgs::try_from(args)?;
+        let Some(indices) = inputs.indices.as_any().downcast_ref::<E::Array>() else {
+            return Ok(None);
+        };
+        Ok(E::take_from(&self.0, indices, inputs.array)?.map(Output::from))
+    }
 }

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use vortex_arcref::ArcRef;
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 

@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arcref = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -35,7 +36,6 @@ tracing-futures = { workspace = true, features = [
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
 vortex-alp = { workspace = true }
-vortex-arcref = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -53,6 +53,7 @@ vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
+vortex-scalar = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 

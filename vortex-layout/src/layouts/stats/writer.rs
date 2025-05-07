@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_arcref::ArcRef;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
@@ -77,6 +77,13 @@ impl LayoutWriter for StatsLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         if chunk.len() > self.options.block_size {
             vortex_bail!(
                 "Chunks passed to StatsLayoutWriter must be block_size in length, except the final block. Use RepartitionWriter to split chunks into blocks."

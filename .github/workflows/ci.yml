@@ -95,7 +95,7 @@ jobs:
           uv run --isolated --all-packages make html
         working-directory: docs/
 
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
@@ -251,7 +251,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -260,6 +259,21 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets
+
+  rust-lint-no-default:
+    name: "Rust (lint, no default)"
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - tag=rust-lint
+    steps:
+      - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: rui314/setup-mold@v1
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features

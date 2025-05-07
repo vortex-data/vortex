@@ -42,7 +42,13 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
+        let this = self.project();
+        let array = futures_util::ready!(this.inner.poll_next(cx));
+        if let Some(Ok(array)) = array.as_ref() {
+            debug_assert_eq!(array.dtype(), this.dtype);
+        }
+
+        Poll::Ready(array)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

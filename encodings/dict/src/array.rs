@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{cast, scalar_at, take, take_into};
+use vortex_array::compute::{cast, take};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
@@ -107,27 +106,11 @@ impl ArrayCanonicalImpl for DictArray {
             _ => take(self.values(), self.codes())?.to_canonical(),
         }
     }
-
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        match self.dtype() {
-            // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
-            // decompression to construct the views child array.
-            // For this case, it is *always* faster to decompress the values first and then create
-            // copies of the view pointers.
-            // TODO(joe): is the above still true?, investigate this.
-            DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
-                take_into(&canonical_values, self.codes(), builder)
-            }
-            // Non-string case: take and then canonicalize
-            _ => take_into(self.values(), self.codes(), builder),
-        }
-    }
 }
 
 impl ArrayValidityImpl for DictArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        let scalar = scalar_at(self.codes(), index).map_err(|err| {
+        let scalar = self.codes().scalar_at(index).map_err(|err| {
             err.with_context(format!(
                 "Failed to get index {} from DictArray codes",
                 index

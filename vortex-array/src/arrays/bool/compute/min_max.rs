@@ -4,11 +4,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::{MinMaxFn, MinMaxResult};
+use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::{Array, register_kernel};
 
-impl MinMaxFn<&BoolArray> for BoolEncoding {
+impl MinMaxKernel for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let x = match array.validity_mask()? {
             Mask::AllTrue(_) => array.boolean_buffer().clone(),
@@ -41,3 +41,5 @@ impl MinMaxFn<&BoolArray> for BoolEncoding {
         }))
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(BoolEncoding).lift());

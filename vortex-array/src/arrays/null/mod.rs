@@ -1,6 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -93,6 +94,10 @@ impl ArrayCanonicalImpl for NullArray {
 impl ArrayOperationsImpl for NullArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(stop - start).into_array())
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::null(DType::Null))
     }
 }
 

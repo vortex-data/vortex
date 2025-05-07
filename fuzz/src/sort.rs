@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
-use vortex_array::compute::scalar_at;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -51,9 +50,10 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
         DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
-                scalar_at(array, *a)
+                array
+                    .scalar_at(*a)
                     .vortex_unwrap()
-                    .partial_cmp(&scalar_at(array, *b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array(array, &sort_indices)
@@ -61,9 +61,10 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
         DType::List(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
-                scalar_at(array, *a)
+                array
+                    .scalar_at(*a)
                     .vortex_unwrap()
-                    .partial_cmp(&scalar_at(array, *b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array(array, &sort_indices)

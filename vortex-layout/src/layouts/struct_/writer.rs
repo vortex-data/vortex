@@ -54,7 +54,7 @@ impl StructLayoutWriter {
             dtype.clone(),
             struct_dtype
                 .fields()
-                .map(|dtype| factory.new_writer(ctx, &dtype))
+                .map(|field_dtype| factory.new_writer(ctx, &field_dtype))
                 .try_collect()?,
         )
     }
@@ -66,6 +66,13 @@ impl LayoutWriter for StructLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         let struct_array = chunk
             .as_struct_typed()
             .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
@@ -79,14 +86,13 @@ impl LayoutWriter for StructLayoutWriter {
 
         for i in 0..struct_array.nfields() {
             // TODO(joe): handle struct validity
-            let column = chunk
-                .as_struct_typed()
-                .vortex_expect("batch is a struct array")
+            let column = struct_array
                 .maybe_null_field_by_idx(i)
                 .vortex_expect("bounds already checked");
 
             for column_chunk in column.to_array_iterator() {
-                self.column_strategies[i].push_chunk(segment_writer, column_chunk?)?;
+                let column_chunk = column_chunk?;
+                self.column_strategies[i].push_chunk(segment_writer, column_chunk)?;
             }
         }
 

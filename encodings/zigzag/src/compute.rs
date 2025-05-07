@@ -1,26 +1,14 @@
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, ScalarAtFn, TakeFn, filter, scalar_at, take,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{PrimitiveScalar, Scalar};
-use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 
 use crate::{ZigZagArray, ZigZagEncoding};
 
-impl ComputeVTable for ZigZagEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ZigZagEncoding {}
 
 impl FilterKernel for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -31,38 +19,17 @@ impl FilterKernel for ZigZagEncoding {
 
 register_kernel!(FilterKernelAdapter(ZigZagEncoding).lift());
 
-impl ScalarAtFn<&ZigZagArray> for ZigZagEncoding {
-    fn scalar_at(&self, array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
-        let scalar = scalar_at(array.encoded(), index)?;
-        if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype()));
-        }
-
-        let pscalar = PrimitiveScalar::try_from(&scalar)?;
-        match_each_unsigned_integer_ptype!(pscalar.ptype(), |$P| {
-            Ok(Scalar::primitive(
-                <<$P as ZigZagEncoded>::Int>::decode(pscalar.typed_value::<$P>().ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot decode provided scalar: expected {}, got ptype {}",
-                        std::any::type_name::<$P>(),
-                        pscalar.ptype()
-                    )
-                })?),
-                array.dtype().nullability(),
-            ))
-        })
-    }
-}
-
-impl TakeFn<&ZigZagArray> for ZigZagEncoding {
+impl TakeKernel for ZigZagEncoding {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
 
-trait ZigZagEncoded {
-    type Int: ZigZag;
+register_kernel!(TakeKernelAdapter(ZigZagEncoding).lift());
+
+pub(crate) trait ZigZagEncoded {
+    type Int: zigzag::ZigZag;
 }
 
 impl ZigZagEncoded for u8 {
@@ -84,9 +51,7 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
-    use vortex_array::compute::{
-        SearchResult, SearchSortedSide, filter, scalar_at, search_sorted, take,
-    };
+    use vortex_array::compute::{SearchResult, SearchSortedSide, filter, search_sorted, take};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::EncodingVTable;
     use vortex_array::{Array, IntoArray, ToCanonical};
@@ -123,7 +88,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            scalar_at(&zigzag, 1).unwrap(),
+            zigzag.scalar_at(1).unwrap(),
             Scalar::primitive(-160, Nullability::Nullable)
         );
     }

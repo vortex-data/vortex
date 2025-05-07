@@ -4,50 +4,20 @@ mod mask;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxFn, MinMaxResult, ScalarAtFn, TakeFn, UncompressedSizeFn, filter, is_constant_opts,
-    scalar_at, take, uncompressed_size,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
+    is_constant_opts, take,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
-impl ComputeVTable for StructEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
+impl ComputeVTable for StructEncoding {}
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
-impl ScalarAtFn<&StructArray> for StructEncoding {
-    fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::struct_(
-            array.dtype().clone(),
-            array
-                .fields()
-                .iter()
-                .map(|field| scalar_at(field, index))
-                .try_collect()?,
-        ))
-    }
-}
-
-impl TakeFn<&StructArray> for StructEncoding {
+impl TakeKernel for StructEncoding {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         StructArray::try_new_with_dtype(
             array
@@ -62,6 +32,8 @@ impl TakeFn<&StructArray> for StructEncoding {
         .map(|a| a.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(StructEncoding).lift());
 
 impl FilterKernel for StructEncoding {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -84,12 +56,14 @@ impl FilterKernel for StructEncoding {
 
 register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
-impl MinMaxFn<&StructArray> for StructEncoding {
+impl MinMaxKernel for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(StructEncoding).lift());
 
 impl IsConstantKernel for StructEncoding {
     fn is_constant(
@@ -116,17 +90,6 @@ impl IsConstantKernel for StructEncoding {
 }
 
 register_kernel!(IsConstantKernelAdapter(StructEncoding).lift());
-
-impl UncompressedSizeFn<&StructArray> for StructEncoding {
-    fn uncompressed_size(&self, array: &StructArray) -> VortexResult<usize> {
-        let mut sum = array.validity().uncompressed_size();
-        for child in array.children().into_iter() {
-            sum += uncompressed_size(child.as_ref())?;
-        }
-
-        Ok(sum)
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -1,11 +1,13 @@
 use std::fmt::Debug;
 
+use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_arcref::ArcRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::stats::StatsSetRef;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
@@ -66,6 +68,10 @@ impl ArrayOperationsImpl for ArrowArray {
             dtype: self.dtype.clone(),
         };
         Ok(new_array.into_array())
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        vortex_bail!("Not supported")
     }
 }
 

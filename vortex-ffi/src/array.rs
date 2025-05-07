@@ -5,7 +5,6 @@
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
-use vortex::compute::scalar_at;
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
@@ -110,7 +109,7 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = array.as_ref().vortex_expect("array null");
-                let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+                let value = array.inner.scalar_at(index as usize).vortex_expect("scalar_at");
                 value.as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("as_")
@@ -120,7 +119,7 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = array.as_ref().vortex_expect("array null");
-                let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+                let value = array.inner.scalar_at(index as usize).vortex_expect("scalar_at");
                 value.as_extension()
                     .storage()
                     .as_primitive()
@@ -154,7 +153,11 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     len: *mut c_int,
 ) {
     let array = array.as_ref().vortex_expect("array null");
-    let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+    let value = array
+        .inner
+        .as_ref()
+        .scalar_at(index as usize)
+        .vortex_expect("scalar_at");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         let bytes = buffer.as_bytes();
@@ -174,7 +177,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     len: *mut c_int,
 ) {
     let array = array.as_ref().vortex_expect("array null");
-    let value = scalar_at(array.inner.as_ref(), index as usize).vortex_expect("scalar_at");
+    let value = array
+        .inner
+        .scalar_at(index as usize)
+        .vortex_expect("scalar_at");
     let utf8_scalar = value.as_binary();
     if let Some(bytes) = utf8_scalar.value() {
         let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());

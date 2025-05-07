@@ -6,7 +6,6 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
-use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::expr::Identity;
 use vortex::layout::{
@@ -156,7 +155,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
-                        scalar_at(arr, chunk_id)
+                        arr.scalar_at(chunk_id)
                             .vortex_expect("stats table scalar_at")
                             .to_string(),
                     ))

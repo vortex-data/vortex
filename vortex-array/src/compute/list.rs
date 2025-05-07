@@ -46,14 +46,26 @@ use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
-    if value.is_null() {
-        return list_contains_null(array);
+    let DType::List(elem_dtype, _nullability) = array.dtype() else {
+        vortex_bail!("Array must be of List type");
+    };
+    if &**elem_dtype != value.dtype() {
+        vortex_bail!("Element type of ListArray does not match search value");
     }
 
-    // Ensure that the array must be of List type.
-    let Some(list_array) = array.as_any().downcast_ref::<ListArray>() else {
-        vortex_bail!("array must be of List type")
-    };
+    // If the list array is constant, we perform a single comparison.
+    if array.is_constant() && array.len() > 1 {
+        let contains = list_contains(&array.slice(0, 1)?, value)?;
+        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
+    }
+
+    // Canonicalize to a list array.
+    // NOTE(ngates): we may wish to add elements and offsets accessors to the ListArrayTrait.
+    let list_array = array.to_list()?;
+
+    if value.is_null() {
+        return list_contains_null(&list_array);
+    }
 
     let elems = list_array.elements();
     let ends = list_array.offsets().to_primitive()?;
@@ -62,13 +74,12 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     let matching_elements = compare(elems, &rhs, Operator::Eq)?;
     let matches = matching_elements.to_bool()?;
 
-    // Fast path: all elements match or none match.
+    // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
-        return match pred.as_bool().value() {
+        if matches!(pred.as_bool().value(), None | Some(false)) {
             // TODO(aduffy): how do we handle null?
-            None | Some(false) => Ok(ConstantArray::new::<bool>(false, matches.len()).into_array()),
-            Some(true) => Ok(ConstantArray::new::<bool>(true, matches.len()).into_array()),
-        };
+            return Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array());
+        }
     }
 
     match_each_integer_ptype!(ends.ptype(), |$T| {
@@ -78,12 +89,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
 
 /// Returns a `Bool` array with `true` for lists which contains NULL and `false` if not, or
 /// NULL if the list itself is null.
-pub fn list_contains_null(array: &dyn Array) -> VortexResult<ArrayRef> {
-    // Ensure that the array must be of List type.
-    let Some(list_array) = array.as_any().downcast_ref::<ListArray>() else {
-        vortex_bail!("array must be of List type")
-    };
-
+fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
     let elems = list_array.elements();
 
     // Check element validity. We need to intersect
@@ -151,7 +157,7 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// ```rust
 /// use vortex_array::arrays::{ListArray, VarBinArray};
 /// use vortex_array::{Array, IntoArray};
-/// use vortex_array::compute::{list_elem_len, scalar_at};
+/// use vortex_array::compute::{list_elem_len};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_dtype::DType;
@@ -162,15 +168,22 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
 /// let lens = list_elem_len(&list_array).unwrap();
-/// assert_eq!(scalar_at(&lens, 0).unwrap(), 1u32.into());
-/// assert_eq!(scalar_at(&lens, 1).unwrap(), 2u32.into());
-/// assert_eq!(scalar_at(&lens, 2).unwrap(), 2u32.into());
+/// assert_eq!(lens.scalar_at(0).unwrap(), 1u32.into());
+/// assert_eq!(lens.scalar_at(1).unwrap(), 2u32.into());
+/// assert_eq!(lens.scalar_at(2).unwrap(), 2u32.into());
 /// ```
 pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
-    let Some(list_array) = array.as_any().downcast_ref::<ListArray>() else {
-        vortex_bail!("array must be of List type")
-    };
+    if !matches!(array.dtype(), DType::List(..)) {
+        vortex_bail!("Array must be of list type");
+    }
 
+    // Short-circuit for constant list arrays.
+    if array.is_constant() && array.len() > 1 {
+        let elem_lens = list_elem_len(&array.slice(0, 1)?)?;
+        return Ok(ConstantArray::new(elem_lens.scalar_at(0)?, array.len()).into_array());
+    }
+
+    let list_array = array.to_list()?;
     let offsets = list_array.offsets().to_primitive()?;
     let lens_array = match_each_integer_ptype!(offsets.ptype(), |$T| {
         element_lens(offsets.as_slice::<$T>()).into_array()
@@ -193,15 +206,15 @@ mod tests {
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::IntoArray;
-    use crate::arrays::{BoolArray, ListArray, VarBinArray};
+    use crate::arrays::{BoolArray, ConstantArray, ListArray, VarBinArray};
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
-    use crate::{Array, ArrayRef};
+    use crate::{Array, ArrayExt, ArrayRef};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
@@ -251,6 +264,24 @@ mod tests {
         None,
         bool_array(vec![false, true, true], None)
     )]
+    // Case 3: list(utf8) with all elements matching, but some empty lists
+    #[case(
+        nonnull_strings(vec![vec![], vec!["a"], vec!["a"]]),
+        Some("a"),
+        bool_array(vec![false, true, true], None)
+    )]
+    // Case 4: list(utf8) all lists empty.
+    #[case(
+        nonnull_strings(vec![vec![], vec![], vec![]]),
+        Some("a"),
+        bool_array(vec![false, false, false], None)
+    )]
+    // Case 5: list(utf8) no elements matching.
+    #[case(
+        nonnull_strings(vec![vec!["b"], vec![], vec!["b"]]),
+        Some("a"),
+        bool_array(vec![false, false, false], None)
+    )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
         #[case] value: Option<&str>,
@@ -268,5 +299,30 @@ mod tests {
             expected.boolean_buffer().iter().collect_vec()
         );
         assert_eq!(bool_result.validity(), expected.validity());
+    }
+
+    #[test]
+    fn test_constant_list() {
+        let list_array = ConstantArray::new(
+            Scalar::list(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                vec![1i32.into(), 2i32.into(), 3i32.into()],
+                Nullability::NonNullable,
+            ),
+            2,
+        )
+        .into_array();
+
+        let contains = list_contains(&list_array, 2i32.into()).unwrap();
+        assert!(contains.is::<ConstantArray>(), "Expected constant result");
+        assert_eq!(
+            contains
+                .to_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect_vec(),
+            vec![true, true],
+        );
     }
 }

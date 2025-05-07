@@ -15,7 +15,7 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, cast, filter, scalar_at, search_sorted, search_sorted_usize,
+    SearchResult, SearchSortedSide, cast, filter, search_sorted, search_sorted_usize,
     search_sorted_usize_many, take,
 };
 use crate::variants::PrimitiveArrayTrait;
@@ -91,7 +91,9 @@ impl Patches {
         );
         assert!(!indices.is_empty(), "Patch indices must not be empty");
         let max = usize::try_from(
-            &scalar_at(&indices, indices.len() - 1).vortex_expect("indices are not empty"),
+            &indices
+                .scalar_at(indices.len() - 1)
+                .vortex_expect("indices are not empty"),
         )
         .vortex_expect("indices must be a number");
         assert!(
@@ -211,7 +213,7 @@ impl Patches {
     /// Get the patched value at a given index if it exists.
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         if let Some(patch_idx) = self.search_index(index)?.to_found() {
-            scalar_at(self.values(), patch_idx).map(Some)
+            self.values().scalar_at(patch_idx).map(Some)
         } else {
             Ok(None)
         }
@@ -230,7 +232,7 @@ impl Patches {
     ) -> VortexResult<SearchResult> {
         search_sorted(self.values(), target.into(), side).and_then(|sr| {
             let index_idx = sr.to_offsets_index(self.indices().len(), side);
-            let index = usize::try_from(&scalar_at(self.indices(), index_idx)?)? - self.offset;
+            let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
             Ok(match sr {
                 // If we reached the end of patched values when searching then the result is one after the last patch index
                 SearchResult::Found(i) => SearchResult::Found(
@@ -250,12 +252,12 @@ impl Patches {
 
     /// Returns the minimum patch index
     pub fn min_index(&self) -> VortexResult<usize> {
-        Ok(usize::try_from(&scalar_at(self.indices(), 0)?)? - self.offset)
+        Ok(usize::try_from(&self.indices().scalar_at(0)?)? - self.offset)
     }
 
     /// Returns the maximum patch index
     pub fn max_index(&self) -> VortexResult<usize> {
-        Ok(usize::try_from(&scalar_at(self.indices(), self.indices().len() - 1)?)? - self.offset)
+        Ok(usize::try_from(&self.indices().scalar_at(self.indices().len() - 1)?)? - self.offset)
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.

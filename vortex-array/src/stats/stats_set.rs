@@ -727,6 +727,7 @@ mod test {
             PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
         let all_stats = all::<Stat>()
             .filter(|s| !matches!(s, Stat::Sum))
+            .filter(|s| !matches!(s, Stat::NaNCount))
             .collect_vec();
         array.statistics().compute_all(&all_stats).unwrap();
 

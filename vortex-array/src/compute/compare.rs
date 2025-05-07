@@ -3,6 +3,7 @@ use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_arcref::ArcRef;

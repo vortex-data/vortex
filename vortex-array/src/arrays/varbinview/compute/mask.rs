@@ -18,3 +18,24 @@ impl MaskKernel for VarBinViewEncoding {
 }
 
 register_kernel!(MaskKernelAdapter(VarBinViewEncoding).lift());
+
+#[cfg(test)]
+mod tests {
+    use crate::arrays::VarBinViewArray;
+    use crate::compute::conformance::mask::test_mask;
+
+    #[test]
+    fn take_mask_var_bin_view_array() {
+        test_mask(&VarBinViewArray::from_iter_str([
+            "one", "two", "three", "four", "five",
+        ]));
+
+        test_mask(&VarBinViewArray::from_iter_nullable_str([
+            Some("one"),
+            None,
+            Some("three"),
+            Some("four"),
+            Some("five"),
+        ]));
+    }
+}

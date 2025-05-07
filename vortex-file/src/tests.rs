@@ -11,7 +11,6 @@ use vortex_array::arrays::{
     ChunkedArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
-use vortex_array::compute::scalar_at;
 use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
@@ -1015,7 +1014,8 @@ async fn test_pruning_with_or() {
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {
-                scalar_at(&numbers, index)
+                numbers
+                    .scalar_at(index)
                     .unwrap()
                     .as_primitive()
                     .typed_value::<i32>()
@@ -1076,10 +1076,10 @@ async fn test_repeated_projection() {
 
     assert_eq!(
         (0..actual.len())
-            .map(|index| scalar_at(&actual, index).unwrap())
+            .map(|index| actual.scalar_at(index).unwrap())
             .collect_vec(),
         (0..expected.len())
-            .map(|index| scalar_at(&expected, index).unwrap())
+            .map(|index| expected.scalar_at(index).unwrap())
             .collect_vec()
     );
 }

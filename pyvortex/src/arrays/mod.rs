@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{Operator, compare, scalar_at, take};
+use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
 use vortex::nbytes::NBytes;
@@ -443,7 +443,7 @@ impl PyArray {
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        PyScalar::init(py, scalar_at(&slf, index)?)
+        PyScalar::init(py, slf.scalar_at(index)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

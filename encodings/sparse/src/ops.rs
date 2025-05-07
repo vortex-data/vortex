@@ -1,6 +1,7 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::SparseArray;
 
@@ -22,6 +23,13 @@ impl ArrayOperationsImpl for SparseArray {
             SparseArray::try_new_from_patches(new_patches, self.fill_scalar().clone())?
                 .into_array(),
         )
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(self
+            .patches()
+            .get_patched(index)?
+            .unwrap_or_else(|| self.fill_scalar().clone()))
     }
 }
 

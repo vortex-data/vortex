@@ -3,6 +3,7 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -93,6 +94,13 @@ impl ArrayOperationsImpl for ExtensionArray {
             ExtensionArray::new(self.ext_dtype().clone(), self.storage().slice(start, stop)?)
                 .into_array(),
         )
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::extension(
+            self.ext_dtype().clone(),
+            self.storage().scalar_at(index)?,
+        ))
     }
 }
 

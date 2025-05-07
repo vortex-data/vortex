@@ -5,7 +5,6 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use super::ConstantEncoding;
 use crate::arrays::ConstantArray;
-use crate::compute::scalar_at;
 use crate::serde::ArrayParts;
 use crate::vtable::EncodingVTable;
 use crate::{
@@ -39,7 +38,7 @@ impl EncodingVTable for ConstantEncoding {
     ) -> VortexResult<Option<ArrayRef>> {
         let array_ref = input.as_ref();
         if array_ref.is_constant() {
-            let scalar = scalar_at(array_ref, 0)?;
+            let scalar = array_ref.scalar_at(0)?;
             Ok(Some(
                 ConstantArray::new(scalar, array_ref.len()).into_array(),
             ))

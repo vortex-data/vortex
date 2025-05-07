@@ -154,7 +154,6 @@ where
 mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::scalar_at;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
@@ -193,11 +192,11 @@ mod test {
         );
         let dict_values = dict.values();
         assert_eq!(
-            scalar_at(dict_values, 0).unwrap(),
+            dict_values.scalar_at(0).unwrap(),
             Scalar::primitive(1, Nullable)
         );
         assert_eq!(
-            scalar_at(dict_values, 1).unwrap(),
+            dict_values.scalar_at(1).unwrap(),
             Scalar::primitive(3, Nullable)
         );
     }

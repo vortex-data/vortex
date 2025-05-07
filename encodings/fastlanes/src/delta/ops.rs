@@ -1,7 +1,8 @@
 use std::cmp::min;
 
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef, ToCanonical};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::DeltaArray;
 
@@ -42,11 +43,17 @@ impl ArrayOperationsImpl for DeltaArray {
 
         Ok(arr.into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        let decompressed = self.slice(index, index + 1)?.to_primitive()?;
+        decompressed.scalar_at(0)
+    }
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::ToCanonical;
+    use vortex_error::VortexError;
 
     use super::*;
 
@@ -286,5 +293,55 @@ mod test {
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
             (1015..1030).collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn test_scalar_at_non_jagged_array() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect())
+            .unwrap()
+            .into_array();
+
+        assert_eq!(delta.scalar_at(0).unwrap(), 0_u32.into());
+        assert_eq!(delta.scalar_at(1).unwrap(), 1_u32.into());
+        assert_eq!(delta.scalar_at(10).unwrap(), 10_u32.into());
+        assert_eq!(delta.scalar_at(1023).unwrap(), 1023_u32.into());
+        assert_eq!(delta.scalar_at(1024).unwrap(), 1024_u32.into());
+        assert_eq!(delta.scalar_at(1025).unwrap(), 1025_u32.into());
+        assert_eq!(delta.scalar_at(2047).unwrap(), 2047_u32.into());
+
+        assert!(matches!(
+            delta.scalar_at(2048),
+            Err(VortexError::OutOfBounds(2048, 0, 2048, _))
+        ));
+
+        assert!(matches!(
+            delta.scalar_at(2049),
+            Err(VortexError::OutOfBounds(2049, 0, 2048, _))
+        ));
+    }
+
+    #[test]
+    fn test_scalar_at_jagged_array() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect())
+            .unwrap()
+            .into_array();
+
+        assert_eq!(delta.scalar_at(0).unwrap(), 0_u32.into());
+        assert_eq!(delta.scalar_at(1).unwrap(), 1_u32.into());
+        assert_eq!(delta.scalar_at(10).unwrap(), 10_u32.into());
+        assert_eq!(delta.scalar_at(1023).unwrap(), 1023_u32.into());
+        assert_eq!(delta.scalar_at(1024).unwrap(), 1024_u32.into());
+        assert_eq!(delta.scalar_at(1025).unwrap(), 1025_u32.into());
+        assert_eq!(delta.scalar_at(1999).unwrap(), 1999_u32.into());
+
+        assert!(matches!(
+            delta.scalar_at(2000),
+            Err(VortexError::OutOfBounds(2000, 0, 2000, _))
+        ));
+
+        assert!(matches!(
+            delta.scalar_at(2001),
+            Err(VortexError::OutOfBounds(2001, 0, 2000, _))
+        ));
     }
 }

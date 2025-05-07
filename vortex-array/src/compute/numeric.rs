@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::sync::LazyLock;
 
-use vortex_arcref::ArcRef;
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{NumericOperator, Scalar};
@@ -267,7 +267,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{scalar_at, sub_scalar};
+    use crate::compute::sub_scalar;
 
     #[test]
     fn test_scalar_subtract_unsigned() {
@@ -302,7 +302,7 @@ mod test {
             .unwrap();
 
         let actual = (0..result.len())
-            .map(|index| scalar_at(&result, index).unwrap())
+            .map(|index| result.scalar_at(index).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
             actual,

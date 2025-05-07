@@ -62,7 +62,7 @@ mod test {
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, FieldPath};
+    use vortex_dtype::{DType, FieldPath, PType};
 
     use super::*;
     use crate::LayoutWriterExt;
@@ -74,10 +74,10 @@ mod test {
         let mut segments = TestSegments::default();
         let layout = FlatLayoutWriter::new(
             ArrayContext::empty(),
-            DType::Bool(NonNullable),
+            DType::Primitive(PType::I32, NonNullable),
             Default::default(),
         )
-        .push_one(&mut segments, buffer![1; 10].into_array())
+        .push_one(&mut segments, buffer![1_i32; 10].into_array())
         .unwrap();
         let splits = SplitBy::Layout
             .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
@@ -90,10 +90,10 @@ mod test {
         let mut segments = TestSegments::default();
         let layout = FlatLayoutWriter::new(
             ArrayContext::empty(),
-            DType::Bool(NonNullable),
+            DType::Primitive(PType::I32, NonNullable),
             Default::default(),
         )
-        .push_one(&mut segments, buffer![1; 10].into_array())
+        .push_one(&mut segments, buffer![1_i32; 10].into_array())
         .unwrap();
         let splits = SplitBy::RowCount(3)
             .splits(&layout, &[FieldMask::Exact(FieldPath::root())])

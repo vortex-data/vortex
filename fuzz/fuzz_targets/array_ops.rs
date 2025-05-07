@@ -7,9 +7,7 @@ use vortex_array::arrays::{
     BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use vortex_array::compute::{
-    SearchResult, SearchSortedSide, compare, filter, scalar_at, search_sorted, take,
-};
+use vortex_array::compute::{SearchResult, SearchSortedSide, compare, filter, search_sorted, take};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -115,8 +113,8 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
         ));
     }
     for idx in 0..lhs.len() {
-        let l = scalar_at(lhs, idx).vortex_unwrap();
-        let r = scalar_at(rhs, idx).vortex_unwrap();
+        let l = lhs.scalar_at(idx).vortex_unwrap();
+        let r = rhs.scalar_at(idx).vortex_unwrap();
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

@@ -1,6 +1,7 @@
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
-use crate::arrays::VarBinViewArray;
+use crate::arrays::{VarBinViewArray, varbin_scalar};
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
 impl ArrayOperationsImpl for VarBinViewArray {
@@ -14,5 +15,9 @@ impl ArrayOperationsImpl for VarBinViewArray {
             self.validity().slice(start, stop)?,
         )?
         .into_array())
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(varbin_scalar(self.bytes_at(index), self.dtype()))
     }
 }

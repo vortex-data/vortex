@@ -7,17 +7,15 @@ use vortex_dtype::{
     NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
     match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::{VortexResult, vortex_err};
-use vortex_mask::Mask;
+use vortex_error::VortexResult;
 
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::TakeFn;
+use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
+impl TakeKernel for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
@@ -51,44 +49,9 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
             })
         })
     }
-
-    fn take_into(
-        &self,
-        array: &PrimitiveArray,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        let indices = indices.to_primitive()?;
-        let mask = array.validity().take(&indices)?.to_mask(indices.len())?;
-
-        match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_into_impl(array.as_slice::<$T>(), indices.as_slice::<$I>(), mask, builder)
-            })
-        })
-    }
 }
 
-fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &[T],
-    indices: &[I],
-    mask: Mask,
-    builder: &mut dyn ArrayBuilder,
-) -> VortexResult<()> {
-    assert_eq!(indices.len(), mask.len());
-
-    let builder = builder
-        .as_any_mut()
-        .downcast_mut::<PrimitiveBuilder<T>>()
-        .ok_or_else(|| {
-            vortex_err!(
-                "Failed to downcast builder to PrimitiveBuilder<{}>",
-                T::PTYPE
-            )
-        })?;
-    builder.extend_with_iterator(indices.iter().map(|idx| array[idx.as_()]), mask);
-    Ok(())
-}
+register_kernel!(TakeKernelAdapter(PrimitiveEncoding).lift());
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],
@@ -167,14 +130,12 @@ where
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
     use crate::arrays::primitive::compute::take::take_primitive;
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::builders::{ArrayBuilder as _, PrimitiveBuilder};
-    use crate::compute::{scalar_at, take, take_into};
+    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -195,56 +156,10 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let actual = take(&values, &indices).unwrap();
-        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
+        assert_eq!(actual.scalar_at(0).unwrap(), Scalar::from(Some(1)));
         // position 3 is null
-        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
+        assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
-        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
-    }
-
-    #[test]
-    fn test_take_into() {
-        let values = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
-        let all_valid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
-            Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
-        );
-        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, &all_valid_indices, &mut builder).unwrap();
-        let actual = builder.finish();
-        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
-        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
-        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(Some(5)));
-
-        let mixed_valid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
-            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
-        );
-        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, &mixed_valid_indices, &mut builder).unwrap();
-        let actual = builder.finish();
-        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
-        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
-        // the third index is null
-        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
-
-        let all_invalid_indices = PrimitiveArray::new(
-            buffer![0, 3, 4],
-            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
-        );
-        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, &all_invalid_indices, &mut builder).unwrap();
-        let actual = builder.finish();
-        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<i32>());
-        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
-        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
-
-        let non_null_indices = PrimitiveArray::new(buffer![0, 3, 4], Validity::NonNullable);
-        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
-        take_into(&values, &non_null_indices, &mut builder).unwrap();
-        let actual = builder.finish();
-        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(1));
-        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(4));
-        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(5));
+        assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<i32>());
     }
 }

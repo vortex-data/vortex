@@ -1,5 +1,6 @@
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::array::Array;
 use crate::arrays::PrimitiveArray;
@@ -15,5 +16,11 @@ impl ArrayOperationsImpl for PrimitiveArray {
             )
             .into_array())
         })
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(match_each_native_ptype!(self.ptype(), |$T| {
+            Scalar::primitive(self.as_slice::<$T>()[index], self.dtype().nullability())
+        }))
     }
 }

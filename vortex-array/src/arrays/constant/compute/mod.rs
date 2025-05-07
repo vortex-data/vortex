@@ -8,48 +8,14 @@ mod search_sorted;
 mod sum;
 mod take;
 
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
 use crate::Array;
 use crate::arrays::ConstantEncoding;
-use crate::arrays::constant::ConstantArray;
-use crate::compute::{ScalarAtFn, SearchSortedFn, TakeFn, UncompressedSizeFn};
+use crate::compute::SearchSortedFn;
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for ConstantEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
-impl ScalarAtFn<&ConstantArray> for ConstantEncoding {
-    fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.scalar().clone())
-    }
-}
-
-impl UncompressedSizeFn<&ConstantArray> for ConstantEncoding {
-    fn uncompressed_size(&self, array: &ConstantArray) -> VortexResult<usize> {
-        let scalar = array.scalar();
-
-        let size = match scalar.as_bool_opt() {
-            Some(_) => array.len() / 8,
-            None => array.scalar().nbytes() * array.len(),
-        };
-        Ok(size)
     }
 }
 
@@ -58,8 +24,8 @@ mod test {
     use vortex_dtype::half::f16;
     use vortex_scalar::Scalar;
 
-    use super::ConstantArray;
     use crate::array::Array;
+    use crate::arrays::constant::ConstantArray;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]

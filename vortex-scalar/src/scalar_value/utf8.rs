@@ -4,7 +4,7 @@ use vortex_buffer::BufferString;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 
 use crate::ScalarValue;
-use crate::scalarvalue::InnerScalarValue;
+use crate::scalar_value::InnerScalarValue;
 
 impl<'a> TryFrom<&'a ScalarValue> for String {
     type Error = VortexError;

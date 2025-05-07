@@ -4,7 +4,7 @@ use std::ops::Deref;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{Operator, scalar_at, scalar_cmp};
+use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
@@ -83,7 +83,7 @@ pub fn compare_canonical_array(
         }),
         DType::Struct(..) | DType::List(..) => {
             let scalar_vals = (0..array.len())
-                .map(|i| scalar_at(array, i))
+                .map(|i| array.scalar_at(i))
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(BoolArray::from_iter(
                 scalar_vals

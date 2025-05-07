@@ -7,11 +7,11 @@ use vortex_scalar::Scalar;
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{
-    SearchSortedSide, TakeFn, cast, scalar_at, search_sorted_usize, sub_scalar, take,
+    SearchSortedSide, TakeKernel, TakeKernelAdapter, cast, search_sorted_usize, sub_scalar, take,
 };
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeFn<&ChunkedArray> for ChunkedEncoding {
+impl TakeKernel for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Fast path for strict sorted indices.
         if indices
@@ -58,6 +58,8 @@ impl TakeFn<&ChunkedArray> for ChunkedEncoding {
     }
 }
 
+register_kernel!(TakeKernelAdapter(ChunkedEncoding).lift());
+
 /// When the indices are non-null and strict-sorted, we can do better
 fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
     let mut indices_by_chunk = vec![None; chunked.nchunks()];
@@ -66,7 +68,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResu
     let mut pos = 0;
     while pos < indices.len() {
         // Locate the chunk index for the current index
-        let idx = usize::try_from(&scalar_at(indices, pos)?)?;
+        let idx = usize::try_from(&indices.scalar_at(pos)?)?;
         let (chunk_idx, _idx_in_chunk) = chunked.find_chunk_idx(idx);
 
         // Find the end of this chunk, and locate that position in the indices array.

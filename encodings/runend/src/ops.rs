@@ -1,7 +1,7 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::scalar_at;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::RunEndArray;
 
@@ -20,7 +20,7 @@ impl ArrayOperationsImpl for RunEndArray {
         };
 
         if slice_begin + 1 == slice_end {
-            let value = scalar_at(self.values(), slice_begin)?;
+            let value = self.values().scalar_at(slice_begin)?;
             return Ok(ConstantArray::new(value, new_length).into_array());
         }
 
@@ -36,11 +36,16 @@ impl ArrayOperationsImpl for RunEndArray {
         )?
         .into_array())
     }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        self.values().scalar_at(self.find_physical_index(index)?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{Array, ArrayStatistics, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -135,5 +140,16 @@ mod tests {
         let sliced_array = re_array.slice(2, 5).unwrap();
 
         assert!(sliced_array.is_constant())
+    }
+
+    #[test]
+    fn ree_scalar_at_end() {
+        let scalar = RunEndArray::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+        )
+        .unwrap()
+        .scalar_at(11)
+        .unwrap();
+        assert_eq!(scalar, 5.into());
     }
 }

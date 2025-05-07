@@ -7,7 +7,6 @@ use jni::sys::{
 };
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::scalar_at;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::nbytes::NBytes;
@@ -262,17 +261,14 @@ macro_rules! get_primitive {
             let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
             try_or_throw(&mut env, |_| {
                 let scalar_value = if array_ref.is_extension {
-                    scalar_at(
-                        array_ref
-                            .inner
-                            .as_extension_typed()
-                            .vortex_expect("extension array")
-                            .storage_data()
-                            .as_ref(),
-                        index as usize,
-                    )?
+                    array_ref
+                        .inner
+                        .as_extension_typed()
+                        .vortex_expect("extension array")
+                        .storage_data()
+                        .scalar_at(index as usize)?
                 } else {
-                    scalar_at(array_ref.inner.as_ref(), index as usize)?
+                    array_ref.inner.scalar_at(index as usize)?
                 };
 
                 Ok(scalar_value
@@ -304,7 +300,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let value = scalar_at(array_ref.inner.as_ref(), index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_bool().value() {
             None => Ok(JNI_FALSE),
             Some(b) => {
@@ -327,7 +323,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 ) -> jstring {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = scalar_at(array_ref.inner.as_ref(), index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_utf8().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf_str) => Ok(env.new_string(buf_str.as_str())?.into_raw()),
@@ -376,7 +372,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ) -> jbyteArray {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = scalar_at(array_ref.inner.as_ref(), index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_binary().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf) => Ok(env.byte_array_from_slice(buf.as_slice())?.into_raw()),

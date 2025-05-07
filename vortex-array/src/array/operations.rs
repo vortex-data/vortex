@@ -1,4 +1,5 @@
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 
@@ -15,6 +16,12 @@ pub trait ArrayOperationsImpl {
     ///
     /// Note that bounds-checking has already been performed by the time this function is called.
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef>;
+
+    /// Fetch the scalar at the given index.
+    ///
+    /// Note that bounds-checking has already been performed by the time this function is called,
+    /// and the index is guaranteed to be valid.
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
     // TODO(ngates): add _is_constant here
 }
