@@ -97,7 +97,7 @@ pub fn validate_coord_schema(schema: &StructDType, dimensions: Dimension) -> Vor
             vortex_assert!(schema.field_name(0)?.as_ref().eq("x"));
             vortex_assert!(schema.field_name(1)?.as_ref().eq("y"));
             vortex_assert!(schema.field_name(2)?.as_ref().eq("z"));
-            vortex_assert!(schema.field_name(2)?.as_ref().eq("m"));
+            vortex_assert!(schema.field_name(3)?.as_ref().eq("m"));
             schema
                 .fields()
                 .all(|field| field.eq_ignore_nullability(PType::F64.into()));
