@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::ptr;
 
 use futures::StreamExt;

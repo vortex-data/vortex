@@ -10,9 +10,9 @@ struct DType {
 	explicit DType(vx_dtype *dtype): dtype(dtype) {}
 
 	static duckdb::unique_ptr<DType> FromDuckDBTable(
-		std::vector<duckdb_logical_type> column_types,
-		std::vector<unsigned char> column_nullable,
-		std::vector<const char *> column_names
+		const std::vector<duckdb_logical_type> &column_types,
+		const std::vector<unsigned char> &column_nullable,
+		const std::vector<const char *> &column_names
 	) {
 		D_ASSERT(column_names.size() == column_nullable.size());
 		D_ASSERT(column_names.size() == column_types.size());

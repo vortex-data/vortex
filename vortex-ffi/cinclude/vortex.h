@@ -106,6 +106,11 @@ typedef struct vx_array_sink vx_array_sink;
 typedef struct vx_array_stream vx_array_stream;
 
 /**
+ * The result of `vx_array_stream_sink_create`.
+ */
+typedef struct vx_array_stream_sink_create_result vx_array_stream_sink_create_result;
+
+/**
  * A reference to a array stream being written to an external system (e.g. a file).
  * Must be closed with `vx_array_stream_writer_close`.
  */
@@ -178,14 +183,6 @@ typedef struct vx_file_scan_options {
    */
   int split_by_row_count;
 } vx_file_scan_options;
-
-/**
- * The result of `vx_array_stream_sink_create`.
- */
-typedef struct vx_array_stream_sink_create_result {
-  struct vx_array_sink *sink;
-  struct vx_array_stream *stream;
-} vx_array_stream_sink_create_result;
 
 
 
@@ -417,8 +414,22 @@ void vx_init_logging(enum vx_log_level level);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-struct vx_array_stream_sink_create_result vx_array_stream_sink_create(const struct vx_dtype *dtype,
-                                                                      struct vx_error **error);
+struct vx_array_stream_sink_create_result *vx_array_stream_sink_create(const struct vx_dtype *dtype,
+                                                                       struct vx_error **error);
+
+/**
+ * Moves the sink out of the result type.
+ * If the sink has already been taken the second call returns null
+ */
+struct vx_array_sink *vx_array_stream_sink_create_result_get_sink(struct vx_array_stream_sink_create_result *result);
+
+/**
+ * Moves the stream out of the result type.
+ * If the stream has already been taken the second call returns null
+ */
+struct vx_array_stream *vx_array_stream_sink_create_result_get_stream(struct vx_array_stream_sink_create_result *result);
+
+void vx_array_stream_sink_create_result_free(struct vx_array_stream_sink_create_result *result);
 
 /**
  * Pushed a single array chunk into a file sink.
