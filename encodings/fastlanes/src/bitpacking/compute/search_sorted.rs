@@ -6,9 +6,8 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::compute::{
-    IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn,
+    IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
 };
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{DType, NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -44,46 +43,6 @@ impl SearchSortedFn<&BitPackedArray> for BitPackedEncoding {
                     // Unwrap to native value
                     let unwrapped_value: $P = value.cast(array.dtype())?.try_into()?;
                     Ok(searcher.search_sorted(&unwrapped_value, side))
-                })
-                .try_collect()
-        })
-    }
-}
-
-impl SearchSortedUsizeFn<&BitPackedArray> for BitPackedEncoding {
-    fn search_sorted_usize(
-        &self,
-        array: &BitPackedArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
-            // NOTE: conversion may truncate silently.
-            if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
-                search_sorted_native(array, pvalue, side)
-            } else {
-                // provided u64 is too large to fit in the provided PType, value must be off
-                // the right end of the array.
-                Ok(SearchResult::NotFound(array.len()))
-            }
-        })
-    }
-
-    fn search_sorted_usize_many(
-        &self,
-        array: &BitPackedArray,
-        values: &[usize],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
-
-            values
-                .iter()
-                .map(|&value| {
-                    // NOTE: truncating cast
-                    let cast_value: $P = value as $P;
-                    Ok(searcher.search_sorted(&cast_value, side))
                 })
                 .try_collect()
         })
@@ -191,7 +150,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
         Some(val.total_compare(*elem))
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.length
     }
 }
@@ -219,8 +178,6 @@ mod test {
         #[case] side: SearchSortedSide,
         #[case] expected: SearchResult,
     ) {
-        use vortex_array::variants::PrimitiveArrayTrait;
-
         let primitive_array = array.to_primitive().vortex_unwrap();
         // force patches
         let histogram = bit_width_histogram(&primitive_array).vortex_unwrap();
