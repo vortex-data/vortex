@@ -358,8 +358,6 @@ void vx_error_free(struct vx_error *error);
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_error **error);
 
-void vx_file_write_array(const char *path, struct vx_array *array, struct vx_error **error);
-
 struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
 void vx_file_statistics_free(struct vx_file_statistics *stat);

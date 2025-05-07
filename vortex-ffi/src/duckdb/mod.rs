@@ -2,7 +2,7 @@ mod cache;
 
 use std::cmp::min;
 use std::ffi::{c_char, c_int, c_uchar, c_uint};
-use std::ptr::null_mut;
+use std::ptr;
 use std::sync::Arc;
 
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
@@ -29,7 +29,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 ) -> duckdb_logical_type {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
 
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         Ok(dtype.to_duckdb_type()?.into_owning_ptr())
     })
 }
@@ -43,7 +43,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
     column_count: c_int,
     error: *mut *mut vx_error,
 ) -> *mut DType {
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..column_count)
             .map(|idx| to_string(*column_names.offset(idx as isize)))
             .map(Arc::from)
@@ -119,7 +119,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null array") };
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let struct_type = dtype.as_struct().ok_or_else(|| {
             vortex_err!("cannot push a duckdb to an array stream which is not a top level struct")
         })?;

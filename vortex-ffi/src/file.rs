@@ -1,10 +1,9 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int};
-use std::ptr::null_mut;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -13,17 +12,14 @@ use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
-use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
-use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
@@ -77,7 +73,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let options = unsafe {
             options
                 .as_ref()
@@ -102,28 +98,6 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         })?;
         Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
     })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_write_array(
-    path: *const c_char,
-    array: *mut vx_array,
-    error: *mut *mut vx_error,
-) {
-    try_or(error, (), || {
-        let array = unsafe { array.as_ref().vortex_expect("null array") };
-        let path = CStr::from_ptr(path).to_str()?;
-
-        RUNTIME.block_on(async {
-            VortexWriteOptions::default()
-                .write(
-                    &mut File::create(path).await?,
-                    array.inner.to_array_stream(),
-                )
-                .await?;
-            Ok(())
-        })
-    });
 }
 
 /// Whole file statistics.
@@ -171,7 +145,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 

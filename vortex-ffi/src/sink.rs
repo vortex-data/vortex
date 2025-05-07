@@ -1,5 +1,5 @@
 use std::ffi::CStr;
-use std::ptr::null_mut;
+use std::ptr;
 
 use mpsc::Sender;
 use tokio::fs::File;
@@ -33,7 +33,7 @@ pub unsafe extern "C-unwind" fn vx_file_array_sink_create(
     dtype: *const DType,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
-    try_or(error, null_mut(), || {
+    try_or(error, ptr::null_mut(), || {
         let options = unsafe { options.as_ref() }.vortex_expect("null options");
         let path = unsafe { CStr::from_ptr(options.path) }
             .to_string_lossy()
