@@ -2,8 +2,8 @@
 members = [
     "bench-vortex",
     "encodings/*",
+    "extensions/*",
     "fuzz",
-    "geo",
     "pyvortex",
     "vortex",
     "vortex-arcref",
@@ -189,6 +189,7 @@ vortex-fastlanes = { version = "0.32.0", path = "./encodings/fastlanes", default
 vortex-file = { version = "0.32.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.32.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.32.0", path = "./encodings/fsst", default-features = false }
+vortex-geo = { version = "0.32.0", path = "./extensions/geo" }
 vortex-io = { version = "0.32.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.32.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.32.0", path = "./vortex-layout", default-features = false }

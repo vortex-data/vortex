@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use vortex::dtype::ExtID;
+use vortex_dtype::ExtID;
 
 mod array;
 mod arrow;

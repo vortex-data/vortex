@@ -1,8 +1,8 @@
 //! `ExtensionArray` wrapper for arrays that hold geospatial data types.
 
-use vortex::arrays::ExtensionArray;
-use vortex::error::{VortexError, VortexResult};
-use vortex::variants::ExtensionArrayTrait;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::variants::ExtensionArrayTrait;
+use vortex_error::{VortexError, VortexResult};
 
 use crate::{GeoMetadata, GeometryType};
 

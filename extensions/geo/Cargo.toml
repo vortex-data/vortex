@@ -1,5 +1,5 @@
 [package]
-name = "geo"
+name = "vortex-geo"
 description = "Geospatial extensions for Vortex"
 authors.workspace = true
 categories.workspace = true
@@ -20,7 +20,9 @@ arrow-schema = { workspace = true }
 geoarrow = { git = "https://github.com/geoarrow/geoarrow-rs.git", rev = "c241034f" }
 geoarrow-schema = { git = "https://github.com/geoarrow/geoarrow-rs.git", rev = "c241034f" }
 serde_json = { workspace = true }
-vortex = { workspace = true }
+vortex-array = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
 vortex-arcref = { workspace = true }
 
 [lints]

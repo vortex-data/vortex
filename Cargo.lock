@@ -2496,20 +2496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo"
-version = "0.32.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "geoarrow",
- "geoarrow-schema",
- "serde_json",
- "vortex",
- "vortex-arcref",
-]
-
-[[package]]
 name = "geo-index"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2560,7 +2546,7 @@ dependencies = [
  "chrono",
  "dbase",
  "enum-as-inner",
- "geo 0.30.0",
+ "geo",
  "geo-index",
  "geo-traits",
  "geoarrow-schema",
@@ -6793,6 +6779,22 @@ dependencies = [
  "vortex-file",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-geo"
+version = "0.32.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
+ "geoarrow",
+ "geoarrow-schema",
+ "serde_json",
+ "vortex-arcref",
+ "vortex-array",
+ "vortex-dtype",
+ "vortex-error",
 ]
 
 [[package]]

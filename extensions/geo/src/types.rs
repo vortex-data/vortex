@@ -1,8 +1,8 @@
 use std::convert::Into;
 use std::sync::Arc;
 
-use vortex::dtype::{DType, ExtDType, ExtMetadata, Nullability, PType, StructDType};
-use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{DType, ExtDType, ExtMetadata, Nullability, PType, StructDType};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::{LINESTRING_ID, POINT_ID, POLYGON_ID, WKB_ID};
 
