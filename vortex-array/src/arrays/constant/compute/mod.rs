@@ -10,15 +10,11 @@ mod take;
 
 use crate::Array;
 use crate::arrays::ConstantEncoding;
-use crate::compute::{SearchSortedFn, TakeFn};
+use crate::compute::SearchSortedFn;
 use crate::vtable::ComputeVTable;
 
 impl ComputeVTable for ConstantEncoding {
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }

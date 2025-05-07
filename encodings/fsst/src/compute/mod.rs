@@ -2,21 +2,17 @@ mod compare;
 mod filter;
 
 use vortex_array::arrays::VarBinArray;
-use vortex_array::compute::{TakeFn, fill_null, take};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayExt, ArrayRef};
+use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl ComputeVTable for FSSTEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for FSSTEncoding {}
 
-impl TakeFn<&FSSTArray> for FSSTEncoding {
+impl TakeKernel for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
     fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
@@ -35,3 +31,5 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
         .into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(FSSTEncoding).lift());

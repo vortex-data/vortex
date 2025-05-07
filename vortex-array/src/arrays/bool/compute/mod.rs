@@ -1,6 +1,4 @@
-use crate::Array;
 use crate::arrays::BoolEncoding;
-use crate::compute::TakeFn;
 use crate::vtable::ComputeVTable;
 
 mod cast;
@@ -15,8 +13,4 @@ mod min_max;
 mod sum;
 mod take;
 
-impl ComputeVTable for BoolEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for BoolEncoding {}

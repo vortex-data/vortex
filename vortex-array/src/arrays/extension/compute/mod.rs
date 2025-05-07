@@ -9,18 +9,14 @@ use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
     IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
-    SumKernel, SumKernelAdapter, TakeFn, filter, is_constant_opts, is_sorted, is_strict_sorted,
-    min_max, sum, take,
+    SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
+    is_sorted, is_strict_sorted, min_max, sum, take,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl ComputeVTable for ExtensionEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ExtensionEncoding {}
 
 impl FilterKernel for ExtensionEncoding {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -41,7 +37,7 @@ impl SumKernel for ExtensionEncoding {
 
 register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
 
-impl TakeFn<&ExtensionArray> for ExtensionEncoding {
+impl TakeKernel for ExtensionEncoding {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
@@ -49,6 +45,8 @@ impl TakeFn<&ExtensionArray> for ExtensionEncoding {
         )
     }
 }
+
+register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
 
 impl MinMaxKernel for ExtensionEncoding {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {

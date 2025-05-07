@@ -3,8 +3,8 @@ mod is_constant;
 
 use num_traits::WrappingSub;
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, SearchResult, SearchSortedFn, SearchSortedSide, TakeFn,
-    filter, search_sorted, take,
+    FilterKernel, FilterKernelAdapter, SearchResult, SearchSortedFn, SearchSortedSide, TakeKernel,
+    TakeKernelAdapter, filter, search_sorted, take,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -20,13 +20,9 @@ impl ComputeVTable for FoREncoding {
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
 }
 
-impl TakeFn<&FoRArray> for FoREncoding {
+impl TakeKernel for FoREncoding {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             take(array.encoded(), indices)?,
@@ -35,6 +31,8 @@ impl TakeFn<&FoRArray> for FoREncoding {
         .map(|a| a.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(FoREncoding).lift());
 
 impl FilterKernel for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {

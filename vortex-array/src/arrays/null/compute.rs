@@ -2,21 +2,17 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
+use crate::arrays::{ExtensionEncoding, NullEncoding};
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
-    MinMaxKernelAdapter, MinMaxResult, TakeFn,
+    MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl ComputeVTable for NullEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for NullEncoding {}
 
 impl FilterKernel for NullEncoding {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -34,7 +30,7 @@ impl MaskKernel for NullEncoding {
 
 register_kernel!(MaskKernelAdapter(NullEncoding).lift());
 
-impl TakeFn<&NullArray> for NullEncoding {
+impl TakeKernel for NullEncoding {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -50,6 +46,8 @@ impl TakeFn<&NullArray> for NullEncoding {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
 
 impl MinMaxKernel for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {

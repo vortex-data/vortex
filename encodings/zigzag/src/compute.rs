@@ -1,4 +1,6 @@
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, TakeFn, filter, take};
+use vortex_array::compute::{
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
@@ -6,11 +8,7 @@ use vortex_mask::Mask;
 
 use crate::{ZigZagArray, ZigZagEncoding};
 
-impl ComputeVTable for ZigZagEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ZigZagEncoding {}
 
 impl FilterKernel for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -21,12 +19,14 @@ impl FilterKernel for ZigZagEncoding {
 
 register_kernel!(FilterKernelAdapter(ZigZagEncoding).lift());
 
-impl TakeFn<&ZigZagArray> for ZigZagEncoding {
+impl TakeKernel for ZigZagEncoding {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(ZigZagEncoding).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;

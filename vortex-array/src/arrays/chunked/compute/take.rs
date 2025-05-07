@@ -6,10 +6,12 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::{SearchSortedSide, TakeFn, cast, search_sorted_usize, sub_scalar, take};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::compute::{
+    SearchSortedSide, TakeKernel, TakeKernelAdapter, cast, search_sorted_usize, sub_scalar, take,
+};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeFn<&ChunkedArray> for ChunkedEncoding {
+impl TakeKernel for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Fast path for strict sorted indices.
         if indices
@@ -55,6 +57,8 @@ impl TakeFn<&ChunkedArray> for ChunkedEncoding {
         Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(ChunkedEncoding).lift());
 
 /// When the indices are non-null and strict-sorted, we can do better
 fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

@@ -6,7 +6,9 @@ mod is_sorted;
 mod like;
 mod min_max;
 
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, TakeFn, filter, take};
+use vortex_array::compute::{
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
@@ -14,18 +16,16 @@ use vortex_mask::Mask;
 
 use crate::{DictArray, DictEncoding};
 
-impl ComputeVTable for DictEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for DictEncoding {}
 
-impl TakeFn<&DictArray> for DictEncoding {
+impl TakeKernel for DictEncoding {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(DictEncoding).lift());
 
 impl FilterKernel for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {

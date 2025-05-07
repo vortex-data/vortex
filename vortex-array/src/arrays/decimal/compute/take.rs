@@ -4,11 +4,11 @@ use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType, PrimitiveArray};
-use crate::compute::TakeFn;
+use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, match_each_decimal_value_type};
+use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
-impl TakeFn<&DecimalArray> for DecimalEncoding {
+impl TakeKernel for DecimalEncoding {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices
             .as_any()
@@ -25,6 +25,8 @@ impl TakeFn<&DecimalArray> for DecimalEncoding {
         Ok(decimal.to_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(DecimalEncoding).lift());
 
 #[inline]
 fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(

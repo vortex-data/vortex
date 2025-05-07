@@ -1,5 +1,5 @@
 use vortex_array::Array;
-use vortex_array::compute::{SearchSortedFn, TakeFn};
+use vortex_array::compute::SearchSortedFn;
 use vortex_array::vtable::ComputeVTable;
 
 use crate::BitPackedEncoding;
@@ -12,10 +12,6 @@ mod take;
 
 impl ComputeVTable for BitPackedEncoding {
     fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }

@@ -1,6 +1,6 @@
 use crate::Array;
 use crate::arrays::PrimitiveEncoding;
-use crate::compute::{SearchSortedFn, SearchSortedUsizeFn, TakeFn};
+use crate::compute::{SearchSortedFn, SearchSortedUsizeFn};
 use crate::vtable::ComputeVTable;
 
 mod between;
@@ -24,10 +24,6 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }

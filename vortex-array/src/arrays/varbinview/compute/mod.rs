@@ -5,16 +5,10 @@ mod mask;
 mod min_max;
 mod take;
 
-use crate::Array;
 use crate::arrays::VarBinViewEncoding;
-use crate::compute::TakeFn;
 use crate::vtable::ComputeVTable;
 
-impl ComputeVTable for VarBinViewEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for VarBinViewEncoding {}
 
 #[cfg(test)]
 mod tests {

@@ -6,11 +6,11 @@ use vortex_mask::Mask;
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::TakeFn;
+use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeFn<&VarBinArray> for VarBinEncoding {
+impl TakeKernel for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
@@ -29,6 +29,8 @@ impl TakeFn<&VarBinArray> for VarBinEncoding {
         })
     }
 }
+
+register_kernel!(TakeKernelAdapter(VarBinEncoding).lift());
 
 fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
