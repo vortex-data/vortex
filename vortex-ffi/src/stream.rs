@@ -1,10 +1,9 @@
-use std::pin::Pin;
 use std::ptr;
 
 use futures::StreamExt;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, vortex_bail};
-use vortex::stream::ArrayStream;
+use vortex::stream::{ArrayStream, SendableArrayStream};
 
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
@@ -17,7 +16,7 @@ pub struct vx_array_stream {
 
 /// FFI-compatible interface for dealing with a stream array.
 pub struct ArrayStreamInner {
-    pub(crate) stream: Pin<Box<dyn ArrayStream>>,
+    pub(crate) stream: SendableArrayStream,
 }
 
 /// Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

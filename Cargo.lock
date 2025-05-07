@@ -6717,6 +6717,7 @@ dependencies = [
  "prost",
  "simplelog",
  "tokio",
+ "tokio-stream",
  "url",
  "vortex",
  "vortex-duckdb",

@@ -27,6 +27,7 @@ paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store", "proto"] }
 vortex-duckdb = { workspace = true, optional = true }

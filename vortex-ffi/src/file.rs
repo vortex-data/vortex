@@ -12,17 +12,14 @@ use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
-use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
-use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
@@ -80,11 +77,11 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         if options.uri.is_null() {
             vortex_bail!("null uri")
         }
-        let uri = CStr::from_ptr(options.uri).to_string_lossy();
+        let uri = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
         let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
 
-        let prop_keys = to_string_vec(options.property_keys, options.property_len);
-        let prop_vals = to_string_vec(options.property_vals, options.property_len);
+        let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
+        let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
@@ -95,28 +92,6 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         })?;
         Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
     })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_write_array(
-    path: *const c_char,
-    ffi_array: *mut vx_array,
-    error: *mut *mut vx_error,
-) {
-    try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let path = CStr::from_ptr(path).to_str()?;
-
-        RUNTIME.block_on(async {
-            VortexWriteOptions::default()
-                .write(
-                    &mut File::create(path).await?,
-                    array.inner.to_array_stream(),
-                )
-                .await?;
-            Ok(())
-        })
-    });
 }
 
 /// Whole file statistics.
@@ -131,8 +106,7 @@ pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
     file: *mut vx_file_reader,
 ) -> *mut vx_file_statistics {
     Box::into_raw(Box::new(vx_file_statistics {
-        num_rows: file
-            .as_ref()
+        num_rows: unsafe { file.as_ref() }
             .vortex_expect("null file ptr")
             .inner
             .row_count(),
@@ -142,16 +116,19 @@ pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_statistics) {
     assert!(!stat.is_null());
-    drop(Box::from_raw(stat));
+    drop(unsafe { Box::from_raw(stat) });
 }
 
-/// Get a readonly pointer to the DType of the data inside of the file.
-///
-/// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
-/// dereferenced after the file has been freed.
+/// Get the DType of the data inside of the file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *const DType {
-    file.as_ref().vortex_expect("null file").inner.dtype()
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
+    Box::into_raw(Box::new(
+        unsafe { file.as_ref() }
+            .vortex_expect("null file")
+            .inner
+            .dtype()
+            .clone(),
+    ))
 }
 
 /// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
@@ -165,11 +142,11 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
-        if let Some(opts) = opts.as_ref() {
+        if let Some(opts) = unsafe { opts.as_ref() } {
             let mut field_names = Vec::new();
             for i in 0..opts.projection_len {
                 let col_name = unsafe { *opts.projection.offset(i as isize) };
-                let col_name: Arc<str> = to_string(col_name).into();
+                let col_name: Arc<str> = unsafe { to_string(col_name) }.into();
                 field_names.push(col_name);
             }
             let expr_str = opts.filter_expression;
@@ -210,7 +187,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 /// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
-    drop(Box::from_raw(file));
+    drop(unsafe { Box::from_raw(file) });
 }
 
 fn make_object_store(
