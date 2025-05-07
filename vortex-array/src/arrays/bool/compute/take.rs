@@ -7,7 +7,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
-use crate::builders::ArrayBuilder;
 use crate::compute::{TakeFn, fill_null};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
@@ -31,15 +30,6 @@ impl TakeFn<&BoolArray> for BoolEncoding {
         });
 
         Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
-    }
-
-    fn take_into(
-        &self,
-        array: &BoolArray,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        builder.extend_from_array(&self.take(array, indices)?)
     }
 }
 

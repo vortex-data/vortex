@@ -28,7 +28,7 @@ pub use nan_count::*;
 pub use numeric::*;
 pub use search_sorted::*;
 pub use sum::*;
-pub use take::{TakeFn, take, take_into};
+pub use take::{TakeFn, take};
 pub use take_from::TakeFromFn;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
