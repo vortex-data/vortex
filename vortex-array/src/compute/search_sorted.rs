@@ -123,27 +123,6 @@ pub trait SearchSortedFn<A: Copy> {
     }
 }
 
-pub trait SearchSortedUsizeFn<A: Copy> {
-    fn search_sorted_usize(
-        &self,
-        array: A,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult>;
-
-    fn search_sorted_usize_many(
-        &self,
-        array: A,
-        values: &[usize],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        values
-            .iter()
-            .map(|&value| self.search_sorted_usize(array, value, side))
-            .try_collect()
-    }
-}
-
 impl<E: Encoding> SearchSortedFn<&dyn Array> for E
 where
     E: for<'a> SearchSortedFn<&'a E::Array>,
@@ -172,37 +151,6 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         SearchSortedFn::search_sorted_many(self, array_ref, values, side)
-    }
-}
-
-impl<E: Encoding> SearchSortedUsizeFn<&dyn Array> for E
-where
-    E: for<'a> SearchSortedUsizeFn<&'a E::Array>,
-{
-    fn search_sorted_usize(
-        &self,
-        array: &dyn Array,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SearchSortedUsizeFn::search_sorted_usize(self, array_ref, value, side)
-    }
-
-    fn search_sorted_usize_many(
-        &self,
-        array: &dyn Array,
-        values: &[usize],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SearchSortedUsizeFn::search_sorted_usize_many(self, array_ref, values, side)
     }
 }
 
