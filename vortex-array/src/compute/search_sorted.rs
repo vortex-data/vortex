@@ -229,35 +229,6 @@ pub fn search_sorted<T: Into<Scalar>>(
     Ok(SearchSorted::search_sorted(array, &scalar, side))
 }
 
-pub fn search_sorted_usize(
-    array: &dyn Array,
-    target: usize,
-    side: SearchSortedSide,
-) -> VortexResult<SearchResult> {
-    if let Some(f) = array.vtable().search_sorted_usize_fn() {
-        return f.search_sorted_usize(array, target, side);
-    }
-
-    // Otherwise, convert the target into a scalar to try the search_sorted_fn
-    let Ok(target) = Scalar::from(target).cast(array.dtype()) else {
-        return Ok(SearchResult::NotFound(array.len()));
-    };
-
-    // Try the non-usize search sorted
-    if let Some(f) = array.vtable().search_sorted_fn() {
-        return f.search_sorted(array, &target, side);
-    }
-
-    // Or fallback all the way to a generic search_sorted using scalar_at
-
-    // Try to downcast the usize to the array type, if the downcast fails, then we know the
-    // usize is too large and the value is greater than the highest value in the array.
-    let Ok(target) = target.cast(array.dtype()) else {
-        return Ok(SearchResult::NotFound(array.len()));
-    };
-    Ok(SearchSorted::search_sorted(array, &target, side))
-}
-
 /// Search for many elements in the array.
 pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     array: &dyn Array,
@@ -290,23 +261,6 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     targets
         .iter()
         .map(|target| search_sorted(array, target.clone(), side))
-        .try_collect()
-}
-
-/// Search for many `usize` values in a sorted array.
-pub fn search_sorted_usize_many(
-    array: &dyn Array,
-    targets: &[usize],
-    side: SearchSortedSide,
-) -> VortexResult<Vec<SearchResult>> {
-    if let Some(f) = array.vtable().search_sorted_usize_fn() {
-        return f.search_sorted_usize_many(array, targets, side);
-    }
-
-    // Call in loop and collect
-    targets
-        .iter()
-        .map(|&target| search_sorted_usize(array, target, side))
         .try_collect()
 }
 

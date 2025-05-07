@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{SearchSortedSide, search_sorted_usize, search_sorted_usize_many};
+use vortex_array::compute::{SearchSortedSide, search_sorted_many};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
@@ -84,7 +84,7 @@ impl RunEndArray {
 
     /// Convert the given logical index to an index into the `values` array
     pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        search_sorted_usize(self.ends(), index + self.offset(), SearchSortedSide::Right)
+        search_sorted(self.ends(), index + self.offset(), SearchSortedSide::Right)
             .map(|s| s.to_ends_index(self.ends().len()))
     }
 
@@ -93,7 +93,7 @@ impl RunEndArray {
     ///
     /// See: [find_physical_index][Self::find_physical_index].
     pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
-        search_sorted_usize_many(self.ends(), indices, SearchSortedSide::Right).map(|results| {
+        search_sorted_many(self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
                 .into_iter()
                 .map(|result| result.to_ends_index(self.ends().len()) as u64)

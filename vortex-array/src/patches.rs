@@ -15,8 +15,7 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, cast, filter, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, take,
+    SearchResult, SearchSortedSide, cast, filter, search_sorted, search_sorted_many, take,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -221,7 +220,7 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        search_sorted_usize(&self.indices, index + self.offset, SearchSortedSide::Left)
+        search_sorted(&self.indices, index + self.offset, SearchSortedSide::Left)
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -393,7 +392,7 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
-        search_sorted_usize_many(indices, &take_indices, SearchSortedSide::Left)?
+        search_sorted_many(indices, &take_indices, SearchSortedSide::Left)?
             .iter()
             .enumerate()
             .filter_map(|(idx_in_take, search_result)| {
