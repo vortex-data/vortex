@@ -135,7 +135,6 @@ fn take_impl(
     }
 
     // Then look for a Take kernel
-    println!("Take kernels: {:?}", kernels);
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_array();
