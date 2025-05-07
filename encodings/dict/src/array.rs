@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{cast, take};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -11,7 +10,7 @@ use vortex_array::{
     Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 use crate::serde::DictMetadata;
@@ -106,23 +105,6 @@ impl ArrayCanonicalImpl for DictArray {
             }
             _ => take(self.values(), self.codes())?.to_canonical(),
         }
-    }
-
-    fn _append_to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        vortex_panic!("DictArray does not support append_to_builder");
-        // match self.dtype() {
-        //     // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
-        //     // decompression to construct the views child array.
-        //     // For this case, it is *always* faster to decompress the values first and then create
-        //     // copies of the view pointers.
-        //     // TODO(joe): is the above still true?, investigate this.
-        //     DType::Utf8(_) | DType::Binary(_) => {
-        //         let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
-        //         take_into(&canonical_values, self.codes(), builder)
-        //     }
-        //     // Non-string case: take and then canonicalize
-        //     _ => take_into(self.values(), self.codes(), builder),
-        // }
     }
 }
 
