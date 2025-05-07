@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{SearchSortedSide, search_sorted_many};
+use vortex_array::compute::{SearchSortedSide, search_sorted, search_sorted_many};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
