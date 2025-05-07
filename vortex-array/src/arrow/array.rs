@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
@@ -7,7 +8,6 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::stats::StatsSetRef;
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{

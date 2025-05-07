@@ -54,6 +54,7 @@ version = "0.32.0"
 [workspace.dependencies]
 anyhow = "1.0.95"
 arbitrary = "1.3.2"
+arcref = "0.2.0"
 arrayref = "0.3.7"
 arrow = { version = "55", default-features = false }
 arrow-arith = "55"

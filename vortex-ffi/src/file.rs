@@ -12,17 +12,14 @@ use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
-use tokio::fs::File;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
-use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
@@ -97,28 +94,6 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
     })
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_write_array(
-    path: *const c_char,
-    ffi_array: *mut vx_array,
-    error: *mut *mut vx_error,
-) {
-    try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
-        let path = unsafe { CStr::from_ptr(path) }.to_str()?;
-
-        RUNTIME.block_on(async {
-            VortexWriteOptions::default()
-                .write(
-                    &mut File::create(path).await?,
-                    array.inner.to_array_stream(),
-                )
-                .await?;
-            Ok(())
-        })
-    });
-}
-
 /// Whole file statistics.
 #[repr(C)]
 pub struct vx_file_statistics {
@@ -144,16 +119,16 @@ pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_stati
     drop(unsafe { Box::from_raw(stat) });
 }
 
-/// Get a readonly pointer to the DType of the data inside of the file.
-///
-/// The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
-/// dereferenced after the file has been freed.
+/// Get the DType of the data inside of the file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *const DType {
-    unsafe { file.as_ref() }
-        .vortex_expect("null file")
-        .inner
-        .dtype()
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
+    Box::into_raw(Box::new(
+        unsafe {file.as_ref()}
+            .vortex_expect("null file")
+            .inner
+            .dtype()
+            .clone(),
+    ))
 }
 
 /// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.

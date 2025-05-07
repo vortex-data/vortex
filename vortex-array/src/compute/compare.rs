@@ -3,13 +3,13 @@ use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};

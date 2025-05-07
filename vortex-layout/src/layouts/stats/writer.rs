@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::arcref::ArcRef;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;

@@ -8,9 +8,8 @@ use std::sync::Arc;
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
-use vortex::arrays::ChunkedArray;
 use vortex::dtype::{DType, Nullability, StructDType};
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_duckdb::{
     ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE, FromDuckDB, FromDuckDBType, NamedDataChunk,
@@ -32,6 +31,41 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 
     try_or(error, ptr::null_mut(), || {
         Ok(dtype.to_duckdb_type()?.into_owning_ptr())
+    })
+}
+
+/// Converts a DuckDB type into a vortex type
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
+    column_types: *const duckdb_logical_type,
+    column_nullable: *const c_uchar,
+    column_names: *const *const c_char,
+    column_count: c_int,
+    error: *mut *mut vx_error,
+) -> *mut DType {
+    try_or(error, ptr::null_mut(), || {
+        let field_names: Vec<Arc<str>> = (0..column_count)
+            .map(|idx| to_string(*column_names.offset(idx as isize)))
+            .map(Arc::from)
+            .collect();
+
+        let types = (0..column_count)
+            .map(|idx| {
+                (
+                    LogicalTypeHandle::new_unowned(unsafe { *column_types.offset(idx as isize) }),
+                    *column_nullable.offset(idx as isize) != 0,
+                )
+            })
+            .map(|(type_, nullable)| DType::from_duckdb(type_, nullable.into()))
+            .collect::<VortexResult<Vec<DType>>>()?;
+
+        // Top level structs cannot be nullable sql/duckdb.
+        let dtype = Box::new(DType::Struct(
+            Arc::new(StructDType::new(field_names.into(), types)),
+            Nullability::NonNullable,
+        ));
+
+        Ok(Box::into_raw(dtype))
     })
 }
 
@@ -77,89 +111,32 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
     })
 }
 
-/// Returns an empty vortex array constructed from three arrays of len `len`, the (types, null, names).
+/// Pushed a single duckdb chunk into a file sink.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_create_empty_from_duckdb_table(
-    type_array: *const duckdb_logical_type,
-    nullable: *const c_uchar,
-    names: *const *const c_char,
-    len: c_int,
+pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
+    chunk: duckdb_data_chunk,
+    dtype: *mut DType,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
+    let dtype = unsafe { dtype.as_ref().vortex_expect("null array") };
     try_or(error, ptr::null_mut(), || {
-        let field_names: Vec<Arc<str>> = (0..len)
-            .map(|i| unsafe { to_string(*names.offset(i as isize)) })
-            .map(Arc::from)
-            .collect();
+        let struct_type = dtype.as_struct().ok_or_else(|| {
+            vortex_err!("cannot push a duckdb to an array stream which is not a top level struct")
+        })?;
 
-        let types = (0..len)
-            .map(|i| unsafe {
-                (
-                    LogicalTypeHandle::new_unowned(*type_array.offset(i as isize)),
-                    *nullable.offset(i as isize) != 0,
-                )
-            })
-            .map(|(type_, nullable)| DType::from_duckdb(type_, nullable.into()))
-            .collect::<VortexResult<Vec<DType>>>()?;
+        let nullable = struct_type
+            .fields()
+            .map(|f| f.nullability() == Nullability::Nullable)
+            .collect_vec();
 
-        let file_dtype = DType::Struct(
-            Arc::new(StructDType::new(field_names.into(), types)),
-            Nullability::NonNullable,
-        );
+        let array = ArrayRef::from_duckdb(&NamedDataChunk {
+            chunk: &DataChunkHandle::new_unowned(chunk),
+            nullable: Some(&nullable),
+            names: Some(struct_type.names().clone()),
+        })?;
 
-        let chunked_array = ChunkedArray::try_new(vec![], file_dtype).vortex_expect("cannot fail");
-
-        let ffi_array = vx_array {
-            inner: chunked_array.to_array(),
-        };
-
-        Ok(Box::leak(Box::new(ffi_array)))
+        Ok(Box::into_raw(Box::new(vx_array { inner: array })))
     })
-}
-
-/// Requires a vortex array, a duckdb data chunk and a nullable array (equal to len(chunk.columns)).
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_append_duckdb_chunk(
-    array: *mut vx_array,
-    chunk: duckdb_data_chunk,
-    nullable: *const c_uchar,
-) -> *mut vx_array {
-    let array = unsafe { array.as_ref() }.vortex_expect("null array");
-
-    let struct_type = array
-        .inner
-        .dtype()
-        .as_struct()
-        .vortex_expect("can only write a struct array from duckdb");
-
-    let chunked_array = array
-        .inner
-        .as_any()
-        .downcast_ref::<ChunkedArray>()
-        .vortex_expect("can only append to chunked array");
-
-    let chunk = unsafe { DataChunkHandle::new_unowned(chunk) };
-
-    let nullable = (0..chunk.num_columns())
-        .map(|i| unsafe { *nullable.add(i) } != 0)
-        .collect_vec();
-
-    let new_chunk = ArrayRef::from_duckdb(&NamedDataChunk {
-        chunk: &chunk,
-        nullable: Some(&nullable),
-        names: Some(struct_type.names().clone()),
-    })
-    .vortex_expect("from_duckdb convert");
-
-    let mut chunks = chunked_array.chunks().to_vec();
-    chunks.push(new_chunk);
-
-    let chunked_array = ChunkedArray::try_new(chunks, chunked_array.dtype().clone())
-        .vortex_expect("appending array");
-
-    Box::leak(Box::new(vx_array {
-        inner: chunked_array.to_array(),
-    })) as *mut vx_array
 }
 
 #[cfg(test)]

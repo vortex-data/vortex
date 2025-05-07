@@ -10,6 +10,7 @@ use std::any::{Any, type_name};
 use std::fmt::{Debug, Formatter};
 use std::sync::RwLock;
 
+use arcref::ArcRef;
 pub use between::*;
 pub use boolean::*;
 pub use cast::*;
@@ -34,7 +35,6 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
 

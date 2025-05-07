@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }

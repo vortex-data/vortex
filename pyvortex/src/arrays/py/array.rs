@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
-use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;

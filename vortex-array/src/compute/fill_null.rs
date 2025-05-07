@@ -1,10 +1,10 @@
 use std::sync::LazyLock;
 
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};

@@ -6,9 +6,9 @@ mod context;
 pub use context::*;
 pub mod layouts;
 
+use arcref::ArcRef;
 pub use reader::*;
 pub use strategy::*;
-use vortex_array::arcref::ArcRef;
 pub use vtable::*;
 pub use writer::*;
 mod reader;
