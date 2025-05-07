@@ -50,7 +50,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
             .collect();
 
         let types = (0..column_count)
-            .map(|idx| {
+            .map(|idx| unsafe {
                 (
                     LogicalTypeHandle::new_unowned(unsafe { *column_types.offset(idx as isize) }),
                     *column_nullable.offset(idx as isize) != 0,
@@ -130,7 +130,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
             .collect_vec();
 
         let array = ArrayRef::from_duckdb(&NamedDataChunk {
-            chunk: &DataChunkHandle::new_unowned(chunk),
+            chunk: &unsafe { DataChunkHandle::new_unowned(chunk) },
             nullable: Some(&nullable),
             names: Some(struct_type.names().clone()),
         })?;

@@ -78,7 +78,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
-        let vx_array_sink { sink, writer } = *Box::from_raw(sink);
+        let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };
         drop(sink);
 
         RUNTIME.block_on(async {

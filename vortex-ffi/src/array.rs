@@ -209,20 +209,20 @@ mod tests {
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = Box::new(vx_array {
+            let vx_array = Box::new(vx_array {
                 inner: primitive.to_array(),
             });
 
-            assert_eq!(vx_array_len(&*ffi_array), 3);
+            assert_eq!(vx_array_len(&*vx_array), 3);
 
-            let array_dtype = vx_array_dtype(&*ffi_array);
+            let array_dtype = vx_array_dtype(&*vx_array);
             assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
 
-            assert_eq!(vx_array_get_i32(&*ffi_array, 0), 1);
-            assert_eq!(vx_array_get_i32(&*ffi_array, 1), 2);
-            assert_eq!(vx_array_get_i32(&*ffi_array, 2), 3);
+            assert_eq!(vx_array_get_i32(&*vx_array, 0), 1);
+            assert_eq!(vx_array_get_i32(&*vx_array, 1), 2);
+            assert_eq!(vx_array_get_i32(&*vx_array, 2), 3);
 
-            vx_array_free(Box::into_raw(ffi_array));
+            vx_array_free(Box::into_raw(vx_array));
         }
     }
 }
