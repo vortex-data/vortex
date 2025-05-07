@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
-use vortex_arcref::ArcRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};

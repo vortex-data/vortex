@@ -138,10 +138,11 @@ impl<'a> ListScalar<'a> {
 
 impl Scalar {
     pub fn list(
-        element_dtype: Arc<DType>,
+        element_dtype: impl Into<Arc<DType>>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {
+        let element_dtype = element_dtype.into();
         for child in &children {
             if child.dtype() != &*element_dtype {
                 vortex_panic!(

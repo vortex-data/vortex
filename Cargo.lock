@@ -6599,6 +6599,7 @@ name = "vortex-dtype"
 version = "0.32.0"
 dependencies = [
  "arbitrary",
+ "arcref",
  "arrow-schema",
  "flatbuffers",
  "half",
@@ -6824,6 +6825,7 @@ dependencies = [
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
+ "vortex-scalar",
 ]
 
 [[package]]

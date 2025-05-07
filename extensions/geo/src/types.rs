@@ -30,22 +30,11 @@ pub struct GeoMetadata<'a> {
 }
 
 /// Owned version of a [`GeoMetadata`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedGeoMetadata {
     pub dimension: Dimension,
     pub crs: Option<String>,
 }
-
-// impl<'a> ToOwned for GeoMetadata<'a> {
-//     type Owned = OwnedGeoMetadata;
-//
-//     fn to_owned(&self) -> Self::Owned {
-//         OwnedGeoMetadata {
-//             dimension: self.dimension,
-//             crs: self.crs.map(|x| x.to_owned()),
-//         }
-//     }
-// }
 
 // TODO(aduffy): add more geometry types like MultiPolygon.
 /// Zero-copy view of an `ExtDType` as one of the GeoVortex builtin geometry types.
@@ -58,43 +47,22 @@ pub enum GeometryType<'a> {
     WKB(GeoMetadata<'a>),
 }
 
-// impl ToOwned for GeometryType<'_> {
-//     type Owned = OwnedGeometryType;
-//
-//     fn to_owned(&self) -> Self::Owned {
-//         match self {
-//             GeometryType::Point(GeoMetadata { dimension, crs }) => {
-//                 OwnedGeometryType::Point(*dimension, crs.map(|x| x.to_owned()))
-//             }
-//             GeometryType::LineString(GeoMetadata { dimension, crs }) => {
-//                 OwnedGeometryType::LineString(*dimension, crs.map(|x| x.to_owned()))
-//             }
-//             GeometryType::Polygon(GeoMetadata { dimension, crs }) => {
-//                 OwnedGeometryType::Polygon(*dimension, crs.map(|x| x.to_owned()))
-//             }
-//             GeometryType::WKB(GeoMetadata { dimension, crs }) => {
-//                 OwnedGeometryType::WKB(*dimension, crs.map(|x| x.to_owned()))
-//             }
-//         }
-//     }
-// }
-
 /// An owned geometry type.
 pub enum OwnedGeometryType {
-    Point(Dimension, Option<String>),
-    LineString(Dimension, Option<String>),
-    Polygon(Dimension, Option<String>),
-    WKB(Dimension, Option<String>),
+    Point(OwnedGeoMetadata),
+    LineString(OwnedGeoMetadata),
+    Polygon(OwnedGeoMetadata),
+    WKB(OwnedGeoMetadata),
 }
 
 impl OwnedGeometryType {
     /// Serialize the metadata the way it will be stored in [`ExtMetadata`].
     pub fn metadata(&self) -> Vec<u8> {
         match self {
-            OwnedGeometryType::Point(dimension, crs)
-            | OwnedGeometryType::LineString(dimension, crs)
-            | OwnedGeometryType::Polygon(dimension, crs)
-            | OwnedGeometryType::WKB(dimension, crs) => {
+            OwnedGeometryType::Point(OwnedGeoMetadata { dimension, crs })
+            | OwnedGeometryType::LineString(OwnedGeoMetadata { dimension, crs })
+            | OwnedGeometryType::Polygon(OwnedGeoMetadata { dimension, crs })
+            | OwnedGeometryType::WKB(OwnedGeoMetadata { dimension, crs }) => {
                 let mut bytes = vec![*dimension as u8];
                 if let Some(crs) = crs {
                     bytes.extend(crs.as_bytes());
@@ -111,12 +79,12 @@ impl OwnedGeometryType {
         let ext_meta = self.metadata();
 
         match self {
-            OwnedGeometryType::Point(dimension, ..) => ExtDType::new(
+            OwnedGeometryType::Point(OwnedGeoMetadata { dimension, .. }) => ExtDType::new(
                 POINT_ID.clone(),
                 Arc::new(DType::Struct(Arc::new(point_dtype(dimension)), nullability)),
                 Some(ExtMetadata::new(ext_meta.into())),
             ),
-            OwnedGeometryType::LineString(dimension, ..) => {
+            OwnedGeometryType::LineString(OwnedGeoMetadata { dimension, .. }) => {
                 let storage_dtype = DType::List(
                     Arc::new(DType::Struct(
                         Arc::new(point_dtype(dimension)),
@@ -130,7 +98,7 @@ impl OwnedGeometryType {
                     Some(ExtMetadata::new(ext_meta.into())),
                 )
             }
-            OwnedGeometryType::Polygon(dimension, ..) => {
+            OwnedGeometryType::Polygon(OwnedGeoMetadata { dimension, .. }) => {
                 let storage_dtype = DType::List(
                     Arc::new(DType::List(
                         Arc::new(DType::Struct(

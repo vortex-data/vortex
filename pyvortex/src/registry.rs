@@ -8,7 +8,6 @@ use vortex::ArrayRegistry;
 use vortex::error::VortexExpect;
 use vortex::file::DEFAULT_REGISTRY;
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
-use vortex_arcref::ArcRef;
 
 use crate::arrays::py::PyEncodingClass;
 use crate::install_module;

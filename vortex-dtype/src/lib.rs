@@ -29,6 +29,7 @@ mod dtype;
 mod extension;
 mod field;
 mod field_mask;
+mod macros;
 mod nullability;
 mod ptype;
 mod serde;

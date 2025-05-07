@@ -6,7 +6,6 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_arcref::ArcRef;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;

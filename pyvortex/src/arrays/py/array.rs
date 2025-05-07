@@ -14,7 +14,6 @@ use vortex::{
     ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
-use vortex_arcref::ArcRef;
 
 use crate::arrays::py::PyEncodingClass;
 use crate::dtype::PyDType;

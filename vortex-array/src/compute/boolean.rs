@@ -5,7 +5,6 @@ use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
-use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 

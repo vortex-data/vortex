@@ -3,7 +3,6 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use arrow_array::BooleanArray;
-use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;

@@ -418,6 +418,21 @@ macro_rules! vortex_bail {
     };
 }
 
+/// Convenience macro that bails if an assertion fails.
+#[macro_export]
+macro_rules! vortex_assert {
+    ($condition:expr) => {{
+        if !$condition {
+            $crate::vortex_bail!("Assertion failed: {}", stringify!{ $condition })
+        }
+    }};
+    ($condition:expr, $($tt:tt)+) => {{
+        if !$condition {
+            $crate::vortex_bail!($($tt)*)
+        }
+    }};
+}
+
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
 #[macro_export]

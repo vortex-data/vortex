@@ -7,7 +7,6 @@ mod compute;
 
 use arcref::ArcRef;
 pub use compute::*;
-use vortex_arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
