@@ -10,6 +10,7 @@
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -135,9 +136,8 @@ impl FromArrowType<&Field> for DType {
             Some(ext_type) => {
                 // Check the registry for any Vortex extension types that represent the Arrow
                 // extension type named here.
-                for converter in inventory::iter::<TypeConversionRef> {
+                for converter in inventory::iter::<ArrowTypeConversionRef> {
                     if let Some(converted) = converter
-                        .0
                         .to_vortex(field)
                         .vortex_expect("Conversion from GeoArrow type to GeoVortex")
                     {
@@ -209,8 +209,9 @@ impl DType {
                     // Optionally: attach any Arrow extension type metadata, if an ArrowMetadata
                     // kernel is defined for the extension type.
                     if let DType::Extension(ext_type) = field_dt {
-                        for kernel in inventory::iter::<TypeConversionRef> {
-                            if kernel.0.to_arrow(ext_type.as_ref(), &mut field)?.is_some() {
+                        for kernel in inventory::iter::<ArrowTypeConversionRef> {
+                            if let Some(metadata) = kernel.0.arrow_metadata(ext_type.as_ref())? {
+                                field.set_metadata(metadata);
                                 break;
                             }
                         }
@@ -246,8 +247,8 @@ impl DType {
 /// If a converter is resolved, it is used to convert the Field and the result is returned in
 /// a `Some`.
 pub fn geo_field_to_dtype(field: impl AsRef<Field>) -> VortexResult<Option<DType>> {
-    for converter in inventory::iter::<TypeConversionRef> {
-        if let Some(converted) = converter.0.to_vortex(field.as_ref())? {
+    for converter in inventory::iter::<ArrowTypeConversionRef> {
+        if let Some(converted) = converter.to_vortex(field.as_ref())? {
             return Ok(Some(converted));
         }
     }
@@ -262,37 +263,54 @@ pub fn geo_field_to_dtype(field: impl AsRef<Field>) -> VortexResult<Option<DType
 /// to have it get discovered.
 ///
 /// See also: [`register_extension_type`]
-pub trait TypeConversion: 'static + Send + Sync {
+pub trait ArrowTypeConversion: 'static + Send + Sync {
     /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
     fn to_vortex(&self, _field: &Field) -> VortexResult<Option<DType>> {
         Ok(None)
     }
 
-    /// Convert a Vortex [`ExtDType`] to an Arrow schema [`Field`].
+    /// Returns any Arrow metadata that should be added to the field when a field of this
+    /// type is converted [into an Arrow data type][DType::to_arrow].
     ///
-    /// The returned field will have the type, nullability, and metadata
-    /// that should be propagated forward, but its name may be changed.
-    fn to_arrow(&self, _dtype: &ExtDType, _field_builder: &mut Field) -> VortexResult<Option<()>> {
+    /// This method should be implemented if you want to add support for a Vortex
+    /// [extension type][ExtDType] that also has a corresponding canonical Arrow
+    /// extension type, to preserve round-trip between the two.
+    #[allow(clippy::disallowed_types)]
+    fn arrow_metadata(
+        &self,
+        _dtype: &ExtDType,
+    ) -> VortexResult<Option<std::collections::HashMap<String, String>>> {
         Ok(None)
     }
 }
 
 /// Conversion token
-pub struct TypeConversionRef(ArcRef<dyn TypeConversion>);
-inventory::collect!(TypeConversionRef);
+pub struct ArrowTypeConversionRef(ArcRef<dyn ArrowTypeConversion>);
+inventory::collect!(ArrowTypeConversionRef);
 
-impl TypeConversionRef {
-    /// Create a new `TypeConversionRef` from a pointer to the implementation.
-    pub const fn new(conversion: ArcRef<dyn TypeConversion>) -> Self {
+impl Deref for ArrowTypeConversionRef {
+    type Target = dyn ArrowTypeConversion;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl ArrowTypeConversionRef {
+    /// Create a new `TypeConversionRef` from a pointer to an implementation.
+    pub const fn new(conversion: ArcRef<dyn ArrowTypeConversion>) -> Self {
         Self(conversion)
     }
 }
 
-/// Register an extension type for lookup.
+/// Register an Arrow extension type for lookup.
+///
+/// This is required to enable the type to be recognized by [`DType::from_arrow`]
+/// as well as [`DType::to_arrow`].
 #[macro_export]
 macro_rules! register_extension_type {
     ($extension:expr) => {
-        const _: $crate::arrow::TypeConversionRef = $extension;
+        const _: $crate::arrow::ArrowTypeConversionRef = $extension;
         $crate::inventory::submit! { $extension }
     };
 }

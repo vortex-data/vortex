@@ -234,25 +234,22 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
-        // TODO(aduffy): If field has ExtensionType, attempt to lookup using one of the
-        //  conversion functions.
-
         let mut field_names: Vec<Arc<str>> = Vec::with_capacity(value.fields().len());
         let mut field_arrays = Vec::with_capacity(value.fields().len());
 
         for (field, column) in value.fields().iter().zip(value.columns()) {
-            if field.extension_type_name().is_some() {
-                // Check if we have a conversion function. Wrap using the ExtensionArray.
-                if let Ok(Some(DType::Extension(ext_dtype))) = geo_field_to_dtype(field) {
-                    let storage = Self::from_arrow(column.clone(), field.is_nullable());
-                    field_names.push(field.name().to_string().into());
-                    field_arrays.push(ExtensionArray::new(ext_dtype, storage).into_array());
-                    continue;
-                }
-            }
-
+            let array = match field.extension_type_name() {
+                Some(_) => match geo_field_to_dtype(field) {
+                    Ok(Some(DType::Extension(ext_dtype))) => {
+                        let storage = Self::from_arrow(column.clone(), field.is_nullable());
+                        ExtensionArray::new(ext_dtype, storage).into_array()
+                    }
+                    _ => Self::from_arrow(column.clone(), field.is_nullable()),
+                },
+                None => Self::from_arrow(column.clone(), field.is_nullable()),
+            };
             field_names.push(field.name().to_string().into());
-            field_arrays.push(Self::from_arrow(column.clone(), field.is_nullable()));
+            field_arrays.push(array);
         }
 
         StructArray::try_new(

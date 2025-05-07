@@ -19,7 +19,7 @@ use vortex_array::arrow::ArrowArray;
 use vortex_array::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use vortex_array::compute::{InvocationArgs, Kernel, Output, cast};
 use vortex_array::{Array, ToCanonical, register_kernel};
-use vortex_dtype::arrow::{TypeConversion, TypeConversionRef};
+use vortex_dtype::arrow::{ArrowTypeConversion, ArrowTypeConversionRef};
 use vortex_dtype::{DType, ExtDType, PType, register_extension_type};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
@@ -114,7 +114,7 @@ fn to_arrow_linestring(
 pub struct GeoArrowConversion;
 
 // Conversion between Vortex geospatial extension types and GeoArrow extension types.
-impl TypeConversion for GeoArrowConversion {
+impl ArrowTypeConversion for GeoArrowConversion {
     fn to_vortex(&self, field: &Field) -> VortexResult<Option<DType>> {
         // Validate that the field is one of the supported geospatial
         // extension types.
@@ -234,11 +234,10 @@ impl TypeConversion for GeoArrowConversion {
     }
 
     #[allow(clippy::disallowed_types)]
-    fn to_arrow(
+    fn arrow_metadata(
         &self,
         vortex_extension_type: &ExtDType,
-        field: &mut Field,
-    ) -> VortexResult<Option<()>> {
+    ) -> VortexResult<Option<HashMap<String, String>>> {
         if let Ok(geometry) = GeometryType::try_from(vortex_extension_type) {
             let mut extension_metadata = HashMap::new();
             let ext_type_name = match geometry {
@@ -271,16 +270,16 @@ impl TypeConversion for GeoArrowConversion {
                 }
             };
 
-            field.set_metadata(extension_metadata);
-
-            Ok(Some(()))
+            Ok(Some(extension_metadata))
         } else {
             Ok(None)
         }
     }
 }
 
-register_extension_type!(TypeConversionRef::new(ArcRef::new_ref(&GeoArrowConversion)));
+register_extension_type!(ArrowTypeConversionRef::new(ArcRef::new_ref(
+    &GeoArrowConversion
+)));
 
 /// Unpack the geoarrow CoordBuffer. Errors if the dimensions specified in the metadata do not
 /// match the actual encoding.

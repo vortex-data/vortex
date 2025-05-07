@@ -24,11 +24,10 @@ pub struct ListBuilder<O: NativePType> {
 impl<O: OffsetPType> ListBuilder<O> {
     // TODO(joe): add value + index capacity ctor.
     pub fn with_capacity(
-        value_dtype: impl Into<Arc<DType>>,
+        value_dtype: Arc<DType>,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
-        let value_dtype = value_dtype.into();
         // I would expect the list to have more than one value per index
         let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
         let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, capacity);
