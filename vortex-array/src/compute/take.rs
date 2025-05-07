@@ -22,7 +22,7 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
 
 pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
-    for kernel in inventory::iter::<TakeFromKernelRef> {
+    for kernel in inventory::iter::<TakeKernelRef> {
         compute.register_kernel(kernel.0.clone());
     }
     compute
@@ -135,6 +135,7 @@ fn take_impl(
     }
 
     // Then look for a Take kernel
+    println!("Take kernels: {:?}", kernels);
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_array();

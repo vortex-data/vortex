@@ -2,8 +2,8 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
-use crate::arrays::{ExtensionEncoding, NullEncoding};
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
@@ -47,7 +47,7 @@ impl TakeKernel for NullEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(TakeKernelAdapter(NullEncoding).lift());
 
 impl MinMaxKernel for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
