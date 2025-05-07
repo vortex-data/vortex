@@ -17,7 +17,7 @@ impl<T: PartialOrd + Debug> IndexOrd<Option<T>> for SearchNullableSlice<T> {
         unsafe { self.0.get_unchecked(idx) }.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.0.len()
     }
 }
@@ -38,7 +38,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
         }
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.0.len()
     }
 }

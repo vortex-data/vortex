@@ -11,6 +11,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
 use crate::validity::Validity;
+use crate::variants::PrimitiveArrayTrait;
 
 impl SearchSortedFn<&PrimitiveArray> for PrimitiveEncoding {
     fn search_sorted(

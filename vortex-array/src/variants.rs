@@ -6,7 +6,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, FieldName, FieldNames};
+use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::PValue;
 
@@ -29,6 +29,13 @@ impl dyn BoolArrayTrait + '_ {
 }
 
 pub trait PrimitiveArrayTrait: Array {
+    fn ptype(&self) -> PType {
+        let DType::Primitive(ptype, _) = self.dtype() else {
+            vortex_panic!("Expected Primitive DType")
+        };
+        *ptype
+    }
+
     /// Return the primitive value at the given index.
     fn value(&self, idx: usize) -> Option<PValue> {
         self.scalar_at(idx)

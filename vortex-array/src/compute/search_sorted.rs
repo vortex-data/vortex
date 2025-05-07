@@ -287,10 +287,23 @@ pub trait IndexOrd<V> {
     }
 
     /// Get the length of the underlying ordered collection
-    fn len(&self) -> usize;
+    fn index_len(&self) -> usize;
 }
 
 pub trait SearchSorted<T> {
+    fn search_sorted_many<I: IntoIterator<Item = T>>(
+        &self,
+        values: I,
+        side: SearchSortedSide,
+    ) -> impl Iterator<Item = SearchResult>
+    where
+        Self: IndexOrd<T>,
+    {
+        values
+            .into_iter()
+            .map(move |value| self.search_sorted(&value, side))
+    }
+
     fn search_sorted(&self, value: &T, side: SearchSortedSide) -> SearchResult
     where
         Self: IndexOrd<T>,
@@ -342,11 +355,13 @@ where
         side_find: N,
         side: SearchSortedSide,
     ) -> SearchResult {
-        match search_sorted_side_idx(find, 0, self.len()) {
+        match search_sorted_side_idx(find, 0, self.index_len()) {
             SearchResult::Found(found) => {
                 let idx_search = match side {
                     SearchSortedSide::Left => search_sorted_side_idx(side_find, 0, found),
-                    SearchSortedSide::Right => search_sorted_side_idx(side_find, found, self.len()),
+                    SearchSortedSide::Right => {
+                        search_sorted_side_idx(side_find, found, self.index_len())
+                    }
                 };
                 match idx_search {
                     SearchResult::NotFound(i) => SearchResult::Found(i),
@@ -422,7 +437,7 @@ impl IndexOrd<Scalar> for dyn Array + '_ {
         scalar_a.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         Self::len(self)
     }
 }
@@ -433,7 +448,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
         unsafe { self.get_unchecked(idx) }.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.len()
     }
 }

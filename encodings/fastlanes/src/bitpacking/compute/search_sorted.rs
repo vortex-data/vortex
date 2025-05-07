@@ -8,6 +8,7 @@ use vortex_array::Array;
 use vortex_array::compute::{
     IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
 };
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{DType, NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -165,6 +166,7 @@ mod test {
         SearchResult, SearchSortedSide, search_sorted, search_sorted_many,
     };
     use vortex_array::validity::Validity;
+    use vortex_array::variants::PrimitiveArrayTrait;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::VortexUnwrap;
