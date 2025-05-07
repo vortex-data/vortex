@@ -308,10 +308,10 @@ duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct vx_dtype *dtype,
 /**
  * Converts a DuckDB type into a vortex type
  */
-struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *type_array,
-                                                 const unsigned char *nullable,
-                                                 const char *const *names,
-                                                 int len,
+struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *column_types,
+                                                 const unsigned char *column_nullable,
+                                                 const char *const *column_names,
+                                                 int column_count,
                                                  struct vx_error **error);
 #endif
 

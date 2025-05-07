@@ -37,10 +37,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
 /// Converts a DuckDB type into a vortex type
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
-    type_array: *const duckdb_logical_type,
-    nullable: *const c_uchar,
-    names: *const *const c_char,
-    len: c_int,
+    column_types: *const duckdb_logical_type,
+    column_nullable: *const c_uchar,
+    column_names: *const *const c_char,
+    column_count: c_int,
     error: *mut *mut vx_error,
 ) -> *mut DType {
     try_or(error, null_mut(), || {
