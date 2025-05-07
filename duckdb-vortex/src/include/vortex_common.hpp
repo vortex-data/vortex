@@ -127,8 +127,7 @@ struct ArrayStreamSink {
 
 	static duckdb::unique_ptr<ArrayStreamSink> Create(std::string file_path, duckdb::unique_ptr<DType> &&dtype) {
 	    vx_error *error = nullptr;
-		auto options = vx_file_create_options { .path = file_path.c_str() };
-        auto sink = vx_file_array_sink_create(&options, dtype->dtype, &error);
+        auto sink = vx_array_sink_open_file(file_path.c_str(), dtype->dtype, &error);
         HandleError(error);
 
         return duckdb::make_uniq<ArrayStreamSink>(sink, std::move(dtype));

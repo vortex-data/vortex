@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 use std::ptr;
 
 use mpsc::Sender;
@@ -15,11 +15,10 @@ use vortex::stream::ArrayStreamAdapter;
 use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
-use crate::file::vx_file_create_options;
 
 #[allow(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
-/// (e.g. an array stream or file (`vx_file_array_sink_create`)).
+/// (e.g. an array stream or file (`vx_array_sink_open_file`)).
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
     writer: JoinHandle<VortexResult<File>>,
@@ -28,14 +27,14 @@ pub struct vx_array_sink {
 /// Opens a writable array stream, where sink is used to push values into the stream.
 /// To close the stream close the sink with `vx_array_sink_close`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_array_sink_create(
-    options: *mut vx_file_create_options,
+pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
+    path: *const c_char,
     dtype: *const DType,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or(error, ptr::null_mut(), || {
-        let options = unsafe { options.as_ref() }.vortex_expect("null options");
-        let path = unsafe { CStr::from_ptr(options.path) }
+        let path = unsafe { path.as_ref() }.vortex_expect("null path");
+        let path = unsafe { CStr::from_ptr(path) }
             .to_string_lossy()
             .to_string();
 

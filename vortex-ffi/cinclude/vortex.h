@@ -96,7 +96,7 @@ typedef struct vx_array vx_array;
 
 /**
  * The `sink` interface is used to collect array chunks and place them into a resource
- * (e.g. an array stream or file (`vx_file_array_sink_create`)).
+ * (e.g. an array stream or file (`vx_array_sink_open_file`)).
  */
 typedef struct vx_array_sink vx_array_sink;
 
@@ -172,13 +172,6 @@ typedef struct vx_file_scan_options {
    */
   int split_by_row_count;
 } vx_file_scan_options;
-
-/**
- * Options supplied for creating a file.
- */
-typedef struct vx_file_create_options {
-  const char *path;
-} vx_file_create_options;
 
 
 
@@ -394,9 +387,9 @@ void vx_init_logging(enum vx_log_level level);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-struct vx_array_sink *vx_file_array_sink_create(struct vx_file_create_options *options,
-                                                const struct vx_dtype *dtype,
-                                                struct vx_error **error);
+struct vx_array_sink *vx_array_sink_open_file(const char *path,
+                                              const struct vx_dtype *dtype,
+                                              struct vx_error **error);
 
 /**
  * Pushed a single array chunk into a file sink.

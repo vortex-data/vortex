@@ -30,12 +30,6 @@ pub struct vx_file_reader {
     pub(crate) inner: VortexFile,
 }
 
-#[repr(C)]
-/// Options supplied for creating a file.
-pub struct vx_file_create_options {
-    pub path: *const c_char,
-}
-
 /// Options supplied for opening a file.
 #[repr(C)]
 pub struct vx_file_open_options {
