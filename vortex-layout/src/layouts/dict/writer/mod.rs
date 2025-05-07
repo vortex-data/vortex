@@ -77,6 +77,13 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
         segment_writer: &mut dyn crate::segments::SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         match self.writer.as_mut() {
             Some(writer) => writer.push_chunk(segment_writer, chunk),
             None => {

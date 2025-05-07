@@ -116,6 +116,13 @@ impl LayoutWriter for RepartitionWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         // We make sure the chunks are canonical so our nbytes measurement is accurate.
         let chunk = chunk.to_canonical()?.into_array();
 

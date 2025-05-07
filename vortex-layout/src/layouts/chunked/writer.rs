@@ -62,6 +62,14 @@ impl LayoutWriter for ChunkedLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
+
         self.row_count += chunk.len() as u64;
 
         // We write each chunk, but don't call finish quite yet to ensure that chunks have an
