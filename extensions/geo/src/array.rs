@@ -27,8 +27,8 @@ impl<'a> TryFrom<&'a ExtensionArray> for GeometryArray<'a> {
         Ok(match geometry_type {
             GeometryType::Point(meta) => Self::Point(value, meta),
             GeometryType::Polygon(meta) => Self::Polygon(value, meta),
-            GeometryType::WKB(meta) => Self::Polygon(value, meta),
-            GeometryType::LineString(meta) => Self::Polygon(value, meta),
+            GeometryType::WKB(meta) => Self::WKB(value, meta),
+            GeometryType::LineString(meta) => Self::LineString(value, meta),
         })
     }
 }
