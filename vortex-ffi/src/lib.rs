@@ -1,4 +1,4 @@
-#![allow(clippy::missing_safety_doc, clippy::panic)]
+#![allow(clippy::missing_safety_doc)]
 
 //! Native interface to Vortex arrays, types, files and streams.
 

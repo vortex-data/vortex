@@ -1,3 +1,6 @@
+// TODO(joe): remove me
+#![allow(clippy::panic)]
+
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr;
 use std::sync::Arc;
