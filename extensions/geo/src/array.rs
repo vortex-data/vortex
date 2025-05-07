@@ -51,7 +51,7 @@ impl PointArray {
             vortex_bail!("points must be Struct typed, was {}", points.dtype())
         };
 
-        validate_coord_schema(&schema, metadata.dimension)?;
+        validate_coord_schema(schema, metadata.dimension)?;
         let point_type =
             OwnedGeometryType::Point(metadata.clone()).into_ext_dtype(points.dtype().nullability());
         let inner = ExtensionArray::new(Arc::new(point_type), points);
@@ -153,7 +153,7 @@ mod tests {
         );
         assert_eq!(ext.id(), &*POINT_ID);
     }
-    
+
     #[test]
     fn test_polygon() {
         // Create two lists of points: one defining an interior and exterior.

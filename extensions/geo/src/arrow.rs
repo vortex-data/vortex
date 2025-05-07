@@ -19,7 +19,7 @@ use vortex_array::arrow::ArrowArray;
 use vortex_array::arrow::compute::{ToArrowArgs, ToArrowKernelRef};
 use vortex_array::compute::{InvocationArgs, Kernel, Output, cast};
 use vortex_array::{Array, ToCanonical, register_kernel};
-use vortex_dtype::arrow::{ArrowMetadata, ArrowMetadataRef, ArrowToDType, ArrowToDTypeRef};
+use vortex_dtype::arrow::{TypeConversion, TypeConversionRef};
 use vortex_dtype::{DType, ExtDType, PType, register_extension_type};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
@@ -68,7 +68,7 @@ fn to_arrow_point(
     point_array: &ExtensionArray,
     metadata: &GeoMetadata,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    let coords = coordinate_buffer(point_array.storage(), &metadata)?;
+    let coords = coordinate_buffer(point_array.storage(), metadata)?;
     let nulls = point_array.validity_mask()?.to_null_buffer();
     let crs = match metadata.crs {
         None => Crs::default(),
@@ -88,7 +88,7 @@ fn to_arrow_linestring(
     metadata: &GeoMetadata,
 ) -> VortexResult<arrow_array::ArrayRef> {
     let list = line_string.to_list()?;
-    let coords = coordinate_buffer(list.elements().as_ref(), &metadata)?;
+    let coords = coordinate_buffer(list.elements().as_ref(), metadata)?;
     let offsets = cast(&list.offsets().to_primitive()?, &PType::I32.into())?
         .to_primitive()?
         .into_buffer::<i32>()
@@ -114,25 +114,23 @@ fn to_arrow_linestring(
 pub struct GeoArrowConversion;
 
 // Conversion between Vortex geospatial extension types and GeoArrow extension types.
-impl ArrowToDType for GeoArrowConversion {
-    fn can_convert(&self, field: &Field) -> bool {
-        // The field needs to support all of our types
-        if let Some(ext_type) = field.extension_type_name() {
-            if ext_type == PointType::NAME
-                || ext_type == LineStringType::NAME
-                || ext_type == PolygonType::NAME
-                || ext_type == WkbType::NAME
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn to_vortex(&self, field: &Field) -> VortexResult<DType> {
+impl TypeConversion for GeoArrowConversion {
+    fn to_vortex(&self, field: &Field) -> VortexResult<Option<DType>> {
+        // Validate that the field is one of the supported geospatial
+        // extension types.
         let Some(ext_type) = field.extension_type_name() else {
-            vortex_bail!("field does not have an extension type")
+            return Ok(None);
         };
+
+        println!("ext_type = {}", ext_type);
+
+        if ext_type != PointType::NAME
+            && ext_type != LineStringType::NAME
+            && ext_type != PolygonType::NAME
+            && ext_type != WkbType::NAME
+        {
+            return Ok(None);
+        }
 
         macro_rules! dim_from_fields {
             ($fields:expr) => {{
@@ -232,13 +230,15 @@ impl ArrowToDType for GeoArrowConversion {
             _ => vortex_bail!("extension type {} not supported", ext_type),
         };
 
-        Ok(DType::Extension(Arc::new(ext_dtype)))
+        Ok(Some(DType::Extension(Arc::new(ext_dtype))))
     }
-}
 
-impl ArrowMetadata for GeoArrowConversion {
     #[allow(clippy::disallowed_types)]
-    fn arrow_metadata(&self, vortex_extension_type: &ExtDType) -> Option<HashMap<String, String>> {
+    fn to_arrow(
+        &self,
+        vortex_extension_type: &ExtDType,
+        field: &mut Field,
+    ) -> VortexResult<Option<()>> {
         if let Ok(geometry) = GeometryType::try_from(vortex_extension_type) {
             let mut extension_metadata = HashMap::new();
             let ext_type_name = match geometry {
@@ -249,7 +249,7 @@ impl ArrowMetadata for GeoArrowConversion {
             };
             extension_metadata.insert(EXTENSION_TYPE_NAME_KEY.to_string(), ext_type_name);
 
-            match geometry {
+            let extension_metadata = match geometry {
                 GeometryType::Point(meta)
                 | GeometryType::LineString(meta)
                 | GeometryType::Polygon(meta)
@@ -264,19 +264,23 @@ impl ArrowMetadata for GeoArrowConversion {
                                 .vortex_expect("failed to serialize geoarrow metadata");
                         extension_metadata
                             .insert(EXTENSION_TYPE_METADATA_KEY.to_string(), metadata_json);
+                        extension_metadata
+                    } else {
+                        extension_metadata
                     }
                 }
             };
 
-            Some(extension_metadata)
+            field.set_metadata(extension_metadata);
+
+            Ok(Some(()))
         } else {
-            None
+            Ok(None)
         }
     }
 }
 
-register_extension_type!(ArrowToDTypeRef(ArcRef::new_ref(&GeoArrowConversion)));
-register_extension_type!(ArrowMetadataRef(ArcRef::new_ref(&GeoArrowConversion)));
+register_extension_type!(TypeConversionRef::new(ArcRef::new_ref(&GeoArrowConversion)));
 
 /// Unpack the geoarrow CoordBuffer. Errors if the dimensions specified in the metadata do not
 /// match the actual encoding.
@@ -400,7 +404,7 @@ mod tests {
             dimension: crate::Dimension::XY,
             crs: None,
         })
-        .into_ext_dtype(false.into());
+        .into_ext_dtype(true.into());
         assert_eq!(dtype, DType::Extension(Arc::new(owned_type)));
 
         // round trip back to Arrow type.
@@ -424,7 +428,4 @@ mod tests {
         let exported = imported.into_arrow_preferred().unwrap();
         assert_eq!(exported.data_type(), struct_array.data_type());
     }
-
-    #[test]
-    fn test_roundtrip() {}
 }

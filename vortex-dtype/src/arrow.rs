@@ -10,8 +10,6 @@
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
-#[allow(clippy::disallowed_types)]
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -137,12 +135,13 @@ impl FromArrowType<&Field> for DType {
             Some(ext_type) => {
                 // Check the registry for any Vortex extension types that represent the Arrow
                 // extension type named here.
-                for converter in inventory::iter::<ArrowToDTypeRef> {
-                    if converter.0.can_convert(field) {
-                        return converter
-                            .0
-                            .to_vortex(field)
-                            .vortex_expect("arrow extension type to vortex dtype");
+                for converter in inventory::iter::<TypeConversionRef> {
+                    if let Some(converted) = converter
+                        .0
+                        .to_vortex(field)
+                        .vortex_expect("Conversion from GeoArrow type to GeoVortex")
+                    {
+                        return converted;
                     }
                 }
 
@@ -210,9 +209,8 @@ impl DType {
                     // Optionally: attach any Arrow extension type metadata, if an ArrowMetadata
                     // kernel is defined for the extension type.
                     if let DType::Extension(ext_type) = field_dt {
-                        for kernel in inventory::iter::<ArrowMetadataRef>() {
-                            if let Some(datum) = kernel.0.arrow_metadata(ext_type.as_ref()) {
-                                field = field.with_metadata(datum);
+                        for kernel in inventory::iter::<TypeConversionRef> {
+                            if kernel.0.to_arrow(ext_type.as_ref(), &mut field)?.is_some() {
                                 break;
                             }
                         }
@@ -242,60 +240,60 @@ impl DType {
     }
 }
 
-/// Type-erased pointer to a [`ArrowToDType`] implementation.
-pub struct ArrowToDTypeRef(pub ArcRef<dyn ArrowToDType>);
-inventory::collect!(ArrowToDTypeRef);
-
-impl ArrowToDTypeRef {
-    /// Attempt to convert a field to a DType. If the there is no registered converter that
-    /// can handle the field type, `None` is returned.
-    ///
-    /// If a converter is resolved, it is used to convert the Field and the result is returned in
-    /// a `Some`.
-    pub fn convert(field: impl AsRef<Field>) -> Option<VortexResult<DType>> {
-        for converter in inventory::iter::<ArrowToDTypeRef> {
-            if converter.0.can_convert(field.as_ref()) {
-                return Some(converter.0.to_vortex(field.as_ref()));
-            }
+/// Attempt to convert a field to a DType. If the there is no registered converter that
+/// can handle the field type, `None` is returned.
+///
+/// If a converter is resolved, it is used to convert the Field and the result is returned in
+/// a `Some`.
+pub fn geo_field_to_dtype(field: impl AsRef<Field>) -> VortexResult<Option<DType>> {
+    for converter in inventory::iter::<TypeConversionRef> {
+        if let Some(converted) = converter.0.to_vortex(field.as_ref())? {
+            return Ok(Some(converted));
         }
+    }
 
-        None
+    Ok(None)
+}
+
+/// Conversions between Arrow [`Field`] type and Vortex logical `DType`.
+///
+/// This crate provides infra for registering and discovering extension types.
+/// Once you implement this trait, you need to register it using [`register_extension_type`]
+/// to have it get discovered.
+///
+/// See also: [`register_extension_type`]
+pub trait TypeConversion: 'static + Send + Sync {
+    /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
+    fn to_vortex(&self, _field: &Field) -> VortexResult<Option<DType>> {
+        Ok(None)
+    }
+
+    /// Convert a Vortex [`ExtDType`] to an Arrow schema [`Field`].
+    ///
+    /// The returned field will have the type, nullability, and metadata
+    /// that should be propagated forward, but its name may be changed.
+    fn to_arrow(&self, _dtype: &ExtDType, _field_builder: &mut Field) -> VortexResult<Option<()>> {
+        Ok(None)
     }
 }
 
-/// Get Arrow extension type metadata for a type.
-pub trait ArrowMetadata: 'static + Send + Sync {
-    /// Optionally get the Arrow metadata for this type. None indicates it is not an Arrow
-    /// extension type, Some indicates that it is.
-    #[allow(clippy::disallowed_types)]
-    fn arrow_metadata(&self, vortex_extension_type: &ExtDType) -> Option<HashMap<String, String>>;
+/// Conversion token
+pub struct TypeConversionRef(ArcRef<dyn TypeConversion>);
+inventory::collect!(TypeConversionRef);
+
+impl TypeConversionRef {
+    /// Create a new `TypeConversionRef` from a pointer to the implementation.
+    pub const fn new(conversion: ArcRef<dyn TypeConversion>) -> Self {
+        Self(conversion)
+    }
 }
 
-/// Type-erased pointer to a thing that can implement the DType conversion instead.
-pub struct ArrowMetadataRef(pub ArcRef<dyn ArrowMetadata>);
-inventory::collect!(ArrowMetadataRef);
-
-/// Conversion for extension types.
-///
-/// If we have custom conversions we can register them via a plugin. This is something that is
-/// determined elsewhere however.
-pub trait ArrowToDType: Send + Sync {
-    /// If this returns `true`, the implementor is able to convert the given Vortex [`DType`] to
-    /// an Arrow [`Field`]. The caller can then call the `to_vortex` method with the argument.
-    fn can_convert(&self, data_type: &Field) -> bool;
-
-    /// Convert the given Arrow [`Field`] to a Vortex [`DType`].
-    fn to_vortex(&self, field: &Field) -> VortexResult<DType>;
-}
-
-/// Register an extension type globally. This should be a type that implements
-/// the [`ArrowToDType`] trait.
+/// Register an extension type for lookup.
 #[macro_export]
 macro_rules! register_extension_type {
     ($extension:expr) => {
-        $crate::inventory::submit! {
-            $extension
-        }
+        const _: $crate::arrow::TypeConversionRef = $extension;
+        $crate::inventory::submit! { $extension }
     };
 }
 
