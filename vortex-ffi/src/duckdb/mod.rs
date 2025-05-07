@@ -44,16 +44,16 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
     error: *mut *mut vx_error,
 ) -> *mut DType {
     try_or(error, null_mut(), || {
-        let field_names: Vec<Arc<str>> = (0..len)
-            .map(|i| to_string(*names.offset(i as isize)))
+        let field_names: Vec<Arc<str>> = (0..column_count)
+            .map(|idx| to_string(*column_names.offset(idx as isize)))
             .map(Arc::from)
             .collect();
 
-        let types = (0..len)
-            .map(|i| {
+        let types = (0..column_count)
+            .map(|idx| {
                 (
-                    LogicalTypeHandle::new_unowned(unsafe { *type_array.offset(i as isize) }),
-                    *nullable.offset(i as isize) != 0,
+                    LogicalTypeHandle::new_unowned(unsafe { *column_types.offset(idx as isize) }),
+                    *column_nullable.offset(idx as isize) != 0,
                 )
             })
             .map(|(type_, nullable)| DType::from_duckdb(type_, nullable.into()))
