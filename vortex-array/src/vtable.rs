@@ -1,82 +1,34 @@
-//! This module contains the VTable definitions for a Vortex Array.
-
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+//! This module contains the VTable definitions for a Vortex encoding.
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
-use crate::encoding::EncodingId;
-use crate::serde::ArrayParts;
-use crate::{Array, ArrayContext, ArrayRef, Canonical};
+use crate::{Array, Canonical};
 
-/// A reference to an array VTable, either static or arc'd.
-pub type VTableRef = ArcRef<dyn EncodingVTable>;
-
-/// Dyn-compatible VTable trait for a Vortex array encoding.
+/// The encoding [`VTable`] encapsulates _all_ logic for both an Array and an Encoding in a
+/// single trait, giving users a single entry-point to implement their own arrays.
 ///
-/// This trait provides extension points for arrays to implement various features of Vortex.
-/// It is split into multiple sub-traits to make it easier for consumers to break up the
-/// implementation, as well as to allow for optional implementation of certain features, for example
-/// compute functions.
-pub trait EncodingVTable: 'static + Sync + Send {
-    /// Return the ID for this encoding implementation.
-    fn id(&self) -> EncodingId;
+/// From this [`VTable`], we derive implementations for the [`Array`] and [`Encoding`] traits.
+pub trait VTable: 'static {
+    type Array: 'static + Send + Sync;
+    type Encoding: 'static + Send + Sync; // We could use unstable and default this to ()
 
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        _dtype: DType,
-        _len: usize,
-    ) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "Decoding not supported for encoding {}",
-            ctx.lookup_encoding(parts.encoding_id())
-                .vortex_expect("Encoding already validated")
-                .id()
-        )
-    }
+    // Encoding Functions
 
-    /// Encode the canonical array into this encoding implementation.
-    ///
-    /// Should error if `like` is encoded with a different encoding.
+    /// Returns the ID of the encoding.
+    fn id(encoding: &Self::Encoding) -> ArcRef<str>;
+
+    /// Encodes a canonical array using this encoding.
     fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if self.id() == input.as_ref().encoding() {
-            return Ok(Some(input.as_ref().to_array()));
-        }
+        encoding: &Self::Encoding,
+        canonical: Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Self::Array>;
 
-        Ok(None)
-    }
-}
+    // Array Functions
 
-impl PartialEq for dyn EncodingVTable + '_ {
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
-    }
-}
+    fn len(array: &Self::Array) -> usize;
 
-impl Eq for dyn EncodingVTable + '_ {}
-
-impl Hash for dyn EncodingVTable + '_ {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id().hash(state)
-    }
-}
-
-impl Debug for dyn EncodingVTable + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
-    }
-}
-
-impl Display for dyn EncodingVTable + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
-    }
+    fn dtype(array: &Self::Array) -> &DType;
 }
