@@ -242,11 +242,10 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
-        let scan_options = unsafe { opts.as_ref() }.map_or_else(ScanOptions::default, |options| {
-            options
-                .process_scan_options()
-                .expect("error: failed to parse scan options")
-        });
+        let scan_options = unsafe { opts.as_ref() }.map_or_else(
+            || Ok(ScanOptions::default()),
+            |options| options.process_scan_options(),
+        )?;
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
@@ -281,11 +280,10 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
         let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
         let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
 
-        let scan_options = unsafe { opts.as_ref() }.map_or_else(ScanOptions::default, |options| {
-            options
-                .process_scan_options()
-                .expect("error: failed to parse scan options")
-        });
+        let scan_options = unsafe { opts.as_ref() }.map_or_else(
+            || Ok(ScanOptions::default()),
+            |options| options.process_scan_options(),
+        )?;
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
