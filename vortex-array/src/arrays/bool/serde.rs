@@ -4,7 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::BoolArray;
-use crate::arrays::Bool;
+use crate::arrays::BoolVTable;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VTable};
@@ -20,26 +20,26 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
-impl SerdeVTable<Bool> for Bool {
+impl SerdeVTable<BoolVTable> for BoolVTable {
     type Metadata = ProstMetadata<BoolMetadata>;
 
     fn encode(
-        _encoding: &<Bool as VTable>::Encoding,
+        _encoding: &<BoolVTable as VTable>::Encoding,
         _canonical: Canonical,
         _like: Option<&dyn Array>,
-    ) -> VortexResult<<Bool as VTable>::Array> {
+    ) -> VortexResult<<BoolVTable as VTable>::Array> {
         todo!()
     }
 
     fn decode(
-        _encoding: &<Bool as VTable>::Encoding,
+        _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: DType,
         len: usize,
         metadata: &Self::Metadata,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
-    ) -> VortexResult<<Bool as VTable>::Array> {
+    ) -> VortexResult<<BoolVTable as VTable>::Array> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

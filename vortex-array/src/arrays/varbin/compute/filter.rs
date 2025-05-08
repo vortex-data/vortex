@@ -12,7 +12,7 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl FilterKernel for VarBinEncoding {
+impl FilterKernel for VarBinVTable {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }

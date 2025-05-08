@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 
 use crate::{ALPArray, ALPEncoding};
 
-impl TakeKernel for ALPEncoding {
+impl TakeKernel for ALPVTable {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array

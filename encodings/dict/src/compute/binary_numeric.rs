@@ -6,7 +6,7 @@ use vortex_scalar::NumericOperator;
 
 use crate::{DictArray, DictEncoding};
 
-impl NumericKernel for DictEncoding {
+impl NumericKernel for DictVTable {
     fn numeric(
         &self,
         array: &DictArray,

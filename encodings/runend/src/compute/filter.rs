@@ -18,7 +18,7 @@ use crate::{RunEndArray, RunEndEncoding};
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
-impl FilterKernel for RunEndEncoding {
+impl FilterKernel for RunEndVTable {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
         match mask {
             Mask::AllTrue(_) => Ok(array.to_array()),

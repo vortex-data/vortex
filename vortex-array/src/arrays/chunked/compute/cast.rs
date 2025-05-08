@@ -5,7 +5,7 @@ use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CastKernel for ChunkedEncoding {
+impl CastKernel for ChunkedVTable {
     fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {

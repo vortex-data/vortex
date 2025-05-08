@@ -21,7 +21,7 @@ use crate::{BitPackedArray, BitPackedEncoding, unpack_single_primitive};
 // see https://github.com/spiraldb/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeKernel for BitPackedEncoding {
+impl TakeKernel for BitPackedVTable {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {

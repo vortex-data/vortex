@@ -14,7 +14,7 @@ use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayExt, ArrayRef, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareKernel for VarBinEncoding {
+impl CompareKernel for VarBinVTable {
     fn compare(
         &self,
         lhs: &VarBinArray,

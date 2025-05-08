@@ -5,7 +5,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{NumericKernel, NumericKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl NumericKernel for ConstantEncoding {
+impl NumericKernel for ConstantVTable {
     fn numeric(
         &self,
         array: &ConstantArray,

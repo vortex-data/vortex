@@ -9,7 +9,7 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CastKernel for PrimitiveEncoding {
+impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);

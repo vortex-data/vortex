@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
 
-impl MinMaxKernel for DictEncoding {
+impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
         min_max(&take(array.values(), array.codes())?)
     }

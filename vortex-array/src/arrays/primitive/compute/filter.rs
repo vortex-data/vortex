@@ -12,7 +12,7 @@ use crate::{Array, ArrayRef, register_kernel};
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for PrimitiveEncoding {
+impl FilterKernel for PrimitiveVTable {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

@@ -12,7 +12,7 @@ use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
 use crate::{Array, ToCanonical, register_kernel};
 
-impl ToArrowKernel for VarBinEncoding {
+impl ToArrowKernel for VarBinVTable {
     fn to_arrow(
         &self,
         array: &VarBinArray,

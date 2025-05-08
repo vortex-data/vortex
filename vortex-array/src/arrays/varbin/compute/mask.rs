@@ -6,7 +6,7 @@ use crate::arrays::varbin::VarBinArray;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskKernel for VarBinEncoding {
+impl MaskKernel for VarBinVTable {
     fn mask(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(VarBinArray::try_new(
             array.offsets().clone(),

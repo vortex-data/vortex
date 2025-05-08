@@ -10,7 +10,7 @@ use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeKernel for VarBinEncoding {
+impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();

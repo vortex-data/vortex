@@ -8,7 +8,7 @@ use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter}
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
-impl IsSortedKernel for PrimitiveEncoding {
+impl IsSortedKernel for PrimitiveVTable {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
         match_each_native_ptype!(array.ptype(), |$P| {
             compute_is_sorted::<$P>(array, false)

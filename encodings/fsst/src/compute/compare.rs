@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl CompareKernel for FSSTEncoding {
+impl CompareKernel for FSSTVTable {
     fn compare(
         &self,
         lhs: &FSSTArray,

@@ -15,7 +15,7 @@ use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeKernel for PrimitiveEncoding {
+impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;

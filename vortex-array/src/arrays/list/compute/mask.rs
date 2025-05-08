@@ -5,7 +5,7 @@ use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskKernel for ListEncoding {
+impl MaskKernel for ListVTable {
     fn mask(&self, array: &ListArray, mask: &Mask) -> VortexResult<ArrayRef> {
         ListArray::try_new(
             array.elements().clone(),

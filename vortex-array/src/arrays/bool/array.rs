@@ -13,9 +13,6 @@ use crate::validity::Validity;
 use crate::vtable::{VTable, ValidityChild, ValidityVTableFromValidityChild};
 use crate::{ArrayRef, Canonical, Encoding, vtable};
 
-#[derive(Debug)]
-pub struct Bool;
-
 vtable!(Bool);
 
 #[derive(Clone, Debug)]
@@ -29,7 +26,7 @@ pub struct BoolArray {
 #[derive(Debug)]
 pub struct BoolEncoding;
 
-impl VTable for Bool {
+impl VTable for BoolVTable {
     type Array = BoolArray;
     type Encoding = BoolEncoding;
 

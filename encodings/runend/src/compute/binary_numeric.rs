@@ -6,7 +6,7 @@ use vortex_scalar::NumericOperator;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl NumericKernel for RunEndEncoding {
+impl NumericKernel for RunEndVTable {
     fn numeric(
         &self,
         array: &RunEndArray,

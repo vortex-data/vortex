@@ -8,7 +8,7 @@ use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::stats::Stat;
 use crate::{Array, register_kernel};
 
-impl SumKernel for ConstantEncoding {
+impl SumKernel for ConstantVTable {
     fn sum(&self, array: &ConstantArray) -> VortexResult<Scalar> {
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())

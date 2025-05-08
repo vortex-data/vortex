@@ -7,7 +7,7 @@ use crate::arrays::{BoolArray, DecimalArray, DecimalEncoding, NativeDecimalType}
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
 use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
-impl BetweenKernel for DecimalEncoding {
+impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds
     fn between(
         &self,

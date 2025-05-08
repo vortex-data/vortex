@@ -5,7 +5,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskKernel for BoolEncoding {
+impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
             BoolArray::new(array.boolean_buffer().clone(), array.validity().mask(mask)?)

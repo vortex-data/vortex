@@ -6,7 +6,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl BooleanKernel for ConstantEncoding {
+impl BooleanKernel for ConstantVTable {
     fn boolean(
         &self,
         lhs: &ConstantArray,

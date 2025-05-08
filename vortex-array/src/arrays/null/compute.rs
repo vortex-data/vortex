@@ -11,7 +11,7 @@ use crate::compute::{
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl FilterKernel for NullEncoding {
+impl FilterKernel for NullVTable {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(mask.true_count()).into_array())
     }
@@ -19,7 +19,7 @@ impl FilterKernel for NullEncoding {
 
 register_kernel!(FilterKernelAdapter(NullEncoding).lift());
 
-impl MaskKernel for NullEncoding {
+impl MaskKernel for NullVTable {
     fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(array.to_array().into_array())
     }
@@ -27,7 +27,7 @@ impl MaskKernel for NullEncoding {
 
 register_kernel!(MaskKernelAdapter(NullEncoding).lift());
 
-impl TakeKernel for NullEncoding {
+impl TakeKernel for NullVTable {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -46,7 +46,7 @@ impl TakeKernel for NullEncoding {
 
 register_kernel!(TakeKernelAdapter(NullEncoding).lift());
 
-impl MinMaxKernel for NullEncoding {
+impl MinMaxKernel for NullVTable {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
     }

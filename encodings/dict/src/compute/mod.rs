@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 
 use crate::{DictArray, DictEncoding};
 
-impl TakeKernel for DictEncoding {
+impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
@@ -24,7 +24,7 @@ impl TakeKernel for DictEncoding {
 
 register_kernel!(TakeKernelAdapter(DictEncoding).lift());
 
-impl FilterKernel for DictEncoding {
+impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
         DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())

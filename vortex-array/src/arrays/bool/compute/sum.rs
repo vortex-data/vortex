@@ -8,7 +8,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::{Array, register_kernel};
 
-impl SumKernel for BoolEncoding {
+impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {
         let true_count: Option<u64> = match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {

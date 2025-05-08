@@ -7,7 +7,7 @@ use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeKernel for ChunkedEncoding {
+impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = cast(indices, PType::U64.into())?.to_primitive()?;
 

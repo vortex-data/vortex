@@ -12,7 +12,7 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl FillNullKernel for PrimitiveEncoding {
+impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         let result_validity = match fill_value.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,

@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{ALPArray, ALPEncoding};
 
-impl NaNCountKernel for ALPEncoding {
+impl NaNCountKernel for ALPVTable {
     fn nan_count(&self, array: &ALPArray) -> VortexResult<usize> {
         // NANs can only be in patches
         if let Some(patches) = array.patches() {

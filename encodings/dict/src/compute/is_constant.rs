@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
 
-impl IsConstantKernel for DictEncoding {
+impl IsConstantKernel for DictVTable {
     fn is_constant(&self, array: &DictArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         is_constant_opts(array.codes(), opts)
     }

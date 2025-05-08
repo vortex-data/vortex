@@ -11,7 +11,7 @@ use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeKernel for BoolEncoding {
+impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),

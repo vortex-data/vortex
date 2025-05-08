@@ -3,7 +3,7 @@ use vortex_array::{Array, register_kernel};
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl IsSortedKernel for RunEndEncoding {
+impl IsSortedKernel for RunEndVTable {
     fn is_sorted(&self, array: &RunEndArray) -> vortex_error::VortexResult<bool> {
         is_sorted(array.values())
     }

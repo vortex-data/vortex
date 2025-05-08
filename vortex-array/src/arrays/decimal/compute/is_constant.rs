@@ -5,7 +5,7 @@ use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::{match_each_decimal_value_type, register_kernel};
 
-impl IsConstantKernel for DecimalEncoding {
+impl IsConstantKernel for DecimalVTable {
     fn is_constant(
         &self,
         array: &DecimalArray,

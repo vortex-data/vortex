@@ -5,7 +5,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::{Array, register_kernel};
 
-impl IsSortedKernel for BoolEncoding {
+impl IsSortedKernel for BoolVTable {
     fn is_sorted(&self, array: &BoolArray) -> VortexResult<bool> {
         match array.validity_mask()? {
             Mask::AllFalse(_) => Ok(true),

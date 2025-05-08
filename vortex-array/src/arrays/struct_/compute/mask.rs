@@ -5,7 +5,7 @@ use crate::arrays::{StructArray, StructEncoding};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskKernel for StructEncoding {
+impl MaskKernel for StructVTable {
     fn mask(&self, array: &StructArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(filter_mask)?;
 

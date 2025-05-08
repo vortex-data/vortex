@@ -4,7 +4,7 @@ use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CompareKernel for ExtensionEncoding {
+impl CompareKernel for ExtensionVTable {
     fn compare(
         &self,
         lhs: &ExtensionArray,

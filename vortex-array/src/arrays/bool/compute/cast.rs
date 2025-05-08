@@ -2,12 +2,12 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::array::{Array, ArrayRef};
-use crate::arrays::{Bool, BoolArray};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::register_kernel;
 use crate::vtable::ValidityChild;
 
-impl CastKernel for Bool {
+impl CastKernel for BoolVTable {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !matches!(dtype, DType::Bool(_)) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
@@ -19,7 +19,7 @@ impl CastKernel for Bool {
     }
 }
 
-register_kernel!(CastKernelAdapter(Bool).lift());
+register_kernel!(CastKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {

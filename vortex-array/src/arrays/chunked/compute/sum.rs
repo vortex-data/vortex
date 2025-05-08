@@ -8,7 +8,7 @@ use crate::compute::{SumKernel, SumKernelAdapter, sum};
 use crate::stats::Stat;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl SumKernel for ChunkedEncoding {
+impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())

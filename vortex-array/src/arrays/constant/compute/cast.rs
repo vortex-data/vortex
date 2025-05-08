@@ -5,7 +5,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CastKernel for ConstantEncoding {
+impl CastKernel for ConstantVTable {
     fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(array.scalar().cast(dtype)?, array.len()).into_array())
     }

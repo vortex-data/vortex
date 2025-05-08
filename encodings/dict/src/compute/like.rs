@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
 
-impl LikeKernel for DictEncoding {
+impl LikeKernel for DictVTable {
     fn like(
         &self,
         array: &DictArray,

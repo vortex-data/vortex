@@ -8,7 +8,7 @@ use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
-impl TakeKernel for DecimalEncoding {
+impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices
             .as_any()

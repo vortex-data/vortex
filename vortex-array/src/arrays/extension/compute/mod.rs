@@ -15,7 +15,7 @@ use crate::compute::{
 use crate::variants::ExtensionArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl FilterKernel for ExtensionEncoding {
+impl FilterKernel for ExtensionVTable {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), filter(array.storage(), mask)?)
@@ -26,7 +26,7 @@ impl FilterKernel for ExtensionEncoding {
 
 register_kernel!(FilterKernelAdapter(ExtensionEncoding).lift());
 
-impl SumKernel for ExtensionEncoding {
+impl SumKernel for ExtensionVTable {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
         sum(array.storage())
     }
@@ -34,7 +34,7 @@ impl SumKernel for ExtensionEncoding {
 
 register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
 
-impl TakeKernel for ExtensionEncoding {
+impl TakeKernel for ExtensionVTable {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
@@ -45,7 +45,7 @@ impl TakeKernel for ExtensionEncoding {
 
 register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
 
-impl MinMaxKernel for ExtensionEncoding {
+impl MinMaxKernel for ExtensionVTable {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(
             min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
@@ -58,7 +58,7 @@ impl MinMaxKernel for ExtensionEncoding {
 
 register_kernel!(MinMaxKernelAdapter(ExtensionEncoding).lift());
 
-impl IsConstantKernel for ExtensionEncoding {
+impl IsConstantKernel for ExtensionVTable {
     fn is_constant(
         &self,
         array: &ExtensionArray,
@@ -70,7 +70,7 @@ impl IsConstantKernel for ExtensionEncoding {
 
 register_kernel!(IsConstantKernelAdapter(ExtensionEncoding).lift());
 
-impl IsSortedKernel for ExtensionEncoding {
+impl IsSortedKernel for ExtensionVTable {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
         is_sorted(array.storage())
     }

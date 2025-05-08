@@ -14,7 +14,7 @@ use crate::compute::{
 };
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
-impl TakeKernel for StructEncoding {
+impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         StructArray::try_new_with_dtype(
             array
@@ -32,7 +32,7 @@ impl TakeKernel for StructEncoding {
 
 register_kernel!(TakeKernelAdapter(StructEncoding).lift());
 
-impl FilterKernel for StructEncoding {
+impl FilterKernel for StructVTable {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -53,7 +53,7 @@ impl FilterKernel for StructEncoding {
 
 register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
-impl MinMaxKernel for StructEncoding {
+impl MinMaxKernel for StructVTable {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
@@ -62,7 +62,7 @@ impl MinMaxKernel for StructEncoding {
 
 register_kernel!(MinMaxKernelAdapter(StructEncoding).lift());
 
-impl IsConstantKernel for StructEncoding {
+impl IsConstantKernel for StructVTable {
     fn is_constant(
         &self,
         array: &StructArray,

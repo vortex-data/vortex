@@ -7,7 +7,7 @@ use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, Strict
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl BetweenKernel for PrimitiveEncoding {
+impl BetweenKernel for PrimitiveVTable {
     fn between(
         &self,
         arr: &PrimitiveArray,

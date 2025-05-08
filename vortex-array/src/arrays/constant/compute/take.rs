@@ -7,7 +7,7 @@ use crate::builders::builder_with_capacity;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl TakeKernel for ConstantEncoding {
+impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {

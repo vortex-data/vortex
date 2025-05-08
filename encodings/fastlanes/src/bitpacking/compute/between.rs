@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
-impl BetweenKernel for BitPackedEncoding {
+impl BetweenKernel for BitPackedVTable {
     fn between(
         &self,
         array: &BitPackedArray,

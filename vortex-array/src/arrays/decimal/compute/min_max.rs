@@ -8,7 +8,7 @@ use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::{Array, match_each_decimal_value_type, register_kernel};
 
-impl MinMaxKernel for DecimalEncoding {
+impl MinMaxKernel for DecimalVTable {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_decimal_value_type!(array.values_type(), |$T| {
             compute_min_max_with_validity::<$T>(array)

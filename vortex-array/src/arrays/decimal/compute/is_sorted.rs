@@ -6,7 +6,7 @@ use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::{Array, match_each_decimal_value_type, register_kernel};
 
-impl IsSortedKernel for DecimalEncoding {
+impl IsSortedKernel for DecimalVTable {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
         is_decimal_sorted(array, false)
     }

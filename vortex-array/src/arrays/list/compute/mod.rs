@@ -9,7 +9,7 @@ use crate::compute::{
 };
 use crate::register_kernel;
 
-impl IsConstantKernel for ListEncoding {
+impl IsConstantKernel for ListVTable {
     fn is_constant(
         &self,
         _array: &ListArray,
@@ -22,7 +22,7 @@ impl IsConstantKernel for ListEncoding {
 
 register_kernel!(IsConstantKernelAdapter(ListEncoding).lift());
 
-impl MinMaxKernel for ListEncoding {
+impl MinMaxKernel for ListVTable {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
         Ok(None)
@@ -32,7 +32,7 @@ impl MinMaxKernel for ListEncoding {
 register_kernel!(MinMaxKernelAdapter(ListEncoding).lift());
 
 // TODO(ngates): why do we report the wrong thing?
-impl IsSortedKernel for ListEncoding {
+impl IsSortedKernel for ListVTable {
     fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
         Ok(false)
     }

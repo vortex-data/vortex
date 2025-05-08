@@ -12,7 +12,7 @@ use crate::stats::Stat;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
-impl SumKernel for PrimitiveEncoding {
+impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {
         Ok(match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {

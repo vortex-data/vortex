@@ -9,7 +9,7 @@ use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
-impl MinMaxKernel for PrimitiveEncoding {
+impl MinMaxKernel for PrimitiveVTable {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |$T| {
             compute_min_max_with_validity::<$T>(array)

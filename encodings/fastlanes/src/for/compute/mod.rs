@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 
 use crate::{FoRArray, FoREncoding};
 
-impl TakeKernel for FoREncoding {
+impl TakeKernel for FoRVTable {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             take(array.encoded(), indices)?,
@@ -22,7 +22,7 @@ impl TakeKernel for FoREncoding {
 
 register_kernel!(TakeKernelAdapter(FoREncoding).lift());
 
-impl FilterKernel for FoREncoding {
+impl FilterKernel for FoRVTable {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             filter(array.encoded(), mask)?,

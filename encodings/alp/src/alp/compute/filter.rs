@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::{ALPArray, ALPEncoding};
 
-impl FilterKernel for ALPEncoding {
+impl FilterKernel for ALPVTable {
     fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()

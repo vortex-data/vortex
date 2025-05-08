@@ -6,7 +6,7 @@ use crate::arrays::{StructArray, StructEncoding};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CastKernel for StructEncoding {
+impl CastKernel for StructVTable {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let Some(target_sdtype) = dtype.as_struct() else {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);

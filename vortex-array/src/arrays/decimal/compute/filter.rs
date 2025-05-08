@@ -8,7 +8,7 @@ use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for DecimalEncoding {
+impl FilterKernel for DecimalVTable {
     fn filter(&self, array: &DecimalArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

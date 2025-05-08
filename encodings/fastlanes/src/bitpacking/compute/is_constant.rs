@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 use crate::unpack_iter::BitPacked;
 use crate::{BitPackedArray, BitPackedEncoding};
 
-impl IsConstantKernel for BitPackedEncoding {
+impl IsConstantKernel for BitPackedVTable {
     fn is_constant(
         &self,
         array: &BitPackedArray,

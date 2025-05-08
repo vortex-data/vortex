@@ -5,7 +5,7 @@ use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::register_kernel;
 
-impl IsSortedKernel for VarBinViewEncoding {
+impl IsSortedKernel for VarBinViewVTable {
     fn is_sorted(&self, array: &VarBinViewArray) -> VortexResult<bool> {
         array.with_iterator(|bytes_iter| bytes_iter.is_sorted())
     }

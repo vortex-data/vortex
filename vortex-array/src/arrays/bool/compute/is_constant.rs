@@ -4,7 +4,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
-impl IsConstantKernel for BoolEncoding {
+impl IsConstantKernel for BoolVTable {
     fn is_constant(&self, array: &BoolArray, _opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         let buffer = array.boolean_buffer();
 

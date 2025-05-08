@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::compress::runend_decode_bools;
 use crate::{RunEndArray, RunEndEncoding};
 
-impl CompareKernel for RunEndEncoding {
+impl CompareKernel for RunEndVTable {
     fn compare(
         &self,
         lhs: &RunEndArray,

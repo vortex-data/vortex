@@ -5,7 +5,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl InvertKernel for ConstantEncoding {
+impl InvertKernel for ConstantVTable {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {
         match array.scalar().as_bool().value() {
             None => Ok(array.to_array().into_array()),

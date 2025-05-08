@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl TakeFromKernel for RunEndEncoding {
+impl TakeFromKernel for RunEndVTable {
     /// Takes values from the source array using run-end encoded indices.
     ///
     /// # Arguments

@@ -64,8 +64,11 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
 #[macro_export]
 macro_rules! vtable {
-    ($V:ty) => {
+    ($V:tt) => {
         $crate::aliases::paste::paste! {
+            #[derive(Debug)]
+            pub struct [<$V VTable>];
+
             impl AsRef<dyn $crate::Array> for [<$V Array>] {
                 fn as_ref(&self) -> &dyn $crate::Array {
                     // We can unsafe cast ourselves to an ArrayAdapter.

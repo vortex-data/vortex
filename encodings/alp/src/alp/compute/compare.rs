@@ -11,7 +11,7 @@ use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
 // TODO(joe): add fuzzing.
 
-impl CompareKernel for ALPEncoding {
+impl CompareKernel for ALPVTable {
     fn compare(
         &self,
         lhs: &ALPArray,

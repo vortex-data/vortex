@@ -10,7 +10,7 @@ mod binary_numeric;
 mod invert;
 mod take;
 
-impl FilterKernel for SparseEncoding {
+impl FilterKernel for SparseVTable {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 

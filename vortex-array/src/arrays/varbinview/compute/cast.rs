@@ -5,7 +5,7 @@ use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CastKernel for VarBinViewEncoding {
+impl CastKernel for VarBinViewVTable {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);

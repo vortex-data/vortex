@@ -7,7 +7,7 @@ use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayRef, register_kernel};
 
-impl MaskKernel for PrimitiveEncoding {
+impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(mask)?;
         Ok(

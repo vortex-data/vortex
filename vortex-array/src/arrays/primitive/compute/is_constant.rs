@@ -15,7 +15,7 @@ cfg_if::cfg_if! {
     }
 }
 
-impl IsConstantKernel for PrimitiveEncoding {
+impl IsConstantKernel for PrimitiveVTable {
     fn is_constant(
         &self,
         array: &PrimitiveArray,

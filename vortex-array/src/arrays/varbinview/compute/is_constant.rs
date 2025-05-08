@@ -4,7 +4,7 @@ use crate::arrays::{Ref, VarBinViewArray, VarBinViewEncoding};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
-impl IsConstantKernel for VarBinViewEncoding {
+impl IsConstantKernel for VarBinViewVTable {
     fn is_constant(
         &self,
         array: &VarBinViewArray,

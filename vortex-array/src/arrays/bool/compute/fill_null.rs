@@ -1,12 +1,12 @@
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable, ConstantArray};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl FillNullKernel for BoolEncoding {
+impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         let fill = fill_value
             .as_bool()

@@ -8,7 +8,7 @@ use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::{Array, register_kernel};
 
-impl MinMaxKernel for VarBinEncoding {
+impl MinMaxKernel for VarBinVTable {
     fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
         compute_min_max(array, array.dtype())
     }

@@ -26,7 +26,7 @@ macro_rules! sum_decimal {
     }};
 }
 
-impl SumKernel for DecimalEncoding {
+impl SumKernel for DecimalVTable {
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();

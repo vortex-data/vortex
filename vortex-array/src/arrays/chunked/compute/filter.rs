@@ -11,7 +11,7 @@ use crate::{Array, ArrayRef, register_kernel};
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for ChunkedEncoding {
+impl FilterKernel for ChunkedVTable {
     fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let mask_values = mask
             .values()
