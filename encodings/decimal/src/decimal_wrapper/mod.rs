@@ -72,7 +72,7 @@ impl ArrayImpl for DecimalWrapperArray {
             vortex_bail!("must replace only the single child")
         };
 
-        DecimalWrapperArray::try_new(child.clone(), self.decimal_dtype().clone())
+        DecimalWrapperArray::try_new(child.clone(), *self.decimal_dtype())
     }
 }
 
@@ -92,11 +92,8 @@ impl ArrayCanonicalImpl for DecimalWrapperArray {
 
 impl ArrayOperationsImpl for DecimalWrapperArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        DecimalWrapperArray::try_new(
-            self.encoded.slice(start, stop)?,
-            self.decimal_dtype().clone(),
-        )
-        .map(|d| d.to_array())
+        DecimalWrapperArray::try_new(self.encoded.slice(start, stop)?, *self.decimal_dtype())
+            .map(|d| d.to_array())
     }
 
     fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
