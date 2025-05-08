@@ -142,10 +142,6 @@ pub fn search_sorted<T: Into<Scalar>>(
         vortex_bail!("Search sorted with null value is not supported");
     }
 
-    if let Some(f) = array.vtable().search_sorted_fn() {
-        return f.search_sorted(array, &scalar, side);
-    }
-
     // Fallback to a generic search_sorted using scalar_at
     Ok(SearchSorted::search_sorted(array, &scalar, side))
 }
