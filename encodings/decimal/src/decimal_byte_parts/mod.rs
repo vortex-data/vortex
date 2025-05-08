@@ -32,6 +32,11 @@ pub struct DecimalBytePartsArray {
 
 impl DecimalBytePartsArray {
     pub fn try_new(parts: Vec<ArrayRef>, decimal_dtype: DecimalDType) -> VortexResult<Self> {
+        if parts.len() != 1 {
+            // TODO(joe): remove this constraint.
+            vortex_bail!("DecimalBytePartsArray only supports a single part")
+        }
+
         if parts.is_empty() || parts.len() > 4 {
             vortex_bail!(
                 "DecimalBytePartsArray must have between 1..=4 children, instead given: {}",
