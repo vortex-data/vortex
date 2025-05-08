@@ -1,13 +1,15 @@
 mod serde;
 
+use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::DecimalArrayTrait;
+use vortex_array::variants::{DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::{ComputeVTable, VTableRef};
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+    ArrayValidityImpl, ArrayVariants, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata,
+    try_from_array_ref,
 };
-use vortex_dtype::{DType, DecimalDType};
+use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar};
@@ -23,8 +25,20 @@ pub struct DecimalWrapperArray {
 
 impl DecimalWrapperArray {
     pub fn try_new(array: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
-        if !array.dtype().is_int() {
+        // For now only signed integer types are supported, this can be relaxed in the future.
+        if !array.dtype().is_signed_int() {
             vortex_bail!("decimal wrapper can only wrap integer dtypes")
+        }
+
+        let primitive = array
+            .as_primitive_typed()
+            .vortex_expect("checked is primitive");
+
+        if decimal_dtype.bit_width() > primitive.ptype().bit_width() {
+            vortex_bail!(
+                "cannot fit a decimal {decimal_dtype} into a primitive with ptype {}",
+                primitive.ptype()
+            )
         }
 
         let nullable = array.dtype().nullability();
@@ -86,7 +100,17 @@ impl ArrayVariantsImpl for DecimalWrapperArray {
 
 impl ArrayCanonicalImpl for DecimalWrapperArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
+        let prim = self.encoded.to_canonical()?.into_primitive()?;
+        // Depending on the decimal type and the min/max of the primitive array we can choose
+        // the correct buffer size
+
+        match_each_signed_integer_ptype!(prim.ptype(), |$P| {
+           Ok(Canonical::Decimal(DecimalArray::new(
+                prim.buffer::<$P>(),
+                self.decimal_dtype().clone(),
+                prim.validity().clone(),
+            )))
+        })
     }
 }
 
