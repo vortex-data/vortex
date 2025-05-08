@@ -6,7 +6,7 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -289,15 +289,10 @@ impl ArrayVariantsImpl for PrimitiveArray {
 }
 
 impl PrimitiveArrayTrait for PrimitiveArray {
-    fn value(&self, idx: usize) -> Option<PValue> {
-        self.validity
-            .is_valid(idx)
-            .vortex_expect("validity check")
-            .then(|| {
-                match_each_native_ptype!(self.ptype(), |$T| {
-                    PValue::from(self.as_slice::<$T>()[idx])
-                })
-            })
+    fn value_unchecked(&self, idx: usize) -> PValue {
+        match_each_native_ptype!(self.ptype(), |$T| {
+            PValue::from(self.as_slice::<$T>()[idx])
+        })
     }
 }
 
