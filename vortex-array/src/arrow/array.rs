@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::stats::StatsSetRef;
-use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
@@ -30,8 +30,6 @@ impl EncodingVTable for ArrowArrayEncoding {
         todo!()
     }
 }
-
-impl ComputeVTable for ArrowArrayEncoding {}
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {

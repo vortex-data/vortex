@@ -9,10 +9,7 @@ use crate::compute::{
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
-
-impl ComputeVTable for NullEncoding {}
 
 impl FilterKernel for NullEncoding {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {

@@ -1,14 +1,11 @@
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{ZigZagArray, ZigZagEncoding};
-
-impl ComputeVTable for ZigZagEncoding {}
 
 impl FilterKernel for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {

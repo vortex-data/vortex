@@ -3,13 +3,10 @@ mod compare;
 mod nan_count;
 
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{ALPArray, ALPEncoding};
-
-impl ComputeVTable for ALPEncoding {}
 
 impl TakeKernel for ALPEncoding {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

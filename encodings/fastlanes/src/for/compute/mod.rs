@@ -4,14 +4,11 @@ mod is_constant;
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{FoRArray, FoREncoding};
-
-impl ComputeVTable for FoREncoding {}
 
 impl TakeKernel for FoREncoding {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

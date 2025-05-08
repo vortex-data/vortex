@@ -12,10 +12,7 @@ use crate::compute::{
     MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
     is_constant_opts, take,
 };
-use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
-
-impl ComputeVTable for StructEncoding {}
 
 impl TakeKernel for StructEncoding {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

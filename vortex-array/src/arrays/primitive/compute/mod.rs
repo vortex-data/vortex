@@ -1,5 +1,3 @@
-use crate::arrays::PrimitiveEncoding;
-use crate::vtable::ComputeVTable;
 
 mod between;
 mod cast;
@@ -14,5 +12,3 @@ mod sum;
 mod take;
 
 pub use is_constant::*;
-
-impl ComputeVTable for PrimitiveEncoding {}

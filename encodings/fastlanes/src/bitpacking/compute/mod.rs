@@ -1,13 +1,8 @@
-use vortex_array::vtable::ComputeVTable;
-
-use crate::BitPackedEncoding;
 
 mod between;
 mod filter;
 mod is_constant;
 mod take;
-
-impl ComputeVTable for BitPackedEncoding {}
 
 fn chunked_indices<F: FnMut(usize, &[usize])>(
     mut indices: impl Iterator<Item = usize>,

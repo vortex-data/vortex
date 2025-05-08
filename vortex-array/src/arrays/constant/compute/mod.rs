@@ -7,10 +7,6 @@ mod invert;
 mod sum;
 mod take;
 
-use crate::arrays::ConstantEncoding;
-use crate::vtable::ComputeVTable;
-
-impl ComputeVTable for ConstantEncoding {}
 
 #[cfg(test)]
 mod test {

@@ -3,14 +3,11 @@ mod filter;
 
 use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{FSSTArray, FSSTEncoding};
-
-impl ComputeVTable for FSSTEncoding {}
 
 impl TakeKernel for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.

@@ -13,10 +13,7 @@ use crate::compute::{
     is_sorted, is_strict_sorted, min_max, sum, take,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, register_kernel};
-
-impl ComputeVTable for ExtensionEncoding {}
 
 impl FilterKernel for ExtensionEncoding {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {

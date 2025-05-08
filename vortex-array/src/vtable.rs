@@ -3,10 +3,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-mod compute;
-
 use arcref::ArcRef;
-pub use compute::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -23,7 +20,7 @@ pub type VTableRef = ArcRef<dyn EncodingVTable>;
 /// It is split into multiple sub-traits to make it easier for consumers to break up the
 /// implementation, as well as to allow for optional implementation of certain features, for example
 /// compute functions.
-pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
+pub trait EncodingVTable: 'static + Sync + Send {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
 

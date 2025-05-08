@@ -9,14 +9,11 @@ mod min_max;
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{DictArray, DictEncoding};
-
-impl ComputeVTable for DictEncoding {}
 
 impl TakeKernel for DictEncoding {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

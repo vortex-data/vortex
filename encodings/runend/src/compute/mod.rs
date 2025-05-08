@@ -8,11 +8,6 @@ mod min_max;
 pub(crate) mod take;
 mod take_from;
 
-use vortex_array::vtable::ComputeVTable;
-
-use crate::RunEndEncoding;
-
-impl ComputeVTable for RunEndEncoding {}
 
 #[cfg(test)]
 mod test {
