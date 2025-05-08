@@ -242,16 +242,15 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
-        let scan_options =
-            unsafe { opts.as_ref() }.map_or(ScanOptions::default(), |scan_options_ffi| {
-                scan_options_ffi
-                    .process_scan_options()
-                    .expect("error: failed to parse scan options")
-            });
+        let scan_options = unsafe { opts.as_ref() }.map_or_else(ScanOptions::default, |options| {
+            options
+                .process_scan_options()
+                .expect("error: failed to parse scan options")
+        });
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
-            // Field names can be not `None` and empty.
+            // Field names are allowed to be `Some` and empty.
             stream = stream.with_projection(select(field_names, Identity::new_expr()));
         }
 
@@ -282,16 +281,15 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
         let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
         let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
 
-        let scan_options =
-            unsafe { opts.as_ref() }.map_or(ScanOptions::default(), |scan_options_ffi| {
-                scan_options_ffi
-                    .process_scan_options()
-                    .expect("error: failed to parse scan options")
-            });
+        let scan_options = unsafe { opts.as_ref() }.map_or_else(ScanOptions::default, |options| {
+            options
+                .process_scan_options()
+                .expect("error: failed to parse scan options")
+        });
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
-            // Field names can be not `None` and empty.
+            // Field names are allowed to be `Some` and empty.
             scan_builder = scan_builder.with_projection(select(field_names, Identity::new_expr()));
         }
 
