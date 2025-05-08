@@ -1,29 +1,15 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
-use crate::arrays::NativeDecimalType;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
-    match_each_decimal_value_type,
 };
-
-/// Type of the decimal values.
-#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
-#[repr(u8)]
-#[non_exhaustive]
-pub enum DecimalValueType {
-    I8 = 0,
-    I16 = 1,
-    I32 = 2,
-    I64 = 3,
-    I128 = 4,
-    I256 = 5,
-}
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]

@@ -1,7 +1,8 @@
-use vortex_array::arrays::{DecimalArray, DecimalValueType, PrimitiveArray};
+use vortex_array::arrays::{DecimalArray, PrimitiveArray};
 use vortex_array::{Array, ArrayRef};
 use vortex_decimal::DecimalBytePartsArray;
 use vortex_error::VortexResult;
+use vortex_scalar::DecimalValueType;
 
 use crate::{Compressor, IntCompressor, MAX_CASCADE};
 

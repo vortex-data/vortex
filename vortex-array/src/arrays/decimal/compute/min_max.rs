@@ -2,11 +2,13 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
+use vortex_scalar::{
+    DecimalValue, NativeDecimalType, Scalar, ScalarValue, match_each_decimal_value_type,
+};
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::{Array, match_each_decimal_value_type, register_kernel};
+use crate::{Array, register_kernel};
 
 impl MinMaxKernel for DecimalEncoding {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {

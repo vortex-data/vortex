@@ -1,10 +1,11 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalEncoding};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, match_each_decimal_value_type, register_kernel};
+use crate::{Array, register_kernel};
 
 impl IsSortedKernel for DecimalEncoding {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {

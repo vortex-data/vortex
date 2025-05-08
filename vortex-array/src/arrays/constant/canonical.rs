@@ -4,7 +4,7 @@ use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar,
+    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::array::ArrayCanonicalImpl;
@@ -16,7 +16,7 @@ use crate::arrays::{
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
+use crate::{Array, Canonical, IntoArray};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

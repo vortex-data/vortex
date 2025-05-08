@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{DecimalArrayTrait, PrimitiveArrayTrait};
-use vortex_array::vtable::{ComputeVTable, VTableRef};
+use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
@@ -86,8 +86,6 @@ impl DecimalBytePartsArray {
 #[derive(Debug)]
 pub struct DecimalBytePartsEncoding;
 
-impl ComputeVTable for DecimalBytePartsEncoding {}
-
 impl Encoding for DecimalBytePartsEncoding {
     type Array = DecimalBytePartsArray;
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
@@ -159,11 +157,6 @@ impl ArrayOperationsImpl for DecimalBytePartsArray {
         let scalar = self.parts[0].scalar_at(index)?;
 
         scalar.cast(self.dtype())
-        // scalar
-        //     .as_primitive()
-        //     .typed_value::<i32>()
-        //     .map(|v| Scalar::new(self.dtype().clone(), DecimalValue::from(v).into()))
-        //     .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
     }
 }
 

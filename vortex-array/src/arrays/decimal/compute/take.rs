@@ -2,11 +2,12 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType, PrimitiveArray};
+use crate::arrays::{DecimalArray, DecimalEncoding, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
+use crate::{Array, ArrayRef, register_kernel};
 
 impl TakeKernel for DecimalEncoding {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
