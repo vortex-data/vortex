@@ -10,15 +10,13 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
-use vortex_scalar::Scalar;
+use vortex_scalar::{PValue, Scalar};
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
-use crate::compute::{
-    SearchResult, SearchSorted, SearchSortedSide, cast, filter, search_sorted, take,
-};
+use crate::compute::{SearchResult, SearchSorted, SearchSortedSide, cast, filter, take};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
 #[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
 pub struct PatchesMetadata {
@@ -220,7 +218,14 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        search_sorted(&self.indices, index + self.offset, SearchSortedSide::Left)
+        Ok(self
+            .indices
+            .as_primitive_typed()
+            .vortex_expect("must be primitive")
+            .search_sorted(
+                &PValue::U64((index + self.offset) as u64),
+                SearchSortedSide::Left,
+            ))
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -229,23 +234,29 @@ impl Patches {
         target: T,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        search_sorted(self.values(), target.into(), side).and_then(|sr| {
-            let index_idx = sr.to_offsets_index(self.indices().len(), side);
-            let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
-            Ok(match sr {
-                // If we reached the end of patched values when searching then the result is one after the last patch index
-                SearchResult::Found(i) => SearchResult::Found(
-                    if i == self.indices().len() || side == SearchSortedSide::Right {
-                        index + 1
-                    } else {
-                        index
-                    },
-                ),
-                // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
-                SearchResult::NotFound(i) => {
-                    SearchResult::NotFound(if i == 0 { index } else { index + 1 })
-                }
-            })
+        let target = target.into();
+
+        let sr = if let Some(parray) = self.values().as_primitive_typed() {
+            parray.search_sorted(&target.as_primitive().pvalue(), side)
+        } else {
+            self.values().search_sorted(&target, side)
+        };
+
+        let index_idx = sr.to_offsets_index(self.indices().len(), side);
+        let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
+        Ok(match sr {
+            // If we reached the end of patched values when searching then the result is one after the last patch index
+            SearchResult::Found(i) => SearchResult::Found(
+                if i == self.indices().len() || side == SearchSortedSide::Right {
+                    index + 1
+                } else {
+                    index
+                },
+            ),
+            // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
+            SearchResult::NotFound(i) => {
+                SearchResult::NotFound(if i == 0 { index } else { index + 1 })
+            }
         })
     }
 

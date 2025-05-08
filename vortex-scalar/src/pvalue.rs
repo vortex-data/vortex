@@ -112,6 +112,22 @@ macro_rules! as_primitive {
 }
 
 impl PValue {
+    pub fn zero(ptype: PType) -> PValue {
+        match ptype {
+            PType::U8 => PValue::U8(0),
+            PType::U16 => PValue::U16(0),
+            PType::U32 => PValue::U32(0),
+            PType::U64 => PValue::U64(0),
+            PType::I8 => PValue::I8(0),
+            PType::I16 => PValue::I16(0),
+            PType::I32 => PValue::I32(0),
+            PType::I64 => PValue::I64(0),
+            PType::F16 => PValue::F16(f16::from_f32(0.0)),
+            PType::F32 => PValue::F32(0.0),
+            PType::F64 => PValue::F64(0.0),
+        }
+    }
+
     pub fn ptype(&self) -> PType {
         match self {
             Self::U8(_) => PType::U8,

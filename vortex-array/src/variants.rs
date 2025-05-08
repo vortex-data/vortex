@@ -38,16 +38,35 @@ pub trait PrimitiveArrayTrait: Array {
 
     /// Return the primitive value at the given index.
     fn value(&self, idx: usize) -> Option<PValue> {
+        self.is_valid(idx)
+            .vortex_expect("is valid")
+            .then(|| self.value_unchecked(idx))
+    }
+
+    /// Return the primitive value at the given index, ignoring nullability.
+    fn value_unchecked(&self, idx: usize) -> PValue {
         self.scalar_at(idx)
             .vortex_expect("scalar at index")
             .as_primitive()
             .pvalue()
+            .unwrap_or_else(|| PValue::zero(self.ptype()))
     }
 }
 
 impl IndexOrd<Option<PValue>> for dyn PrimitiveArrayTrait + '_ {
     fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> Option<Ordering> {
         self.value(idx).partial_cmp(elem)
+    }
+
+    fn index_len(&self) -> usize {
+        Array::len(self)
+    }
+}
+
+impl IndexOrd<PValue> for dyn PrimitiveArrayTrait + '_ {
+    fn index_cmp(&self, idx: usize, elem: &PValue) -> Option<Ordering> {
+        assert!(self.all_valid().vortex_expect("all valid"));
+        self.value_unchecked(idx).partial_cmp(elem)
     }
 
     fn index_len(&self) -> usize {

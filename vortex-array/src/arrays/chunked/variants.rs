@@ -55,7 +55,7 @@ impl NullArrayTrait for ChunkedArray {}
 impl BoolArrayTrait for ChunkedArray {}
 
 impl PrimitiveArrayTrait for ChunkedArray {
-    fn value(&self, idx: usize) -> Option<PValue> {
+    fn value_unchecked(&self, idx: usize) -> PValue {
         let (chunk, offset_in_chunk) = self.find_chunk_idx(idx);
         let chunk = self
             .chunks()
@@ -64,7 +64,7 @@ impl PrimitiveArrayTrait for ChunkedArray {
         chunk
             .as_primitive_typed()
             .vortex_expect("Chunk was not a PrimitiveArray")
-            .value(offset_in_chunk)
+            .value_unchecked(offset_in_chunk)
     }
 }
 

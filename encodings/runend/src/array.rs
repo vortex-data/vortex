@@ -89,7 +89,7 @@ impl RunEndArray {
             .as_primitive_typed()
             .vortex_expect("ends array must be primitive")
             .search_sorted(
-                &Some(PValue::from(index + self.offset())),
+                &PValue::from(index + self.offset()),
                 SearchSortedSide::Right,
             )
             .to_ends_index(self.ends().len()))
@@ -107,7 +107,7 @@ impl RunEndArray {
             .as_primitive_typed()
             .vortex_expect("ends array must be primitive")
             .search_sorted_many(
-                indices.into_iter().map(|i| Some(PValue::from(i))),
+                indices.into_iter().map(PValue::from),
                 SearchSortedSide::Right,
             )
             .map(|result| result.to_ends_index(self.ends().len()))
