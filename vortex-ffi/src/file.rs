@@ -19,9 +19,13 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::LayoutReader;
+use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
+use vortex::stream::ArrayStreamArrayExt;
 
+use crate::array::vx_array;
 use crate::error::{try_or, vx_error};
 use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
@@ -75,6 +79,45 @@ pub struct vx_file_scan_options {
     pub row_range_end: c_ulong,
 }
 
+impl vx_file_scan_options {
+    /// Processes FFI scan options.
+    ///
+    /// Extracts and converts a scan configuration from an FFI options struct.
+    fn process_scan_options(&self) -> VortexResult<ScanOptions> {
+        // Extract field names for projection.
+        let field_names = (0..self.projection_len)
+            .map(|idx| unsafe { to_string(*self.projection.add(idx as usize)).into() })
+            .collect::<Vec<Arc<str>>>();
+
+        let filter_expr = (!self.filter_expression.is_null() && self.filter_expression_len > 0)
+            .then_some({
+                let bytes = unsafe {
+                    slice::from_raw_parts(
+                        self.filter_expression as *const u8,
+                        self.filter_expression_len as usize,
+                    )
+                };
+
+                // Decode the protobuf message.
+                deserialize_expr(&Expr::decode(bytes)?)
+                    .map_err(|e| e.with_context("deserializing expr"))?
+            });
+
+        let row_range = (self.row_range_end > self.row_range_start)
+            .then_some(self.row_range_start..self.row_range_end);
+
+        let split_by = (self.split_by_row_count > 0)
+            .then_some(SplitBy::RowCount(self.split_by_row_count as usize));
+
+        Ok(ScanOptions {
+            field_names: Some(field_names),
+            filter_expr,
+            split_by,
+            row_range,
+        })
+    }
+}
+
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
@@ -116,13 +159,13 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
-        let array = ffi_array.as_ref().vortex_expect("null array");
-        let path = CStr::from_ptr(path).to_str()?;
+        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
+        let path = unsafe { CStr::from_ptr(path).to_str()? };
 
         RUNTIME.block_on(async {
             VortexWriteOptions::default()
                 .write(
-                    &mut File::create(path).await?,
+                    &mut tokio::fs::File::create(path).await?,
                     array.inner.to_array_stream(),
                 )
                 .await?;
@@ -164,49 +207,8 @@ struct ScanOptions {
     row_range: Option<std::ops::Range<u64>>,
 }
 
-/// Processes FFI scan options.
-///
-/// Extracts and converts a scan configuration from an FFI options struct.
-fn process_scan_options(opts: Option<&vx_file_scan_options>) -> VortexResult<ScanOptions> {
-    if let Some(opts) = opts {
-        // Extract field names for projection.
-        let field_names = (0..opts.projection_len)
-            .map(|idx| unsafe { to_string(*opts.projection.add(idx as usize)).into() })
-            .collect::<Vec<Arc<str>>>();
-
-        let filter_expr = (!opts.filter_expression.is_null() && opts.filter_expression_len > 0)
-            .then_some({
-                let bytes = unsafe {
-                    slice::from_raw_parts(
-                        opts.filter_expression as *const u8,
-                        opts.filter_expression_len as usize,
-                    )
-                };
-
-                // Decode the protobuf message.
-                deserialize_expr(&Expr::decode(bytes)?)
-                    .map_err(|e| e.with_context("deserializing expr"))?
-            });
-
-        let row_range = (opts.row_range_end > opts.row_range_start)
-            .then_some(opts.row_range_start..opts.row_range_end);
-
-        let split_by = (opts.split_by_row_count > 0)
-            .then_some(SplitBy::RowCount(opts.split_by_row_count as usize));
-
-        Ok(ScanOptions {
-            field_names: Some(field_names),
-            filter_expr,
-            split_by,
-            row_range,
-        })
-    } else {
-        Ok(ScanOptions::default())
-    }
-}
-
 /// Convert a stream to an FFI-compatible array stream
-fn stream_to_ffi_array_stream<S>(stream: S) -> VortexResult<*mut vx_array_stream>
+fn vx_array_stream<S>(stream: S) -> VortexResult<*mut vx_array_stream>
 where
     S: vortex::stream::ArrayStream + Send + 'static,
 {
@@ -240,10 +242,16 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         let file = unsafe { file.as_ref().vortex_expect("null file") };
         let mut stream = file.inner.scan().vortex_expect("create scan");
 
-        let scan_options = process_scan_options(opts.as_ref())?;
+        let scan_options =
+            unsafe { opts.as_ref() }.map_or(ScanOptions::default(), |scan_options_ffi| {
+                scan_options_ffi
+                    .process_scan_options()
+                    .expect("error: failed to parse scan options")
+            });
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
+            // Field names can be not `None` and empty.
             stream = stream.with_projection(select(field_names, Identity::new_expr()));
         }
 
@@ -259,7 +267,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             stream = stream.with_split_by(split_by_value);
         }
 
-        stream_to_ffi_array_stream(stream.into_array_stream()?)
+        vx_array_stream(stream.into_array_stream()?)
     })
 }
 
@@ -271,13 +279,19 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
     error: *mut *mut vx_error,
 ) -> *mut vx_array_stream {
     try_or(error, ptr::null_mut(), || {
-        let layout_reader = layout_reader.as_ref().vortex_expect("null layout reader");
+        let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
         let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
 
-        let scan_options = process_scan_options(opts.as_ref())?;
+        let scan_options =
+            unsafe { opts.as_ref() }.map_or(ScanOptions::default(), |scan_options_ffi| {
+                scan_options_ffi
+                    .process_scan_options()
+                    .expect("error: failed to parse scan options")
+            });
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
+            // Field names can be not `None` and empty.
             scan_builder = scan_builder.with_projection(select(field_names, Identity::new_expr()));
         }
 
@@ -293,7 +307,7 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        stream_to_ffi_array_stream(scan_builder.into_array_stream()?)
+        vx_array_stream(scan_builder.into_array_stream()?)
     })
 }
 
