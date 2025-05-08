@@ -8,6 +8,7 @@
 #include "duckdb/common/file_system.hpp"
 #include "vortex.hpp"
 #include "vortex_extension.hpp"
+#include "vortex_layout_reader.hpp"
 
 #include <memory>
 #include <mutex>
@@ -63,23 +64,6 @@ struct VortexScanLocalState : public LocalTableFunctionState {
 	unique_ptr<VortexArray> array;
 	unique_ptr<VortexArrayStream> stream;
 	unique_ptr<VortexConversionCache> cache;
-};
-
-class VortexLayoutReader {
-public:
-	explicit VortexLayoutReader(vx_layout_reader *reader) : reader(reader) {
-	}
-
-	~VortexLayoutReader() {
-		vx_layout_reader_free(reader);
-	}
-
-	static std::shared_ptr<VortexLayoutReader> CreateFromFile(VortexFileReader *file) {
-		auto reader = Try([&](auto err) { return vx_layout_reader_create(file->file, err); });
-		return std::make_shared<VortexLayoutReader>(reader);
-	}
-
-	vx_layout_reader *reader;
 };
 
 struct VortexScanPartition {
@@ -147,8 +131,7 @@ static void PopulateProjection(VortexScanGlobalState &global_state, const vector
 }
 
 /// Extracts schema information from a Vortex file's data type.
-static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_types,
-                                vector<string> &column_names) {
+static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_types, vector<string> &column_names) {
 	uint32_t field_count = vx_dtype_field_count(file_dtype.dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
 		char name_buffer[512];
@@ -157,7 +140,7 @@ static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_t
 		vx_dtype_field_name(file_dtype.dtype, idx, name_buffer, &name_len);
 		std::string field_name(name_buffer, name_len);
 
-        vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype.dtype, idx);
+		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype.dtype, idx);
 		auto duckdb_type = Try([&](auto err) { return vx_dtype_to_duckdb_logical_type(field_dtype, err); });
 
 		column_names.push_back(field_name);
@@ -275,9 +258,7 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(VortexScanGlobalState &glob
 	    .row_range_end = row_range_partition.end_row,
 	};
 
-	auto scan = Try([&](auto err) { return vx_layout_reader_scan(layout_reader->reader, &options, err); });
-
-	return make_uniq<VortexArrayStream>(scan);
+	return make_uniq<VortexArrayStream>(layout_reader->Scan(&options));
 }
 
 // Assigns the next array from the array stream.
