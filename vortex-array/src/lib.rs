@@ -36,6 +36,7 @@ mod metadata;
 pub mod nbytes;
 mod partial_ord;
 pub mod patches;
+pub mod search_sorted;
 pub mod serde;
 pub mod stats;
 pub mod stream;

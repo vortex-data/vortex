@@ -7,7 +7,8 @@ use vortex_array::arrays::{
     BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use vortex_array::compute::{SearchResult, SearchSortedSide, compare, filter, search_sorted, take};
+use vortex_array::compute::{compare, filter, take};
+use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -86,7 +87,7 @@ fn assert_search_sorted(
     expected: SearchResult,
     step: usize,
 ) -> VortexFuzzResult<()> {
-    let search_result = search_sorted(&array, s.clone(), side).vortex_unwrap();
+    let search_result = array.search_sorted(&s, side);
     if search_result != expected {
         Err(VortexFuzzError::SearchSortedError(
             s,

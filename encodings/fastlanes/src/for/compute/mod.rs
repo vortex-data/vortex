@@ -1,26 +1,17 @@
 mod compare;
 mod is_constant;
 
-use num_traits::WrappingSub;
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, SearchResult, SearchSortedFn, SearchSortedSide, TakeKernel,
-    TakeKernelAdapter, filter, search_sorted, take,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{PValue, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
-impl ComputeVTable for FoREncoding {
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for FoREncoding {}
 
 impl TakeKernel for FoREncoding {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -45,73 +36,3 @@ impl FilterKernel for FoREncoding {
 }
 
 register_kernel!(FilterKernelAdapter(FoREncoding).lift());
-
-impl SearchSortedFn<&FoRArray> for FoREncoding {
-    fn search_sorted(
-        &self,
-        array: &FoRArray,
-        value: &Scalar,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        match_each_integer_ptype!(array.ptype(), |$P| {
-            search_sorted_typed::<$P>(array, value, side)
-        })
-    }
-}
-
-fn search_sorted_typed<T>(
-    array: &FoRArray,
-    value: &Scalar,
-    side: SearchSortedSide,
-) -> VortexResult<SearchResult>
-where
-    T: NativePType
-        + for<'a> TryFrom<&'a Scalar, Error = VortexError>
-        + TryFrom<PValue, Error = VortexError>
-        + WrappingSub
-        + Into<PValue>,
-{
-    let min: T = array
-        .reference_scalar()
-        .as_primitive()
-        .typed_value::<T>()
-        .vortex_expect("Reference value cannot be null");
-    let primitive_value: T = value.cast(array.dtype())?.as_ref().try_into()?;
-    // Make sure that smaller values are still smaller and not larger than (which they would be after wrapping_sub)
-    if primitive_value.is_lt(min) {
-        return Ok(SearchResult::NotFound(array.invalid_count()?));
-    }
-
-    // When the values in the array are shifted, not all values in the domain are representable in the compressed
-    // space. Multiple different search values can translate to same value in the compressed space.
-    let target = primitive_value.wrapping_sub(&min);
-    let target_scalar = Scalar::primitive(target, value.dtype().nullability())
-        .reinterpret_cast(array.ptype().to_unsigned());
-
-    search_sorted(array.encoded(), target_scalar, side)
-}
-
-#[cfg(test)]
-mod test {
-    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
-    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
-    use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
-    use vortex_array::{Array, ArrayRef, ToCanonical};
-    use vortex_error::VortexUnwrap;
-
-    use crate::FoRArray;
-
-    #[apply(search_sorted_conformance)]
-    fn for_search_sorted(
-        #[case] array: ArrayRef,
-        #[case] value: i32,
-        #[case] side: SearchSortedSide,
-        #[case] expected: SearchResult,
-    ) {
-        let for_array = FoRArray::encode(array.to_primitive().vortex_unwrap())
-            .map(|a| a.into_array())
-            .unwrap_or_else(|_| array);
-        let res = search_sorted(&for_array, value, side).unwrap();
-        assert_eq!(res, expected);
-    }
-}

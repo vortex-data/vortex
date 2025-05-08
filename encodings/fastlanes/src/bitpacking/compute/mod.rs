@@ -1,5 +1,3 @@
-use vortex_array::Array;
-use vortex_array::compute::SearchSortedFn;
 use vortex_array::vtable::ComputeVTable;
 
 use crate::BitPackedEncoding;
@@ -7,14 +5,9 @@ use crate::BitPackedEncoding;
 mod between;
 mod filter;
 mod is_constant;
-mod search_sorted;
 mod take;
 
-impl ComputeVTable for BitPackedEncoding {
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for BitPackedEncoding {}
 
 fn chunked_indices<F: FnMut(usize, &[usize])>(
     mut indices: impl Iterator<Item = usize>,

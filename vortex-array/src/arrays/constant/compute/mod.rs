@@ -4,20 +4,13 @@ mod cast;
 mod compare;
 mod filter;
 mod invert;
-mod search_sorted;
 mod sum;
 mod take;
 
-use crate::Array;
 use crate::arrays::ConstantEncoding;
-use crate::compute::SearchSortedFn;
 use crate::vtable::ComputeVTable;
 
-impl ComputeVTable for ConstantEncoding {
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for ConstantEncoding {}
 
 #[cfg(test)]
 mod test {

@@ -10,7 +10,8 @@ use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::PValue;
 
-use crate::compute::{IndexOrd, sum};
+use crate::compute::sum;
+use crate::search_sorted::IndexOrd;
 use crate::{Array, ArrayRef};
 
 pub trait NullArrayTrait: Array {}

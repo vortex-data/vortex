@@ -1,5 +1,5 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, SearchSortedFn};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
@@ -9,14 +9,9 @@ use crate::{SparseArray, SparseEncoding};
 
 mod binary_numeric;
 mod invert;
-mod search_sorted;
 mod take;
 
-impl ComputeVTable for SparseEncoding {
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-}
+impl ComputeVTable for SparseEncoding {}
 
 impl FilterKernel for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {

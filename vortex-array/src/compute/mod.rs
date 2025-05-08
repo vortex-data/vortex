@@ -27,7 +27,6 @@ pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
-pub use search_sorted::*;
 pub use sum::*;
 pub use take::*;
 use vortex_dtype::DType;
@@ -57,7 +56,6 @@ mod mask;
 mod min_max;
 mod nan_count;
 mod numeric;
-mod search_sorted;
 mod sum;
 mod take;
 

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::compute::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
+use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};

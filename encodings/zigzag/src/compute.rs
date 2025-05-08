@@ -51,7 +51,7 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
-    use vortex_array::compute::{SearchResult, SearchSortedSide, filter, search_sorted, take};
+    use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::EncodingVTable;
     use vortex_array::{Array, IntoArray, ToCanonical};
@@ -60,21 +60,6 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::ZigZagEncoding;
-
-    #[test]
-    pub fn search_sorted_uncompressed() {
-        let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            search_sorted(&zigzag, -169, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(1)
-        );
-    }
 
     #[test]
     pub fn nullable_scalar_at() {

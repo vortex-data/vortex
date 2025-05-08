@@ -14,7 +14,8 @@ use vortex_scalar::{PValue, Scalar};
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
-use crate::compute::{SearchResult, SearchSorted, SearchSortedSide, cast, filter, take};
+use crate::compute::{cast, filter, take};
+use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
@@ -585,8 +586,8 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
+    use crate::search_sorted::{SearchResult, SearchSortedSide};
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical};
 

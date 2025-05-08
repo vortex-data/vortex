@@ -3,11 +3,9 @@ use std::cmp::Ordering::{Equal, Greater, Less};
 use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::encoding::Encoding;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
@@ -92,60 +90,6 @@ impl Display for SearchResult {
     }
 }
 
-/// Searches for value assuming the array is sorted.
-///
-/// Returned indices satisfy following condition if the search for value was to be inserted into the array at found positions
-///
-/// |side |result satisfies|
-/// |-----|----------------|
-/// |left |array\[i-1\] < value <= array\[i\]|
-/// |right|array\[i-1\] <= value < array\[i\]|
-pub trait SearchSortedFn<A: Copy> {
-    fn search_sorted(
-        &self,
-        array: A,
-        value: &Scalar,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult>;
-}
-
-impl<E: Encoding> SearchSortedFn<&dyn Array> for E
-where
-    E: for<'a> SearchSortedFn<&'a E::Array>,
-{
-    fn search_sorted(
-        &self,
-        array: &dyn Array,
-        value: &Scalar,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SearchSortedFn::search_sorted(self, array_ref, value, side)
-    }
-}
-
-pub fn search_sorted<T: Into<Scalar>>(
-    array: &dyn Array,
-    target: T,
-    side: SearchSortedSide,
-) -> VortexResult<SearchResult> {
-    let Ok(scalar) = target.into().cast(array.dtype()) else {
-        // Try to downcast the usize ot the array type, if the downcast fails, then we know the
-        // usize is too large and the value is greater than the highest value in the array.
-        return Ok(SearchResult::NotFound(array.len()));
-    };
-
-    if scalar.is_null() {
-        vortex_bail!("Search sorted with null value is not supported");
-    }
-
-    // Fallback to a generic search_sorted using scalar_at
-    Ok(SearchSorted::search_sorted(array, &scalar, side))
-}
-
 #[allow(clippy::len_without_is_empty)]
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
@@ -172,6 +116,14 @@ pub trait IndexOrd<V> {
     fn index_len(&self) -> usize;
 }
 
+/// Searches for value assuming the array is sorted.
+///
+/// Returned indices satisfy following condition if the search for value was to be inserted into the array at found positions
+///
+/// |side |result satisfies|
+/// |-----|----------------|
+/// |left |array\[i-1\] < value <= array\[i\]|
+/// |right|array\[i-1\] <= value < array\[i\]|
 pub trait SearchSorted<T> {
     fn search_sorted_many<I: IntoIterator<Item = T>>(
         &self,
@@ -337,11 +289,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::buffer;
-
-    use crate::IntoArray;
-    use crate::compute::search_sorted;
-    use crate::compute::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 
     #[test]
     fn left_side_equal() {
@@ -389,12 +337,5 @@ mod test {
         let res = arr.search_sorted(&9, SearchSortedSide::Right);
         assert_eq!(arr[res.to_index() - 1], 9);
         assert_eq!(res, SearchResult::Found(13));
-    }
-
-    #[test]
-    fn failed_cast() {
-        let arr = buffer![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9].into_array();
-        let res = search_sorted(&arr, 256, SearchSortedSide::Left).unwrap();
-        assert_eq!(res, SearchResult::NotFound(arr.len()));
     }
 }
