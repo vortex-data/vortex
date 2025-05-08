@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::cmp::Ordering::{Greater, Less};
 
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::compute::{
@@ -26,26 +25,6 @@ impl SearchSortedFn<&BitPackedArray> for BitPackedEncoding {
         //  always safe to promote to unsigned type without loss of ordering of the values.
         match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
             search_sorted_typed::<$P>(array, value, side)
-        })
-    }
-
-    fn search_sorted_many(
-        &self,
-        array: &BitPackedArray,
-        values: &[Scalar],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
-
-            values
-                .iter()
-                .map(|value| {
-                    // Unwrap to native value
-                    let unwrapped_value: $P = value.cast(array.dtype())?.try_into()?;
-                    Ok(searcher.search_sorted(&unwrapped_value, side))
-                })
-                .try_collect()
         })
     }
 }
@@ -162,9 +141,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
     use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
-    use vortex_array::compute::{
-        SearchResult, SearchSortedSide, search_sorted, search_sorted_many,
-    };
+    use vortex_array::compute::{SearchResult, SearchSortedSide, search_sorted};
     use vortex_array::validity::Validity;
     use vortex_array::variants::PrimitiveArrayTrait;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -204,36 +181,6 @@ mod test {
         assert_eq!(
             search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(1)
-        );
-    }
-
-    #[test]
-    fn test_search_sorted_many() {
-        // Test search_sorted_many with an array that contains several null values.
-        let bitpacked = BitPackedArray::encode(
-            &PrimitiveArray::from_option_iter([
-                None,
-                None,
-                None,
-                None,
-                Some(1u64),
-                Some(2u64),
-                Some(3u64),
-            ]),
-            3,
-        )
-        .unwrap();
-
-        let results =
-            search_sorted_many(&bitpacked, &[3u64, 2u64, 1u64], SearchSortedSide::Left).unwrap();
-
-        assert_eq!(
-            results,
-            vec![
-                SearchResult::Found(6),
-                SearchResult::Found(5),
-                SearchResult::Found(4),
-            ]
         );
     }
 
