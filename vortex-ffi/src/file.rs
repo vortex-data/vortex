@@ -191,8 +191,7 @@ fn process_scan_options(opts: Option<&vx_file_scan_options>) -> VortexResult<Sca
         let row_range = (opts.row_range_end > opts.row_range_start)
             .then_some(opts.row_range_start..opts.row_range_end);
 
-        // Explicit row ranges take precedence over split by chunk size.
-        let split_by = (opts.split_by_row_count > 0 && row_range.is_none())
+        let split_by = (opts.split_by_row_count > 0)
             .then_some(SplitBy::RowCount(opts.split_by_row_count as usize));
 
         Ok(ScanOptions {
