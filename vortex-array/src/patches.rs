@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
-use num_traits::ToPrimitive;
+use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
@@ -15,7 +15,7 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
-    SearchResult, SearchSortedSide, cast, filter, search_sorted, search_sorted_many, take,
+    SearchResult, SearchSorted, SearchSortedSide, cast, filter, search_sorted, take,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -321,10 +321,13 @@ impl Patches {
     }
 
     pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+        let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
-        let Some((new_indices, values_indices)) = match_each_integer_ptype!(take_indices.ptype(), |$I| {
-            take_search::<$I>(self.indices(), take_indices, self.offset())?
+        let Some((new_indices, values_indices)) = match_each_integer_ptype!(indices.ptype(), |$INDICES| {
+            match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
+                take_search::<_, $TAKE_INDICES>(indices.as_slice::<$INDICES>(), take_indices, self.offset())?
+            })
         }) else {
             return Ok(None);
         };
@@ -373,8 +376,8 @@ impl Patches {
     }
 }
 
-fn take_search<T: NativePType + TryFrom<usize>>(
-    indices: &dyn Array,
+fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
+    indices: &[I],
     take_indices: PrimitiveArray,
     indices_offset: usize,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
@@ -383,24 +386,27 @@ where
     VortexError: From<<usize as TryFrom<T>>::Error>,
 {
     let take_indices_validity = take_indices.validity();
-    let take_indices = take_indices
+    let indices_offset = I::from(indices_offset).vortex_expect("indices_offset out of range");
+
+    let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) = take_indices
         .as_slice::<T>()
         .iter()
-        .copied()
-        .map(usize::try_from)
-        .map_ok(|idx| idx + indices_offset)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
-        search_sorted_many(indices, &take_indices, SearchSortedSide::Left)?
-            .iter()
-            .enumerate()
-            .filter_map(|(idx_in_take, search_result)| {
-                search_result
-                    .to_found()
-                    .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
-            })
-            .unzip();
+        .map(|v| {
+            match I::from(*v) {
+                None => {
+                    // If the cast failed, then the value is greater than all indices.
+                    SearchResult::NotFound(indices.len())
+                }
+                Some(v) => indices.search_sorted(&(v + indices_offset), SearchSortedSide::Left),
+            }
+        })
+        .enumerate()
+        .filter_map(|(idx_in_take, search_result)| {
+            search_result
+                .to_found()
+                .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
+        })
+        .unzip();
 
     if new_indices.is_empty() {
         return Ok(None);
