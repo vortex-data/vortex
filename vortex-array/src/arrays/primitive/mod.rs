@@ -6,7 +6,7 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
