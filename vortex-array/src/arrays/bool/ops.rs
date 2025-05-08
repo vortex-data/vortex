@@ -2,6 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
+use crate::vtable::ValidityChild;
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
 impl ArrayOperationsImpl for BoolArray {

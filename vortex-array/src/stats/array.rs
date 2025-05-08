@@ -23,6 +23,8 @@ pub struct ArrayStats {
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
+///
+/// Constructed by calling [`ArrayStats::to_ref`].
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
     dyn_array_ref: &'a dyn Array,

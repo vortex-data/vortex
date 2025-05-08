@@ -3,18 +3,19 @@ use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
-use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
+use crate::array::{Array, ArrayCanonicalImpl};
 use crate::arrays::bool;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::BoolArrayTrait;
-use crate::vtable::{BoolVTable, VTable};
-use crate::{ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, vtable};
+use crate::vtable::{VTable, ValidityChild, ValidityVTableFromValidityChild};
+use crate::{ArrayRef, Canonical, Encoding, vtable};
 
+#[derive(Debug)]
 pub struct Bool;
+
 vtable!(Bool);
 
 #[derive(Clone, Debug)]
@@ -22,7 +23,6 @@ pub struct BoolArray {
     dtype: DType,
     buffer: BooleanBuffer,
     pub(crate) validity: Validity,
-    // TODO(ngates): do we want a stats set to be shared across all arrays?
     pub(crate) stats_set: ArrayStats,
 }
 
@@ -33,6 +33,7 @@ impl VTable for Bool {
     type Array = BoolArray;
     type Encoding = BoolEncoding;
 
+    type ValidityVTable = ValidityVTableFromValidityChild;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 
@@ -46,6 +47,18 @@ impl VTable for Bool {
 
     fn dtype(array: &Self::Array) -> &DType {
         &array.dtype
+    }
+
+    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+
+    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array> {
+        todo!()
+    }
+
+    fn scalar_at(array: &Self::Array, index: usize) -> VortexResult<Scalar> {
+        todo!()
     }
 
     fn with_children(array: &Self::Array, children: &[ArrayRef]) -> VortexResult<Self::Array> {
@@ -105,11 +118,6 @@ impl BoolArray {
         &self.buffer
     }
 
-    /// Returns the underlying [`Validity`] of the array.
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Get a mutable version of this array.
     ///
     /// If the caller holds the only reference to the underlying buffer the underlying buffer is returned
@@ -162,6 +170,12 @@ impl FromIterator<Option<bool>> for BoolArray {
     }
 }
 
+impl ValidityChild for BoolArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
+    }
+}
+
 impl ArrayCanonicalImpl for BoolArray {
     #[inline]
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -173,42 +187,6 @@ impl ArrayCanonicalImpl for BoolArray {
         builder.extend_from_array(self)
     }
 }
-
-impl ArrayStatisticsImpl for BoolArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for BoolArray {
-    #[inline]
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    #[inline]
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    #[inline]
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    #[inline]
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
-    }
-}
-
-impl ArrayVariantsImpl for BoolArray {
-    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
-    }
-}
-
-impl BoolVTable<Bool> for Bool {}
 
 pub trait BooleanBufferExt {
     /// Slice any full bytes from the buffer, leaving the offset < 8.

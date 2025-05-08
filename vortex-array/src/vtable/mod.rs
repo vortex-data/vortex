@@ -1,28 +1,39 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod serde;
+mod validity;
 mod variants;
 
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use arcref::ArcRef;
 pub use serde::*;
+pub use validity::*;
 pub use variants::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
+use crate::stats::StatsSetRef;
 use crate::{Array, ArrayRef, Encoding};
 
 /// The encoding [`VTable`] encapsulates _all_ logic for both an Array and an Encoding in a
 /// single trait, giving users a single entry-point to implement their own arrays.
 ///
 /// From this [`VTable`], we derive implementations for the [`Array`] and [`Encoding`] traits.
-pub trait VTable: 'static + Sized {
+pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Deref<Target = dyn Array>;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
+    /// Specify the validity implementation for this encoding.
+    type ValidityVTable: ValidityVTable<Self>;
+
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     type SerdeVTable: SerdeVTable<Self> = ();
+
+    // Declare which dtypes this encoding supports by providing vtables for each dtype.
+    // type BoolVTable: BoolVTable<Self> = ();
 
     // Encoding Functions
 
@@ -34,6 +45,14 @@ pub trait VTable: 'static + Sized {
     fn len(array: &Self::Array) -> usize;
 
     fn dtype(array: &Self::Array) -> &DType;
+
+    fn stats(array: &Self::Array) -> StatsSetRef<'_>;
+
+    // TODO(ngates): remove the result from this function, since the bounds are already checked.
+    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array>;
+
+    // TODO(ngates): remove the result from this function, since the bounds are already checked.
+    fn scalar_at(array: &Self::Array, index: usize) -> VortexResult<Scalar>;
 
     /// Replace the children of this array with the given arrays.
     ///

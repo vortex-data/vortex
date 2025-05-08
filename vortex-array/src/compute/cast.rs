@@ -6,6 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::encoding::Encoding;
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
 /// Attempt to cast an array to a desired DType.
@@ -115,25 +116,25 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for CastArgs<'a> {
 pub struct CastKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CastKernelRef);
 
-pub trait CastKernel: Encoding {
+pub trait CastKernel: VTable {
     fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
-pub struct CastKernelAdapter<E: Encoding>(pub E);
+pub struct CastKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + CastKernel> CastKernelAdapter<E> {
+impl<V: VTable + CastKernel> CastKernelAdapter<V> {
     pub const fn lift(&'static self) -> CastKernelRef {
         CastKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + CastKernel> Kernel for CastKernelAdapter<E> {
+impl<V: VTable + CastKernel> Kernel for CastKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let CastArgs { array, dtype } = CastArgs::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(Some(E::cast(&self.0, array, dtype)?.into()))
+        Ok(Some(V::cast(&self.0, array, dtype)?.into()))
     }
 }

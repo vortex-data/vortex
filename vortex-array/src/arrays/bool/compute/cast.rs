@@ -2,11 +2,12 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::array::{Array, ArrayRef};
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{Bool, BoolArray};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::register_kernel;
+use crate::vtable::ValidityChild;
 
-impl CastKernel for BoolEncoding {
+impl CastKernel for Bool {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !matches!(dtype, DType::Bool(_)) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
@@ -14,11 +15,11 @@ impl CastKernel for BoolEncoding {
 
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
-        Ok(BoolArray::new(array.boolean_buffer().clone(), new_validity).into_array())
+        Ok(BoolArray::new(array.boolean_buffer().clone(), new_validity).to_array())
     }
 }
 
-register_kernel!(CastKernelAdapter(BoolEncoding).lift());
+register_kernel!(CastKernelAdapter(Bool).lift());
 
 #[cfg(test)]
 mod tests {
