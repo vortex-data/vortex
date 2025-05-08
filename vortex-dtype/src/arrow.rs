@@ -1,14 +1,141 @@
 //! Convert between Vortex [`DType`] and Apache Arrow [`DataType`].
 //!
-//! Apache Arrow's type system includes physical information, which could lead to ambiguities as
-//! Vortex treats encodings as separate from logical types.
+//! ## Arrow -> Vortex
 //!
-//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow`] use a simple algorithm,
-//! where every logical type is encoded in its simplest corresponding Arrow type. This reflects the
-//! reality that most compute engines don't make use of the entire type range arrow-rs supports.
+//! Each Arrow `DataType` has a defined mapping onto its nearest Vortex data type, via
+//! implementation of the `FromArrowType` trait.
 //!
-//! For this reason, it's recommended to do as much computation as possible within Vortex, and then
-//! materialize an Arrow ArrayRef at the very end of the processing chain.
+//! All of the Arrow primitive types map onto the equivalent Vortex primitives:
+//!
+//! ```rust
+//! use arrow_schema::DataType;
+//! use vortex_dtype::{DType, Nullability, PType, arrow::FromArrowType};
+//!
+//! let arrow_i32 = DataType::Int32;
+//! let vortex_i32 = DType::from_arrow((&arrow_i32, false.into()));
+//! assert_eq!(vortex_i32, DType::Primitive(PType::I32, false.into()));
+//! ```
+//!
+//! However, some types in Arrow do not map 1:1 onto Vortex. This is because
+//! Arrow uses _physical_ type information, whereas Vortex is a pure logical
+//! type system.For example, Arrow distinguishes between `String` and `LargeString`
+//! layouts based on the size of the offset elements, whereas in Vortex they are
+//! both just `Utf8`.
+//!
+//!
+//! ```rust
+//! use arrow_schema::DataType;
+//! use vortex_dtype::{DType, Nullability, PType, arrow::FromArrowType};
+//!
+//! // This type has no exact representation in Vortex
+//! let arrow_large_string = DataType::LargeUtf8;
+//! let vortex_string = DType::from_arrow((&arrow_large_string, false.into()));
+//! // The "Large" is lost in the conversion.
+//! assert_eq!(vortex_string, DType::Utf8(false.into()));
+//! ```
+//!
+//! There are many such cases where extra Arrow type information is lost. Users that
+//! want to be able to round-trip back to Arrow later should save the original
+//! `DataType`.
+//!
+//! ## Vortex -> Arrow
+//!
+//! `DType` has defined conversions into both [`Schema`] and [`DataType`], where the former
+//! is only supported for struct types.
+//!
+//! [`DType::to_arrow_schema`] and its sibling [`DType::to_arrow`] follow a simple algorithm
+//! for selecting the nearest Arrow type:
+//!
+//! * Vortex `Utf8` maps to Arrow `Utf8View` and Vortex `Binary` maps to `BinaryView`
+//! * The non-`Large` variant of a type is always selected by default
+//! * Extension types provide a mapping to
+//!
+//! ```rust
+//! use std::sync::Arc;
+//! use arrow_schema::DataType;
+//! use vortex_dtype::{DType, Nullability, PType};
+//!
+//! // Utf8 will be selected over LargeUtf8
+//! assert_eq!(
+//!     DType::Utf8(false.into()).to_arrow().unwrap(),
+//!     DataType::Utf8View,
+//! );
+//!
+//! // List will be selected over LargeList
+//! assert_eq!(
+//!     DType::List(Arc::new(PType::I32.into()), false.into()).to_arrow().unwrap(),
+//!     DataType::new_list(DataType::Int32, false),
+//! );
+//! ```
+//!
+//! ## Extension type support
+//!
+//! Arrow provides an extension type mechanism, effectively a type alias to another `DataType` with
+//! some additional key-value string metadata that is carried on the field schema.
+//!
+//! Vortex supports canonicalizing its types into Arrow extension types, via the implementation
+//! of the [`ArrowTypeConversion`] trait, and the [`register_extension_type!`][register_extension_type] macro.
+//!
+//! ```rust
+//! use std::collections::HashMap;
+//! use std::sync::Arc;
+//!
+//! use arcref::ArcRef;
+//! use arrow_schema::Field;
+//! use arrow_schema::extension::{EXTENSION_TYPE_METADATA_KEY, EXTENSION_TYPE_NAME_KEY};
+//! use vortex_dtype::{register_extension_type, DType, ExtDType, ExtID, PType, StructDType};
+//! use vortex_dtype::arrow::{ArrowTypeConversion, ArrowTypeConversionRef};
+//! use vortex_error::VortexResult;
+//!
+//! pub struct TemperatureConversion;
+//!
+//! impl ArrowTypeConversion for TemperatureConversion {
+//!     fn arrow_metadata(&self, dtype: &ExtDType) -> VortexResult<Option<HashMap<String, String>>> {
+//!         if dtype.id().as_ref() != "vortex.temperature" {
+//!             return Ok(None);
+//!         }
+//!
+//!         let mut metadata = HashMap::new();
+//!         metadata.insert(EXTENSION_TYPE_NAME_KEY.to_string(), "vortex.temperature".to_string());
+//!         metadata.insert(EXTENSION_TYPE_METADATA_KEY.to_string(), r#"{"unit": "F"}"#.to_string());
+//!         Ok(Some(metadata))
+//!     }
+//! }
+//!
+//! // Register the extension type so `DType` methods are aware of it at runtime.
+//! register_extension_type! {
+//!     ArrowTypeConversionRef::new(ArcRef::new_ref(&TemperatureConversion))
+//! };
+//!
+//! // Attempt to use the extension type
+//! let ext_type = ExtDType::new(
+//!     ExtID::new("vortex.temperature".into()),
+//!     Arc::new(DType::Primitive(PType::F32, false.into())),
+//!     None,
+//! );
+//!
+//! // Extension types only carry their metadata in a schema, so we
+//! // use a struct type
+//! let ext_type = DType::Extension(Arc::new(ext_type));
+//! let schema = StructDType::from_fields(
+//!     ["values".into()].into(),
+//!     vec![ext_type.into()],
+//! );
+//!
+//! let schema_type = DType::Struct(Arc::new(schema), false.into());
+//!
+//! let arrow_schema = schema_type.to_arrow_schema().unwrap();
+//! let ext_field = arrow_schema.field(0);
+//! assert_eq!(
+//!     ext_field.extension_type_name(),
+//!     Some("vortex.temperature"),
+//! );
+//!
+//! assert_eq!(
+//!     ext_field.extension_type_metadata(),
+//!     Some(r#"{"unit": "F"}"#),
+//! );
+//! ```
 
 use std::ops::Deref;
 use std::sync::Arc;

@@ -5,7 +5,7 @@
 //!
 //! ## Example:
 //!
-//! ```
+//! ```rust
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
 //! use vortex_dtype::{DType, Nullability};
 //!
