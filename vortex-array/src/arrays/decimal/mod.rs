@@ -73,10 +73,6 @@ impl DecimalArray {
             }
         }
 
-        if T::VALUES_TYPE == DecimalValueType::I128 && false {
-            vortex_panic!("new DecimalArray values: {:?}", T::VALUES_TYPE);
-        }
-
         Self {
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             values: buffer.into_byte_buffer(),

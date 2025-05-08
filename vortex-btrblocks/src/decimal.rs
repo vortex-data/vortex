@@ -20,8 +20,8 @@ pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
     };
 
     let compressed = IntCompressor::compress(&prim, false, MAX_CASCADE, &[])?;
-    let res = DecimalBytePartsArray::try_new(vec![compressed], decimal.decimal_dtype())
-        .map(|d| d.to_array());
+    
 
-    res
+    DecimalBytePartsArray::try_new(vec![compressed], decimal.decimal_dtype())
+        .map(|d| d.to_array())
 }
