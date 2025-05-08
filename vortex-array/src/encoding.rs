@@ -16,6 +16,8 @@ use crate::{Array, ArrayContext, ArrayRef, Canonical};
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
 
+pub type EncodingRef = ArcRef<dyn Encoding>;
+
 /// Marker trait for array encodings with their associated Array type.
 pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// Downcast the encoding to [`Any`].

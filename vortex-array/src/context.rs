@@ -1,21 +1,22 @@
 use std::fmt::Display;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
+use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::EncodingRef;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use crate::encoding::Encoding;
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
-pub type ArrayContext = VTableContext<VTableRef>;
-pub type ArrayRegistry = VTableRegistry<VTableRef>;
+pub type ArrayContext = VTableContext<EncodingRef>;
+pub type ArrayRegistry = VTableRegistry<EncodingRef>;
 
 impl ArrayRegistry {
     pub fn canonical_only() -> Self {
@@ -23,19 +24,22 @@ impl ArrayRegistry {
 
         // Register the canonical encodings
         this.register_many([
-            NullEncoding.vtable(),
-            BoolEncoding.vtable(),
-            PrimitiveEncoding.vtable(),
-            DecimalEncoding.vtable(),
-            StructEncoding.vtable(),
-            ListEncoding.vtable(),
-            VarBinEncoding.vtable(),
-            VarBinViewEncoding.vtable(),
-            ExtensionEncoding.vtable(),
+            ArcRef::new_ref(&NullEncoding) as EncodingRef,
+            ArcRef::new_ref(&BoolEncoding),
+            ArcRef::new_ref(&PrimitiveEncoding),
+            ArcRef::new_ref(&DecimalEncoding),
+            ArcRef::new_ref(&StructEncoding),
+            ArcRef::new_ref(&ListEncoding),
+            ArcRef::new_ref(&VarBinEncoding),
+            ArcRef::new_ref(&VarBinViewEncoding),
+            ArcRef::new_ref(&ExtensionEncoding),
         ]);
 
         // Register the utility encodings
-        this.register_many([ConstantEncoding.vtable(), ChunkedEncoding.vtable()]);
+        this.register_many([
+            ArcRef::new_ref(&ConstantEncoding) as EncodingRef,
+            ArcRef::new_ref(&ChunkedEncoding),
+        ]);
 
         this
     }
