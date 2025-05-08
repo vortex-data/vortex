@@ -1,5 +1,6 @@
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
+use vortex_scalar::PValue;
 
 use crate::arrays::constant::ConstantArray;
 use crate::variants::{
@@ -51,7 +52,18 @@ impl NullArrayTrait for ConstantArray {}
 
 impl BoolArrayTrait for ConstantArray {}
 
-impl PrimitiveArrayTrait for ConstantArray {}
+impl PrimitiveArrayTrait for ConstantArray {
+    fn value(&self, _idx: usize) -> Option<PValue> {
+        self.scalar().as_primitive().pvalue()
+    }
+
+    fn value_unchecked(&self, _idx: usize) -> PValue {
+        self.scalar()
+            .as_primitive()
+            .pvalue()
+            .unwrap_or_else(|| PValue::zero(self.ptype()))
+    }
+}
 
 impl Utf8ArrayTrait for ConstantArray {}
 

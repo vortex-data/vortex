@@ -3,9 +3,8 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
-use crate::compute::{
-    FilterKernel, FilterKernelAdapter, SearchSorted, SearchSortedSide, filter, take,
-};
+use crate::compute::{FilterKernel, FilterKernelAdapter, filter, take};
+use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, register_kernel};
 

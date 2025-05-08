@@ -3,23 +3,21 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
-use num_traits::ToPrimitive;
+use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
-use vortex_scalar::Scalar;
+use vortex_scalar::{PValue, Scalar};
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
-use crate::compute::{
-    SearchResult, SearchSortedSide, cast, filter, search_sorted, search_sorted_usize,
-    search_sorted_usize_many, take,
-};
+use crate::compute::{cast, filter, take};
+use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
 
 #[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
 pub struct PatchesMetadata {
@@ -221,7 +219,14 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        search_sorted_usize(&self.indices, index + self.offset, SearchSortedSide::Left)
+        Ok(self
+            .indices
+            .as_primitive_typed()
+            .vortex_expect("must be primitive")
+            .search_sorted(
+                &PValue::U64((index + self.offset) as u64),
+                SearchSortedSide::Left,
+            ))
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -230,23 +235,29 @@ impl Patches {
         target: T,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        search_sorted(self.values(), target.into(), side).and_then(|sr| {
-            let index_idx = sr.to_offsets_index(self.indices().len(), side);
-            let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
-            Ok(match sr {
-                // If we reached the end of patched values when searching then the result is one after the last patch index
-                SearchResult::Found(i) => SearchResult::Found(
-                    if i == self.indices().len() || side == SearchSortedSide::Right {
-                        index + 1
-                    } else {
-                        index
-                    },
-                ),
-                // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
-                SearchResult::NotFound(i) => {
-                    SearchResult::NotFound(if i == 0 { index } else { index + 1 })
-                }
-            })
+        let target = target.into();
+
+        let sr = if let Some(parray) = self.values().as_primitive_typed() {
+            parray.search_sorted(&target.as_primitive().pvalue(), side)
+        } else {
+            self.values().search_sorted(&target, side)
+        };
+
+        let index_idx = sr.to_offsets_index(self.indices().len(), side);
+        let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
+        Ok(match sr {
+            // If we reached the end of patched values when searching then the result is one after the last patch index
+            SearchResult::Found(i) => SearchResult::Found(
+                if i == self.indices().len() || side == SearchSortedSide::Right {
+                    index + 1
+                } else {
+                    index
+                },
+            ),
+            // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
+            SearchResult::NotFound(i) => {
+                SearchResult::NotFound(if i == 0 { index } else { index + 1 })
+            }
         })
     }
 
@@ -322,10 +333,13 @@ impl Patches {
     }
 
     pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+        let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
-        let Some((new_indices, values_indices)) = match_each_integer_ptype!(take_indices.ptype(), |$I| {
-            take_search::<$I>(self.indices(), take_indices, self.offset())?
+        let Some((new_indices, values_indices)) = match_each_integer_ptype!(indices.ptype(), |$INDICES| {
+            match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
+                take_search::<_, $TAKE_INDICES>(indices.as_slice::<$INDICES>(), take_indices, self.offset())?
+            })
         }) else {
             return Ok(None);
         };
@@ -374,8 +388,8 @@ impl Patches {
     }
 }
 
-fn take_search<T: NativePType + TryFrom<usize>>(
-    indices: &dyn Array,
+fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
+    indices: &[I],
     take_indices: PrimitiveArray,
     indices_offset: usize,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
@@ -384,24 +398,27 @@ where
     VortexError: From<<usize as TryFrom<T>>::Error>,
 {
     let take_indices_validity = take_indices.validity();
-    let take_indices = take_indices
+    let indices_offset = I::from(indices_offset).vortex_expect("indices_offset out of range");
+
+    let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) = take_indices
         .as_slice::<T>()
         .iter()
-        .copied()
-        .map(usize::try_from)
-        .map_ok(|idx| idx + indices_offset)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
-        search_sorted_usize_many(indices, &take_indices, SearchSortedSide::Left)?
-            .iter()
-            .enumerate()
-            .filter_map(|(idx_in_take, search_result)| {
-                search_result
-                    .to_found()
-                    .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
-            })
-            .unzip();
+        .map(|v| {
+            match I::from(*v) {
+                None => {
+                    // If the cast failed, then the value is greater than all indices.
+                    SearchResult::NotFound(indices.len())
+                }
+                Some(v) => indices.search_sorted(&(v + indices_offset), SearchSortedSide::Left),
+            }
+        })
+        .enumerate()
+        .filter_map(|(idx_in_take, search_result)| {
+            search_result
+                .to_found()
+                .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
+        })
+        .unzip();
 
     if new_indices.is_empty() {
         return Ok(None);
@@ -569,8 +586,8 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
+    use crate::search_sorted::{SearchResult, SearchSortedSide};
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical};
 

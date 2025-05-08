@@ -1,16 +1,11 @@
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, TakeFn, filter, take};
-use vortex_array::vtable::ComputeVTable;
+use vortex_array::compute::{
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+};
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{ZigZagArray, ZigZagEncoding};
-
-impl ComputeVTable for ZigZagEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
 
 impl FilterKernel for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -21,12 +16,14 @@ impl FilterKernel for ZigZagEncoding {
 
 register_kernel!(FilterKernelAdapter(ZigZagEncoding).lift());
 
-impl TakeFn<&ZigZagArray> for ZigZagEncoding {
+impl TakeKernel for ZigZagEncoding {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(ZigZagEncoding).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;
@@ -51,7 +48,7 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
-    use vortex_array::compute::{SearchResult, SearchSortedSide, filter, search_sorted, take};
+    use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::EncodingVTable;
     use vortex_array::{Array, IntoArray, ToCanonical};
@@ -60,21 +57,6 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::ZigZagEncoding;
-
-    #[test]
-    pub fn search_sorted_uncompressed() {
-        let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            search_sorted(&zigzag, -169, SearchSortedSide::Right).unwrap(),
-            SearchResult::NotFound(1)
-        );
-    }
 
     #[test]
     pub fn nullable_scalar_at() {

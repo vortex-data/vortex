@@ -7,12 +7,11 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
-use crate::builders::ArrayBuilder;
-use crate::compute::{TakeFn, fill_null};
+use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeFn<&BoolArray> for BoolEncoding {
+impl TakeKernel for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
@@ -32,16 +31,9 @@ impl TakeFn<&BoolArray> for BoolEncoding {
 
         Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
     }
-
-    fn take_into(
-        &self,
-        array: &BoolArray,
-        indices: &dyn Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        builder.extend_from_array(&self.take(array, indices)?)
-    }
 }
+
+register_kernel!(TakeKernelAdapter(BoolEncoding).lift());
 
 fn take_valid_indices<I: AsPrimitive<usize>>(
     bools: &BooleanBuffer,

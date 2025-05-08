@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
@@ -7,9 +8,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arcref::ArcRef;
 use crate::stats::StatsSetRef;
-use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
@@ -30,8 +30,6 @@ impl EncodingVTable for ArrowArrayEncoding {
         todo!()
     }
 }
-
-impl ComputeVTable for ArrowArrayEncoding {}
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {

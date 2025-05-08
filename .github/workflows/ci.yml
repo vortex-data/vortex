@@ -95,7 +95,7 @@ jobs:
           uv run --isolated --all-packages make html
         working-directory: docs/
 
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |

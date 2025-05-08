@@ -8,22 +8,6 @@ mod min_max;
 pub(crate) mod take;
 mod take_from;
 
-use vortex_array::Array;
-use vortex_array::compute::{TakeFn, TakeFromFn};
-use vortex_array::vtable::ComputeVTable;
-
-use crate::RunEndEncoding;
-
-impl ComputeVTable for RunEndEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_from_fn(&self) -> Option<&dyn TakeFromFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use vortex_array::Array;

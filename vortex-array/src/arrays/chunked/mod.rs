@@ -12,9 +12,10 @@ use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::ArrayValidityImpl;
-use crate::compute::{ComputeFn, InvocationArgs, Output, SearchSorted, SearchSortedSide};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
+use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::VTableRef;

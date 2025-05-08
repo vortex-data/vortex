@@ -133,9 +133,9 @@ impl PruningEvaluation for StatsPruningEvaluation {
 mod test {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::arcref::ArcRef;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;

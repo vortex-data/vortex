@@ -4,24 +4,8 @@ mod cast;
 mod compare;
 mod filter;
 mod invert;
-mod search_sorted;
 mod sum;
 mod take;
-
-use crate::Array;
-use crate::arrays::ConstantEncoding;
-use crate::compute::{SearchSortedFn, TakeFn};
-use crate::vtable::ComputeVTable;
-
-impl ComputeVTable for ConstantEncoding {
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
 
 #[cfg(test)]
 mod test {

@@ -4,10 +4,10 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::builders::builder_with_capacity;
-use crate::compute::TakeFn;
-use crate::{Array, ArrayRef};
+use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl TakeFn<&ConstantArray> for ConstantEncoding {
+impl TakeKernel for ConstantEncoding {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {
@@ -43,6 +43,8 @@ impl TakeFn<&ConstantArray> for ConstantEncoding {
         }
     }
 }
+
+register_kernel!(TakeKernelAdapter(ConstantEncoding).lift());
 
 #[cfg(test)]
 mod tests {

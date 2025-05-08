@@ -8,9 +8,6 @@ use crate::compute::{
     IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
 };
 use crate::register_kernel;
-use crate::vtable::ComputeVTable;
-
-impl ComputeVTable for ListEncoding {}
 
 impl IsConstantKernel for ListEncoding {
     fn is_constant(

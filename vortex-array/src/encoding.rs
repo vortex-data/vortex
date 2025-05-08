@@ -2,7 +2,8 @@
 
 use std::fmt::Debug;
 
-use crate::arcref::ArcRef;
+use arcref::ArcRef;
+
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, DeserializeMetadata, SerializeMetadata};
 

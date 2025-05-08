@@ -5,17 +5,6 @@ mod mask;
 mod min_max;
 mod take;
 
-use crate::Array;
-use crate::arrays::VarBinViewEncoding;
-use crate::compute::TakeFn;
-use crate::vtable::ComputeVTable;
-
-impl ComputeVTable for VarBinViewEncoding {
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -24,10 +13,9 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
-    use crate::builders::{ArrayBuilder, VarBinViewBuilder};
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{take, take_into};
+    use crate::compute::take;
 
     #[test]
     fn take_nullable() {
@@ -68,34 +56,5 @@ mod tests {
             Some("four"),
             Some("five"),
         ]));
-    }
-
-    #[test]
-    fn take_into_nullable() {
-        let arr = VarBinViewArray::from_iter_nullable_str([
-            Some("one"),
-            None,
-            Some("three"),
-            Some("four"),
-            None,
-            Some("six"),
-        ]);
-
-        let mut builder = VarBinViewBuilder::with_capacity(arr.dtype().clone(), arr.len());
-
-        take_into(&arr, &buffer![0, 3].into_array(), &mut builder).unwrap();
-
-        let taken = builder.finish();
-        assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken
-                .to_varbinview()
-                .unwrap()
-                .with_iterator(|it| it
-                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                    .collect::<Vec<_>>())
-                .unwrap(),
-            [Some("one".to_string()), Some("four".to_string())]
-        );
     }
 }

@@ -85,6 +85,13 @@ impl LayoutWriter for DictLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
