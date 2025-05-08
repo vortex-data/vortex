@@ -14,7 +14,6 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
     Encoding, IntoArray, try_from_array_ref,
@@ -43,6 +42,7 @@ try_from_array_ref!(PrimitiveArray);
 
 #[derive(Debug)]
 pub struct PrimitiveEncoding;
+
 impl Encoding for PrimitiveEncoding {
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;

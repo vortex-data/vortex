@@ -14,7 +14,6 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::DecimalArrayTrait;
-use crate::vtable::VTableRef;
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,

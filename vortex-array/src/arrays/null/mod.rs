@@ -6,7 +6,6 @@ use vortex_scalar::Scalar;
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayOperationsImpl, ArrayRef,
     ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,

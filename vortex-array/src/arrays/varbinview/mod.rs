@@ -17,7 +17,6 @@ use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
     TryFromArrayRef, try_from_array_ref,

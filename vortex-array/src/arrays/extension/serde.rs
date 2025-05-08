@@ -4,7 +4,6 @@ use vortex_error::{VortexResult, vortex_bail};
 use super::ExtensionEncoding;
 use crate::arrays::ExtensionArray;
 use crate::serde::ArrayParts;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
 };

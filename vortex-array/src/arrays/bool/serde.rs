@@ -3,13 +3,14 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use super::{BoolArray, BoolEncoding};
+use super::BoolArray;
+use crate::arrays::Bool;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
+use crate::vtable::{SerdeVTable, VTable};
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayVisitorImpl, Canonical,
+    Encoding, ProstMetadata,
 };
 
 #[derive(prost::Message)]
@@ -19,39 +20,45 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
-impl EncodingVTable for BoolEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.bool")
+impl SerdeVTable<Bool> for Bool {
+    type Metadata = ProstMetadata<BoolMetadata>;
+
+    fn encode(
+        _encoding: &<Bool as VTable>::Encoding,
+        _canonical: Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<<Bool as VTable>::Array> {
+        todo!()
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &<Bool as VTable>::Encoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = <Self as Encoding>::Metadata::deserialize(parts.metadata())?;
-
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<<Bool as VTable>::Array> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
         let buffer = BooleanBuffer::new(
-            parts.buffer(0)?.into_arrow_buffer(),
+            buffers[0].clone().into_arrow_buffer(),
             metadata.offset as usize,
             len,
         );
 
-        let validity = if parts.nchildren() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 1 {
+            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        Ok(BoolArray::new(buffer, validity).into_array())
+        Ok(BoolArray::new(buffer, validity))
     }
 }
 

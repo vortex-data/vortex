@@ -6,7 +6,6 @@ use super::PrimitiveEncoding;
 use crate::arrays::PrimitiveArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
     Canonical, EmptyMetadata, EncodingId,

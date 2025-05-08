@@ -7,7 +7,6 @@ use super::{BinaryView, VarBinViewEncoding};
 use crate::arrays::VarBinViewArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
     EmptyMetadata, EncodingId,

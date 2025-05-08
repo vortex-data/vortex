@@ -6,7 +6,6 @@ use vortex_scalar::{Scalar, ScalarValue};
 use super::ConstantEncoding;
 use crate::arrays::ConstantArray;
 use crate::serde::ArrayParts;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
 };

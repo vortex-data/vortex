@@ -2,6 +2,7 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
@@ -9,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::serde::ArrayParts;
 use crate::vtable::VTable;
+use crate::vtable::serde::SerdeVTable;
 use crate::{Array, ArrayContext, ArrayRef, Canonical};
 
 /// EncodingId is a globally unique name of the array's encoding.
@@ -71,7 +73,8 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
                 .is_some_and(|e| e.id() == self.id()),
             "ArrayParts do not match the current encoding",
         );
-        Ok(ArrayAdapter(V::decode(&self.0, parts, ctx, dtype, len)?).into_array())
+        let array = <V::SerdeVTable as SerdeVTable<V>>::decode(&self.0, parts, ctx, dtype, len)?;
+        Ok(array.deref().to_array())
     }
 
     fn encode(
@@ -85,7 +88,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
 
 impl<V: VTable> Debug for EncodingAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Encoding").field("id", self.id()).finish()
+        f.debug_struct("Encoding").field("id", &self.id()).finish()
     }
 }
 
@@ -95,26 +98,4 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for EncodingAdapter<V> {}
-}
-
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`] implementation.
-///
-/// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
-/// structs into [`dyn Array`] using some cheeky casting inside [`Deref`] and [`AsRef`]. See
-/// the `vtable!` macro for more details.
-#[repr(transparent)]
-pub struct ArrayAdapter<V: VTable>(V::Array);
-
-impl<V: VTable> Array for ArrayAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn len(&self) -> usize {
-        V::len(&self.0)
-    }
-
-    fn dtype(&self) -> &DType {
-        V::dtype(&self.0)
-    }
 }

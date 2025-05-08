@@ -7,7 +7,6 @@ use crate::arrays::StructArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
 };

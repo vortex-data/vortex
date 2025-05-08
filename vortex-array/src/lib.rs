@@ -4,6 +4,7 @@
 #![feature(trusted_len)]
 #![feature(array_chunks)]
 #![feature(iterator_try_collect)]
+#![feature(associated_type_defaults)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::EncodingVTable).
@@ -15,7 +16,6 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
 pub use array::*;
-pub use array2::*;
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
@@ -24,7 +24,6 @@ pub use metadata::*;
 pub mod accessor;
 pub mod aliases;
 mod array;
-mod array2;
 pub mod arrays;
 pub mod arrow;
 pub mod builders;

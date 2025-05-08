@@ -9,7 +9,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::stats::StatsSetRef;
-use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,

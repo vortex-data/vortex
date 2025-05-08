@@ -18,7 +18,6 @@ use crate::nbytes::NBytes;
 use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::vtable::VTableRef;
 use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding, IntoArray};
 
 mod canonical;

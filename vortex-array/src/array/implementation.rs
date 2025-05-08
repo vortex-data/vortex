@@ -15,7 +15,6 @@ use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
     Canonical, Encoding, EncodingId,

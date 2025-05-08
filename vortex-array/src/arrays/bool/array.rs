@@ -1,18 +1,21 @@
+use arcref::ArcRef;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
-use super::serde::BoolMetadata;
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::bool;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, ProstMetadata};
+use crate::vtable::{BoolVTable, VTable};
+use crate::{ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, vtable};
+
+pub struct Bool;
+vtable!(Bool);
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -26,9 +29,33 @@ pub struct BoolArray {
 #[derive(Debug)]
 pub struct BoolEncoding;
 
-impl Encoding for BoolEncoding {
+impl VTable for Bool {
     type Array = BoolArray;
-    type Metadata = ProstMetadata<BoolMetadata>;
+    type Encoding = BoolEncoding;
+
+    // Enable serde for this encoding
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.bool")
+    }
+
+    fn len(array: &Self::Array) -> usize {
+        array.buffer.len()
+    }
+
+    fn dtype(array: &Self::Array) -> &DType {
+        &array.dtype
+    }
+
+    fn with_children(array: &Self::Array, children: &[ArrayRef]) -> VortexResult<Self::Array> {
+        let validity = if array.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            array.validity().clone()
+        };
+        Ok(BoolArray::new(array.boolean_buffer().clone(), validity))
+    }
 }
 
 impl BoolArray {
@@ -112,35 +139,6 @@ impl BoolArray {
     }
 }
 
-impl ArrayImpl for BoolArray {
-    type Encoding = BoolEncoding;
-
-    #[inline]
-    fn _len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    #[inline]
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    #[inline]
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&BoolEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Ok(Self::new(self.boolean_buffer().clone(), validity))
-    }
-}
-
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
         Self::new(value, Validity::NonNullable)
@@ -210,7 +208,7 @@ impl ArrayVariantsImpl for BoolArray {
     }
 }
 
-impl BoolArrayTrait for BoolArray {}
+impl BoolVTable<Bool> for Bool {}
 
 pub trait BooleanBufferExt {
     /// Slice any full bytes from the buffer, leaving the offset < 8.

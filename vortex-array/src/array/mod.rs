@@ -31,7 +31,8 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::StatsSetRef;
-use crate::{Canonical, EncodingAdapter, EncodingId, VTable};
+use crate::vtable::VTable;
+use crate::{Canonical, Encoding, EncodingId};
 
 /// The base trait for all Vortex arrays.
 ///
@@ -351,3 +352,12 @@ mod private {
 
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
 }
+
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`]
+/// implementation.
+///
+/// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
+/// structs into [`dyn Array`] using some cheeky casting inside [`Deref`] and [`AsRef`]. See
+/// the `vtable!` macro for more details.
+#[repr(transparent)]
+pub struct ArrayAdapter<V: VTable>(V::Array);

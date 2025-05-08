@@ -15,7 +15,6 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, ProstMetadata, try_from_array_ref,
 };

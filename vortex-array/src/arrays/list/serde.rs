@@ -4,7 +4,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use super::{ListArray, ListEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
     EncodingId, ProstMetadata,

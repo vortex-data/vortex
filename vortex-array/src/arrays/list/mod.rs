@@ -18,7 +18,6 @@ use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
-use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,

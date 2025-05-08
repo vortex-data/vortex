@@ -7,7 +7,6 @@ use super::{DecimalArray, DecimalEncoding};
 use crate::arrays::NativeDecimalType;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
 };

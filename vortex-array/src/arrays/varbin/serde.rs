@@ -7,7 +7,6 @@ use crate::arrays::VarBinArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
     Canonical, DeserializeMetadata, EncodingId, IntoArray, ProstMetadata,

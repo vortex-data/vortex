@@ -6,7 +6,6 @@ use super::ChunkedEncoding;
 use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
     ToCanonical,
