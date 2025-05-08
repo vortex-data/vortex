@@ -288,17 +288,17 @@ macro_rules! match_each_decimal_value_type {
         }
     });
     ($self:expr, | ($_0:tt $enc:ident, $_1:tt $dv_path:ident) | $($body:tt)*) => ({
-        macro_rules! __with2__ { ( $_0 $enc:ident, $_1 $dv_path:ident ) => ( $($body)* ) }
+        macro_rules! __with__ { ( $_0 $enc:ident, $_1 $dv_path:ident ) => ( $($body)* ) }
         use $crate::{DecimalValueType, i256};
         use $crate::DecimalValue::*;
 
         match $self {
-            DecimalValueType::I8 => __with2__! { i8, I8 },
-            DecimalValueType::I16 => __with2__! { i16, I16 },
-            DecimalValueType::I32 => __with2__! { i32, I32 },
-            DecimalValueType::I64 => __with2__! { i64, I64 },
-            DecimalValueType::I128 => __with2__! { i128, I128 },
-            DecimalValueType::I256 => __with2__! { i256, I256 },
+            DecimalValueType::I8 => __with__! { i8, I8 },
+            DecimalValueType::I16 => __with__! { i16, I16 },
+            DecimalValueType::I32 => __with__! { i32, I32 },
+            DecimalValueType::I64 => __with__! { i64, I64 },
+            DecimalValueType::I128 => __with__! { i128, I128 },
+            DecimalValueType::I256 => __with__! { i256, I256 },
             ty => vortex_error::vortex_panic!("unknown decimal value type {:?}", ty),
 
         }
