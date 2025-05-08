@@ -181,12 +181,6 @@ macro_rules! decimal_scalar_unpack {
                 }
             }
         }
-
-        impl From<$ty> for DecimalValue {
-            fn from(value: $ty) -> Self {
-                DecimalValue::$arm(value)
-            }
-        }
     };
 }
 
@@ -196,3 +190,25 @@ decimal_scalar_unpack!(i32, I32);
 decimal_scalar_unpack!(i64, I64);
 decimal_scalar_unpack!(i128, I128);
 decimal_scalar_unpack!(i256, I256);
+
+macro_rules! decimal_scalar_pack {
+    ($from:ident, $to:ident, $arm:ident) => {
+        impl From<$from> for DecimalValue {
+            fn from(value: $from) -> Self {
+                DecimalValue::$arm(value as $to)
+            }
+        }
+    };
+}
+
+decimal_scalar_pack!(i8, i8, I8);
+decimal_scalar_pack!(u8, i16, I16);
+decimal_scalar_pack!(i16, i16, I16);
+decimal_scalar_pack!(u16, i32, I32);
+decimal_scalar_pack!(i32, i32, I32);
+decimal_scalar_pack!(u32, i64, I64);
+decimal_scalar_pack!(i64, i64, I64);
+decimal_scalar_pack!(u64, i128, I128);
+
+decimal_scalar_pack!(i128, i128, I128);
+decimal_scalar_pack!(i256, i256, I256);

@@ -1,4 +1,5 @@
 mod compute;
+mod macros;
 mod ops;
 mod serde;
 

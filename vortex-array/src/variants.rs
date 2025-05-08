@@ -30,7 +30,7 @@ pub trait PrimitiveArrayTrait: Array {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
-    /// `maybe_null_slice` or `into_maybe_null_slice`.
+    /// `buffer`, `into_buffer` or `into_buffer_mut`.
     fn ptype(&self) -> PType {
         if let DType::Primitive(ptype, ..) = self.dtype() {
             *ptype

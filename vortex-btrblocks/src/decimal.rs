@@ -1,0 +1,21 @@
+use vortex_array::arrays::{DecimalArray, DecimalValueType, PrimitiveArray};
+use vortex_array::{Array, ArrayRef};
+use vortex_decimal::DecimalWrapperArray;
+use vortex_error::VortexResult;
+
+use crate::{Compressor, IntCompressor, MAX_CASCADE};
+
+// TODO(joe): add support for narrowing i128/256 buffers into primitive values for compression.
+pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
+    let validity = decimal.validity();
+    let prim = match decimal.values_type() {
+        DecimalValueType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone()),
+        DecimalValueType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone()),
+        DecimalValueType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone()),
+        DecimalValueType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone()),
+        _ => return Ok(decimal.clone().into_array()),
+    };
+
+    let compressed = IntCompressor::compress(&prim, false, MAX_CASCADE, &[])?;
+    DecimalWrapperArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.to_array())
+}
