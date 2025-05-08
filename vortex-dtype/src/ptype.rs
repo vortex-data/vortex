@@ -15,21 +15,9 @@ use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-#[cfg_attr(
-    feature = "rkyv",
-    derive(
-        rkyv::Archive,
-        rkyv::Portable,
-        rkyv::Serialize,
-        rkyv::Deserialize,
-        rkyv::bytecheck::CheckBytes,
-    ),
-    rkyv(as = PType),
-    bytecheck(crate = rkyv::bytecheck),
-)]
 #[repr(u8)]
 pub enum PType {
     /// An 8-bit unsigned integer
@@ -80,6 +68,10 @@ pub trait NativePType:
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
 
+    /// Whether this instance (`self`) is Infinite
+    /// For integer types, this is always `false`
+    fn is_infinite(self) -> bool;
+
     /// Compare another instance of this type to `self`, providing a total ordering
     fn total_compare(self, other: Self) -> Ordering;
 
@@ -122,6 +114,11 @@ macro_rules! native_ptype {
             }
 
             #[inline]
+            fn is_infinite(self) -> bool {
+                false
+            }
+
+            #[inline]
             fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
             }
@@ -142,6 +139,11 @@ macro_rules! native_float_ptype {
             #[inline]
             fn is_nan(self) -> bool {
                 <$T>::is_nan(self)
+            }
+
+            #[inline]
+            fn is_infinite(self) -> bool {
+                <$T>::is_infinite(self)
             }
 
             #[inline]

@@ -6,3 +6,4 @@ pub const STORAGE_GCS: &str = "gcs";
 /// Dataset name constants
 pub const CLICKBENCH_DATASET: &str = "clickbench";
 pub const TPCH_DATASET: &str = "tpch";
+pub const TPCDS_DATASET: &str = "tpcds";

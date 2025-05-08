@@ -1,5 +1,8 @@
+// TODO(joe): remove me
+#![allow(clippy::panic)]
+
 use std::ffi::{CStr, c_char, c_int, c_void};
-use std::ptr::null;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
@@ -51,10 +54,8 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_list(
     element: *mut DType,
     nullable: bool,
 ) -> *mut DType {
-    assert!(!element.is_null(), "DType_new_list: null ptr");
-
-    let element_type = *Box::from_raw(element);
-    let element_dtype = Arc::new(element_type);
+    let element_type = unsafe { element.as_ref() }.vortex_expect("null dtype");
+    let element_dtype = Arc::new(element_type.clone());
     let list_dtype = DType::List(element_dtype, nullable.into());
 
     Box::into_raw(Box::new(list_dtype))
@@ -72,13 +73,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
     let mut field_dtypes = Vec::with_capacity(len as usize);
 
     for i in 0..len {
-        let name_ptr = *names.add(i as usize);
-        let name: Arc<str> = CStr::from_ptr(name_ptr).to_string_lossy().into();
-        let dtype = Box::from_raw(*dtypes.add(i as usize));
-        let dtype = *dtype;
+        unsafe {
+            let name_ptr = *names.add(i as usize);
+            let name: Arc<str> = CStr::from_ptr(name_ptr).to_string_lossy().into();
+            let dtype = Box::from_raw(*dtypes.add(i as usize));
+            let dtype = *dtype;
 
-        rust_names.push(name);
-        field_dtypes.push(dtype);
+            rust_names.push(name);
+            field_dtypes.push(dtype);
+        }
     }
 
     let field_names = FieldNames::from(rust_names);
@@ -90,13 +93,13 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
 /// Free an [`DType`] and all associated resources.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_free(dtype: *mut DType) {
-    drop(Box::from_raw(dtype));
+    drop(unsafe { Box::from_raw(dtype) });
 }
 
 /// Get the dtype variant tag for an [`DType`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_get(dtype: *const DType) -> u8 {
-    match dtype.as_ref().vortex_expect("null dtype") {
+    match unsafe { dtype.as_ref() }.vortex_expect("null dtype") {
         DType::Null => DTYPE_NULL,
         DType::Bool(_) => DTYPE_BOOL,
         DType::Primitive(ptype, _) => match ptype {
@@ -112,6 +115,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_get(dtype: *const DType) -> u8 {
             PType::F32 => DTYPE_PRIMITIVE_F32,
             PType::F64 => DTYPE_PRIMITIVE_F64,
         },
+        DType::Decimal(..) => DTYPE_DECIMAL,
         DType::Utf8(_) => DTYPE_UTF8,
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
@@ -158,10 +162,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_field_name(
     let field_name = struct_dtype.names()[index as usize].as_ref();
     let bytes = field_name.as_bytes();
 
-    let dst_slice = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+    let dst_slice = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
     dst_slice.copy_from_slice(bytes);
 
-    *len = bytes.len().try_into().vortex_unwrap();
+    unsafe { *len = bytes.len().try_into().vortex_unwrap() };
 }
 
 /// Get the dtype of a field in a `DTYPE_STRUCT` variant DType.
@@ -199,7 +203,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_element_type(
 ) -> *const DType {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    try_or(error, null(), || {
+    try_or(error, ptr::null(), || {
         let DType::List(element_dtype, _) = dtype else {
             vortex_bail!("vx_dtype_element_type: not a list dtype")
         };
@@ -267,12 +271,12 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
         TemporalMetadata::Timestamp(_, zone) => {
             if let Some(zone) = zone {
                 let bytes = zone.as_bytes();
-                let dst = std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len());
+                let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
                 dst.copy_from_slice(bytes);
-                *len = bytes.len().try_into().vortex_unwrap();
+                unsafe { *len = bytes.len().try_into().vortex_unwrap() };
             } else {
                 // No time zone, using local timestamps.
-                *len = 0;
+                unsafe { *len = 0 };
             }
         }
         _ => panic!("DType_time_zone: not a timestamp metadata: {:?}", ext_dtype),
@@ -297,6 +301,7 @@ pub const DTYPE_BINARY: u8 = 14;
 pub const DTYPE_STRUCT: u8 = 15;
 pub const DTYPE_LIST: u8 = 16;
 pub const DTYPE_EXTENSION: u8 = 17;
+pub const DTYPE_DECIMAL: u8 = 18;
 
 #[cfg(test)]
 mod tests {

@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -118,6 +118,11 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
         .try_collect()
         .await?;
 
+        // If there is only one mask, we can return it directly.
+        if masks.len() == 1 {
+            return Ok(masks.into_iter().next().vortex_expect("one mask"));
+        }
+
         // Combine the masks.
         Ok(Mask::from_iter(masks))
     }
@@ -156,6 +161,11 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
         .try_collect()
         .await?;
 
+        // If there is only one mask, we can return it directly.
+        if masks.len() == 1 {
+            return Ok(masks.into_iter().next().vortex_expect("one mask"));
+        }
+
         // Combine the masks.
         Ok(Mask::from_iter(masks))
     }
@@ -181,6 +191,11 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
         )
         .try_collect()
         .await?;
+
+        // If there is only one chunk, we can return it directly.
+        if chunks.len() == 1 {
+            return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
+        }
 
         // Combine the arrays.
         Ok(ChunkedArray::try_new(chunks, self.dtype.clone())?.to_array())

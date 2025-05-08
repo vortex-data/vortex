@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::arcref::ArcRef;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
@@ -45,7 +45,7 @@ pub struct StatsLayoutWriter {
 }
 
 impl StatsLayoutWriter {
-    pub fn try_new(
+    pub fn new(
         ctx: ArrayContext,
         dtype: &DType,
         // TODO(ngates): we should arrive at a convention on this. I think we should maybe just
@@ -54,11 +54,11 @@ impl StatsLayoutWriter {
         child_writer: Box<dyn LayoutWriter>,
         stats_strategy: ArcRef<dyn LayoutStrategy>,
         options: StatsLayoutOptions,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
 
-        Ok(Self {
+        Self {
             ctx,
             options,
             child_writer,
@@ -67,7 +67,7 @@ impl StatsLayoutWriter {
             dtype: dtype.clone(),
             nblocks: 0,
             final_block: false,
-        })
+        }
     }
 }
 
@@ -77,6 +77,13 @@ impl LayoutWriter for StatsLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        assert_eq!(
+            chunk.dtype(),
+            &self.dtype,
+            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
+            chunk.dtype(),
+            self.dtype
+        );
         if chunk.len() > self.options.block_size {
             vortex_bail!(
                 "Chunks passed to StatsLayoutWriter must be block_size in length, except the final block. Use RepartitionWriter to split chunks into blocks."

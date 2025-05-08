@@ -50,7 +50,11 @@ jobs:
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.12
         with:
-          version: v1.2.1
+          version: v1.2.2
+
+      # TODO(joe): remove ninja once duckdb is not built by the benchmark
+      - name: Install gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
 
       - name: Build binary
         shell: bash
@@ -60,7 +64,7 @@ jobs:
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.2.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
@@ -78,7 +82,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
 
@@ -89,7 +93,8 @@ jobs:
 
           base_commit_sha=${{ github.event.pull_request.base.sha }}
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+            | gzip -d \
             | grep $base_commit_sha \
             > base.json
 

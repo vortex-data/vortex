@@ -3,15 +3,17 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding,
 };
+
 mod compute;
 mod serde;
 
@@ -22,6 +24,7 @@ pub struct ExtensionArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ExtensionEncoding;
 impl Encoding for ExtensionEncoding {
     type Array = ExtensionArray;
@@ -82,6 +85,22 @@ impl ArrayStatisticsImpl for ExtensionArray {
 impl ArrayCanonicalImpl for ExtensionArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Extension(self.clone()))
+    }
+}
+
+impl ArrayOperationsImpl for ExtensionArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(
+            ExtensionArray::new(self.ext_dtype().clone(), self.storage().slice(start, stop)?)
+                .into_array(),
+        )
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::extension(
+            self.ext_dtype().clone(),
+            self.storage().scalar_at(index)?,
+        ))
     }
 }
 

@@ -6,6 +6,7 @@
 
 mod binary;
 mod bool;
+mod decimal;
 mod extension;
 pub mod factory;
 mod into_py;
@@ -24,6 +25,7 @@ use vortex::scalar::Scalar;
 use crate::dtype::PyDType;
 use crate::scalar::binary::PyBinaryScalar;
 use crate::scalar::bool::PyBoolScalar;
+use crate::scalar::decimal::PyDecimalScalar;
 use crate::scalar::extension::PyExtensionScalar;
 use crate::scalar::list::PyListScalar;
 use crate::scalar::null::PyNullScalar;
@@ -47,6 +49,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyListScalar>()?;
     m.add_class::<PyNullScalar>()?;
     m.add_class::<PyPrimitiveScalar>()?;
+    m.add_class::<PyDecimalScalar>()?;
     m.add_class::<PyUtf8Scalar>()?;
     m.add_class::<PyStructScalar>()?;
 
@@ -91,6 +94,7 @@ impl PyScalar {
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),
+            DType::Decimal(..) => Self::with_subclass(py, scalar, PyDecimalScalar),
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),

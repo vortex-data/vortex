@@ -62,8 +62,8 @@ mod compio;
 mod r#const;
 mod debug;
 mod macros;
-#[cfg(feature = "rkyv")]
-mod rkyv;
+#[cfg(feature = "memmap2")]
+mod memmap2;
 mod spec_extend;
 mod string;
 

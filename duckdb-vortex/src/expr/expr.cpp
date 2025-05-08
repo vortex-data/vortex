@@ -144,6 +144,13 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_primitive()->set_nullable(nullable);
 		dtype->mutable_primitive()->set_type(vortex::dtype::F64);
 		return dtype;
+	case LogicalTypeId::DECIMAL: {
+		dtype->mutable_decimal()->set_nullable(nullable);
+		auto decimal = dtype->mutable_decimal();
+		decimal->set_precision(duckdb::DecimalType::GetWidth(type_));
+		decimal->set_scale(duckdb::DecimalType::GetScale(type_));
+		return dtype;
+	}
 	case LogicalTypeId::CHAR:
 	case LogicalTypeId::VARCHAR:
 		dtype->mutable_utf8()->set_nullable(nullable);
@@ -195,7 +202,7 @@ vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type
 
 vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
 	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
-	auto dtype = into_vortex_dtype(arena, value.type().id(), nullable);
+	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
 	scalar->set_allocated_dtype(dtype);
 
 	switch (value.type().id()) {
@@ -209,25 +216,25 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 		return scalar;
 	}
 	case LogicalTypeId::TINYINT:
-		scalar->mutable_value()->set_int8_value(value.GetValue<int8_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int8_t>());
 		return scalar;
 	case LogicalTypeId::SMALLINT:
-		scalar->mutable_value()->set_int16_value(value.GetValue<int16_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int16_t>());
 		return scalar;
 	case LogicalTypeId::INTEGER:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::BIGINT:
 		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::UTINYINT:
-		scalar->mutable_value()->set_uint8_value(value.GetValue<uint8_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint8_t>());
 		return scalar;
 	case LogicalTypeId::USMALLINT:
-		scalar->mutable_value()->set_uint16_value(value.GetValue<uint16_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint16_t>());
 		return scalar;
 	case LogicalTypeId::UINTEGER:
-		scalar->mutable_value()->set_uint32_value(value.GetValue<uint32_t>());
+		scalar->mutable_value()->set_uint64_value(value.GetValue<uint32_t>());
 		return scalar;
 	case LogicalTypeId::UBIGINT:
 		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
@@ -238,14 +245,24 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 	case LogicalTypeId::DOUBLE:
 		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
 		return scalar;
+	case LogicalTypeId::DECIMAL: {
+		auto huge = value.GetValue<duckdb::hugeint_t>();
+		uint32_t out[4];
+		out[0] = static_cast<uint32_t>(huge);
+		out[1] = static_cast<uint32_t>(huge >> 32);
+		out[2] = static_cast<uint32_t>(huge >> 64);
+		out[3] = static_cast<uint32_t>(huge >> 96);
+		scalar->mutable_value()->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
+		return scalar;
+	}
 	case LogicalTypeId::VARCHAR:
 		scalar->mutable_value()->set_string_value(value.GetValue<string>());
 		return scalar;
 	case LogicalTypeId::DATE:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIME:
-		scalar->mutable_value()->set_int32_value(value.GetValue<int32_t>());
+		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_SEC:
 		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
@@ -360,7 +377,7 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 	}
 	case duckdb::ExpressionClass::BOUND_CONSTANT: {
 		auto &dconstant = dexpr.Cast<duckdb::BoundConstantExpression>();
-		set_literal(arena, Value(dconstant.value), true, expr);
+		set_literal(arena, dconstant.value, true, expr);
 		return expr;
 	}
 	case duckdb::ExpressionClass::BOUND_COMPARISON: {

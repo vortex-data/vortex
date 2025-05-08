@@ -3,20 +3,16 @@ use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, default_env_filter, feature_flagged_allocator, setup_logger};
+use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
 use clap::Parser;
 use indicatif::ProgressBar;
+use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
-use vortex::arrays::ChunkedArray;
-use vortex::builders::builder_with_capacity;
-use vortex::{Array, ArrayExt};
-
-feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -35,7 +31,7 @@ struct Args {
     display_format: DisplayFormat,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let filter = default_env_filter(args.verbose);
@@ -46,10 +42,10 @@ fn main() {
     compress(
         runtime,
         args.iterations,
-        args.datasets.map(|d| Regex::new(&d).unwrap()),
+        args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
         args.display_format,
-    );
+    )
 }
 
 fn compress(
@@ -58,7 +54,12 @@ fn compress(
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
     display_format: DisplayFormat,
-) {
+) -> anyhow::Result<()> {
+    let targets = formats
+        .iter()
+        .map(|f| Target::new(Engine::default(), *f))
+        .collect_vec();
+
     let structlistofints = vec![
         StructListOfInts::new(10, 1000, 1),
         StructListOfInts::new(100, 1000, 1),
@@ -98,25 +99,7 @@ fn compress(
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(
-                &runtime,
-                &progress,
-                &formats,
-                iterations,
-                dataset_handle.name(),
-                || {
-                    let vx_array =
-                        runtime.block_on(async { dataset_handle.to_vortex_array().await });
-                    ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
-                        |chunk| {
-                            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                            chunk.append_to_builder(builder.as_mut()).unwrap();
-                            builder.finish()
-                        },
-                    ))
-                    .into_array()
-                },
-            )
+            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
         })
         .collect::<CompressMeasurements>();
 
@@ -124,28 +107,19 @@ fn compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(
-                measurements.throughputs,
-                &formats,
-                RatioMode::Throughput,
-                &[Engine::default()],
-            )
-            .unwrap();
+            render_table(measurements.timings, &targets)?;
             render_table(
                 measurements.ratios,
-                if formats.contains(&Format::OnDiskVortex) {
-                    &[Format::OnDiskVortex]
+                &if formats.contains(&Format::OnDiskVortex) {
+                    vec![Target::new(Engine::default(), Format::OnDiskVortex)]
                 } else {
-                    &[]
+                    vec![]
                 },
-                RatioMode::Throughput,
-                &[Engine::default()],
             )
-            .unwrap();
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.throughputs).unwrap();
-            print_measurements_json(measurements.ratios).unwrap();
+            print_measurements_json(measurements.timings)?;
+            print_measurements_json(measurements.ratios)
         }
     }
 }

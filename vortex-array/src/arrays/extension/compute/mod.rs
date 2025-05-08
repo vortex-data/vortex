@@ -1,5 +1,4 @@
 mod compare;
-mod to_arrow;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -8,67 +7,13 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionEncoding;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    CastFn, CompareFn, FilterKernel, FilterKernelAdapter, IsConstantFn, IsConstantOpts, IsSortedFn,
-    KernelRef, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, SumFn, TakeFn, ToArrowFn,
-    UncompressedSizeFn, filter, is_constant_opts, is_sorted, is_strict_sorted, min_max, scalar_at,
-    slice, sum, take, uncompressed_size,
+    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
+    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
+    SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
+    is_sorted, is_strict_sorted, min_max, sum, take,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef};
-
-impl ArrayComputeImpl for ExtensionArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(ExtensionEncoding).some();
-}
-
-impl ComputeVTable for ExtensionEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
-        // It's not possible to cast an extension array to another type.
-        // TODO(ngates): we should allow some extension arrays to implement a callback
-        //  to support this
-        None
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn is_sorted_fn(&self) -> Option<&dyn IsSortedFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+use crate::{Array, ArrayRef, register_kernel};
 
 impl FilterKernel for ExtensionEncoding {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -79,32 +24,17 @@ impl FilterKernel for ExtensionEncoding {
     }
 }
 
-impl ScalarAtFn<&ExtensionArray> for ExtensionEncoding {
-    fn scalar_at(&self, array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::extension(
-            array.ext_dtype().clone(),
-            scalar_at(array.storage(), index)?,
-        ))
-    }
-}
+register_kernel!(FilterKernelAdapter(ExtensionEncoding).lift());
 
-impl SliceFn<&ExtensionArray> for ExtensionEncoding {
-    fn slice(&self, array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            slice(array.storage(), start, stop)?,
-        )
-        .into_array())
-    }
-}
-
-impl SumFn<&ExtensionArray> for ExtensionEncoding {
+impl SumKernel for ExtensionEncoding {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
         sum(array.storage())
     }
 }
 
-impl TakeFn<&ExtensionArray> for ExtensionEncoding {
+register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
+
+impl TakeKernel for ExtensionEncoding {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
@@ -113,7 +43,9 @@ impl TakeFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
+register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
+
+impl MinMaxKernel for ExtensionEncoding {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(
             min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
@@ -124,23 +56,21 @@ impl MinMaxFn<&ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl IsConstantFn<&ExtensionArray> for ExtensionEncoding {
+register_kernel!(MinMaxKernelAdapter(ExtensionEncoding).lift());
+
+impl IsConstantKernel for ExtensionEncoding {
     fn is_constant(
         &self,
         array: &ExtensionArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.storage(), opts).map(Some)
+        is_constant_opts(array.storage(), opts)
     }
 }
 
-impl UncompressedSizeFn<&ExtensionArray> for ExtensionEncoding {
-    fn uncompressed_size(&self, array: &ExtensionArray) -> VortexResult<usize> {
-        uncompressed_size(array.storage())
-    }
-}
+register_kernel!(IsConstantKernelAdapter(ExtensionEncoding).lift());
 
-impl IsSortedFn<&ExtensionArray> for ExtensionEncoding {
+impl IsSortedKernel for ExtensionEncoding {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
         is_sorted(array.storage())
     }
@@ -149,3 +79,5 @@ impl IsSortedFn<&ExtensionArray> for ExtensionEncoding {
         is_strict_sorted(array.storage())
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(ExtensionEncoding).lift());

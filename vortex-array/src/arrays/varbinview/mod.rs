@@ -1,13 +1,9 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::Arc;
 
+use arrow_array::GenericByteViewArray;
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
-use arrow_array::{
-    ArrayRef as ArrowArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray,
-};
-use arrow_buffer::ScalarBuffer;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -29,6 +25,7 @@ use crate::{
 
 mod accessor;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 
@@ -276,6 +273,7 @@ pub struct VarBinViewArray {
 
 try_from_array_ref!(VarBinViewArray);
 
+#[derive(Debug)]
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
     type Array = VarBinViewArray;
@@ -529,43 +527,6 @@ impl ArrayCanonicalImpl for VarBinViewArray {
     }
 }
 
-pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrowArrayRef {
-    let views = var_bin_view.views().clone();
-
-    let nulls = var_bin_view
-        .validity_mask()
-        .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer();
-
-    let data = (0..var_bin_view.nbuffers())
-        .map(|i| var_bin_view.buffer(i))
-        .collect::<Vec<_>>();
-
-    let data = data
-        .into_iter()
-        .map(|p| p.clone().into_arrow_buffer())
-        .collect::<Vec<_>>();
-
-    // Switch on Arrow DType.
-    match var_bin_view.dtype() {
-        DType::Binary(_) => Arc::new(unsafe {
-            BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_byte_buffer().into_arrow_buffer()),
-                data,
-                nulls,
-            )
-        }),
-        DType::Utf8(_) => Arc::new(unsafe {
-            StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_byte_buffer().into_arrow_buffer()),
-                data,
-                nulls,
-            )
-        }),
-        _ => vortex_panic!("expected utf8 or binary, got {}", var_bin_view.dtype()),
-    }
-}
-
 impl ArrayValidityImpl for VarBinViewArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
         self.validity.is_valid(index)
@@ -615,7 +576,6 @@ mod test {
     use crate::Canonical;
     use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::compute::{scalar_at, slice};
 
     #[test]
     pub fn varbin_view() {
@@ -623,25 +583,23 @@ mod test {
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
         assert_eq!(binary_arr.len(), 2);
         assert_eq!(
-            scalar_at(&binary_arr, 0).unwrap(),
+            binary_arr.scalar_at(0).unwrap(),
             Scalar::from("hello world")
         );
         assert_eq!(
-            scalar_at(&binary_arr, 1).unwrap(),
+            binary_arr.scalar_at(1).unwrap(),
             Scalar::from("hello world this is a long string")
         );
     }
 
     #[test]
     pub fn slice_array() {
-        let binary_arr = slice(
-            &VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]),
-            1,
-            2,
-        )
-        .unwrap();
+        let binary_arr =
+            VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
+                .slice(1, 2)
+                .unwrap();
         assert_eq!(
-            scalar_at(&binary_arr, 0).unwrap(),
+            binary_arr.scalar_at(0).unwrap(),
             Scalar::from("hello world this is a long string")
         );
     }
@@ -654,8 +612,8 @@ mod test {
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
         let var_bin = flattened.into_varbinview().unwrap().into_array();
-        assert_eq!(scalar_at(&var_bin, 0).unwrap(), Scalar::from("string1"));
-        assert_eq!(scalar_at(&var_bin, 1).unwrap(), Scalar::from("string2"));
+        assert_eq!(var_bin.scalar_at(0).unwrap(), Scalar::from("string1"));
+        assert_eq!(var_bin.scalar_at(1).unwrap(), Scalar::from("string2"));
     }
 
     #[test]

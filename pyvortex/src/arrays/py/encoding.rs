@@ -7,7 +7,7 @@ use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::serde::ArrayParts;
-use vortex::vtable::{ComputeVTable, EncodingVTable};
+use vortex::vtable::EncodingVTable;
 use vortex::{ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
 
 use crate::arrays::py::array::PyArrayInstance;
@@ -81,5 +81,3 @@ impl EncodingVTable for PyEncodingClass {
         })
     }
 }
-
-impl ComputeVTable for PyEncodingClass {}

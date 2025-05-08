@@ -1,7 +1,6 @@
 use vortex_array::Array;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compress::downscale_integer_array;
-use vortex_array::compute::scalar_at;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
@@ -17,7 +16,7 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         .compute_is_constant()
         .unwrap_or_default()
     {
-        ConstantArray::new(scalar_at(values, 0)?, values.len()).into_array()
+        ConstantArray::new(values.scalar_at(0)?, values.len()).into_array()
     } else {
         values.clone()
     };

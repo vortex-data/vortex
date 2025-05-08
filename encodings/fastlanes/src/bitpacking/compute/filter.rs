@@ -4,9 +4,9 @@ use std::mem::MaybeUninit;
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernel, filter};
+use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -24,6 +24,8 @@ impl FilterKernel for BitPackedEncoding {
         Ok(primitive?.into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(BitPackedEncoding).lift());
 
 /// Specialized filter kernel for primitive bit-packed arrays.
 ///
@@ -147,7 +149,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{filter, slice};
+    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
     use vortex_buffer::Buffer;
@@ -173,7 +175,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
-        let sliced = slice(&bitpacked, 128, 2050).unwrap();
+        let sliced = bitpacked.slice(128, 2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 

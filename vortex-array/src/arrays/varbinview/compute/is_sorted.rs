@@ -2,9 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
-use crate::compute::{IsSortedFn, IsSortedIteratorExt};
+use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::register_kernel;
 
-impl IsSortedFn<&VarBinViewArray> for VarBinViewEncoding {
+impl IsSortedKernel for VarBinViewEncoding {
     fn is_sorted(&self, array: &VarBinViewArray) -> VortexResult<bool> {
         array.with_iterator(|bytes_iter| bytes_iter.is_sorted())
     }
@@ -13,3 +14,5 @@ impl IsSortedFn<&VarBinViewArray> for VarBinViewEncoding {
         array.with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
     }
 }
+
+register_kernel!(IsSortedKernelAdapter(VarBinViewEncoding).lift());

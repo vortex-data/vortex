@@ -3,6 +3,7 @@
 #![feature(substr_range)]
 #![feature(trusted_len)]
 #![feature(array_chunks)]
+#![feature(iterator_try_collect)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::EncodingVTable).
@@ -21,7 +22,6 @@ pub use metadata::*;
 
 pub mod accessor;
 pub mod aliases;
-pub mod arcref;
 mod array;
 pub mod arrays;
 pub mod arrow;
@@ -36,6 +36,7 @@ mod metadata;
 pub mod nbytes;
 mod partial_ord;
 pub mod patches;
+pub mod search_sorted;
 pub mod serde;
 pub mod stats;
 pub mod stream;

@@ -34,7 +34,7 @@ testing {
 }
 
 mavenPublishing {
-    coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = version.toString())
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = cargoVersion())
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
 
     signAllPublications()

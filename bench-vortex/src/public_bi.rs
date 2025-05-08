@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
+use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
+use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
 use clap::ValueEnum;
 use datafusion::datasource::file_format::FileFormat;
@@ -14,28 +16,25 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use datafusion_common::{Result, TableReference};
+use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::join_all;
-use futures::{StreamExt, TryStreamExt, stream};
 use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
-use tokio::runtime::Handle;
+use tracing::{debug, info};
 use url::Url;
+use vortex::ArrayRef;
 use vortex::aliases::hash_map::HashMap;
-use vortex::arrays::ChunkedArray;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::io::TokioFile;
 use vortex::stream::ArrayStreamExt;
-use vortex::{Array, ArrayRef};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
-use crate::{IdempotentPath, idempotent_async};
+use crate::{IdempotentPath, idempotent_async, vortex_panic};
 
 pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
     PBIDatasets::try_new(fetch_schemas_and_queries().expect("failed to fetch public bi queries"))
@@ -43,7 +42,7 @@ pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
 });
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, ValueEnum)]
-#[clap(rename_all = "PascalCase")]
+#[clap(rename_all = "LowerCase")]
 pub enum PBIDataset {
     Arade,
     Bimbo,
@@ -119,10 +118,13 @@ pub struct PBIDatasets {
 impl PBIDatasets {
     pub fn try_new(base_dir: PathBuf) -> VortexResult<Self> {
         let benchmark_dir = base_dir.join("benchmark");
-        let benchmarks: HashMap<PBIDataset, _> = std::fs::read_dir(benchmark_dir)?
+        let benchmarks: HashMap<PBIDataset, _> = fs::read_dir(benchmark_dir)?
             .map(|path| {
                 let path = path?;
-                let name = path.file_name().into_string().expect("unicode");
+                let name = path
+                    .file_name()
+                    .into_string()
+                    .map_err(|e| vortex_err!("Not a unicode name: {e:?}"))?;
                 Ok((
                     PBIDataset::from_str(name.trim(), true)
                         .map_err(|_e| vortex_err!("unsupported dataset: {} {_e}", &name))?,
@@ -159,10 +161,13 @@ pub struct Table {
 impl PBIBenchmark {
     /// Parse the sql files under the queries folder and return their contents with the query idx.
     pub fn queries(&self) -> VortexResult<Vec<(usize, String)>> {
-        let mut queries: Vec<_> = std::fs::read_dir(self.base_path.join("queries"))?
+        let mut queries: Vec<_> = fs::read_dir(self.base_path.join("queries"))?
             .map(|sql_file| {
                 let sql_file = sql_file?;
-                let file_name = sql_file.file_name().into_string().expect("unicode");
+                let file_name = sql_file
+                    .file_name()
+                    .into_string()
+                    .map_err(|e| vortex_err!("Not a unicode name: {e:?}"))?;
                 let query_idx = file_name
                     .strip_suffix(".sql")
                     .ok_or_else(|| {
@@ -170,7 +175,7 @@ impl PBIBenchmark {
                     })?
                     .parse()
                     .map_err(|_| vortex_err!("non numeric filename {file_name}"))?;
-                let query = std::fs::read_to_string(sql_file.path())?;
+                let query = fs::read_to_string(sql_file.path())?;
                 Ok((query_idx, query))
             })
             .collect::<VortexResult<Vec<_>>>()?;
@@ -180,7 +185,7 @@ impl PBIBenchmark {
 
     /// Return table name and Url pairs. Each Url is pointing to a csv.bz2 file for the table.
     fn tables(&self) -> VortexResult<Vec<Table>> {
-        std::fs::read_to_string(self.base_path.join("data-urls.txt"))?
+        fs::read_to_string(self.base_path.join("data-urls.txt"))?
             .lines()
             .map(|url_str| {
                 let url = Url::parse(url_str)?;
@@ -201,7 +206,7 @@ impl PBIBenchmark {
     }
 
     fn table_sql(&self, table_name: &str) -> VortexResult<String> {
-        Ok(std::fs::read_to_string(
+        Ok(fs::read_to_string(
             self.base_path
                 .join("tables")
                 .join(table_name)
@@ -302,14 +307,16 @@ impl PBIData {
             let parquet = self.get_file_path(&table.name, FileType::Parquet);
             async move {
                 let parquet_file = idempotent_async(&parquet, async |output_path| {
-                    tracing::info!("Reading schema for {}", csv.to_str().unwrap());
-                    tracing::info!("Compressing {} to parquet", csv.to_str().unwrap());
+                    info!("Reading schema for {}", csv.to_str().unwrap());
+                    info!("Compressing {} to parquet", csv.to_str().unwrap());
                     public_bi_csv_to_parquet_file(table, csv, &output_path).await
                 })
                 .await
-                .vortex_expect("failed to create parquet file");
+                .vortex_expect(
+                    "failed to create parquet file, either the file or duckdb is missing",
+                );
                 let pq_size = parquet_file.metadata().unwrap().size();
-                tracing::info!(
+                info!(
                     "Parquet size: {}, {}B",
                     format_size(pq_size, DECIMAL),
                     pq_size
@@ -338,11 +345,11 @@ impl PBIData {
                 let vx_size = vortex_file
                     .metadata()
                     .expect("Failed to get metadata")
-                    .len() as usize;
+                    .len();
 
-                tracing::debug!(
+                debug!(
                     "Vortex size: {}, {}B",
-                    format_size(vx_size as u64, DECIMAL),
+                    format_size(vx_size, DECIMAL),
                     vx_size
                 );
             }
@@ -361,10 +368,12 @@ impl PBIData {
             session.sql(create_table).await?;
             let table_ref = TableReference::bare(&*table.name);
             let df_table = session.table(table_ref.clone()).await?;
+            let schema = replace_with_views(df_table.schema())?;
 
             // drop the temp table after getting the arrow schema.
-            let var_name = format!("DROP TABLE '{}';", &table.name);
-            session.sql(&var_name).await?;
+            session
+                .sql(&format!("DROP TABLE '{}';", &table.name))
+                .await?;
 
             let df_format: Arc<dyn FileFormat> = match file_type {
                 FileType::Csv => Arc::new(
@@ -374,14 +383,14 @@ impl PBIData {
                 ),
                 FileType::Parquet => Arc::new(ParquetFormat::default()),
                 FileType::Vortex => Arc::new(VortexFormat::default()),
-                _ => panic!("unsupported file type: {file_type}"),
+                _ => vortex_panic!("unsupported file type: {file_type}"),
             };
 
             let path = self.get_file_path(&table.name, file_type);
             let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
             let config = ListingTableConfig::new(table_url)
                 .with_listing_options(ListingOptions::new(df_format))
-                .with_schema(df_table.schema().clone().into());
+                .with_schema(schema.into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_ref, listing_table)?;
@@ -396,31 +405,53 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    // TODO(osatici): compress benchmarks use this, but this relies on all
-    //                tables in a benchmark to have the same schema.
-    //                That is not the case for some PBI datasets.
     async fn to_vortex_array(&self) -> ArrayRef {
         let dataset = self.dataset().expect("failed to parse tables");
         dataset.write_as_vortex().await;
+        // reading only the first table, each table in a PBI benchmark
+        // has its own schema.
+        let path = dataset
+            .list_files(FileType::Vortex)
+            .first()
+            .expect("must have at least one table")
+            .clone();
 
-        let arrays = stream::iter(dataset.list_files(FileType::Vortex))
-            .map(|f| async move {
-                VortexOpenOptions::file()
-                    .open(TokioFile::open(f)?)
-                    .await?
-                    .scan()?
-                    .spawn_tokio(Handle::current())
-                    .unwrap()
-                    .read_all()
-                    .await
-            })
-            .buffered(10)
-            .try_collect::<Vec<_>>()
-            .await
-            .unwrap();
-
-        ChunkedArray::from_iter(arrays).into_array()
+        async move {
+            VortexOpenOptions::file()
+                .open(&path)
+                .await?
+                .scan()?
+                .into_array_stream()?
+                .read_all()
+                .await
+        }
+        .await
+        .expect("must be able to read table")
     }
+}
+
+fn replace_with_views(schema: &DFSchema) -> Result<DFSchema> {
+    let fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .map(|f| match f.data_type() {
+            DataType::Binary => {
+                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::BinaryView))
+            }
+            DataType::Utf8 => {
+                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::Utf8View))
+            }
+            _ => f.clone(),
+        })
+        .collect();
+    let new_schema = Schema::new(fields);
+    let qualifiers = schema
+        .iter()
+        .map(|(qualifier, _)| qualifier.cloned())
+        .collect();
+    let df_schema =
+        DFSchema::from_field_specific_qualified_schema(qualifiers, &Arc::new(new_schema))?;
+    df_schema.with_functional_dependencies(schema.functional_dependencies().clone())
 }
 
 pub fn replace_decimals(create_table_sql: &str) -> Cow<'_, str> {
@@ -435,7 +466,7 @@ pub async fn public_bi_csv_to_parquet_file(
     csv_path: PathBuf,
     parquet_path: &Path,
 ) -> VortexResult<()> {
-    tracing::info!("Compressing {} to parquet", csv_path.to_str().unwrap());
+    info!("Compressing {} to parquet", csv_path.to_str().unwrap());
     let table_name = &table.name;
     let csv_path = csv_path.to_str().expect("unicode");
     let parquet_path = parquet_path.to_str().expect("unicode");

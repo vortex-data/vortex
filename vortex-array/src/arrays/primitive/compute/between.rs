@@ -3,11 +3,11 @@ use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{BetweenFn, BetweenOptions, StrictComparison};
+use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
+impl BetweenKernel for PrimitiveEncoding {
     fn between(
         &self,
         arr: &PrimitiveArray,
@@ -30,6 +30,8 @@ impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
         })))
     }
 }
+
+register_kernel!(BetweenKernelAdapter(PrimitiveEncoding).lift());
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,

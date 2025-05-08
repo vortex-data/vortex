@@ -1,15 +1,16 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::variants::NullArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayOperationsImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
 };
 
 mod compute;
@@ -20,6 +21,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct NullEncoding;
 impl Encoding for NullEncoding {
     type Array = NullArray;
@@ -86,6 +88,16 @@ impl ArrayStatisticsImpl for NullArray {
 impl ArrayCanonicalImpl for NullArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Null(self.clone()))
+    }
+}
+
+impl ArrayOperationsImpl for NullArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(stop - start).into_array())
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::null(DType::Null))
     }
 }
 

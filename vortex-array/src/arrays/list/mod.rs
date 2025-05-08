@@ -15,14 +15,13 @@ use vortex_scalar::Scalar;
 use crate::arrays::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
-use crate::compute::{scalar_at, slice};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, TryFromArrayRef,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -34,10 +33,11 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
     type Array = ListArray;
-    type Metadata = RkyvMetadata<ListMetadata>;
+    type Metadata = ProstMetadata<ListMetadata>;
 }
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
@@ -95,7 +95,8 @@ impl ListArray {
                 })
             })
             .unwrap_or_else(|| {
-                scalar_at(self.offsets(), index)
+                self.offsets()
+                    .scalar_at(index)
                     .unwrap_or_else(|err| {
                         vortex_panic!(err, "Failed to get offset at index: {}", index)
                     })
@@ -109,7 +110,7 @@ impl ListArray {
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        slice(self.elements(), start, end)
+        self.elements().slice(start, end)
     }
 
     // TODO: fetches the offsets of the array ignoring validity
@@ -154,6 +155,28 @@ impl ArrayImpl for ListArray {
 impl ArrayStatisticsImpl for ListArray {
     fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
+    }
+}
+
+impl ArrayOperationsImpl for ListArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ListArray::try_new(
+            self.elements().clone(),
+            self.offsets().slice(start, stop + 1)?,
+            self.validity().slice(start, stop)?,
+        )?
+        .into_array())
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        let elem = self.elements_at(index)?;
+        let scalars: Vec<Scalar> = (0..elem.len()).map(|i| elem.scalar_at(i)).try_collect()?;
+
+        Ok(Scalar::list(
+            Arc::new(elem.dtype().clone()),
+            scalars,
+            self.dtype().nullability(),
+        ))
     }
 }
 
@@ -264,7 +287,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
-    use crate::compute::{filter, scalar_at};
+    use crate::compute::filter;
     use crate::validity::Validity;
 
     #[test]
@@ -294,7 +317,7 @@ mod test {
                 vec![1.into(), 2.into()],
                 Nullability::Nullable
             ),
-            scalar_at(&list, 0).unwrap()
+            list.scalar_at(0).unwrap()
         );
         assert_eq!(
             Scalar::list(
@@ -302,11 +325,11 @@ mod test {
                 vec![3.into(), 4.into()],
                 Nullability::Nullable
             ),
-            scalar_at(&list, 1).unwrap()
+            list.scalar_at(1).unwrap()
         );
         assert_eq!(
             Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
-            scalar_at(&list, 2).unwrap()
+            list.scalar_at(2).unwrap()
         );
     }
 
@@ -325,12 +348,12 @@ mod test {
 
         assert_eq!(list.len(), list_from_iter.len());
         assert_eq!(
-            scalar_at(&list, 0).unwrap(),
-            scalar_at(&list_from_iter, 0).unwrap()
+            list.scalar_at(0).unwrap(),
+            list_from_iter.scalar_at(0).unwrap()
         );
         assert_eq!(
-            scalar_at(&list, 1).unwrap(),
-            scalar_at(&list_from_iter, 1).unwrap()
+            list.scalar_at(1).unwrap(),
+            list_from_iter.scalar_at(1).unwrap()
         );
     }
 

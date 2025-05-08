@@ -1,11 +1,11 @@
-use vortex_array::compute::{TakeFn, fill_null, take};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
-impl TakeFn<&ALPRDArray> for ALPRDEncoding {
+impl TakeKernel for ALPRDEncoding {
     fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array
@@ -23,7 +23,7 @@ impl TakeFn<&ALPRDArray> for ALPRDEncoding {
             .transpose()?;
         let right_parts = fill_null(
             &take(array.right_parts(), indices)?,
-            Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
+            &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
         )?;
 
         Ok(ALPRDArray::try_new(
@@ -39,6 +39,8 @@ impl TakeFn<&ALPRDArray> for ALPRDEncoding {
         .into_array())
     }
 }
+
+register_kernel!(TakeKernelAdapter(ALPRDEncoding).lift());
 
 #[cfg(test)]
 mod test {

@@ -7,12 +7,18 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use super::ChunkedArray;
 use crate::arrays::{ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
-use crate::compute::{scalar_at, slice, try_cast};
+use crate::compute::cast;
 use crate::validity::Validity;
 use crate::{Array as _, ArrayCanonicalImpl, ArrayRef, Canonical, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
+        if self.nchunks() == 0 {
+            return Ok(Canonical::empty(self.dtype()));
+        }
+        if self.nchunks() == 1 {
+            return self.chunks()[0].to_canonical();
+        }
         match self.dtype() {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
@@ -83,20 +89,20 @@ fn pack_lists(
     for chunk in chunks {
         let chunk = chunk.to_list()?;
         // TODO: handle i32 offsets if they fit.
-        let offsets_arr = try_cast(
+        let offsets_arr = cast(
             chunk.offsets(),
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?
         .to_primitive()?;
 
-        let first_offset_value: usize = usize::try_from(&scalar_at(&offsets_arr, 0)?)?;
+        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0)?)?;
         let last_offset_value: usize =
-            usize::try_from(&scalar_at(&offsets_arr, offsets_arr.len() - 1)?)?;
-        elements.push(slice(
-            chunk.elements(),
-            first_offset_value,
-            last_offset_value,
-        )?);
+            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1)?)?;
+        elements.push(
+            chunk
+                .elements()
+                .slice(first_offset_value, last_offset_value)?,
+        );
 
         let adjustment_from_previous = *offsets
             .last()
@@ -127,7 +133,6 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
-    use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
 
@@ -194,13 +199,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
-        assert_eq!(
-            scalar_at(&l1, 0).unwrap(),
-            scalar_at(&canon_values, 0).unwrap()
-        );
-        assert_eq!(
-            scalar_at(&l2, 0).unwrap(),
-            scalar_at(&canon_values, 1).unwrap()
-        );
+        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
+        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
     }
 }

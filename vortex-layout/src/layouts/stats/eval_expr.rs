@@ -133,9 +133,9 @@ impl PruningEvaluation for StatsPruningEvaluation {
 mod test {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::arcref::ArcRef;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
@@ -155,7 +155,7 @@ mod test {
     fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
-        let layout = StatsLayoutWriter::try_new(
+        let layout = StatsLayoutWriter::new(
             ctx.clone(),
             &DType::Primitive(PType::I32, NonNullable),
             ChunkedLayoutWriter::new(
@@ -170,7 +170,6 @@ mod test {
                 ..Default::default()
             },
         )
-        .unwrap()
         .push_all(
             &mut segments,
             [

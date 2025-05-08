@@ -2,10 +2,10 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
-use crate::compute::CastFn;
-use crate::{Array, ArrayRef};
+use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl CastFn<&VarBinViewArray> for VarBinViewEncoding {
+impl CastKernel for VarBinViewEncoding {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
@@ -24,13 +24,15 @@ impl CastFn<&VarBinViewArray> for VarBinViewEncoding {
     }
 }
 
+register_kernel!(CastKernelAdapter(VarBinViewEncoding).lift());
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::VarBinViewArray;
-    use crate::compute::try_cast;
+    use crate::compute::cast;
 
     #[rstest]
     #[case(
@@ -52,7 +54,7 @@ mod tests {
     fn try_cast_varbin_nullable(#[case] source: DType, #[case] target: DType) {
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
-        let res = try_cast(&varbin, &target);
+        let res = cast(&varbin, &target);
         assert_eq!(res.unwrap().dtype(), &target);
     }
 
@@ -64,6 +66,6 @@ mod tests {
     fn try_cast_varbin_fail(#[case] source: DType) {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), None], source);
-        try_cast(&varbin, &non_nullable_source).unwrap();
+        cast(&varbin, &non_nullable_source).unwrap();
     }
 }

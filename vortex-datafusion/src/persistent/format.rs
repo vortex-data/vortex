@@ -14,12 +14,14 @@ use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue, Statistics,
     config_datafusion_err, not_impl_err,
 };
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+use datafusion_datasource::sink::DataSinkExec;
+use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::ExecutionPlan;
-use datafusion_physical_plan::insert::DataSinkExec;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
+use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::stats::{Stat, StatsProviderExt, StatsSet};
@@ -185,13 +187,6 @@ impl FileFormat for VortexFormat {
         }
     }
 
-    fn file_source(&self) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::new(
-            self.file_cache.clone(),
-            VortexMetrics::default(),
-        ))
-    }
-
     async fn infer_schema(
         &self,
         state: &dyn Session,
@@ -202,11 +197,12 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                async move {
+                tokio::task::spawn(async move {
                     let vxf = cache.try_get(&o, store).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
-                }
+                })
+                .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
             .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
@@ -214,14 +210,9 @@ impl FileFormat for VortexFormat {
 
         // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
         file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
-        let file_schemas = file_schemas
-            .into_iter()
-            .map(|(_, schema)| schema)
-            .collect::<Vec<_>>();
+        let file_schemas = file_schemas.into_iter().map(|(_, schema)| schema);
 
-        let schema = Arc::new(Schema::try_merge(file_schemas)?);
-
-        Ok(schema)
+        Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
@@ -232,91 +223,95 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let vxf = self.file_cache.try_get(object, store.clone()).await?;
+        let object = object.clone();
+        let store = store.clone();
+        let cache = self.file_cache.clone();
+        tokio::task::spawn(async move {
+            let vxf = cache.try_get(&object, store.clone()).await?;
 
-        let struct_dtype = vxf
-            .dtype()
-            .as_struct()
-            .vortex_expect("dtype is not a struct");
+            let struct_dtype = vxf
+                .dtype()
+                .as_struct()
+                .vortex_expect("dtype is not a struct");
 
-        // Evaluate the statistics for each column that we are able to return to DataFusion.
-        let Some(file_stats) = vxf.file_stats() else {
-            // If the file has no column stats, the best we can do is return a row count.
-            return Ok(Statistics {
+            // Evaluate the statistics for each column that we are able to return to DataFusion.
+            let Some(file_stats) = vxf.file_stats() else {
+                // If the file has no column stats, the best we can do is return a row count.
+                return Ok(Statistics {
+                    num_rows: Precision::Exact(
+                        usize::try_from(vxf.row_count())
+                            .map_err(|_| vortex_err!("Row count overflow"))
+                            .vortex_expect("Row count overflow"),
+                    ),
+                    total_byte_size: Precision::Absent,
+                    column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
+                });
+            };
+
+            let stats = table_schema
+                .fields()
+                .iter()
+                .map(|field| struct_dtype.find(field.name()).ok())
+                .map(|idx| match idx {
+                    None => StatsSet::default(),
+                    Some(id) => file_stats[id].clone(),
+                })
+                .collect_vec();
+
+            let total_byte_size = stats
+                .iter()
+                .map(|stats_set| {
+                    stats_set
+                        .get_as::<usize>(Stat::UncompressedSizeInBytes)
+                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
+                })
+                .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
+                    acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
+                });
+
+            // Sum up the total byte size across all the columns.
+            let total_byte_size = total_byte_size.to_df();
+
+            let column_statistics = stats
+                .into_iter()
+                .zip(table_schema.fields().iter())
+                .map(|(stats_set, field)| {
+                    let null_count = stats_set.get_as::<usize>(Stat::NullCount);
+                    let min = stats_set
+                        .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
+                        .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
+                    let max = stats_set
+                        .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
+                        .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
+                    ColumnStatistics {
+                        null_count: null_count.to_df(),
+                        max_value: max.to_df(),
+                        min_value: min.to_df(),
+                        sum_value: Precision::Absent,
+                        distinct_count: stats_set
+                            .get_as::<bool>(Stat::IsConstant)
+                            .and_then(|is_constant| {
+                                is_constant.as_exact().map(|_| Precision::Exact(1))
+                            })
+                            .unwrap_or(Precision::Absent),
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            Ok(Statistics {
                 num_rows: Precision::Exact(
                     usize::try_from(vxf.row_count())
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),
-                total_byte_size: Precision::Absent,
-                column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
-            });
-        };
-
-        let stats = table_schema
-            .fields()
-            .iter()
-            .map(|field| struct_dtype.find(field.name()).ok())
-            .map(|idx| match idx {
-                None => StatsSet::default(),
-                Some(id) => file_stats[id].clone(),
+                total_byte_size,
+                column_statistics,
             })
-            .collect_vec();
-
-        let total_byte_size = stats
-            .iter()
-            .map(|stats_set| {
-                stats_set
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes)
-                    .unwrap_or_else(|| stats::Precision::inexact(0_usize))
-            })
-            .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
-                acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
-            });
-
-        // Sum up the total byte size across all the columns.
-        let total_byte_size = total_byte_size.to_df();
-
-        let column_statistics = stats
-            .into_iter()
-            .zip(table_schema.fields().iter())
-            .map(|(stats_set, field)| {
-                let null_count = stats_set.get_as::<usize>(Stat::NullCount);
-                let min = stats_set
-                    .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
-                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
-
-                let max = stats_set
-                    .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
-                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
-
-                let sum = Stat::Sum
-                    .dtype(&DType::from_arrow(field.as_ref()))
-                    .and_then(|dtype| stats_set.get_scalar(Stat::Sum, &dtype))
-                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
-
-                ColumnStatistics {
-                    null_count: null_count.to_df(),
-                    max_value: max.to_df(),
-                    min_value: min.to_df(),
-                    sum_value: sum.to_df(),
-                    distinct_count: stats_set
-                        .get_as::<bool>(Stat::IsConstant)
-                        .and_then(|is_constant| is_constant.as_exact().map(|_| Precision::Exact(1)))
-                        .unwrap_or(Precision::Absent),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(Statistics {
-            num_rows: Precision::Exact(
-                usize::try_from(vxf.row_count())
-                    .map_err(|_| vortex_err!("Row count overflow"))
-                    .vortex_expect("Row count overflow"),
-            ),
-            total_byte_size,
-            column_statistics,
         })
+        .await
+        .vortex_expect("Failed to spawn infer_stats")
     }
 
     async fn create_physical_plan(
@@ -328,7 +323,7 @@ impl FileFormat for VortexFormat {
         if file_scan_config
             .file_groups
             .iter()
-            .flatten()
+            .flat_map(|fg| fg.files())
             .any(|f| f.range.is_some())
         {
             return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
@@ -347,12 +342,15 @@ impl FileFormat for VortexFormat {
         }
 
         let mut source = VortexSource::new(self.file_cache.clone(), self.metrics.clone());
-
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);
         }
 
-        Ok(file_scan_config.with_source(Arc::new(source)).build())
+        Ok(DataSourceExec::from_data_source(
+            FileScanConfigBuilder::from(file_scan_config)
+                .with_source(Arc::new(source))
+                .build(),
+        ))
     }
 
     async fn create_writer_physical_plan(
@@ -391,6 +389,13 @@ impl FileFormat for VortexFormat {
         } else {
             Ok(FilePushdownSupport::NotSupportedForFilter)
         }
+    }
+
+    fn file_source(&self) -> Arc<dyn FileSource> {
+        Arc::new(VortexSource::new(
+            self.file_cache.clone(),
+            VortexMetrics::default(),
+        ))
     }
 }
 

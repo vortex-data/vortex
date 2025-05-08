@@ -11,7 +11,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, RkyvMetadata, try_from_array_ref,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
@@ -23,6 +23,7 @@ use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
 mod compress;
 mod compute;
+mod ops;
 mod serde;
 pub mod unpack_iter;
 
@@ -40,10 +41,11 @@ pub struct BitPackedArray {
 
 try_from_array_ref!(BitPackedArray);
 
+#[derive(Debug)]
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
     type Array = BitPackedArray;
-    type Metadata = RkyvMetadata<BitPackedMetadata>;
+    type Metadata = ProstMetadata<BitPackedMetadata>;
 }
 
 /// NB: All non-null values in the patches array are considered patches
@@ -228,7 +230,7 @@ impl BitPackedArray {
     ///
     /// Note that this value need not actually be present in the array.
     #[inline]
-    fn max_packed_value(&self) -> usize {
+    pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
     }
 }

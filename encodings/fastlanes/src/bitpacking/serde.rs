@@ -5,7 +5,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, RkyvMetadata,
+    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -13,11 +13,13 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
 use crate::{BitPackedArray, bitpack_encode};
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[repr(C)]
+#[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {
-    pub(crate) bit_width: u8,
-    pub(crate) offset: u16, // must be <1024
+    #[prost(uint32, tag = "1")]
+    pub(crate) bit_width: u32,
+    #[prost(uint32, tag = "2")]
+    pub(crate) offset: u32, // must be <1024
+    #[prost(message, optional, tag = "3")]
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
@@ -33,7 +35,7 @@ impl EncodingVTable for BitPackedEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let metadata = RkyvMetadata::<BitPackedMetadata>::deserialize(parts.metadata())?;
+        let metadata = ProstMetadata::<BitPackedMetadata>::deserialize(parts.metadata())?;
 
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
@@ -78,9 +80,9 @@ impl EncodingVTable for BitPackedEncoding {
                 PType::try_from(&dtype)?,
                 validity,
                 patches,
-                metadata.bit_width,
+                u8::try_from(metadata.bit_width).vortex_expect("Bit width out of range"),
                 len,
-                metadata.offset,
+                u16::try_from(metadata.offset).vortex_expect("Offset out of range"),
             )?
             .into_array()
         })
@@ -132,7 +134,7 @@ impl EncodingVTable for BitPackedEncoding {
     }
 }
 
-impl ArrayVisitorImpl<RkyvMetadata<BitPackedMetadata>> for BitPackedArray {
+impl ArrayVisitorImpl<ProstMetadata<BitPackedMetadata>> for BitPackedArray {
     fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(self.packed());
     }
@@ -144,10 +146,10 @@ impl ArrayVisitorImpl<RkyvMetadata<BitPackedMetadata>> for BitPackedArray {
         visitor.visit_validity(self.validity(), self.len());
     }
 
-    fn _metadata(&self) -> RkyvMetadata<BitPackedMetadata> {
-        RkyvMetadata(BitPackedMetadata {
-            bit_width: self.bit_width(),
-            offset: self.offset(),
+    fn _metadata(&self) -> ProstMetadata<BitPackedMetadata> {
+        ProstMetadata(BitPackedMetadata {
+            bit_width: self.bit_width() as u32,
+            offset: self.offset() as u32,
             patches: self
                 .patches()
                 .map(|p| p.to_metadata(self.len(), self.dtype()))

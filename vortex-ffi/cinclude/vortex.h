@@ -63,6 +63,8 @@ extern "C" {
 
 #define DTYPE_EXTENSION 17
 
+#define DTYPE_DECIMAL 18
+
 /**
  * Log levels for the Vortex library.
  */
@@ -93,6 +95,12 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_array vx_array;
 
 /**
+ * The `sink` interface is used to collect array chunks and place them into a resource
+ * (e.g. an array stream or file (`vx_array_sink_open_file`)).
+ */
+typedef struct vx_array_sink vx_array_sink;
+
+/**
  * FFI-exposed stream interface.
  */
 typedef struct vx_array_stream vx_array_stream;
@@ -102,19 +110,19 @@ typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
 
 /**
+ * The error structure populated by fallible Vortex C functions.
+ */
+typedef struct vx_error vx_error;
+
+/**
  * A file reader that can be used to read from a file.
  */
 typedef struct vx_file_reader vx_file_reader;
 
-typedef struct vx_file_writer vx_file_writer;
-
 /**
- * The error structure populated by fallible Vortex C functions.
+ * A Vortex layout reader.
  */
-typedef struct vx_error {
-  int code;
-  const char *message;
-} vx_error;
+typedef struct vx_layout_reader vx_layout_reader;
 
 /**
  * Options supplied for opening a file.
@@ -141,16 +149,6 @@ typedef struct vx_file_open_options {
 } vx_file_open_options;
 
 /**
- * Options supplied for opening a file.
- */
-typedef struct vx_file_create_options {
-  /**
-   * path of the file to be created.
-   */
-  const char *path;
-} vx_file_create_options;
-
-/**
  * Whole file statistics.
  */
 typedef struct vx_file_statistics {
@@ -172,12 +170,26 @@ typedef struct vx_file_scan_options {
    * Number of columns in `projection`.
    */
   int projection_len;
+  /**
+   * Serialized expressions for pushdown
+   */
   const char *filter_expression;
+  /**
+   * The len in bytes of the filter expression
+   */
   int filter_expression_len;
   /**
    * Splits the file into chunks of this size, if zero then we use the write layout.
    */
   int split_by_row_count;
+  /**
+   * First row of a range to scan.
+   */
+  unsigned long row_range_start;
+  /**
+   * Last row of a range to scan.
+   */
+  unsigned long row_range_end;
 } vx_file_scan_options;
 
 
@@ -299,6 +311,17 @@ duckdb_logical_type vx_dtype_to_duckdb_logical_type(struct vx_dtype *dtype,
 
 #if defined(ENABLE_DUCKDB_FFI)
 /**
+ * Converts a DuckDB type into a vortex type
+ */
+struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *column_types,
+                                                 const unsigned char *column_nullable,
+                                                 const char *const *column_names,
+                                                 int column_count,
+                                                 struct vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
  * Back a single chunk of the array as a duckdb data chunk.
  * The initial call should pass offset = 0.
  * The offset is returned to the caller, which can be used to request the next chunk.
@@ -312,14 +335,12 @@ unsigned int vx_array_to_duckdb_chunk(struct vx_array *stream,
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct vx_array *vx_array_create_empty_from_duckdb_table(const duckdb_logical_type *type_array,
-                                                         const char *const *names,
-                                                         int len,
-                                                         struct vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-struct vx_array *vx_array_append_duckdb_chunk(struct vx_array *array, duckdb_data_chunk chunk);
+/**
+ * Pushed a single duckdb chunk into a file sink.
+ */
+struct vx_array *vx_duckdb_chunk_to_array(duckdb_data_chunk chunk,
+                                          struct vx_dtype *dtype,
+                                          struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -330,6 +351,17 @@ struct vx_conversion_cache *vx_conversion_cache_create(unsigned int id);
 void vx_conversion_cache_free(struct vx_conversion_cache *buffer);
 #endif
 
+/**
+ * Return the integer error code from the given Vortex error.
+ */
+int vx_error_get_code(struct vx_error *error);
+
+/**
+ * Passes out an unowned reference to the error message from the given Vortex error.
+ * Return value is the length of the message string.
+ */
+const char *vx_error_get_message(struct vx_error *error);
+
 void vx_error_free(struct vx_error *error);
 
 /**
@@ -338,24 +370,14 @@ void vx_error_free(struct vx_error *error);
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_error **error);
 
-struct vx_file_writer *vx_file_create(const struct vx_file_create_options *options,
-                                      struct vx_error **error);
-
-void vx_file_write_array(struct vx_file_writer *file,
-                         struct vx_array *ffi_array,
-                         struct vx_error **error);
-
 struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
 void vx_file_statistics_free(struct vx_file_statistics *stat);
 
 /**
- * Get a readonly pointer to the DType of the data inside of the file.
- *
- * The pointer's lifetime is tied to the lifetime of the underlying file, so it should not be
- * dereferenced after the file has been freed.
+ * Get the DType of the data inside of the file.
  */
-const struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
+struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
  * Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
@@ -363,6 +385,23 @@ const struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
                                      const struct vx_file_scan_options *opts,
                                      struct vx_error **error);
+
+struct vx_array_stream *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
+                                              const struct vx_file_scan_options *opts,
+                                              struct vx_error **error);
+
+/**
+ * Returns the row count for a given file reader.
+ */
+uint64_t vx_file_row_count(struct vx_file_reader *file_reader, struct vx_error **error);
+
+/**
+ * Creates a layout reader for a given file.
+ */
+struct vx_layout_reader *vx_layout_reader_create(struct vx_file_reader *file_reader,
+                                                 struct vx_error **error);
+
+void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 
 /**
  * Free the file and all associated resources.
@@ -372,8 +411,6 @@ struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
  */
 void vx_file_reader_free(struct vx_file_reader *file);
 
-void vx_file_writer_free(struct vx_file_writer *file);
-
 /**
  * Initialize native logging with the specified level.
  *
@@ -381,6 +418,27 @@ void vx_file_writer_free(struct vx_file_writer *file);
  * logger will be installed.
  */
 void vx_init_logging(enum vx_log_level level);
+
+/**
+ * Opens a writable array stream, where sink is used to push values into the stream.
+ * To close the stream close the sink with `vx_array_sink_close`.
+ */
+struct vx_array_sink *vx_array_sink_open_file(const char *path,
+                                              const struct vx_dtype *dtype,
+                                              struct vx_error **error);
+
+/**
+ * Pushed a single array chunk into a file sink.
+ */
+void vx_array_sink_push(struct vx_array_sink *sink,
+                        const struct vx_array *array,
+                        struct vx_error **error);
+
+/**
+ * Closes an array sink, must be called to ensure all the values pushed to the sink are written
+ * to the external resource.
+ */
+void vx_array_sink_close(struct vx_array_sink *sink, struct vx_error **error);
 
 /**
  * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null

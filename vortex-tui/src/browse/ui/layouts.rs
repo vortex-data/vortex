@@ -6,10 +6,11 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
-use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::expr::Identity;
-use vortex::layout::{CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID};
+use vortex::layout::{
+    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
+};
 use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{Array, ArrayRef, ArrayVariants};
@@ -154,7 +155,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
-                        scalar_at(arr, chunk_id)
+                        arr.scalar_at(chunk_id)
                             .vortex_expect("stats table scalar_at")
                             .to_string(),
                     ))
@@ -295,6 +296,12 @@ fn child_name(app: &mut AppState, nth: usize) -> String {
             "Stats".to_string()
         } else {
             format!("Unknown {nth}")
+        }
+    } else if cursor.layout().id() == DICT_LAYOUT_ID {
+        match nth {
+            0 => "Values".to_string(),
+            1 => "Codes".to_string(),
+            _ => format!("unknown {nth}"),
         }
     } else {
         format!("Unknown {nth}")

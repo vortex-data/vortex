@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::compute::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide, scalar_at};
+use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
@@ -17,7 +17,7 @@ impl<T: PartialOrd + Debug> IndexOrd<Option<T>> for SearchNullableSlice<T> {
         unsafe { self.0.get_unchecked(idx) }.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.0.len()
     }
 }
@@ -38,7 +38,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
         }
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.0.len()
     }
 }
@@ -89,13 +89,13 @@ pub fn search_sorted_canonical_array(
         }
         DType::Struct(..) => {
             let scalar_vals = (0..array.len())
-                .map(|i| scalar_at(array, i))
+                .map(|i| array.scalar_at(i))
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
         DType::List(..) => {
             let scalar_vals = (0..array.len())
-                .map(|i| scalar_at(array, i))
+                .map(|i| array.scalar_at(i))
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }

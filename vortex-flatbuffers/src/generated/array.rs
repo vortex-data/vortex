@@ -3,8 +3,6 @@
 
 // @generated
 
-use crate::scalar::*;
-use crate::dtype::*;
 use core::mem;
 use core::cmp::Ordering;
 
@@ -601,6 +599,7 @@ impl<'a> ArrayStats<'a> {
   pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 14;
   pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 16;
   pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 18;
+  pub const VT_NAN_COUNT: flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -612,6 +611,7 @@ impl<'a> ArrayStats<'a> {
     args: &'args ArrayStatsArgs<'args>
   ) -> flatbuffers::WIPOffset<ArrayStats<'bldr>> {
     let mut builder = ArrayStatsBuilder::new(_fbb);
+    if let Some(x) = args.nan_count { builder.add_nan_count(x); }
     if let Some(x) = args.uncompressed_size_in_bytes { builder.add_uncompressed_size_in_bytes(x); }
     if let Some(x) = args.null_count { builder.add_null_count(x); }
     if let Some(x) = args.sum { builder.add_sum(x); }
@@ -624,26 +624,27 @@ impl<'a> ArrayStats<'a> {
   }
 
 
+  /// Protobuf serialized ScalarValue
   #[inline]
-  pub fn min(&self) -> Option<ScalarValue<'a>> {
+  pub fn min(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ScalarValue>>(ArrayStats::VT_MIN, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayStats::VT_MIN, None)}
   }
   #[inline]
-  pub fn max(&self) -> Option<ScalarValue<'a>> {
+  pub fn max(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ScalarValue>>(ArrayStats::VT_MAX, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayStats::VT_MAX, None)}
   }
   #[inline]
-  pub fn sum(&self) -> Option<ScalarValue<'a>> {
+  pub fn sum(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ScalarValue>>(ArrayStats::VT_SUM, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayStats::VT_SUM, None)}
   }
   #[inline]
   pub fn is_sorted(&self) -> Option<bool> {
@@ -680,6 +681,13 @@ impl<'a> ArrayStats<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, None)}
   }
+  #[inline]
+  pub fn nan_count(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ArrayStats::VT_NAN_COUNT, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ArrayStats<'_> {
@@ -689,27 +697,29 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("min", Self::VT_MIN, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("max", Self::VT_MAX, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("sum", Self::VT_SUM, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("min", Self::VT_MIN, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("max", Self::VT_MAX, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("sum", Self::VT_SUM, false)?
      .visit_field::<bool>("is_sorted", Self::VT_IS_SORTED, false)?
      .visit_field::<bool>("is_strict_sorted", Self::VT_IS_STRICT_SORTED, false)?
      .visit_field::<bool>("is_constant", Self::VT_IS_CONSTANT, false)?
      .visit_field::<u64>("null_count", Self::VT_NULL_COUNT, false)?
      .visit_field::<u64>("uncompressed_size_in_bytes", Self::VT_UNCOMPRESSED_SIZE_IN_BYTES, false)?
+     .visit_field::<u64>("nan_count", Self::VT_NAN_COUNT, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ArrayStatsArgs<'a> {
-    pub min: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
-    pub max: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
-    pub sum: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
+    pub min: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+    pub max: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+    pub sum: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
     pub is_sorted: Option<bool>,
     pub is_strict_sorted: Option<bool>,
     pub is_constant: Option<bool>,
     pub null_count: Option<u64>,
     pub uncompressed_size_in_bytes: Option<u64>,
+    pub nan_count: Option<u64>,
 }
 impl<'a> Default for ArrayStatsArgs<'a> {
   #[inline]
@@ -723,6 +733,7 @@ impl<'a> Default for ArrayStatsArgs<'a> {
       is_constant: None,
       null_count: None,
       uncompressed_size_in_bytes: None,
+      nan_count: None,
     }
   }
 }
@@ -733,16 +744,16 @@ pub struct ArrayStatsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_min(&mut self, min: flatbuffers::WIPOffset<ScalarValue<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(ArrayStats::VT_MIN, min);
+  pub fn add_min(&mut self, min: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_MIN, min);
   }
   #[inline]
-  pub fn add_max(&mut self, max: flatbuffers::WIPOffset<ScalarValue<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(ArrayStats::VT_MAX, max);
+  pub fn add_max(&mut self, max: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_MAX, max);
   }
   #[inline]
-  pub fn add_sum(&mut self, sum: flatbuffers::WIPOffset<ScalarValue<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(ArrayStats::VT_SUM, sum);
+  pub fn add_sum(&mut self, sum: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_SUM, sum);
   }
   #[inline]
   pub fn add_is_sorted(&mut self, is_sorted: bool) {
@@ -763,6 +774,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_uncompressed_size_in_bytes(&mut self, uncompressed_size_in_bytes: u64) {
     self.fbb_.push_slot_always::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, uncompressed_size_in_bytes);
+  }
+  #[inline]
+  pub fn add_nan_count(&mut self, nan_count: u64) {
+    self.fbb_.push_slot_always::<u64>(ArrayStats::VT_NAN_COUNT, nan_count);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayStatsBuilder<'a, 'b, A> {
@@ -790,6 +805,7 @@ impl core::fmt::Debug for ArrayStats<'_> {
       ds.field("is_constant", &self.is_constant());
       ds.field("null_count", &self.null_count());
       ds.field("uncompressed_size_in_bytes", &self.uncompressed_size_in_bytes());
+      ds.field("nan_count", &self.nan_count());
       ds.finish()
   }
 }

@@ -2,10 +2,11 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
-use crate::compute::{MinMaxFn, MinMaxResult, min_max};
+use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, min_max};
 use crate::partial_ord::{partial_max, partial_min};
+use crate::register_kernel;
 
-impl MinMaxFn<&ChunkedArray> for ChunkedEncoding {
+impl MinMaxKernel for ChunkedEncoding {
     fn min_max(&self, array: &ChunkedArray) -> VortexResult<Option<MinMaxResult>> {
         let mut min_max_all_null = true;
         let res = array
@@ -58,3 +59,5 @@ impl MinMaxFn<&ChunkedArray> for ChunkedEncoding {
         }))
     }
 }
+
+register_kernel!(MinMaxKernelAdapter(ChunkedEncoding).lift());

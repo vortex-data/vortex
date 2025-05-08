@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
@@ -29,12 +30,12 @@ arrow-string = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
-flexbuffers = { workspace = true }
 futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }
+inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
@@ -42,23 +43,24 @@ num_enum = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
-rkyv = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
-vortex-dtype = { workspace = true, features = ["arrow", "rkyv", "serde"] }
+vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = [
     "flatbuffers",
     "flexbuffers",
+    "prost",
     "rancor",
 ] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
+vortex-scalar = { workspace = true }
 
 [features]
 arbitrary = [
@@ -96,8 +98,4 @@ harness = false
 
 [[bench]]
 name = "chunk_array_builder"
-harness = false
-
-[[bench]]
-name = "is_constant"
 harness = false

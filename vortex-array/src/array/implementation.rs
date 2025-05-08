@@ -5,16 +5,19 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::convert::IntoArray;
+use crate::array::operations::ArrayOperationsImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Filter, KernelRef};
-use crate::stats::{Precision, Stat, StatsSetRef};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayComputeImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
+    Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
     Canonical, Encoding, EncodingId,
 };
 
@@ -26,7 +29,7 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
-    + ArrayComputeImpl
+    + ArrayOperationsImpl
     + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
@@ -44,6 +47,15 @@ pub trait ArrayImpl:
     ///
     /// - The number of given children matches the current number of children of the array.
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
+
+    /// Dynamically invoke a kernel for the given compute function.
+    fn _invoke(
+        &self,
+        _compute_fn: &ComputeFn,
+        _args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        Ok(None)
+    }
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -82,25 +94,100 @@ impl<A: ArrayImpl + 'static> Array for A {
         ArrayImpl::_vtable(self)
     }
 
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
-        let any = compute_fn.as_any();
+    /// Perform a constant-time slice of the array.
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        if start == 0 && stop == self.len() {
+            return Ok(self.to_array());
+        }
 
-        // Check each of the known compute functions.
+        if start > self.len() {
+            vortex_bail!(OutOfBounds: start, 0, self.len());
+        }
+        if stop > self.len() {
+            vortex_bail!(OutOfBounds: stop, 0, self.len());
+        }
+        if start > stop {
+            vortex_bail!("start ({start}) must be <= stop ({stop})");
+        }
 
-        if any.is::<Filter>() {
-            if let Some(f) = <Self as ArrayComputeImpl>::FILTER {
-                return Some(f);
+        if start == stop {
+            return Ok(Canonical::empty(self.dtype()).into_array());
+        }
+
+        // We know that constant array don't need stats propagation, so we can avoid the overhead of
+        // computing derived stats and merging them in.
+        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
+        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
+        let derived_stats = (!self.is_constant()).then(|| {
+            let stats = self.statistics().to_owned();
+
+            // an array that is not constant can become constant after slicing
+            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
+            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
+
+            let mut stats = stats.keep_inexact_stats(&[
+                Stat::Max,
+                Stat::Min,
+                Stat::NullCount,
+                Stat::UncompressedSizeInBytes,
+            ]);
+
+            if is_constant == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsConstant, Precision::exact(true));
+            }
+            if is_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsSorted, Precision::exact(true));
+            }
+            if is_strict_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsStrictSorted, Precision::exact(true));
+            }
+
+            stats
+        });
+
+        let sliced = ArrayOperationsImpl::_slice(self, start, stop)?;
+
+        assert_eq!(
+            sliced.len(),
+            stop - start,
+            "Slice length mismatch {}",
+            self.encoding()
+        );
+        assert_eq!(
+            sliced.dtype(),
+            self.dtype(),
+            "Slice dtype mismatch {}",
+            self.encoding()
+        );
+
+        if let Some(derived_stats) = derived_stats {
+            let mut stats = sliced.statistics().to_owned();
+            stats.combine_sets(&derived_stats, self.dtype())?;
+            for (stat, val) in stats.into_iter() {
+                sliced.statistics().set(stat, val)
             }
         }
 
-        // Otherwise, fallback to a manual lookup
-        self._find_kernel(compute_fn)
+        Ok(sliced)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        if index >= self.len() {
+            vortex_bail!(OutOfBounds: index, 0, self.len());
+        }
+        if self.is_invalid(index)? {
+            return Ok(Scalar::null(self.dtype().clone()));
+        }
+        let scalar = ArrayOperationsImpl::_scalar_at(self, index)?;
+        assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
     }
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         if index >= self.len() {
-            vortex_bail!("Index out of bounds: {} >= {}", index, self.len());
+            vortex_bail!(OutOfBounds: index, 0, self.len());
         }
         ArrayValidityImpl::_is_valid(self, index)
     }
@@ -169,14 +256,20 @@ impl<A: ArrayImpl + 'static> Array for A {
     fn to_canonical(&self) -> VortexResult<Canonical> {
         let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
         assert_eq!(
-            canonical.as_ref().len(),
             self.len(),
-            "Canonical length mismatch"
+            canonical.as_ref().len(),
+            "Canonical length mismatch {}. Expected {} but encoded into {}.",
+            self.encoding(),
+            self.len(),
+            canonical.as_ref().len()
         );
         assert_eq!(
-            canonical.as_ref().dtype(),
             self.dtype(),
-            "Canonical dtype mismatch"
+            canonical.as_ref().dtype(),
+            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
+            self.encoding(),
+            self.dtype(),
+            canonical.as_ref().dtype()
         );
         canonical.as_ref().statistics().inherit(self.statistics());
         Ok(canonical)
@@ -219,5 +312,13 @@ impl<A: ArrayImpl + 'static> Array for A {
         }
 
         Ok(self._with_children(children)?.into_array())
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        self._invoke(compute_fn, args)
     }
 }

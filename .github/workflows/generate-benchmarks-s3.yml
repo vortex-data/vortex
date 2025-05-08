@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           # We run each query once to make sure we don't upload a file if there's a bug that causes a panic.
-          cargo run --release --bin clickbench --package bench-vortex -- --formats parquet,vortex -i1
+          cargo run --release --bin clickbench --package bench-vortex -- --targets datafusion:parquet,datafusion:vortex -i1
           aws s3 rm --recursive s3://vortex-bench-dev-eu/develop/clickbench/
           aws s3 cp --recursive bench-vortex/data/clickbench_partitioned s3://vortex-bench-dev-eu/develop/clickbench/
           rm -rf bench-vortex/data/clickbench_partitioned/

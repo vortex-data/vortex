@@ -1,37 +1,52 @@
-use std::process::ExitCode;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{DisplayFormat, RatioMode, print_measurements_json, render_table};
+use anyhow::anyhow;
+use bench_vortex::ddb::{DuckDBExecutor, register_tables};
+use bench_vortex::df::write_execution_plan;
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
-use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::duckdb::{DuckdbTpchOptions, generate_tpch};
+use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
     run_tpch_query, tpch_queries,
 };
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, ddb, default_env_filter, feature_flagged_allocator};
-use clap::{Parser, ValueEnum};
+use bench_vortex::{
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, vortex_panic,
+};
+use clap::{Parser, ValueEnum, value_parser};
+use datafusion::execution::context::SessionContext;
+use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
+use tempfile::tempdir;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
-feature_flagged_allocator!();
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Engine::DataFusion])]
-    engines: Vec<Engine>,
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "datafusion:arrow",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
+    targets: Vec<Target>,
     #[arg(long)]
-    duckdb_path: Option<std::path::PathBuf>,
+    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -42,18 +57,14 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(short, long, default_value_t = 10)]
     iterations: usize,
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex])]
-    formats: Vec<Format>,
     #[arg(long, default_value_t = 1)]
     scale_factor: u8,
-    #[arg(long)]
-    only_vortex: bool,
     #[arg(short)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value_t = false)]
-    emulate_object_store: bool,
+    disable_datafusion_cache: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
     #[arg(long)]
@@ -62,6 +73,9 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    // Don't try to rebuild duckdb
+    #[arg(long)]
+    skip_rebuild: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -71,9 +85,12 @@ pub enum DataGenerator {
     Duckdb,
 }
 
-fn main() -> ExitCode {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    validate_args(&args);
+
+    let engines = args.targets.iter().map(|t| t.engine()).collect_vec();
+
+    validate_args(&engines, &args);
 
     let filter = default_env_filter(args.verbose);
     #[cfg(not(feature = "tracing"))]
@@ -106,35 +123,34 @@ fn main() -> ExitCode {
         _guard
     };
 
-    if args.only_vortex {
-        panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
-    }
+    let formats = args.targets.iter().map(|t| t.format()).collect_vec();
 
     let runtime = new_tokio_runtime(args.threads);
 
+    let duckdb_resolved_path = ddb::get_executable_path(&args.duckdb_path);
+    if args.duckdb_path.is_none() && !args.skip_rebuild {
+        ddb::build_vortex_duckdb();
+    }
+
     let url = match args.use_remote_data_dir {
         None => {
-            let data_dir = match args.data_generator {
-                DataGenerator::Duckdb => {
-                    generate_tpch(DuckdbTpchOptions::default().with_scale_factor(args.scale_factor))
-                        .unwrap()
-                }
-                DataGenerator::Dbgen => {
-                    let db_gen_options =
-                        DBGenOptions::default().with_scale_factor(args.scale_factor);
-                    DBGen::new(db_gen_options).generate().unwrap()
-                }
-            };
+            for format in formats {
+                // Arrow uses csv
+                let format = if format == Format::Arrow {
+                    Format::Csv
+                } else {
+                    format
+                };
+                let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
+                    .with_duckdb_path(duckdb_resolved_path.clone());
+                generate_tpc(opts)?;
+            }
 
-            info!(
-                "Using existing or generating new files located at {}.",
-                data_dir.display()
-            );
-            Url::parse(
-                ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
-                    .as_ref(),
-            )
-            .unwrap()
+            let data_dir = "tpch".to_data_path();
+            let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
+
+            info!("Using existing or generating new files located at {data_dir}.");
+            Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
         }
         Some(tpch_benchmark_remote_data_dir) => {
             // e.g. "s3://vortex-bench-dev-eu/parquet/"
@@ -155,7 +171,7 @@ fn main() -> ExitCode {
                 ),
                 tpch_benchmark_remote_data_dir,
             );
-            Url::parse(&tpch_benchmark_remote_data_dir).unwrap()
+            Url::parse(&tpch_benchmark_remote_data_dir)?
         }
     };
 
@@ -163,15 +179,15 @@ fn main() -> ExitCode {
         args.queries,
         args.exclude_queries,
         args.iterations,
-        args.formats,
+        args.targets,
         args.display_format,
-        args.emulate_object_store,
+        args.disable_datafusion_cache,
         args.scale_factor,
         url,
         args.all_metrics,
         args.export_spans,
-        &args.engines,
-        &args.duckdb_path,
+        args.emit_plan,
+        duckdb_resolved_path,
     ))
 }
 
@@ -236,13 +252,11 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     queries: &[String],
     iterations: usize,
-    file_format: Format,
-    base_url: &Url,
-    duckdb_path: &std::path::Path,
+    duckdb_executor: &DuckDBExecutor,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_tpch_query(queries, base_url, file_format, duckdb_path)
-            .unwrap_or_else(|err| panic!("query: {query_idx} failed with: {err}"));
+        let duration = ddb::execute_tpch_query(queries, duckdb_executor)
+            .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)
     })
@@ -252,18 +266,17 @@ async fn benchmark_datafusion_query(
     query_idx: usize,
     query_string: &[String],
     iterations: usize,
-    context: &datafusion::execution::context::SessionContext,
-) -> (
-    Duration,
-    std::sync::Arc<dyn datafusion::physical_plan::execution_plan::ExecutionPlan>,
-) {
+    context: &SessionContext,
+) -> (usize, Duration, Arc<dyn ExecutionPlan>) {
+    let mut row_count = usize::MAX;
     let mut fastest_run = Duration::from_millis(u64::MAX);
     let mut plan_result = None;
 
     for _ in 0..iterations {
         let start = Instant::now();
-        let plan = run_tpch_query(context, query_string, query_idx).await.1;
+        let (q_row_count, plan) = run_tpch_query(context, query_string, query_idx).await;
         let elapsed = start.elapsed();
+        row_count = q_row_count;
 
         if plan_result.is_none() {
             plan_result = Some(plan.clone());
@@ -273,8 +286,9 @@ async fn benchmark_datafusion_query(
     }
 
     (
+        row_count,
         fastest_run,
-        plan_result.expect("Execution plan must be set"),
+        plan_result.vortex_expect("Execution plan must be set"),
     )
 }
 
@@ -283,34 +297,34 @@ async fn bench_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
-    formats: Vec<Format>,
+    targets: Vec<Target>,
     display_format: DisplayFormat,
-    emulate_object_store: bool,
+    disable_datafusion_cache: bool,
     scale_factor: u8,
     url: Url,
     display_all_metrics: bool,
     export_spans: bool,
-    engines: &[Engine],
-    duckdb_path: &Option<std::path::PathBuf>,
-) -> ExitCode {
+    emit_plan: bool,
+    duckdb_resolved_path: PathBuf,
+) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
     } else if scale_factor == 10 {
         EXPECTED_ROW_COUNTS_SF10
     } else {
-        panic!(
+        vortex_panic!(
             "Scale factor {} not supported due to lack of expected row counts.",
             scale_factor
         );
     };
 
     info!(
-        "Benchmarking against these formats: {}.",
-        formats.iter().join(", ")
+        "Benchmarking against these targets: {}.",
+        targets.iter().join(", ")
     );
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
-    let progress = ProgressBar::new((query_count * formats.len() * engines.len()) as u64);
+    let progress = ProgressBar::new((query_count * targets.len()) as u64);
     let mut row_counts: Vec<(usize, Format, usize)> = Vec::new();
     let mut measurements = Vec::new();
     let mut metrics = MetricsSet::new();
@@ -328,97 +342,98 @@ async fn bench_main(
         })
         .collect();
 
-    for engine in engines {
-        for format in formats.iter().copied() {
-            match engine {
-                Engine::DataFusion => {
-                    let ctx = load_datasets(&url, format, emulate_object_store)
-                        .await
-                        .unwrap();
+    assert!(!tpch_queries.is_empty(), "No queries to run");
 
-                    let mut plans = Vec::new();
+    for target in &targets {
+        let engine = target.engine();
+        let format = target.format();
+        match engine {
+            Engine::DataFusion => {
+                let ctx = load_datasets(
+                    &url,
+                    format,
+                    BenchmarkDataset::TpcH,
+                    disable_datafusion_cache,
+                )
+                .await?;
 
-                    for (query_idx, sql_queries) in tpch_queries.clone() {
-                        // Run benchmark as an async function
-                        let (fastest_run, plan) =
-                            benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx)
-                                .await;
+                let mut plans = Vec::new();
 
-                        // Row count verification
-                        let first_row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await.0;
-                        row_counts.push((query_idx, format, first_row_count));
+                for (query_idx, sql_queries) in tpch_queries.clone() {
+                    // Run benchmark as an async function
+                    let (row_count, fastest_run, plan) =
+                        benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
 
-                        // Gather metrics.
-                        for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
-                            .into_iter()
-                            .enumerate()
-                        {
-                            metrics.merge_all_with_label(
-                                metrics_set,
-                                &[
-                                    Label::new("query_idx", query_idx.to_string()),
-                                    Label::new("vortex_exec_idx", idx.to_string()),
-                                ],
-                            );
-                        }
-                        plans.push((query_idx, plan.clone()));
+                    row_counts.push((query_idx, format, row_count));
 
-                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
-                            Ok(storage) => storage,
-                            Err(exit_code) => return exit_code,
-                        };
-
-                        measurements.push(QueryMeasurement {
-                            query_idx,
-                            engine: Engine::DataFusion,
-                            storage,
-                            fastest_run,
-                            format,
-                            dataset: TPCH_DATASET.to_owned(),
-                        });
-
-                        progress.inc(1);
-                    }
-
-                    if export_spans {
-                        if let Err(e) = export_plan_spans(format, &plans).await {
-                            warn!("failed to export spans {e}");
-                        }
-                    }
-                }
-                Engine::DuckDB => {
-                    let duckdb_executable = ddb::executable_path(duckdb_path);
-
-                    for (query_idx, sql_queries) in tpch_queries.clone() {
-                        let fastest_run = benchmark_duckdb_query(
-                            query_idx,
-                            &sql_queries,
-                            iterations,
-                            format,
-                            &url,
-                            &duckdb_executable,
+                    // Gather metrics.
+                    for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
+                        .into_iter()
+                        .enumerate()
+                    {
+                        metrics.merge_all_with_label(
+                            metrics_set,
+                            &[
+                                Label::new("query_idx", query_idx.to_string()),
+                                Label::new("vortex_exec_idx", idx.to_string()),
+                            ],
                         );
+                    }
 
-                        let storage = match bench_vortex::utils::url_scheme_to_storage(&url) {
-                            Ok(storage) => storage,
-                            Err(exit_code) => return exit_code,
-                        };
+                    if emit_plan {
+                        write_execution_plan(query_idx, format, TPCH_DATASET, plan.as_ref());
+                    }
 
-                        measurements.push(QueryMeasurement {
-                            query_idx,
-                            engine: Engine::DuckDB,
-                            storage,
-                            fastest_run,
-                            format,
-                            dataset: TPCH_DATASET.to_owned(),
-                        });
+                    plans.push((query_idx, plan.clone()));
 
-                        progress.inc(1);
+                    let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
+
+                    measurements.push(QueryMeasurement {
+                        query_idx,
+                        target: *target,
+                        storage,
+                        fastest_run,
+                        dataset: TPCH_DATASET.to_owned(),
+                    });
+
+                    progress.inc(1);
+                }
+
+                if export_spans {
+                    if let Err(e) = export_plan_spans(format, &plans).await {
+                        warn!("failed to export spans {e}");
                     }
                 }
-                _ => {
-                    warn!("Engine {:?} not supported for TPC-H benchmarks", engine);
+            }
+            // TODO(joe); ensure that files are downloaded before running duckdb.
+            Engine::DuckDB => {
+                let temp_dir = tempdir()?;
+                let duckdb_file = temp_dir
+                    .path()
+                    .join(format!("duckdb-file-{}.db", format.name()));
+
+                let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
+                register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
+
+                for (query_idx, sql_queries) in tpch_queries.clone() {
+                    let fastest_run =
+                        benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
+
+                    let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
+
+                    measurements.push(QueryMeasurement {
+                        query_idx,
+                        target: *target,
+                        storage,
+                        fastest_run,
+                        dataset: TPCH_DATASET.to_owned(),
+                    });
+
+                    progress.inc(1);
                 }
+            }
+            _ => {
+                warn!("Engine {:?} not supported for TPC-H benchmarks", engine);
             }
         }
     }
@@ -433,29 +448,30 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{}", m);
             }
-            render_table(measurements, &formats, RatioMode::Time, engines).unwrap();
+            render_table(measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements).unwrap();
+            print_measurements_json(measurements)?;
         }
     }
 
     if verify_row_counts(&row_counts, expected_row_counts, &queries, &exclude_queries) {
-        ExitCode::FAILURE
+        Err(anyhow!("Mismatched row counts. See logs for details."))
     } else {
-        ExitCode::SUCCESS
+        anyhow::Ok(())
     }
 }
 
-fn validate_args(args: &Args) {
-    if args.duckdb_path.is_some() && !args.engines.contains(&Engine::DuckDB) {
-        panic!("--duckdb-path is only valid if DuckDB is used");
-    }
+fn validate_args(engines: &[Engine], args: &Args) {
+    assert!(
+        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
+        "--duckdb-path is only valid if DuckDB is used"
+    );
 
     if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
-        && !args.engines.contains(&Engine::DataFusion)
+        && !engines.contains(&Engine::DataFusion)
     {
-        panic!(
+        vortex_panic!(
             "--all-metrics, --emit-plan, --threads, --export-spans are only valid if DataFusion is used"
         );
     }

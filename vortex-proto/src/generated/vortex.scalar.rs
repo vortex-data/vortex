@@ -8,10 +8,7 @@ pub struct Scalar {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScalarValue {
-    #[prost(
-        oneof = "scalar_value::Kind",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16"
-    )]
+    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub kind: ::core::option::Option<scalar_value::Kind>,
 }
 /// Nested message and enum types in `ScalarValue`.
@@ -22,34 +19,19 @@ pub mod scalar_value {
         NullValue(i32),
         #[prost(bool, tag = "2")]
         BoolValue(bool),
-        #[prost(sint32, tag = "3")]
-        Int8Value(i32),
-        #[prost(sint32, tag = "4")]
-        Int16Value(i32),
-        #[prost(sint32, tag = "5")]
-        Int32Value(i32),
-        #[prost(sint64, tag = "6")]
+        #[prost(sint64, tag = "3")]
         Int64Value(i64),
-        #[prost(uint32, tag = "7")]
-        Uint8Value(u32),
-        #[prost(uint32, tag = "8")]
-        Uint16Value(u32),
-        #[prost(uint32, tag = "9")]
-        Uint32Value(u32),
-        #[prost(uint64, tag = "10")]
+        #[prost(uint64, tag = "4")]
         Uint64Value(u64),
-        /// two bytes
-        #[prost(uint32, tag = "11")]
-        F16Value(u32),
-        #[prost(float, tag = "12")]
+        #[prost(float, tag = "5")]
         F32Value(f32),
-        #[prost(double, tag = "13")]
+        #[prost(double, tag = "6")]
         F64Value(f64),
-        #[prost(string, tag = "14")]
+        #[prost(string, tag = "7")]
         StringValue(::prost::alloc::string::String),
-        #[prost(bytes, tag = "15")]
+        #[prost(bytes, tag = "8")]
         BytesValue(::prost::alloc::vec::Vec<u8>),
-        #[prost(message, tag = "16")]
+        #[prost(message, tag = "9")]
         ListValue(super::ListValue),
     }
 }

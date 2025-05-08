@@ -6,7 +6,9 @@ use vortex_scalar::Scalar;
 use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::VTableRef;
-use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding};
+use crate::{
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
+};
 
 mod canonical;
 mod compute;
@@ -20,6 +22,7 @@ pub struct ConstantArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ConstantEncoding;
 impl Encoding for ConstantEncoding {
     type Array = ConstantArray;
@@ -63,6 +66,16 @@ impl ArrayImpl for ConstantArray {
 
     fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
         Ok(self.clone())
+    }
+}
+
+impl ArrayOperationsImpl for ConstantArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(self.scalar().clone(), stop - start).into_array())
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        Ok(self.scalar().clone())
     }
 }
 

@@ -5,33 +5,36 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
+mod bigint;
 mod binary;
 mod bool;
 mod datafusion;
+mod decimal;
 mod display;
 mod extension;
 mod list;
 mod null;
 mod primitive;
+mod proto;
 mod pvalue;
 mod scalar_type;
-mod scalarvalue;
-#[cfg(feature = "serde")]
-mod serde;
+mod scalar_value;
 mod struct_;
 mod utf8;
 
+pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
+pub use decimal::*;
 pub use extension::*;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
-pub use scalarvalue::*;
+pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -45,7 +48,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 /// including nullability. When the DType does match, ordering is nulls first (lowest), then the
 /// natural ordering of the scalar value.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
     dtype: DType,
     value: ScalarValue,
@@ -130,6 +132,7 @@ impl Scalar {
             DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
+            DType::Decimal(..) => todo!("(aduffy): implement DecimalScalar casting"),
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
@@ -151,6 +154,13 @@ impl Scalar {
             DType::Null => 0,
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),
+            DType::Decimal(dt, _) => {
+                if dt.precision() >= DECIMAL128_MAX_PRECISION {
+                    size_of::<i128>()
+                } else {
+                    size_of::<i256>()
+                }
+            }
             DType::Binary(_) | DType::Utf8(_) => self
                 .value()
                 .as_buffer()
@@ -187,6 +197,14 @@ impl Scalar {
 
     pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
         matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
+    }
+
+    pub fn as_decimal(&self) -> DecimalScalar {
+        DecimalScalar::try_from(self).vortex_expect("Failed to convert scalar to decimal")
+    }
+
+    pub fn as_decimal_opt(&self) -> Option<DecimalScalar> {
+        matches!(self.dtype, DType::Decimal(..)).then(|| self.as_decimal())
     }
 
     pub fn as_utf8(&self) -> Utf8Scalar {
@@ -240,6 +258,7 @@ impl PartialEq for Scalar {
             DType::Null => true,
             DType::Bool(_) => self.as_bool() == other.as_bool(),
             DType::Primitive(..) => self.as_primitive() == other.as_primitive(),
+            DType::Decimal(..) => self.as_decimal() == other.as_decimal(),
             DType::Utf8(_) => self.as_utf8() == other.as_utf8(),
             DType::Binary(_) => self.as_binary() == other.as_binary(),
             DType::Struct(..) => self.as_struct() == other.as_struct(),
@@ -260,6 +279,7 @@ impl PartialOrd for Scalar {
             DType::Null => Some(Ordering::Equal),
             DType::Bool(_) => self.as_bool().partial_cmp(&other.as_bool()),
             DType::Primitive(..) => self.as_primitive().partial_cmp(&other.as_primitive()),
+            DType::Decimal(..) => self.as_decimal().partial_cmp(&other.as_decimal()),
             DType::Utf8(_) => self.as_utf8().partial_cmp(&other.as_utf8()),
             DType::Binary(_) => self.as_binary().partial_cmp(&other.as_binary()),
             DType::Struct(..) => self.as_struct().partial_cmp(&other.as_struct()),
@@ -275,6 +295,7 @@ impl Hash for Scalar {
             DType::Null => self.dtype().hash(state), // Hash the dtype instead of the value
             DType::Bool(_) => self.as_bool().hash(state),
             DType::Primitive(..) => self.as_primitive().hash(state),
+            DType::Decimal(..) => self.as_decimal().hash(state),
             DType::Utf8(_) => self.as_utf8().hash(state),
             DType::Binary(_) => self.as_binary().hash(state),
             DType::Struct(..) => self.as_struct().hash(state),
@@ -312,6 +333,17 @@ impl From<PrimitiveScalar<'_>> for Scalar {
         let value = pscalar
             .pvalue()
             .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
+        Self::new(dtype, value)
+    }
+}
+
+impl From<DecimalScalar<'_>> for Scalar {
+    fn from(decimal_scalar: DecimalScalar<'_>) -> Self {
+        let dtype = decimal_scalar.dtype().clone();
+        let value = decimal_scalar
+            .decimal_value()
+            .map(|value| ScalarValue(InnerScalarValue::Decimal(value)))
             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
         Self::new(dtype, value)
     }

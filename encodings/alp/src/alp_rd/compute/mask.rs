@@ -1,12 +1,12 @@
-use vortex_array::compute::{MaskFn, mask};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
-impl MaskFn<&ALPRDArray> for ALPRDEncoding {
-    fn mask(&self, array: &ALPRDArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
+impl MaskKernel for ALPRDEncoding {
+    fn mask(&self, array: &ALPRDArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ALPRDArray::try_new(
             array.dtype().as_nullable(),
             mask(array.left_parts(), filter_mask)?,
@@ -18,6 +18,8 @@ impl MaskFn<&ALPRDArray> for ALPRDEncoding {
         .into_array())
     }
 }
+
+register_kernel!(MaskKernelAdapter(ALPRDEncoding).lift());
 
 #[cfg(test)]
 mod tests {

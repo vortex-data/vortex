@@ -1,7 +1,9 @@
+use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use std::{fmt, fs};
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use clap::ValueEnum;
@@ -17,6 +19,7 @@ use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{debug, info, warn};
 use url::Url;
+use vortex::error::VortexExpect;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -147,7 +150,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     let parquet_path = input_path.join("parquet");
     create_dir_all(&vortex_dir).await?;
 
-    let parquet_inputs = std::fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
+    let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
 
     debug!(
         "Found {} parquet files in {}",
@@ -194,11 +197,11 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub fn register_vortex_files(
+pub async fn register_vortex_files(
     session: SessionContext,
     table_name: &str,
     input_path: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
     single_file: bool,
 ) -> anyhow::Result<()> {
     let mut vortex_path = input_path.join("vortex/")?;
@@ -212,9 +215,17 @@ pub fn register_vortex_files(
 
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format))
-        .with_schema(schema.clone().into());
+    let config =
+        ListingTableConfig::new(table_url).with_listing_options(ListingOptions::new(format));
+
+    let config = if let Some(schema) = schema {
+        config.with_schema(schema.into())
+    } else {
+        config
+            .infer_schema(&session.state())
+            .await
+            .vortex_expect("cannot infer schema")
+    };
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
     session.register_table(table_name, listing_table)?;
@@ -250,7 +261,7 @@ pub fn register_parquet_files(
 }
 
 pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
-    std::fs::read_to_string(queries_file_path)
+    fs::read_to_string(queries_file_path)
         .unwrap()
         .split(';')
         .map(|s| s.trim())
@@ -267,9 +278,15 @@ pub enum Flavor {
     Single,
 }
 
-impl std::fmt::Display for Flavor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_possible_value().unwrap().get_name())
+impl Display for Flavor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.to_possible_value()
+                .vortex_expect("Invalid flavour value")
+                .get_name()
+        )
     }
 }
 
@@ -292,13 +309,11 @@ impl Flavor {
 
                     anyhow::Ok(())
                 })?;
-
-                Ok(())
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                (0_u32..100).into_par_iter().for_each(|idx| {
+                let _ = (0_u32..100).into_par_iter().map(|idx| {
                     let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");
@@ -307,14 +322,12 @@ impl Flavor {
                         let mut file = File::create(output_path)?;
                         response.copy_to(&mut file)?;
 
-                        anyhow::Ok(PathBuf::from(output_path))
+                        anyhow::Ok(())
                     })
-                    .unwrap();
-            });
-
-                Ok(())
+                }).collect::<anyhow::Result<Vec<_>>>()?;
             }
         }
+        Ok(())
     }
 }
 

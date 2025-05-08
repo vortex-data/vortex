@@ -1,23 +1,50 @@
+mod timing;
+
+use std::path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use anyhow::bail;
+use log::{info, trace};
+use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
 use {anyhow, log};
 
 use crate::Format;
 use crate::datasets::BenchmarkDataset;
+use crate::ddb::timing::parse_query_output;
 
-/// Finds the path to the DuckDB executable
-pub fn executable_path(user_supplied_path_flag: &Option<std::path::PathBuf>) -> std::path::PathBuf {
-    let validate_path = |duckdb_path: &std::path::PathBuf| {
-        if !duckdb_path.as_path().exists() {
-            panic!(
-                "failed to find duckdb executable at: {}",
-                duckdb_path.display()
-            );
+#[derive(Debug, Clone)]
+pub struct DuckDBExecutor {
+    duckdb_path: PathBuf,
+    duckdb_file: PathBuf,
+}
+
+impl DuckDBExecutor {
+    pub fn command(&self) -> Command {
+        let mut command = Command::new(&self.duckdb_path);
+        command.arg(&self.duckdb_file);
+        command
+    }
+
+    pub fn new(duckdb_path: PathBuf, duckdb_file: PathBuf) -> Self {
+        Self {
+            duckdb_path,
+            duckdb_file,
         }
+    }
+}
+
+pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
+    let validate_path = |duckdb_path: &PathBuf| {
+        assert!(
+            duckdb_path.as_path().exists(),
+            "failed to find duckdb executable at: {}",
+            duckdb_path.display()
+        );
     };
 
     // User supplied path takes priority.
@@ -42,18 +69,87 @@ pub fn executable_path(user_supplied_path_flag: &Option<std::path::PathBuf>) -> 
         }
     }
 
-    let duckdb_path = std::path::PathBuf::from_str(&format!(
-        "{}/duckdb-vortex/build/release/duckdb",
-        repo_root.unwrap_or_default()
-    ))
-    .expect("failed to create DuckDB executable path");
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
 
     validate_path(&duckdb_path);
 
     duckdb_path
 }
 
-fn create_table_registration(base_url: &Url, extension: &str, dataset: BenchmarkDataset) -> String {
+/// Finds the path to the DuckDB executable
+pub fn build_vortex_duckdb() {
+    // Try to find the 'vortex' top-level directory. This is preferred over logic along
+    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
+    let mut repo_root = None;
+    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
+
+    while current_dir.file_name().is_some() {
+        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
+            repo_root = Some(current_dir.to_string_lossy().into_owned());
+            break;
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    let mut command = Command::new("make");
+    command
+        .current_dir(&duckdb_vortex_path)
+        .env("GEN", "ninja")
+        .arg("release");
+
+    info!(
+        "Building duckdb vortex extension at {}, with command {:?}",
+        duckdb_vortex_path.display(),
+        command
+    );
+
+    let output = command
+        .output()
+        .expect("Trying to build duckdb vortex extension");
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+    }
+
+    info!(
+        "Built duckdb vortex extension at {}",
+        duckdb_vortex_path.display()
+    );
+}
+
+enum DuckDBObject {
+    Table,
+    View,
+}
+
+impl DuckDBObject {
+    fn to_str(&self) -> &str {
+        match self {
+            DuckDBObject::Table => "TABLE",
+            DuckDBObject::View => "VIEW",
+        }
+    }
+}
+
+fn create_table_registration(
+    base_url: &Url,
+    extension: &str,
+    dataset: BenchmarkDataset,
+    duckdb_object: DuckDBObject,
+) -> String {
     // Base path contains trailing /.
     let base_dir = base_url.as_str();
     let base_dir = base_dir.strip_prefix("file://").unwrap_or(base_dir);
@@ -66,10 +162,11 @@ fn create_table_registration(base_url: &Url, extension: &str, dataset: Benchmark
                 "supplier",
             ];
 
-            for table in &tables {
-                let table_path = format!("{base_dir}{table}.{extension}");
+            for table_name in &tables {
+                let table_path = format!("{base_dir}{table_name}.{extension}");
                 commands.push_str(&format!(
-                    "CREATE VIEW {table} AS SELECT * FROM read_{extension}('{table_path}');\n"
+                    "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                    duckdb_object.to_str(),
                 ));
             }
             commands
@@ -81,19 +178,36 @@ fn create_table_registration(base_url: &Url, extension: &str, dataset: Benchmark
                 format!("{base_dir}*.{extension}")
             };
 
-            format!("CREATE VIEW hits AS SELECT * FROM read_{extension}('{file_glob}');")
+            format!(
+                "CREATE {} hits AS SELECT * FROM read_{extension}('{file_glob}');",
+                duckdb_object.to_str()
+            )
+        }
+        BenchmarkDataset::TpcDS => {
+            let mut commands = String::new();
+            let tables = BenchmarkDataset::TpcDS.tables();
+
+            for table_name in tables {
+                let table_path = format!("{base_dir}{table_name}.{extension}");
+                commands.push_str(&format!(
+                    "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                    duckdb_object.to_str(),
+                ));
+            }
+            commands
         }
     }
 }
 
 /// Resolves the storage URL based on dataset and format requirements
+#[allow(dead_code)]
 fn resolve_storage_url(base_url: &Url, file_format: Format, dataset: BenchmarkDataset) -> Url {
     if file_format == Format::OnDiskVortex {
         match dataset.vortex_path(base_url) {
             Ok(vortex_url) => {
                 // Check if the directory exists (for file:// URLs)
                 if vortex_url.scheme() == "file" {
-                    let path = std::path::Path::new(vortex_url.path());
+                    let path = Path::new(vortex_url.path());
                     if !path.exists() {
                         log::warn!(
                             "Vortex directory doesn't exist at: {}. Run with DataFusion engine first to generate Vortex files.",
@@ -115,29 +229,44 @@ fn resolve_storage_url(base_url: &Url, file_format: Format, dataset: BenchmarkDa
     }
 }
 
-/// Execute DuckDB queries for benchmarks
-pub fn execute_query(
-    queries: &[String],
+pub fn register_tables(
+    duckdb_executor: &DuckDBExecutor,
     base_url: &Url,
     file_format: Format,
     dataset: BenchmarkDataset,
-    duckdb_path: &std::path::Path,
-) -> anyhow::Result<Duration> {
-    let extension = match file_format {
+) -> anyhow::Result<()> {
+    let object = match file_format {
+        Format::Parquet | Format::OnDiskVortex => DuckDBObject::View,
+        Format::OnDiskDuckDB => DuckDBObject::Table,
+        format => todo!("cannot run {format}"),
+    };
+
+    let load_format = match file_format {
+        // Duckdb loads values from parquet to duckdb
+        Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
+        f => f,
+    };
+
+    // println!("base url {}", base_url);
+    let effective_url = resolve_storage_url(base_url, load_format, dataset);
+    // let effective_url = base_url;
+    let extension = match load_format {
         Format::Parquet => "parquet",
         Format::OnDiskVortex => "vortex",
         other => vortex_panic!("Format {other} isn't supported for DuckDB"),
     };
 
-    let effective_url = resolve_storage_url(base_url, file_format, dataset);
-    let mut command = Command::new(duckdb_path);
-    let register_tables = create_table_registration(&effective_url, extension, dataset);
-    command.arg("-c").arg(register_tables);
-    for query in queries {
-        command.arg("-c").arg(query);
-    }
+    let mut command = duckdb_executor.command();
 
-    let time_instant = Instant::now();
+    command.arg("-c").arg(create_table_registration(
+        &effective_url,
+        extension,
+        dataset,
+        object,
+    ));
+
+    trace!("register duckdb tables with command: {:?}", command);
+
     let output = command.output()?;
 
     // DuckDB does not return non-zero exit codes in case of failures.
@@ -147,41 +276,81 @@ pub fn execute_query(
             "DuckDB query failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    };
+
+    Ok(())
+}
+
+/// Execute DuckDB queries for benchmarks
+pub fn execute_query(
+    queries: &[String],
+    duckdb_executor: &DuckDBExecutor,
+) -> anyhow::Result<Duration> {
+    let mut command = duckdb_executor.command();
+
+    let query = queries.join(";") + ";";
+    command
+        .arg("-c")
+        .arg(".timer on")
+        .arg("-c")
+        .arg(".once /dev/null")
+        .arg("-c")
+        .arg(query);
+
+    trace!("execute duckdb query with command: {:?}", command);
+
+    let time_instant = Instant::now();
+    let output = command.output()?;
+    let binary_runtime = time_instant.elapsed();
+
+    // DuckDB does not return non-zero exit codes in case of failures.
+    // Therefore, we need to additionally check whether stderr is set.
+    if !output.status.success() || !output.stderr.is_empty() {
+        bail!(
+            "DuckDB query failed, stdout: {} stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    Ok(time_instant.elapsed())
+
+    let output = String::from_utf8_lossy(&output.stdout);
+
+    trace!("query output {output}");
+
+    let query_time = parse_query_output(&output)?;
+    trace!(
+        "query ran with time real {}, user {}, sys {}",
+        query_time.real.as_secs_f64(),
+        query_time.user.as_secs_f64(),
+        query_time.sys.as_secs_f64()
+    );
+
+    // We know that the report runtime must be less than the total binary runtime.
+    assert!(binary_runtime >= query_time.real);
+
+    Ok(query_time.real)
 }
 
 /// Convenience wrapper for TPC-H benchmarks
 pub fn execute_tpch_query(
     queries: &[String],
-    base_url: &Url,
-    file_format: Format,
-    duckdb_path: &std::path::Path,
+    duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
-    execute_query(
-        queries,
-        base_url,
-        file_format,
-        BenchmarkDataset::TpcH,
-        duckdb_path,
-    )
+    execute_query(queries, duckdb_executor)
+}
+
+/// Convenience wrapper for TPC-DS benchmarks
+pub fn execute_tpcds_query(
+    query_string: &str,
+    duckdb_executor: &DuckDBExecutor,
+) -> anyhow::Result<Duration> {
+    execute_query(&[query_string.to_string()], duckdb_executor)
 }
 
 /// Convenience wrapper for ClickBench benchmarks
 pub fn execute_clickbench_query(
     query_string: &str,
-    base_url: &Url,
-    file_format: Format,
-    single_file: bool,
-    duckdb_path: &std::path::Path,
+    duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
-    let dataset = BenchmarkDataset::ClickBench { single_file };
-
-    execute_query(
-        &[query_string.to_string()],
-        base_url,
-        file_format,
-        dataset,
-        duckdb_path,
-    )
+    execute_query(&[query_string.to_string()], duckdb_executor)
 }

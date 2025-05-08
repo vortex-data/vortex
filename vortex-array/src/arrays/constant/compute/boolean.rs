@@ -3,15 +3,15 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::compute::{BinaryBooleanFn, BinaryOperator};
-use crate::{Array, ArrayRef};
+use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
-    fn binary_boolean(
+impl BooleanKernel for ConstantEncoding {
+    fn boolean(
         &self,
         lhs: &ConstantArray,
         rhs: &dyn Array,
-        op: BinaryOperator,
+        op: BooleanOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
@@ -31,10 +31,10 @@ impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
             .value();
 
         let result = match op {
-            BinaryOperator::And => and(lhs, rhs),
-            BinaryOperator::AndKleene => kleene_and(lhs, rhs),
-            BinaryOperator::Or => or(lhs, rhs),
-            BinaryOperator::OrKleene => kleene_or(lhs, rhs),
+            BooleanOperator::And => and(lhs, rhs),
+            BooleanOperator::AndKleene => kleene_and(lhs, rhs),
+            BooleanOperator::Or => or(lhs, rhs),
+            BooleanOperator::OrKleene => kleene_or(lhs, rhs),
         };
 
         let scalar = result
@@ -44,6 +44,8 @@ impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
         Ok(Some(ConstantArray::new(scalar, length).into_array()))
     }
 }
+
+register_kernel!(BooleanKernelAdapter(ConstantEncoding).lift());
 
 fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l & r)
@@ -80,7 +82,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::constant::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{and, or, scalar_at};
+    use crate::compute::{and, or};
     use crate::{Array, ArrayRef};
 
     #[rstest]
@@ -91,10 +93,10 @@ mod test {
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = or(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
-        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
-        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
-        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -110,10 +112,10 @@ mod test {
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = and(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
-        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
-        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
-        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

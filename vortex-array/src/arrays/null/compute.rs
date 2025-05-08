@@ -1,54 +1,15 @@
-use arrow_array::{ArrayRef as ArrowArrayRef, new_null_array};
-use arrow_schema::DataType;
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::arrays::NullEncoding;
 use crate::arrays::null::NullArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, KernelRef, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn,
-    SliceFn, TakeFn, ToArrowFn, UncompressedSizeFn,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
+    MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::nbytes::NBytes;
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayComputeImpl, ArrayRef, ToCanonical};
-
-impl ArrayComputeImpl for NullArray {
-    const FILTER: Option<KernelRef> = FilterKernelAdapter(NullEncoding).some();
-}
-
-impl ComputeVTable for NullEncoding {
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
-        Some(self)
-    }
-
-    fn uncompressed_size_fn(&self) -> Option<&dyn UncompressedSizeFn<&dyn Array>> {
-        Some(self)
-    }
-}
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl FilterKernel for NullEncoding {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -56,25 +17,17 @@ impl FilterKernel for NullEncoding {
     }
 }
 
-impl MaskFn<&NullArray> for NullEncoding {
-    fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<ArrayRef> {
+register_kernel!(FilterKernelAdapter(NullEncoding).lift());
+
+impl MaskKernel for NullEncoding {
+    fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(array.to_array().into_array())
     }
 }
 
-impl SliceFn<&NullArray> for NullEncoding {
-    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(stop - start).into_array())
-    }
-}
+register_kernel!(MaskKernelAdapter(NullEncoding).lift());
 
-impl ScalarAtFn<&NullArray> for NullEncoding {
-    fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
-    }
-}
-
-impl TakeFn<&NullArray> for NullEncoding {
+impl TakeKernel for NullEncoding {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -91,30 +44,15 @@ impl TakeFn<&NullArray> for NullEncoding {
     }
 }
 
-impl ToArrowFn<&NullArray> for NullEncoding {
-    fn to_arrow(
-        &self,
-        array: &NullArray,
-        data_type: &DataType,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        if data_type != &DataType::Null {
-            vortex_bail!("Unsupported data type: {data_type}");
-        }
-        Ok(Some(new_null_array(data_type, array.len())))
-    }
-}
+register_kernel!(TakeKernelAdapter(NullEncoding).lift());
 
-impl MinMaxFn<&NullArray> for NullEncoding {
+impl MinMaxKernel for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
     }
 }
 
-impl UncompressedSizeFn<&NullArray> for NullEncoding {
-    fn uncompressed_size(&self, array: &NullArray) -> VortexResult<usize> {
-        Ok(array.nbytes())
-    }
-}
+register_kernel!(MinMaxKernelAdapter(NullEncoding).lift());
 
 #[cfg(test)]
 mod test {
@@ -124,13 +62,13 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::null::NullArray;
-    use crate::compute::{scalar_at, slice, take};
+    use crate::compute::take;
     use crate::{ArrayExt, IntoArray};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = slice(&nulls, 0, 4).unwrap().as_::<NullArray>().clone();
+        let sliced = nulls.slice(0, 4).unwrap().as_::<NullArray>().clone();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
@@ -152,7 +90,7 @@ mod test {
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = scalar_at(&nulls, 0).unwrap();
+        let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

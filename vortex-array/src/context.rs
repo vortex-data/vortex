@@ -6,8 +6,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
-    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
+    ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use crate::encoding::Encoding;
 use crate::vtable::VTableRef;
@@ -26,6 +27,7 @@ impl ArrayRegistry {
             NullEncoding.vtable(),
             BoolEncoding.vtable(),
             PrimitiveEncoding.vtable(),
+            DecimalEncoding.vtable(),
             StructEncoding.vtable(),
             ListEncoding.vtable(),
             VarBinEncoding.vtable(),
@@ -135,8 +137,7 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
 
     /// Register a new encoding, replacing any existing encoding with the same ID.
     pub fn register_many<I: IntoIterator<Item = T>>(&mut self, encodings: I) {
-        encodings.into_iter().for_each(|encoding| {
-            self.0.insert(encoding.to_string(), encoding);
-        });
+        self.0
+            .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
     }
 }

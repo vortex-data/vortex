@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::{SearchResult, SearchSortedSide};
+use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_error::VortexError;
 use vortex_scalar::Scalar;
 

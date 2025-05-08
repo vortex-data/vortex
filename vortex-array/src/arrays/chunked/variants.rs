@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_scalar::PValue;
 
 use crate::arrays::chunked::ChunkedArray;
 use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
+    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayRef, ArrayVariantsImpl};
+use crate::{Array, ArrayRef, ArrayVariants, ArrayVariantsImpl};
 
 /// Chunked arrays support all DTypes
 impl ArrayVariantsImpl for ChunkedArray {
@@ -21,6 +22,10 @@ impl ArrayVariantsImpl for ChunkedArray {
     }
 
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
+    }
+
+    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
         Some(self)
     }
 
@@ -49,7 +54,21 @@ impl NullArrayTrait for ChunkedArray {}
 
 impl BoolArrayTrait for ChunkedArray {}
 
-impl PrimitiveArrayTrait for ChunkedArray {}
+impl PrimitiveArrayTrait for ChunkedArray {
+    fn value_unchecked(&self, idx: usize) -> PValue {
+        let (chunk, offset_in_chunk) = self.find_chunk_idx(idx);
+        let chunk = self
+            .chunks()
+            .get(chunk)
+            .vortex_expect("Chunk index out of bounds");
+        chunk
+            .as_primitive_typed()
+            .vortex_expect("Chunk was not a PrimitiveArray")
+            .value_unchecked(offset_in_chunk)
+    }
+}
+
+impl DecimalArrayTrait for ChunkedArray {}
 
 impl Utf8ArrayTrait for ChunkedArray {}
 

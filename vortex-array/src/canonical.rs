@@ -1,16 +1,13 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
-use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
-    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
-use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
-use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
@@ -41,6 +38,7 @@ pub enum Canonical {
     Null(NullArray),
     Bool(BoolArray),
     Primitive(PrimitiveArray),
+    Decimal(DecimalArray),
     Struct(StructArray),
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
@@ -81,6 +79,13 @@ impl Canonical {
         }
     }
 
+    pub fn into_decimal(self) -> VortexResult<DecimalArray> {
+        match self {
+            Canonical::Decimal(a) => Ok(a),
+            _ => vortex_bail!("Cannot unwrap DecimalArray from {:?}", &self),
+        }
+    }
+
     pub fn into_struct(self) -> VortexResult<StructArray> {
         match self {
             Canonical::Struct(a) => Ok(a),
@@ -116,6 +121,7 @@ impl AsRef<dyn Array> for Canonical {
             Canonical::Null(a) => a,
             Canonical::Bool(a) => a,
             Canonical::Primitive(a) => a,
+            Canonical::Decimal(a) => a,
             Canonical::Struct(a) => a,
             Canonical::List(a) => a,
             Canonical::VarBinView(a) => a,
@@ -130,6 +136,7 @@ impl IntoArray for Canonical {
             Canonical::Null(a) => a.into_array(),
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
+            Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
@@ -156,6 +163,10 @@ pub trait ToCanonical: Array {
         self.to_canonical()?.into_primitive()
     }
 
+    fn to_decimal(&self) -> VortexResult<DecimalArray> {
+        self.to_canonical()?.into_decimal()
+    }
+
     fn to_struct(&self) -> VortexResult<StructArray> {
         self.to_canonical()?.into_struct()
     }
@@ -175,19 +186,6 @@ pub trait ToCanonical: Array {
 
 impl<A: Array + ?Sized> ToCanonical for A {}
 
-impl IntoArrowArray for ArrayRef {
-    /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
-    /// Arrow [`DataType`].
-    fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        let data_type = preferred_arrow_data_type(&self)?;
-        self.into_arrow(&data_type)
-    }
-
-    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        to_arrow(&self, data_type)
-    }
-}
-
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.
 ///
@@ -199,6 +197,7 @@ impl From<Canonical> for ArrayRef {
             Canonical::Null(a) => a.into_array(),
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
+            Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),

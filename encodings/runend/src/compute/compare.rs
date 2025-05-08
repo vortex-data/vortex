@@ -1,12 +1,12 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareFn, Operator, compare};
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;
 use crate::{RunEndArray, RunEndEncoding};
 
-impl CompareFn<&RunEndArray> for RunEndEncoding {
+impl CompareKernel for RunEndEncoding {
     fn compare(
         &self,
         lhs: &RunEndArray,
@@ -36,6 +36,9 @@ impl CompareFn<&RunEndArray> for RunEndEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(RunEndEncoding).lift());
+
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};

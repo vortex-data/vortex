@@ -6,7 +6,8 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType, flatbuffers as fb,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
+    flatbuffers as fb,
 };
 
 mod project;
@@ -92,6 +93,15 @@ impl TryFrom<ViewedDType> for DType {
                     fb_primitive.nullable().into(),
                 ))
             }
+            fb::Type::Decimal => {
+                let fb_decimal = fb
+                    .type__as_decimal()
+                    .ok_or_else(|| vortex_err!("failed to parse decimal dtype from flatbuffer"))?;
+                Ok(Self::Decimal(
+                    DecimalDType::new(fb_decimal.precision(), fb_decimal.scale()),
+                    fb_decimal.nullable().into(),
+                ))
+            }
             fb::Type::Binary => Ok(Self::Binary(
                 fb.type__as_binary()
                     .ok_or_else(|| vortex_err!("failed to parse binary from flatbuffer"))?
@@ -156,6 +166,9 @@ impl TryFrom<ViewedDType> for DType {
                     metadata,
                 ))))
             }
+            // This is here to fail to compile if another variant is included.
+            #[allow(clippy::wildcard_in_or_patterns)]
+            fb::Type(10) => Err(vortex_err!("Unknown DType variant")),
             _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
@@ -183,6 +196,15 @@ impl WriteFlatBuffer for DType {
                 fbb,
                 &fb::PrimitiveArgs {
                     ptype: (*ptype).into(),
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
+            Self::Decimal(dt, n) => fb::Decimal::create(
+                fbb,
+                &fb::DecimalArgs {
+                    precision: dt.precision(),
+                    scale: dt.scale(),
                     nullable: (*n).into(),
                 },
             )
@@ -256,6 +278,7 @@ impl WriteFlatBuffer for DType {
             Self::Null => fb::Type::Null,
             Self::Bool(_) => fb::Type::Bool,
             Self::Primitive(..) => fb::Type::Primitive,
+            Self::Decimal(..) => fb::Type::Decimal,
             Self::Utf8(_) => fb::Type::Utf8,
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,

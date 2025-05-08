@@ -1,9 +1,10 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::compute::{IsConstantFn, IsConstantOpts};
+use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::register_kernel;
 
-impl IsConstantFn<&BoolArray> for BoolEncoding {
+impl IsConstantKernel for BoolEncoding {
     fn is_constant(&self, array: &BoolArray, _opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         let buffer = array.boolean_buffer();
 
@@ -21,6 +22,8 @@ impl IsConstantFn<&BoolArray> for BoolEncoding {
         Ok(Some(packed & reminder))
     }
 }
+
+register_kernel!(IsConstantKernelAdapter(BoolEncoding).lift());
 
 #[cfg(test)]
 mod tests {

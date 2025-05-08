@@ -59,7 +59,7 @@ impl VortexFileCache {
         metrics: VortexMetrics,
     ) -> Self {
         let file_cache = Cache::builder()
-            .max_capacity(size_mb as u64 * (2 << 20))
+            .max_capacity(size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
                 log::trace!("Removed {:?} due to {:?}", k, cause);
             })
@@ -69,7 +69,7 @@ impl VortexFileCache {
             .build_with_hasher(DefaultHashBuilder::default());
 
         let segment_cache = Cache::builder()
-            .max_capacity(segment_size_mb as u64 * (2 << 20))
+            .max_capacity(segment_size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<SegmentKey>, _v: ByteBuffer, cause| {
                 log::trace!("Removed {:?} due to {:?}", k, cause);
             })
@@ -101,7 +101,7 @@ impl VortexFileCache {
                         self.metrics
                             .child_with_tags([("filename", object.location.to_string())]),
                     )
-                    .with_file_size(object.size as u64)
+                    .with_file_size(object.size)
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),

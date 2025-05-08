@@ -1,4 +1,3 @@
-use arrow_buffer::NullBuffer;
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -7,11 +6,11 @@ use vortex_mask::Mask;
 use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::TakeFn;
+use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-impl TakeFn<&VarBinArray> for VarBinEncoding {
+impl TakeKernel for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
@@ -24,11 +23,14 @@ impl TakeFn<&VarBinArray> for VarBinEncoding {
                     data.as_slice(),
                     indices.as_slice::<$I>(),
                     array.validity_mask()?,
+                    indices.validity_mask()?,
                 )?.into_array())
             })
         })
     }
 }
+
+register_kernel!(TakeKernelAdapter(VarBinEncoding).lift());
 
 fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
@@ -36,9 +38,17 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     data: &[u8],
     indices: &[I],
     validity_mask: Mask,
+    indices_validity_mask: Mask,
 ) -> VortexResult<VarBinArray> {
-    if let Some(v) = validity_mask.to_null_buffer() {
-        return Ok(take_nullable(dtype, offsets, data, indices, v));
+    if !validity_mask.all_true() || !indices_validity_mask.all_true() {
+        return Ok(take_nullable(
+            dtype,
+            offsets,
+            data,
+            indices,
+            validity_mask,
+            indices_validity_mask,
+        ));
     }
 
     let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
@@ -62,19 +72,27 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     offsets: &[O],
     data: &[u8],
     indices: &[I],
-    null_buffer: NullBuffer,
+    data_validity: Mask,
+    indices_validity: Mask,
 ) -> VarBinArray {
     let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
-    for &idx in indices {
-        let idx = idx
+    for (idx, data_idx) in indices.iter().enumerate() {
+        if !indices_validity.value(idx) {
+            builder.append_null();
+            continue;
+        }
+        let data_idx = data_idx
             .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
-        if null_buffer.is_valid(idx) {
-            let start = offsets[idx].to_usize().unwrap_or_else(|| {
-                vortex_panic!("Failed to convert offset to usize: {}", offsets[idx])
+            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+        if data_validity.value(data_idx) {
+            let start = offsets[data_idx].to_usize().unwrap_or_else(|| {
+                vortex_panic!("Failed to convert offset to usize: {}", offsets[data_idx])
             });
-            let stop = offsets[idx + 1].to_usize().unwrap_or_else(|| {
-                vortex_panic!("Failed to convert offset to usize: {}", offsets[idx + 1])
+            let stop = offsets[data_idx + 1].to_usize().unwrap_or_else(|| {
+                vortex_panic!(
+                    "Failed to convert offset to usize: {}",
+                    offsets[data_idx + 1]
+                )
             });
             builder.append_value(&data[start..stop]);
         } else {

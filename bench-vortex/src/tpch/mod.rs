@@ -2,10 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::bail;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
+use itertools::Itertools;
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
@@ -13,8 +15,8 @@ use vortex::arrow::FromArrowArray;
 use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
-use crate::Format;
-use crate::engines::df::{get_session_with_cache, make_object_store};
+use crate::engines::df::{get_session_context, make_object_store};
+use crate::{BenchmarkDataset, Format, datasets};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -40,61 +42,59 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
-    emulate_object_store: bool,
+    dataset: BenchmarkDataset,
+    disable_datafusion_cache: bool,
 ) -> anyhow::Result<SessionContext> {
-    let context = get_session_with_cache(emulate_object_store);
+    let context = get_session_context(disable_datafusion_cache);
 
     let object_store = make_object_store(&context, base_dir)?;
 
-    let customer = base_dir.join("customer.tbl")?;
-    let lineitem = base_dir.join("lineitem.tbl")?;
-    let nation = base_dir.join("nation.tbl")?;
-    let orders = base_dir.join("orders.tbl")?;
-    let part = base_dir.join("part.tbl")?;
-    let partsupp = base_dir.join("partsupp.tbl")?;
-    let region = base_dir.join("region.tbl")?;
-    let supplier = base_dir.join("supplier.tbl")?;
+    let files = match dataset {
+        BenchmarkDataset::TpcH => vec![
+            ("customer", Some(schema::CUSTOMER.clone())),
+            ("lineitem", Some(schema::LINEITEM.clone())),
+            ("nation", Some(schema::NATION.clone())),
+            ("orders", Some(schema::ORDERS.clone())),
+            ("part", Some(schema::PART.clone())),
+            ("partsupp", Some(schema::PARTSUPP.clone())),
+            ("region", Some(schema::REGION.clone())),
+            ("supplier", Some(schema::SUPPLIER.clone())),
+        ],
 
-    macro_rules! register_table {
-        ($name:ident, $schema:expr) => {
-            match format {
-                Format::Csv => register_csv(&context, stringify!($name), &$name, $schema).await,
-                Format::Arrow => register_arrow(&context, stringify!($name), &$name, $schema).await,
-                Format::Parquet => {
-                    register_parquet(
-                        &context,
-                        object_store.clone(),
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                    )
-                    .await
-                }
-                Format::InMemoryVortex => {
-                    register_vortex(&context, stringify!($name), &$name, $schema).await
-                }
-                Format::OnDiskVortex => {
-                    register_vortex_file(
-                        &context,
-                        object_store.clone(),
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                    )
-                    .await
-                }
-            }
+        BenchmarkDataset::TpcDS => BenchmarkDataset::TpcDS
+            .tables()
+            .iter()
+            .map(|f| (*f, None))
+            .collect_vec(),
+        BenchmarkDataset::ClickBench { .. } => todo!(),
+    };
+
+    for (name, path, schema) in files.into_iter().map(|(name, schema)| {
+        let format = if format == Format::Arrow {
+            Format::Csv
+        } else {
+            format
         };
+        (
+            name,
+            base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext())),
+            schema,
+        )
+    }) {
+        let path = path?;
+        match format {
+            Format::Csv => register_csv(&context, name, &path, schema).await?,
+            Format::Arrow => register_arrow(&context, name, &path, schema).await?,
+            Format::Parquet => {
+                register_parquet(&context, object_store.clone(), name, &path, schema).await?
+            }
+            Format::InMemoryVortex => register_vortex(&context, name, &path, schema).await?,
+            Format::OnDiskVortex => {
+                register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
+            }
+            Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
+        }
     }
-
-    register_table!(customer, &schema::CUSTOMER)?;
-    register_table!(lineitem, &schema::LINEITEM)?;
-    register_table!(nation, &schema::NATION)?;
-    register_table!(orders, &schema::ORDERS)?;
-    register_table!(part, &schema::PART)?;
-    register_table!(partsupp, &schema::PARTSUPP)?;
-    register_table!(region, &schema::REGION)?;
-    register_table!(supplier, &schema::SUPPLIER)?;
 
     Ok(context)
 }
@@ -131,8 +131,11 @@ async fn register_csv(
     session: &SessionContext,
     name: &str,
     file: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
+    let Some(schema) = schema else {
+        bail!("cannot run bench with format==csv")
+    };
     session
         .register_csv(
             name,
@@ -140,8 +143,8 @@ async fn register_csv(
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
-                .file_extension("tbl")
-                .schema(schema),
+                .file_extension("csv")
+                .schema(&schema),
         )
         .await?;
 
@@ -152,8 +155,12 @@ async fn register_arrow(
     session: &SessionContext,
     name: &str,
     file: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
+    let Some(schema) = schema else {
+        bail!("cannot have an arrow run without a preloaded schema")
+    };
+
     // Read CSV file into a set of Arrow RecordBatch.
     let record_batches = session
         .read_csv(
@@ -161,8 +168,8 @@ async fn register_arrow(
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
-                .file_extension("tbl")
-                .schema(schema),
+                .file_extension("csv")
+                .schema(&schema),
         )
         .await?
         .collect()
@@ -179,15 +186,15 @@ async fn register_parquet(
     object_store: Arc<dyn ObjectStore>,
     name: &str,
     file: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
-    crate::datasets::file::register_parquet_files(
+    datasets::file::register_parquet_files(
         session,
         object_store,
         name,
         file,
         schema,
-        crate::BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH,
     )
     .await
 }
@@ -197,15 +204,15 @@ async fn register_vortex_file(
     object_store: Arc<dyn ObjectStore>,
     table_name: &str,
     file: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
-    crate::datasets::file::register_vortex_files(
+    datasets::file::register_vortex_files(
         session,
         object_store,
         table_name,
         file,
         schema,
-        crate::BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH,
     )
     .await
 }
@@ -214,16 +221,20 @@ async fn register_vortex(
     session: &SessionContext,
     name: &str,
     file: &Url,
-    schema: &Schema,
+    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
+    let Some(schema) = schema else {
+        bail!("required schema for in mem vortex")
+    };
+    // TODO(joe): use parquet for speed?
     let record_batches = session
         .read_csv(
             file.as_str(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
-                .file_extension("tbl")
-                .schema(schema),
+                .file_extension("csv")
+                .schema(&schema),
         )
         .await?
         .collect()
@@ -247,14 +258,14 @@ async fn register_vortex(
 /// Load a table as an uncompressed Vortex array.
 pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayRef {
     // Create a local session to load the CSV file from the path.
-    let path = data_dir.as_ref().join(name).with_extension("tbl");
+    let path = data_dir.as_ref().join(name).with_extension("csv");
     let record_batches = SessionContext::new()
         .read_csv(
             path.to_str().unwrap(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
-                .file_extension("tbl")
+                .file_extension("csv")
                 .schema(schema),
         )
         .await
@@ -274,6 +285,7 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
 
+// A few tpch queries have multiple statements, this handles that
 fn tpch_query(query_idx: usize) -> Vec<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")

@@ -12,7 +12,7 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, RkyvMetadata};
+use crate::{ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, ProstMetadata};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -23,10 +23,12 @@ pub struct BoolArray {
     pub(crate) stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct BoolEncoding;
+
 impl Encoding for BoolEncoding {
     type Array = BoolArray;
-    type Metadata = RkyvMetadata<BoolMetadata>;
+    type Metadata = ProstMetadata<BoolMetadata>;
 }
 
 impl BoolArray {
@@ -220,7 +222,9 @@ impl BooleanBufferExt for BooleanBuffer {
         let byte_offset = self.offset() / 8;
         let bit_offset = self.offset() % 8;
         let len = self.len();
-        let buffer = self.into_inner().slice(byte_offset);
+        let buffer = self
+            .into_inner()
+            .slice_with_length(byte_offset, (len + bit_offset).div_ceil(8));
         BooleanBuffer::new(buffer, bit_offset, len)
     }
 }

@@ -12,12 +12,14 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
+use arrow_schema::{
+    DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, FieldName, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructDType};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -53,6 +55,19 @@ impl TryFromArrowType<&DataType> for PType {
     }
 }
 
+impl TryFromArrowType<&DataType> for DecimalDType {
+    fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
+        match value {
+            DataType::Decimal128(precision, scale) => Ok(Self::new(*precision, *scale)),
+            DataType::Decimal256(precision, scale) => Ok(Self::new(*precision, *scale)),
+            _ => Err(vortex_err!(
+                "Arrow datatype {:?} cannot be converted to DecimalDType",
+                value
+            )),
+        }
+    }
+}
+
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
         Self::from_arrow(value.as_ref())
@@ -79,22 +94,22 @@ impl FromArrowType<&Fields> for StructDType {
     }
 }
 
-impl FromArrowType<&Field> for DType {
-    fn from_arrow(field: &Field) -> Self {
+impl FromArrowType<(&DataType, Nullability)> for DType {
+    fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
         use crate::DType::*;
 
-        let nullability: Nullability = field.is_nullable().into();
-
-        if field.data_type().is_integer() || field.data_type().is_floating() {
+        if data_type.is_integer() || data_type.is_floating() {
             return Primitive(
-                PType::try_from_arrow(field.data_type())
-                    .vortex_expect("arrow float/integer to ptype"),
+                PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
 
-        match field.data_type() {
+        match data_type {
             DataType::Null => Null,
+            DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
+                Decimal(DecimalDType::new(*precision, *scale), nullability)
+            }
             DataType::Boolean => Bool(nullability),
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
             DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
@@ -103,14 +118,20 @@ impl FromArrowType<&Field> for DType {
             | DataType::Time32(_)
             | DataType::Time64(_)
             | DataType::Timestamp(..) => Extension(Arc::new(
-                make_temporal_ext_dtype(field.data_type()).with_nullability(nullability),
+                make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
             DataType::Struct(f) => Struct(Arc::new(StructDType::from_arrow(f)), nullability),
-            _ => unimplemented!("Arrow data type not yet supported: {:?}", field.data_type()),
+            _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
+    }
+}
+
+impl FromArrowType<&Field> for DType {
+    fn from_arrow(field: &Field) -> Self {
+        Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
 }
 
@@ -155,6 +176,13 @@ impl DType {
                 PType::F32 => DataType::Float32,
                 PType::F64 => DataType::Float64,
             },
+            DType::Decimal(dt, _) => {
+                if dt.scale() > DECIMAL128_MAX_SCALE {
+                    DataType::Decimal256(dt.precision(), dt.scale())
+                } else {
+                    DataType::Decimal128(dt.precision(), dt.scale())
+                }
+            }
             DType::Utf8(_) => DataType::Utf8View,
             DType::Binary(_) => DataType::BinaryView,
             DType::Struct(struct_dtype, _) => {

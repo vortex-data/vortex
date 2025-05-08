@@ -2,15 +2,15 @@ use std::ops::Shr;
 
 use num_traits::WrappingSub;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareFn, Operator, compare};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
-impl CompareFn<&FoRArray> for FoREncoding {
+impl CompareKernel for FoREncoding {
     fn compare(
         &self,
         lhs: &FoRArray,
@@ -28,6 +28,8 @@ impl CompareFn<&FoRArray> for FoREncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(FoREncoding).lift());
 
 fn compare_constant<T>(
     lhs: &FoRArray,

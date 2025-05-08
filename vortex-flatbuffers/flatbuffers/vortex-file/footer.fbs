@@ -20,10 +20,12 @@ include "vortex-layout/layout.fbs";
 table Postscript {
     /// Segment containing the root `DType` flatbuffer.
     dtype: PostscriptSegment;
+    /// Segment containing the root `Layout` flatbuffer (required).
+    layout: PostscriptSegment;
     /// Segment containing the file-level `Statistics` flatbuffer.
     statistics: PostscriptSegment;
-    /// Segment containing the `FileLayout` flatbuffer (required).
-    layout: PostscriptSegment;
+    /// Segment containing the 'Footer' flatbuffer (required)
+    footer: PostscriptSegment;
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
@@ -47,10 +49,7 @@ table FileStatistics {
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,
 /// compression schemes, encryption schemes, etc.
-table FileLayout {
-    // The root [`Layout`] of the file.
-    layout: Layout;
-
+table Footer {
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];
     // Dictionary-encoded layout specs, up to u16::MAX.
@@ -81,8 +80,11 @@ table LayoutSpec {
 
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
 struct SegmentSpec {
+    /// Offset relative to the start of the file.
     offset: uint64;
+    /// Length in bytes of the segment.
     length: uint32;
+    /// Base-2 exponent of the alignment of the segment.
     alignment_exponent: uint8;
     // These two fields are reserved for future use and act as pointers
     // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`
@@ -108,5 +110,5 @@ table EncryptionSpec {
 // [footer]
 
 root_type FileStatistics;
-root_type FileLayout;
+root_type Footer;
 root_type Postscript;

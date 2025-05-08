@@ -22,12 +22,14 @@ use crate::{
 
 mod compute;
 mod native_value;
+mod ops;
 mod patch;
 mod serde;
 mod top_value;
 
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
+use vortex_scalar::PValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -39,6 +41,7 @@ pub struct PrimitiveArray {
 
 try_from_array_ref!(PrimitiveArray);
 
+#[derive(Debug)]
 pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
     type Array = PrimitiveArray;
@@ -222,11 +225,11 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let length = self.len();
-        let raw_slice = self.byte_buffer().as_slice();
-        debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
+        let raw_slice = self.byte_buffer().as_ptr();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
+        unsafe {
+            std::slice::from_raw_parts(raw_slice.cast(), self.byte_buffer().len() / size_of::<T>())
+        }
     }
 
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
@@ -285,7 +288,13 @@ impl ArrayVariantsImpl for PrimitiveArray {
     }
 }
 
-impl PrimitiveArrayTrait for PrimitiveArray {}
+impl PrimitiveArrayTrait for PrimitiveArray {
+    fn value_unchecked(&self, idx: usize) -> PValue {
+        match_each_native_ptype!(self.ptype(), |$T| {
+            PValue::from(self.as_slice::<$T>()[idx])
+        })
+    }
+}
 
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {

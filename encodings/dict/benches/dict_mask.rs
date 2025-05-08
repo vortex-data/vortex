@@ -55,5 +55,5 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
     let filter_mask = filter_mask(len, fraction_masked, &mut rng);
     bencher
         .with_inputs(|| (&array, filter_mask.clone()))
-        .bench_values(|(array, filter_mask)| mask(array, filter_mask).unwrap());
+        .bench_values(|(array, filter_mask)| mask(array, &filter_mask).unwrap());
 }

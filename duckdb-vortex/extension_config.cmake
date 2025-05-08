@@ -6,5 +6,6 @@ duckdb_extension_load(vortex
     LOAD_TESTS
 )
 
-# Any extra extensions that should be built
-# e.g.: duckdb_extension_load(json)
+# These are only build and included with the duckdb prebuild executable used locally
+duckdb_extension_load(tpch)
+duckdb_extension_load(tpcds)

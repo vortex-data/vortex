@@ -2,7 +2,8 @@
 
 use std::fmt::Debug;
 
-use crate::arcref::ArcRef;
+use arcref::ArcRef;
+
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, DeserializeMetadata, SerializeMetadata};
 
@@ -10,7 +11,7 @@ use crate::{Array, DeserializeMetadata, SerializeMetadata};
 pub type EncodingId = ArcRef<str>;
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static + Send + Sync + EncodingVTable {
+pub trait Encoding: 'static + Send + Sync + EncodingVTable + Debug {
     type Array: Array;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 

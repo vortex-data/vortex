@@ -204,7 +204,7 @@ impl Sub for PrimitiveScalar<'_> {
 
 impl CheckedSub for PrimitiveScalar<'_> {
     fn checked_sub(&self, rhs: &Self) -> Option<Self> {
-        self.checked_binary_numeric(rhs, BinaryNumericOperator::Sub)
+        self.checked_binary_numeric(rhs, NumericOperator::Sub)
     }
 }
 
@@ -219,7 +219,7 @@ impl Add for PrimitiveScalar<'_> {
 
 impl CheckedAdd for PrimitiveScalar<'_> {
     fn checked_add(&self, rhs: &Self) -> Option<Self> {
-        self.checked_binary_numeric(rhs, BinaryNumericOperator::Add)
+        self.checked_binary_numeric(rhs, NumericOperator::Add)
     }
 }
 
@@ -343,18 +343,18 @@ impl From<usize> for Scalar {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Binary element-wise operations on two arrays or two scalars.
-pub enum BinaryNumericOperator {
+pub enum NumericOperator {
     /// Binary element-wise addition of two arrays or of two scalars.
     Add,
     /// Binary element-wise subtraction of two arrays or of two scalars.
     Sub,
-    /// Same as [BinaryNumericOperator::Sub] but with the parameters flipped: `right - left`.
+    /// Same as [NumericOperator::Sub] but with the parameters flipped: `right - left`.
     RSub,
     /// Binary element-wise multiplication of two arrays or of two scalars.
     Mul,
     /// Binary element-wise division of two arrays or of two scalars.
     Div,
-    /// Same as [BinaryNumericOperator::Div] but with the parameters flipped: `right - left`.
+    /// Same as [NumericOperator::Div] but with the parameters flipped: `right - left`.
     RDiv,
     // Missing from arrow-rs:
     // Min,
@@ -362,21 +362,21 @@ pub enum BinaryNumericOperator {
     // Pow,
 }
 
-impl Display for BinaryNumericOperator {
+impl Display for NumericOperator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
 }
 
-impl BinaryNumericOperator {
+impl NumericOperator {
     pub fn swap(self) -> Self {
         match self {
-            BinaryNumericOperator::Add => BinaryNumericOperator::Add,
-            BinaryNumericOperator::Sub => BinaryNumericOperator::RSub,
-            BinaryNumericOperator::RSub => BinaryNumericOperator::Sub,
-            BinaryNumericOperator::Mul => BinaryNumericOperator::Mul,
-            BinaryNumericOperator::Div => BinaryNumericOperator::RDiv,
-            BinaryNumericOperator::RDiv => BinaryNumericOperator::Div,
+            NumericOperator::Add => NumericOperator::Add,
+            NumericOperator::Sub => NumericOperator::RSub,
+            NumericOperator::RSub => NumericOperator::Sub,
+            NumericOperator::Mul => NumericOperator::Mul,
+            NumericOperator::Div => NumericOperator::RDiv,
+            NumericOperator::RDiv => NumericOperator::Div,
         }
     }
 }
@@ -392,7 +392,7 @@ impl<'a> PrimitiveScalar<'a> {
     pub fn checked_binary_numeric(
         &self,
         other: &PrimitiveScalar<'a>,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> Option<PrimitiveScalar<'a>> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
             vortex_panic!("types must match: {} {}", self.dtype(), other.dtype());
@@ -415,12 +415,12 @@ impl<'a> PrimitiveScalar<'a> {
                 let value_or_null = match (lhs, rhs) {
                     (_, None) | (None, _) => None,
                     (Some(lhs), Some(rhs)) => match op {
-                        BinaryNumericOperator::Add => Some(lhs + rhs),
-                        BinaryNumericOperator::Sub => Some(lhs - rhs),
-                        BinaryNumericOperator::RSub => Some(rhs - lhs),
-                        BinaryNumericOperator::Mul => Some(lhs * rhs),
-                        BinaryNumericOperator::Div => Some(lhs / rhs),
-                        BinaryNumericOperator::RDiv => Some(rhs / lhs),
+                        NumericOperator::Add => Some(lhs + rhs),
+                        NumericOperator::Sub => Some(lhs - rhs),
+                        NumericOperator::RSub => Some(rhs - lhs),
+                        NumericOperator::Mul => Some(lhs * rhs),
+                        NumericOperator::Div => Some(lhs / rhs),
+                        NumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype: ptype, pvalue: value_or_null.map(PValue::from) })
@@ -440,7 +440,7 @@ impl<'a> PrimitiveScalar<'a> {
         other: &PrimitiveScalar<'a>,
         result_dtype: &'a DType,
         ptype: PType,
-        op: BinaryNumericOperator,
+        op: NumericOperator,
     ) -> Option<PrimitiveScalar<'a>>
     where
         PValue: From<P>,
@@ -450,12 +450,12 @@ impl<'a> PrimitiveScalar<'a> {
         let value_or_null_or_overflow = match (lhs, rhs) {
             (_, None) | (None, _) => Some(None),
             (Some(lhs), Some(rhs)) => match op {
-                BinaryNumericOperator::Add => lhs.checked_add(&rhs).map(Some),
-                BinaryNumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
-                BinaryNumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
-                BinaryNumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
-                BinaryNumericOperator::Div => lhs.checked_div(&rhs).map(Some),
-                BinaryNumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
+                NumericOperator::Add => lhs.checked_add(&rhs).map(Some),
+                NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
+                NumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
+                NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
+                NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
+                NumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
             },
         };
 

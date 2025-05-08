@@ -7,3 +7,6 @@
 [submodule "duckdb-vortex/duckdb-rs"]
 	path = duckdb-vortex/duckdb-rs
 	url = https://github.com/spiraldb/duckdb-rs
+[submodule "duckdb-vortex/vcpkg"]
+	path = duckdb-vortex/vcpkg
+	url = https://github.com/microsoft/vcpkg.git

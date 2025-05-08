@@ -1,30 +1,36 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex::{DeserializeMetadata, ProstMetadata};
 use vortex_layout::layouts::chunked::ChunkedLayout;
+use vortex_layout::layouts::dict::DictLayout;
+use vortex_layout::layouts::dict::writer::DictLayoutMetadata;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef, STATS_LAYOUT_ID,
-    STRUCT_LAYOUT_ID,
+    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef,
+    STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
+
+use crate::browse::ui::SegmentGridState;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
     /// The layout tree browser.
     #[default]
     Layout,
-    /// The encoding tree viewer
-    Encodings,
+
+    /// Show a segment map of the file
+    Segments,
     // TODO(aduffy): SQL query page powered by DF
     // Query,
 }
@@ -86,6 +92,20 @@ impl LayoutCursor {
                         &layout.metadata().expect("extracting stats").as_ref()[4..],
                     );
                     StatsTable::dtype_for_stats_table(&dtype, &present_stats)
+                }
+            } else if layout.id() == DICT_LAYOUT_ID {
+                match component {
+                    // values
+                    0 => dtype.clone(),
+                    // codes
+                    1 => {
+                        let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
+                            layout.metadata().as_ref().map(|b| b.as_ref()),
+                        )
+                        .expect("dict metadata");
+                        DType::from(metadata.codes_ptype()).with_nullability(dtype.nullability())
+                    }
+                    _ => vortex_panic!("can't have more than 2 children for dict layout"),
                 }
             } else {
                 todo!("unknown DType")
@@ -191,7 +211,7 @@ pub enum KeyMode {
 /// State saved across all Tabs.
 ///
 /// Holding them all allows us to switch between tabs without resetting view state.
-pub struct AppState {
+pub struct AppState<'a> {
     pub key_mode: KeyMode,
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
@@ -202,9 +222,11 @@ pub struct AppState {
 
     /// List state for the Layouts view
     pub layouts_list_state: ListState,
+    pub segment_grid_state: SegmentGridState<'a>,
+    pub frame_size: Size,
 }
 
-impl AppState {
+impl AppState<'_> {
     pub fn clear_search(&mut self) {
         self.search_filter.clear();
         self.filter.take();
@@ -212,10 +234,8 @@ impl AppState {
 }
 
 /// Create an app backed from a file path.
-pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
-    let vxf = VortexOpenOptions::file()
-        .open(TokioFile::open(path)?)
-        .await?;
+pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
+    let vxf = VortexOpenOptions::file().open(path).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone());
 
@@ -227,6 +247,8 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         filter: None,
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
+        segment_grid_state: SegmentGridState::default(),
+        frame_size: Size::new(0, 0),
     })
 }
 
@@ -270,6 +292,12 @@ fn collect_segment_ids_impl(
         collect_segment_ids_impl(&stats_layout, stats_segments, &mut vec![])?;
     } else if layout_id == FlatLayout.id() {
         data_segments.extend(root.segments());
+    } else if layout_id == DictLayout.id() {
+        let values_layout = root.child(0, root.dtype().clone(), "values")?;
+        collect_segment_ids_impl(&values_layout, data_segments, stats_segments)?;
+
+        let codes_layout = root.child(1, root.dtype().clone(), "codes")?;
+        collect_segment_ids_impl(&codes_layout, data_segments, stats_segments)?;
     } else {
         unreachable!()
     };

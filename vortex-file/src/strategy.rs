@@ -3,22 +3,26 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::arcref::ArcRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::nbytes::NBytes;
-use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
+use vortex_array::stats::{PRUNING_STATS, Precision, STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_layout::layouts::repartition::{RepartitionWriter, RepartitionWriterOptions};
+use vortex_layout::layouts::repartition::{
+    RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
+};
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use vortex_scalar::Scalar;
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -37,33 +41,38 @@ impl LayoutStrategy for VortexLayoutStrategy {
 
         // We buffer arrays per column, before flushing them into a chunked layout.
         // This helps to keep consecutive chunks of a column adjacent for more efficient reads.
-        let strategy: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(BufferedStrategy {
-            child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
-            // TODO(ngates): this should really be amortized by the number of fields? Maybe the
-            //  strategy could keep track of how many writers were created?
-            buffer_size: 2 << 20, // 2MB
-        }) as _);
-
-        // Compress each chunk with btrblocks.
-        let writer = BtrBlocksCompressedWriter {
-            previous_chunk: None,
-            child: strategy.new_writer(ctx, dtype)?,
-        }
-        .boxed();
+        let buffered_strategy: ArcRef<dyn LayoutStrategy> =
+            ArcRef::new_arc(Arc::new(BufferedStrategy {
+                child: ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default()) as _),
+                // TODO(ngates): this should really be amortized by the number of fields? Maybe the
+                //  strategy could keep track of how many writers were created?
+                buffer_size: 2 << 20, // 2MB
+            }) as _);
 
         // Prior to compression, re-partition into size-based chunks.
-        let writer = RepartitionWriter::new(
-            dtype.clone(),
-            writer,
-            RepartitionWriterOptions {
+        let coalescing_strategy = Arc::new(RepartitionStrategy {
+            options: RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,        // 1 MB
                 block_len_multiple: ROW_BLOCK_SIZE, // 8K rows
             },
-        )
-        .boxed();
+            child: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                child: buffered_strategy,
+            })),
+        });
+
+        let dict_strategy = DictStrategy {
+            codes: ArcRef::new_arc(coalescing_strategy.clone()),
+            values: ArcRef::new_arc(Arc::new(BtrBlocksCompressedStrategy {
+                child: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            })),
+            fallback: ArcRef::new_arc(coalescing_strategy),
+            options: Default::default(),
+        };
+
+        let writer = dict_strategy.new_writer(ctx, dtype)?;
 
         // Prior to repartitioning, we record statistics
-        let stats_writer = StatsLayoutWriter::try_new(
+        let stats_writer = StatsLayoutWriter::new(
             ctx.clone(),
             dtype,
             writer,
@@ -74,7 +83,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
             },
-        )?
+        )
         .boxed();
 
         let writer = RepartitionWriter::new(
@@ -128,31 +137,39 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
+        let chunk = chunk.to_canonical()?.into_array();
+
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
-        // Short circuit the decision if the chunk is constant
+        // Persist our best guess for the uncompressed size. This isn't ideal because we may have
+        // de-duplicated in-memory buffers and all sorts of funky stuff that means this number is
+        // off.
+        chunk.statistics().set(
+            Stat::UncompressedSizeInBytes,
+            Precision::Exact(
+                Scalar::primitive(chunk.nbytes() as u64, Nullability::NonNullable).into_value(),
+            ),
+        );
+
+        // If we have information about the data from the previous chunk
         let compressed_chunk = if let Some(constant) = chunk.as_constant() {
             Some(ConstantArray::new(constant, chunk.len()).into_array())
-        }
-        // If we have information about the data from the previous chunk
-        else if let Some(prev_compression) = self.previous_chunk.as_ref() {
+        } else if let Some(prev_compression) = self.previous_chunk.as_ref() {
             let prev_chunk = prev_compression.chunk.clone();
-            let canonical_chunk = chunk.to_canonical()?;
-            let canonical_nbytes = canonical_chunk.as_ref().nbytes();
 
-            if let Some(encoded_chunk) =
-                encode_children_like(canonical_chunk.into_array(), prev_chunk)?
-            {
+            let canonical_nbytes = chunk.as_ref().nbytes();
+
+            if let Some(encoded_chunk) = encode_children_like(chunk.clone(), prev_chunk)? {
                 let ratio = canonical_nbytes as f64 / encoded_chunk.nbytes() as f64;
 
                 // Make sure the ratio is within the expected drift, if it isn't we  fall back to the compressor.
-                if ratio > prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD {
+                if ratio > (prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD) {
                     Some(encoded_chunk)
                 } else {
                     log::trace!(
                         "Compressed to a ratio of {ratio}, which is below the threshold of {}",
-                        prev_compression.ratio * COMPRESSION_DRIFT_THRESHOLD
+                        prev_compression.ratio / COMPRESSION_DRIFT_THRESHOLD
                     );
                     None
                 }
@@ -168,13 +185,20 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         let compressed_chunk = match compressed_chunk {
             Some(array) => array,
             None => {
-                let canonical_chunk = chunk.to_canonical()?;
-                let canonical_size = canonical_chunk.as_ref().nbytes() as f64;
-                let compressed = BtrBlocksCompressor.compress_canonical(canonical_chunk)?;
-                self.previous_chunk = Some(PreviousCompression {
-                    chunk: compressed.clone(),
-                    ratio: canonical_size / compressed.nbytes() as f64,
-                });
+                let canonical_size = chunk.nbytes() as f64;
+                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+
+                if compressed.is_canonical()
+                    || ((canonical_size / compressed.nbytes() as f64) < COMPRESSION_DRIFT_THRESHOLD)
+                {
+                    self.previous_chunk = None;
+                } else {
+                    self.previous_chunk = Some(PreviousCompression {
+                        chunk: compressed.clone(),
+                        ratio: canonical_size / compressed.nbytes() as f64,
+                    });
+                }
+
                 compressed
             }
         };

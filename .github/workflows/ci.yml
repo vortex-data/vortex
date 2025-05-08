@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.8.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.10.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -70,7 +70,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
 
@@ -95,7 +95,7 @@ jobs:
           uv run --isolated --all-packages make html
         working-directory: docs/
 
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
@@ -125,7 +125,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
@@ -133,7 +132,10 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Docs
-        run: cargo doc --no-deps
+        run: |
+          cargo doc --no-deps
+          # nextest doesn't support doc tests, so we run it here
+          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -142,7 +144,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=${{ matrix.config.name }}
 
     env:
@@ -195,7 +196,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=build-duckdb
 
     steps:
@@ -225,7 +225,6 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v1
@@ -243,9 +242,8 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=8
+      - cpu=16
       - image=ubuntu24-full-x64
-      - disk=large
       - tag=rust-lint
     steps:
       - uses: runs-on/action@v1
@@ -253,7 +251,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -262,6 +259,21 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets
+
+  rust-lint-no-default:
+    name: "Rust (lint, no default)"
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - tag=rust-lint
+    steps:
+      - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: rui314/setup-mold@v1
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -272,33 +284,47 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
-    runs-on: ubuntu-latest
-    env:
-      # Disable incremental compilation to get accurate coverage
-      CARGO_INCREMENTAL: "0"
-      # Disable lints when running tests. They will be caught by the Rust lint job.
-      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
-      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - tag=rust-test
     steps:
+      # Disable lints when running tests. They will be caught by the Rust lint job.
+      - name: Setup environment (On develop)
+        shell: bash
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          echo "RUSTFLAGS=-Cinstrument-coverage -A warnings">> $GITHUB_ENV
+          # Disable incremental compilation to get accurate coverage
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=target/coverage/vortex-%p-%m.profraw" >> $GITHUB_ENV
+          echo "GRCOV_OUTPUT_FILE=target/coverage/vortex.lcov" >> $GITHUB_ENV
+      - name: Setup environment
+        shell: bash
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
-        run: cargo install grcov
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-      - name: Rust Test
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+        uses: taiki-e/install-action@grcov
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Rust Tests
+        run: |
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
+
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
+          rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
@@ -428,3 +454,14 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+
+      - name: "Checkout develop flatbuffers"
+        working-directory: vortex-flatbuffers/
+        run: |
+          cp -R flatbuffers flatbuffers.HEAD
+          git fetch origin develop --depth 1
+          git checkout origin/develop -- flatbuffers
+      - name: "Verify flatbuffer back-compat"
+        working-directory: vortex-flatbuffers/
+        run: |
+          find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}

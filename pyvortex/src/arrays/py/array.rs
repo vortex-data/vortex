@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
-use vortex::arcref::ArcRef;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
+use vortex::scalar::Scalar;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
-    ArrayCanonicalImpl, ArrayComputeImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
 use crate::arrays::py::PyEncodingClass;
@@ -45,7 +46,7 @@ impl ArrayImpl for PyArrayInstance {
         self.cls.clone()
     }
 
-    fn _with_children(&self, _children: &[vortex::ArrayRef]) -> VortexResult<Self> {
+    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
         todo!()
     }
 }
@@ -56,7 +57,15 @@ impl ArrayCanonicalImpl for PyArrayInstance {
     }
 }
 
-impl ArrayComputeImpl for PyArrayInstance {}
+impl ArrayOperationsImpl for PyArrayInstance {
+    fn _slice(&self, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+        todo!()
+    }
+}
 
 impl ArrayStatisticsImpl for PyArrayInstance {
     fn _stats_ref(&self) -> StatsSetRef<'_> {

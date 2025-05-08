@@ -504,7 +504,6 @@ mod test {
     use rand::SeedableRng as _;
     use rand::rngs::StdRng;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::compute::slice;
     use vortex_array::{ArrayExt, ToCanonical as _};
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
@@ -597,7 +596,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = slice(&bitpacked, 1023, 1025).unwrap();
+        let bitpacked = bitpacked.slice(1023, 1025).unwrap();
         let actual = unpack(bitpacked.as_::<BitPackedArray>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[1535, 1536]);
@@ -612,7 +611,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = slice(&bitpacked, 1023, 2049).unwrap();
+        let bitpacked = bitpacked.slice(1023, 2049).unwrap();
         let actual = unpack(bitpacked.as_::<BitPackedArray>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());

@@ -4,8 +4,6 @@
 pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
-#[cfg(feature = "files")]
-pub use vortex_io as io;
 pub use {
     vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_dtype as dtype,
     vortex_error as error, vortex_expr as expr, vortex_flatbuffers as flatbuffers,
@@ -85,8 +83,6 @@ mod test {
     #[tokio::test]
     async fn read_write() -> VortexResult<()> {
         // [write]
-        use vortex::io::TokioFile;
-
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
         // Write a Vortex file with the default compression and layout strategy.
@@ -101,7 +97,7 @@ mod test {
 
         // [read]
         let array = VortexOpenOptions::file()
-            .open(TokioFile::open("example.vortex")?)
+            .open("example.vortex")
             .await?
             .scan()?
             .with_filter(gt(ident(), lit(2u64)))

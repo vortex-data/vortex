@@ -4,12 +4,12 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::CastFn;
+use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
+impl CastKernel for PrimitiveEncoding {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);
@@ -51,6 +51,8 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
+register_kernel!(CastKernelAdapter(PrimitiveEncoding).lift());
+
 fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
     let mut buffer = BufferMut::with_capacity(array.len());
     match_each_native_ptype!(array.ptype(), |$P| {
@@ -74,7 +76,7 @@ mod test {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::try_cast;
+    use crate::compute::cast;
     use crate::validity::Validity;
 
     #[test]
@@ -82,7 +84,7 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
-        let p = try_cast(&arr, PType::U8.into())
+        let p = cast(&arr, PType::U8.into())
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -90,7 +92,7 @@ mod test {
         assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable
-        let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
+        let p = cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -98,7 +100,7 @@ mod test {
         assert_eq!(p.validity(), &Validity::AllValid);
 
         // back to non-nullable
-        let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
+        let p = cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -106,7 +108,7 @@ mod test {
         assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable u32
-        let p = try_cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
+        let p = cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -114,7 +116,7 @@ mod test {
         assert_eq!(p.validity(), &Validity::AllValid);
 
         // to non-nullable u8
-        let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
+        let p = cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -125,7 +127,7 @@ mod test {
     #[test]
     fn cast_u32_f32() {
         let arr = buffer![0u32, 10, 200].into_array();
-        let u8arr = try_cast(&arr, PType::F32.into())
+        let u8arr = cast(&arr, PType::F32.into())
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -135,7 +137,7 @@ mod test {
     #[test]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
-        let error = try_cast(&arr, PType::U32.into()).err().unwrap();
+        let error = cast(&arr, PType::U32.into()).err().unwrap();
         let VortexError::ComputeError(s, _) = error else {
             unreachable!()
         };
@@ -145,7 +147,7 @@ mod test {
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
-        let err = try_cast(&arr, PType::I32.into()).unwrap_err();
+        let err = cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()
         };

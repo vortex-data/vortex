@@ -7,13 +7,14 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
@@ -25,6 +26,7 @@ pub struct ByteBoolArray {
 
 try_from_array_ref!(ByteBoolArray);
 
+#[derive(Debug)]
 pub struct ByteBoolEncoding;
 impl Encoding for ByteBoolEncoding {
     type Array = ByteBoolArray;
@@ -104,6 +106,23 @@ impl ArrayCanonicalImpl for ByteBoolArray {
         let boolean_buffer = BooleanBuffer::from(self.as_slice());
         let validity = self.validity().clone();
         Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+    }
+}
+
+impl ArrayOperationsImpl for ByteBoolArray {
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ByteBoolArray::new(
+            self.buffer().slice(start..stop),
+            self.validity().slice(start, stop)?,
+        )
+        .into_array())
+    }
+
+    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            self.buffer()[index] == 1,
+            self.dtype().nullability(),
+        ))
     }
 }
 

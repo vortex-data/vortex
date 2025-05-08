@@ -1,13 +1,14 @@
 use std::ops::{BitAnd, Range};
 
 use async_trait::async_trait;
-use vortex_array::compute::{filter, slice};
+use vortex_array::compute::filter;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::flat::reader::{FlatReader, SharedArray};
+use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::reader::FlatReader;
 use crate::{
     ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -67,7 +68,7 @@ impl ExprEvaluator for FlatReader {
 
 struct FlatEvaluation {
     layout: Layout,
-    array: SharedArray,
+    array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
 }
@@ -84,7 +85,7 @@ impl MaskEvaluation for FlatEvaluation {
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = slice(&array, self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
         // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -131,7 +132,7 @@ impl ArrayEvaluation for FlatEvaluation {
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = slice(&array, self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
         // Filter the array based on the row mask.

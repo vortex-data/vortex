@@ -3,18 +3,20 @@ use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, Scalar, ScalarValue, StructScalar, Utf8Scalar,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
+    StructScalar, Utf8Scalar,
 };
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, ExtensionArray, ListArray, NullArray, StructArray, VarBinViewArray,
+    BinaryView, BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, StructArray,
+    VarBinViewArray, precision_to_storage_size,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -53,6 +55,29 @@ impl ArrayCanonicalImpl for ConstantArray {
                         validity,
                     ))
                 })
+            }
+            DType::Decimal(decimal_type, ..) => {
+                let size = precision_to_storage_size(decimal_type);
+                let decimal = scalar.as_decimal();
+                let Some(value) = decimal.decimal_value() else {
+                    let all_null = match_each_decimal_value_type!(size, |$D| {
+                       DecimalArray::new(
+                                Buffer::<$D>::zeroed(self.len()),
+                                *decimal_type,
+                                validity,
+                            )
+                    });
+                    return Ok(Canonical::Decimal(all_null));
+                };
+
+                let decimal_array = match_each_decimal_value!(value, |$V| {
+                   DecimalArray::new(
+                        Buffer::full(*$V, self.len()),
+                        *decimal_type,
+                        validity,
+                    )
+                });
+                Canonical::Decimal(decimal_array)
             }
             DType::Utf8(_) => {
                 let value = Utf8Scalar::try_from(scalar)?.value();
@@ -193,7 +218,6 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsProviderExt, StatsSet};
 
     #[test]
@@ -201,7 +225,7 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(scalar_at(&actual, 33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -214,7 +238,7 @@ mod tests {
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(scalar_at(&canonical, i).unwrap(), "four".into());
+            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
         }
     }
 
@@ -229,6 +253,10 @@ mod tests {
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
+            if stat.dtype(canonical.as_ref().dtype()).is_none() {
+                continue;
+            }
+
             let canonical_stat =
                 canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let reference_stat =
@@ -249,8 +277,8 @@ mod tests {
         );
         let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
         let canonical_const = const_array.to_primitive().unwrap();
-        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), scalar);
-        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), f16_scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
     }
 
     #[test]

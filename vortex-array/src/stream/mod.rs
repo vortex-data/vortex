@@ -3,7 +3,6 @@ use std::pin::Pin;
 pub use adapter::*;
 pub use ext::*;
 use futures_util::{Stream, stream};
-pub use take_rows::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -12,7 +11,6 @@ use crate::{Array, ArrayRef};
 
 mod adapter;
 mod ext;
-mod take_rows;
 
 /// A stream of array chunks along with a DType.
 ///

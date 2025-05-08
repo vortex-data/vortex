@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
-use crate::compute::{CompareFn, Operator, scalar_cmp};
-use crate::{Array, ArrayRef};
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, scalar_cmp};
+use crate::{Array, ArrayRef, register_kernel};
 
-impl CompareFn<&ConstantArray> for ConstantEncoding {
+impl CompareKernel for ConstantEncoding {
     fn compare(
         &self,
         lhs: &ConstantArray,
@@ -22,3 +22,5 @@ impl CompareFn<&ConstantArray> for ConstantEncoding {
         Ok(None)
     }
 }
+
+register_kernel!(CompareKernelAdapter(ConstantEncoding).lift());

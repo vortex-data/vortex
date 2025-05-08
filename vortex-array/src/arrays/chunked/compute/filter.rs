@@ -3,9 +3,10 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
-use crate::compute::{FilterKernel, SearchSorted, SearchSortedSide, filter, take};
+use crate::compute::{FilterKernel, FilterKernelAdapter, filter, take};
+use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -26,6 +27,8 @@ impl FilterKernel for ChunkedEncoding {
         Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
+
+register_kernel!(FilterKernelAdapter(ChunkedEncoding).lift());
 
 /// The filter to apply to each chunk.
 ///

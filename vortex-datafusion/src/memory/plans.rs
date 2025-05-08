@@ -19,6 +19,7 @@ use futures::{Stream, ready};
 use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrow::compute::to_arrow;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -157,11 +158,13 @@ impl Stream for RowIndicesStream {
             .ok_or_else(|| vortex_err!("Not a struct array"))?
             .project(&this.filter_projection)?;
 
-        let selection = this
-            .conjunction_expr
-            .evaluate(vortex_struct.as_ref())
-            .map_err(|e| DataFusionError::External(e.into()))?
-            .into_arrow_preferred()?;
+        let selection = to_arrow(
+            &this
+                .conjunction_expr
+                .evaluate(vortex_struct.as_ref())
+                .map_err(|e| DataFusionError::External(e.into()))?,
+            &DataType::Boolean,
+        )?;
 
         // Convert the `selection` BooleanArray into a UInt64Array of indices.
         let selection_indices = selection
@@ -423,7 +426,7 @@ mod test {
             ChunkedArray::try_new(vec![chunk.clone(), chunk.clone()], dtype).unwrap();
 
         let schema = chunk.dtype().to_arrow_schema().unwrap();
-        let logical_expr = and((col("a")).eq(lit(2u64)), col("b").eq(lit(true)));
+        let logical_expr = and(col("a").eq(lit(2u64)), col("b").eq(lit(true)));
         let df_expr = create_physical_expr(
             &logical_expr,
             &schema.to_dfschema().unwrap(),

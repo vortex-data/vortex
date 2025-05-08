@@ -12,9 +12,10 @@ use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::array::ArrayValidityImpl;
-use crate::compute::{SearchSorted, SearchSortedSide};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
+use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::VTableRef;
@@ -22,6 +23,7 @@ use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Enco
 
 mod canonical;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 
@@ -34,6 +36,7 @@ pub struct ChunkedArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct ChunkedEncoding;
 impl Encoding for ChunkedEncoding {
     type Array = ChunkedArray;
@@ -205,6 +208,17 @@ impl ArrayImpl for ChunkedArray {
             self.dtype.clone(),
         ))
     }
+
+    fn _invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        if compute_fn.is_elementwise() {
+            return self.invoke_elementwise(compute_fn, args);
+        }
+        Ok(None)
+    }
 }
 
 impl ArrayStatisticsImpl for ChunkedArray {
@@ -262,8 +276,8 @@ mod test {
 
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::compute::conformance::binary_numeric::test_binary_numeric;
-    use crate::compute::{scalar_at, sub_scalar, try_cast};
+    use crate::compute::conformance::binary_numeric::test_numeric;
+    use crate::compute::{cast, sub_scalar};
     use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
@@ -378,7 +392,7 @@ mod test {
         let array = chunked_array();
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
-        let array = try_cast(&array, &signed_dtype).unwrap();
-        test_binary_numeric::<u64>(array)
+        let array = cast(&array, &signed_dtype).unwrap();
+        test_numeric::<u64>(array)
     }
 }

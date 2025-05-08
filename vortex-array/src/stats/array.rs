@@ -11,8 +11,9 @@ use super::{
 };
 use crate::Array;
 use crate::compute::{
-    MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, sum, uncompressed_size,
+    MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
 };
+use crate::nbytes::NBytes;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -104,8 +105,6 @@ impl StatsSetRef<'_> {
             return Ok(Some(stat));
         }
 
-        // NOTE(ngates): this is the beginning of the stats refactor that pushes stats compute into
-        //  regular compute functions.
         Ok(match stat {
             Stat::Min => {
                 min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min.into_value())
@@ -129,12 +128,28 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    Some(is_constant(self.dyn_array_ref)?.into())
+                    is_constant(self.dyn_array_ref)?.map(ScalarValue::from)
                 }
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
-            Stat::UncompressedSizeInBytes => Some(uncompressed_size(self.dyn_array_ref)?.into()),
+            Stat::UncompressedSizeInBytes => {
+                let nbytes: ScalarValue =
+                    (self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64).into();
+                self.set(stat, Precision::exact(nbytes.clone()));
+                Some(nbytes)
+            }
+            Stat::NaNCount => {
+                Stat::NaNCount
+                    .dtype(self.dyn_array_ref.dtype())
+                    .is_some()
+                    .then(|| {
+                        // NaNCount is supported for this dtype.
+                        nan_count(self.dyn_array_ref)
+                    })
+                    .transpose()?
+                    .map(|s| s.into())
+            }
         })
     }
 

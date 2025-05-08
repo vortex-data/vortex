@@ -4,8 +4,8 @@ use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::arrays::{
-    BoolArray, ChunkedArray, ConstantArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
-    StructArray, VarBinArray, VarBinViewArray,
+    BoolArray, ChunkedArray, ConstantArray, DecimalArray, ExtensionArray, ListArray, NullArray,
+    PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex::encodings::alp::{ALPArray, ALPRDArray};
 use vortex::encodings::bytebool::ByteBoolArray;
@@ -22,8 +22,9 @@ use vortex::{Array, ArrayRef, Encoding};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
-    PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray,
-    PyNullArray, PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
+    PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyDecimalArray,
+    PyExtensionArray, PyListArray, PyNullArray, PyPrimitiveArray, PyStructArray, PyVarBinArray,
+    PyVarBinViewArray,
 };
 use crate::arrays::compressed::{
     PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
@@ -137,6 +138,10 @@ impl PyNativeArray {
 
         if any.is::<FoRArray>() {
             return Self::with_subclass(py, array, PyFastLanesFoRArray);
+        }
+
+        if any.is::<DecimalArray>() {
+            return Self::with_subclass(py, array, PyDecimalArray);
         }
 
         Err(PyTypeError::new_err(format!(

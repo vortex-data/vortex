@@ -2,7 +2,6 @@ use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, Transpose};
 use num_traits::{WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{fill_forward, slice};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
@@ -13,12 +12,12 @@ use vortex_error::VortexResult;
 use crate::DeltaArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
-    // Fill forward nulls
-    let filled = fill_forward(array)?.to_primitive()?;
+    // TODO(ngates): fill forward nulls?
+    // let filled = fill_forward(array)?.to_primitive()?;
 
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {
-        let (bases, deltas) = compress_primitive(filled.as_slice::<$T>());
+        let (bases, deltas) = compress_primitive(array.as_slice::<$T>());
         let base_validity = (array.validity().nullability() != Nullability::NonNullable)
             .then(|| Validity::AllValid)
             .unwrap_or(Validity::NonNullable);
@@ -108,7 +107,9 @@ pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
         )
     });
 
-    slice(&decoded, array.offset(), array.offset() + array.len())?.to_primitive()
+    decoded
+        .slice(array.offset(), array.offset() + array.len())?
+        .to_primitive()
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

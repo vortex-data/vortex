@@ -7,7 +7,6 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-//! use vortex_array::compute::scalar_at;
 //! use vortex_dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
@@ -20,13 +19,14 @@
 //!
 //! let strings = builder.finish();
 //!
-//! assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
-//! assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
-//! assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
-//! assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
+//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
+//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
+//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
 //! ```
 
 mod bool;
+mod decimal;
 mod extension;
 mod lazy_validity_builder;
 mod list;
@@ -38,6 +38,7 @@ mod varbinview;
 use std::any::Any;
 
 pub use bool::*;
+pub use decimal::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
@@ -51,8 +52,9 @@ use vortex_scalar::{
     StructScalar, Utf8Scalar,
 };
 
+use crate::arrays::precision_to_storage_size;
 use crate::builders::struct_::StructBuilder;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, match_each_decimal_value_type};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -111,7 +113,6 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-/// use vortex_array::compute::scalar_at;
 /// use vortex_dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
@@ -124,10 +125,10 @@ pub trait ArrayBuilder: Send {
 ///
 /// let strings = builder.finish();
 ///
-/// assert_eq!(scalar_at(&strings, 0).unwrap(), "a".into());
-/// assert_eq!(scalar_at(&strings, 1).unwrap(), "b".into());
-/// assert_eq!(scalar_at(&strings, 2).unwrap(), "c".into());
-/// assert_eq!(scalar_at(&strings, 3).unwrap(), "d".into());
+/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
+/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
+/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
+/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
@@ -136,6 +137,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
         DType::Primitive(ptype, n) => {
             match_each_native_ptype!(ptype, |$P| {
                 Box::new(PrimitiveBuilder::<$P>::with_capacity(*n, capacity))
+            })
+        }
+        DType::Decimal(decimal_type, n) => {
+            match_each_decimal_value_type!(precision_to_storage_size(decimal_type), |$D| {
+                Box::new(DecimalBuilder::<$D>::with_capacity(capacity, decimal_type.clone(), *n))
             })
         }
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
@@ -199,6 +205,16 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                         vortex_err!("Cannot append primitive scalar to non-primitive builder")
                     })?
                     .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<$P>())
+                })
+            }
+            DType::Decimal(decimal_type, _) => {
+                match_each_decimal_value_type!(precision_to_storage_size(decimal_type), |$D| {
+                self.as_any_mut()
+                    .downcast_mut::<DecimalBuilder<$D>>()
+                    .ok_or_else(|| {
+                        vortex_err!("Cannot append decimal scalar to non-decimal builder")
+                    })?
+                    .append_option(Option::<$D>::try_from(scalar.as_decimal()).unwrap())
                 })
             }
             DType::Utf8(_) => self

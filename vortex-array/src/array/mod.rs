@@ -1,7 +1,7 @@
 mod canonical;
-mod compute;
 mod convert;
 mod implementation;
+mod operations;
 mod statistics;
 mod validity;
 mod variants;
@@ -12,9 +12,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 pub use canonical::*;
-pub use compute::*;
 pub use convert::*;
 pub use implementation::*;
+pub use operations::*;
 pub use statistics::*;
 pub use validity::*;
 pub use variants::*;
@@ -22,13 +22,14 @@ pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
-    VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, KernelRef};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::StatsSetRef;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
@@ -70,8 +71,11 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     /// Returns the encoding VTable.
     fn vtable(&self) -> VTableRef;
 
-    /// Attempts to find a kernel for the given compute invocation.
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef>;
+    /// Performs a constant-time slice of the array.
+    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
+
+    /// Fetch the scalar at the given index.
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -94,6 +98,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
         self.is_encoding(NullEncoding.id())
             || self.is_encoding(BoolEncoding.id())
             || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(DecimalEncoding.id())
             || self.is_encoding(StructEncoding.id())
             || self.is_encoding(ListEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())
@@ -139,6 +144,25 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
 
     /// Replaces the children of the array with the given array references.
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef>;
+
+    /// Optionally invoke a kernel for the given compute function.
+    ///
+    /// These encoding-specific kernels are independent of kernels registered directly with
+    /// compute functions using [`ComputeFn::register_kernel`], and are attempted only if none of
+    /// the function-specific kernels returns a result.
+    ///
+    /// This allows encodings the opportunity to generically implement many compute functions
+    /// that share some property, for example [`ComputeFn::is_elementwise`], without prior
+    /// knowledge of the function itself, while still allowing users to override the implementation
+    /// of compute functions for built-in encodings. For an example, see the implementation for
+    /// chunked arrays.
+    ///
+    /// The first input in the [`InvocationArgs`] is always the array itself.
+    ///
+    /// Warning: do not call `compute_fn.invoke(args)` directly, as this will result in a recursive
+    /// call.
+    fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
+    -> VortexResult<Option<Output>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -174,8 +198,12 @@ impl Array for Arc<dyn Array> {
         self.as_ref().vtable()
     }
 
-    fn find_kernel(&self, compute_fn: &dyn ComputeFn) -> Option<KernelRef> {
-        self.as_ref().find_kernel(compute_fn)
+    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
+        self.as_ref().slice(start, end)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        self.as_ref().scalar_at(index)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -220,6 +248,14 @@ impl Array for Arc<dyn Array> {
 
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        self.as_ref().invoke(compute_fn, args)
     }
 }
 

@@ -132,7 +132,6 @@ impl ToDuckDB for VarBinViewArray {
 mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use vortex_array::arrays::{ConstantArray, VarBinViewArray};
-    use vortex_array::compute::slice;
     use vortex_array::{Array, ToCanonical};
 
     use crate::ToDuckDB;
@@ -191,7 +190,7 @@ mod tests {
     fn test_multi_buffer_ref() {
         let varbin = VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
         {
-            let start_view = slice(&varbin, 0, 2).unwrap().to_varbinview().unwrap();
+            let start_view = varbin.slice(0, 2).unwrap().to_varbinview().unwrap();
             let mut chunk =
                 DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
             chunk.set_len(start_view.len());
@@ -212,7 +211,7 @@ mod tests {
             drop(chunk)
         }
         {
-            let end_view = slice(&varbin, 2, 5).unwrap().to_varbinview().unwrap();
+            let end_view = varbin.slice(2, 5).unwrap().to_varbinview().unwrap();
             drop(varbin);
             let mut chunk =
                 DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);

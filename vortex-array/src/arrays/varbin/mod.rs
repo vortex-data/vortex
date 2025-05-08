@@ -13,18 +13,18 @@ use vortex_scalar::Scalar;
 use crate::array::ArrayValidityImpl;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
-use crate::compute::scalar_at;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, RkyvMetadata, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, ProstMetadata, try_from_array_ref,
 };
 
 mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
+mod ops;
 mod serde;
 mod variants;
 
@@ -39,10 +39,11 @@ pub struct VarBinArray {
 
 try_from_array_ref!(VarBinArray);
 
+#[derive(Debug)]
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
     type Array = VarBinArray;
-    type Metadata = RkyvMetadata<VarBinMetadata>;
+    type Metadata = ProstMetadata<VarBinMetadata>;
 }
 
 impl VarBinArray {
@@ -156,7 +157,9 @@ impl VarBinArray {
         }
 
         // TODO(ngates): PrimitiveArrayTrait should have get_scalar(idx) -> Option<T> method
-        Ok(scalar_at(self.offsets(), index)
+        Ok(self
+            .offsets()
+            .scalar_at(index)
             .unwrap_or_else(|err| vortex_panic!(err, "Failed to get offset at index: {}", index))
             .as_ref()
             .try_into()
@@ -317,7 +320,6 @@ mod test {
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
-    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
 
     #[fixture]
@@ -338,18 +340,18 @@ mod test {
     #[rstest]
     pub fn test_scalar_at(binary_array: ArrayRef) {
         assert_eq!(binary_array.len(), 2);
-        assert_eq!(scalar_at(&binary_array, 0).unwrap(), "hello world".into());
+        assert_eq!(binary_array.scalar_at(0).unwrap(), "hello world".into());
         assert_eq!(
-            scalar_at(&binary_array, 1).unwrap(),
+            binary_array.scalar_at(1).unwrap(),
             "hello world this is a long string".into()
         )
     }
 
     #[rstest]
     pub fn slice_array(binary_array: ArrayRef) {
-        let binary_arr = slice(&binary_array, 1, 2).unwrap();
+        let binary_arr = binary_array.slice(1, 2).unwrap();
         assert_eq!(
-            scalar_at(&binary_arr, 0).unwrap(),
+            binary_arr.scalar_at(0).unwrap(),
             "hello world this is a long string".into()
         );
     }

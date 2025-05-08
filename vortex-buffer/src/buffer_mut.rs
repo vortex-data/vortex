@@ -318,7 +318,7 @@ impl<T> BufferMut<T> {
     #[inline]
     pub fn extend_from_slice(&mut self, slice: &[T]) {
         self.reserve(slice.len());
-        let raw_slice: &[u8] =
+        let raw_slice =
             unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
         self.bytes.extend_from_slice(raw_slice);
         self.length += slice.len();

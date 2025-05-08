@@ -46,7 +46,6 @@ impl ToDuckDB for ChunkedArray {
 mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use vortex_array::arrays::{ChunkedArray, StructArray};
-    use vortex_array::compute::slice;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dict::DictArray;
@@ -69,7 +68,7 @@ mod tests {
         let chunk =
             ChunkedArray::try_new(vec![dict1.into_array(), dict2.into_array()], dtype).unwrap();
 
-        let sliced = slice(&chunk, 2, 7).unwrap();
+        let sliced = chunk.slice(2, 7).unwrap();
 
         let struct_ = StructArray::from_fields(&[("a", sliced)]).unwrap();
         let mut cache = ConversionCache::default();

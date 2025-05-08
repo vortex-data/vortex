@@ -23,15 +23,18 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             local_dir: bench-vortex/data/tpch/1
+            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
+            targets: "datafusion:parquet,datafusion:vortex"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -65,11 +68,27 @@ jobs:
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install gzip
+        run: sudo apt-get update && sudo apt-get install -y gzip
+
+      - name: DuckDB extension build
+        env:
+          # Build DuckDB and the Vortex extension with `-march=native`.
+          # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
+          NATIVE_ARCH: 1
+        run: GEN=ninja make release
+        working-directory: ${{ github.workspace }}/duckdb-vortex
+
       - name: Generate data
         shell: bash
-        run:
+        run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --formats parquet,vortex -i1
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
+          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
 
       - name: Upload data
         if: matrix.remote_storage != null
@@ -81,7 +100,7 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.2.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
@@ -99,10 +118,11 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
+            --targets ${{ matrix.targets }} \
             --export-spans \
           | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
         shell: bash
         env:
@@ -115,14 +135,14 @@ jobs:
         run: |
           target/release_debug/${{ matrix.binary_name }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --formats parquet,vortex \
+              --targets ${{ matrix.targets }} \
               --export-spans \
               -d gh-json \
             | tee results.json
 
       - name: Install uv
         if: inputs.mode == 'pr'
-        uses: spiraldb/actions/.github/actions/setup-uv@0.8.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
           sync: false
       - name: Compare results
@@ -134,7 +154,8 @@ jobs:
 
           base_commit_sha=${{ github.event.pull_request.base.sha }}
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+            | gzip -d \
             | grep $base_commit_sha \
             > base.json
 
@@ -160,4 +181,4 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json results.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json

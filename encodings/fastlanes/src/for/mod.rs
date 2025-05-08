@@ -17,6 +17,7 @@ use crate::r#for::serde::ScalarValueMetadata;
 
 mod compress;
 mod compute;
+mod ops;
 mod serde;
 
 #[derive(Clone, Debug)]
@@ -26,6 +27,7 @@ pub struct FoRArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Debug)]
 pub struct FoREncoding;
 impl Encoding for FoREncoding {
     type Array = FoRArray;

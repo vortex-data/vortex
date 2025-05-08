@@ -5,12 +5,12 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::{BinaryNumericOperator, ListScalar};
+use vortex_scalar::{ListScalar, NumericOperator};
 
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
-use crate::compute::{binary_numeric, slice, try_cast};
+use crate::compute::{cast, numeric};
 use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -129,19 +129,21 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             )
         })?;
 
-        let offsets = binary_numeric(
-            &try_cast(
-                &slice(list.offsets(), 1, list.offsets().len())?,
+        let offsets = numeric(
+            &cast(
+                &list.offsets().slice(1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(cursor, list.len()),
-            BinaryNumericOperator::Add,
+            NumericOperator::Add,
         )?;
         self.index_builder.extend_from_array(&offsets)?;
 
         if !list.is_empty() {
             let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
-            let sliced_values = slice(list.elements(), 0, last_used_index.as_() - cursor_usize)?;
+            let sliced_values = list
+                .elements()
+                .slice(0, last_used_index.as_() - cursor_usize)?;
             self.value_builder.ensure_capacity(sliced_values.len());
             self.value_builder.extend_from_array(&sliced_values)?;
         }
@@ -191,7 +193,6 @@ mod tests {
     use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
-    use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{IntoArray as _, ToCanonical};
 
@@ -379,12 +380,12 @@ mod tests {
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
         assert_eq!(
-            scalar_at(&one_trailing_unused_element, 0).unwrap(),
-            scalar_at(&canon_values, 0).unwrap()
+            one_trailing_unused_element.scalar_at(0).unwrap(),
+            canon_values.scalar_at(0).unwrap()
         );
         assert_eq!(
-            scalar_at(&second_array, 0).unwrap(),
-            scalar_at(&canon_values, 1).unwrap()
+            second_array.scalar_at(0).unwrap(),
+            canon_values.scalar_at(1).unwrap()
         );
     }
 }

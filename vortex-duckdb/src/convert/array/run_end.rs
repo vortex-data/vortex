@@ -3,7 +3,6 @@ use duckdb::ffi::{idx_t, sel_t};
 use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::scalar_at;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
@@ -62,7 +61,7 @@ impl ToDuckDB for RunEndArray {
         cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         if self.values().len() == 1 {
-            let constant = scalar_at(self.values(), 0)?;
+            let constant = self.values().scalar_at(0)?;
             let value = constant.try_to_duckdb_scalar()?;
             chunk.flat_vector().assign_to_constant(&value);
             return Ok(());
@@ -99,7 +98,6 @@ mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
     use itertools::Itertools;
     use vortex_array::arrays::StructArray;
-    use vortex_array::compute::slice;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_runend::RunEndArray;
@@ -114,7 +112,7 @@ mod tests {
         )
         .unwrap();
 
-        let arr = slice(arr.to_array().as_ref(), 1, 5).unwrap();
+        let arr = arr.to_array().slice(1, 5).unwrap();
 
         let struct_ = StructArray::from_fields(&[("a", arr)]).unwrap();
 
@@ -138,7 +136,7 @@ mod tests {
         )
         .unwrap();
 
-        let arr = slice(arr.to_array().as_ref(), 900, 2948).unwrap();
+        let arr = arr.slice(900, 2948).unwrap();
 
         let struct_ = StructArray::from_fields(&[("a", arr)]).unwrap();
 

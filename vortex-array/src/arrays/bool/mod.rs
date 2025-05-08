@@ -1,5 +1,6 @@
 mod array;
 pub mod compute;
+mod ops;
 mod patch;
 mod serde;
 
@@ -16,14 +17,13 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
 
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
     }
 
@@ -33,9 +33,9 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&scalar_at(&arr, 1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(!scalar);
     }
 
@@ -43,19 +43,19 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&scalar_at(&arr, 1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = scalar_at(&arr, 2).unwrap();
+        let scalar = arr.scalar_at(2).unwrap();
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&scalar_at(&arr, 3).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
         assert!(!scalar);
 
-        let scalar = scalar_at(&arr, 4).unwrap();
+        let scalar = arr.scalar_at(4).unwrap();
         assert!(scalar.is_null());
     }
 
@@ -67,7 +67,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = slice(&arr, 4, 12).unwrap();
+        let sliced = arr.slice(4, 12).unwrap();
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = slice(&arr, 4, 12).unwrap();
+        let sliced = arr.slice(4, 12).unwrap();
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
