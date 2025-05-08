@@ -1,31 +1,14 @@
-use itertools::Itertools;
 use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedEncoding;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::{
-    SearchSortedSide, TakeKernel, TakeKernelAdapter, cast, search_sorted, sub_scalar, take,
-};
+use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // Fast path for strict sorted indices.
-        if indices
-            .statistics()
-            .compute_is_strict_sorted()
-            .unwrap_or(false)
-        {
-            if array.len() == indices.len() {
-                return Ok(array.to_array().into_array());
-            }
-
-            return take_strict_sorted(array, indices);
-        }
-
         let indices = cast(indices, PType::U64.into())?.to_primitive()?;
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
@@ -59,60 +42,6 @@ impl TakeKernel for ChunkedEncoding {
 }
 
 register_kernel!(TakeKernelAdapter(ChunkedEncoding).lift());
-
-/// When the indices are non-null and strict-sorted, we can do better
-fn take_strict_sorted(chunked: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let mut indices_by_chunk = vec![None; chunked.nchunks()];
-
-    // Track our position in the indices array
-    let mut pos = 0;
-    while pos < indices.len() {
-        // Locate the chunk index for the current index
-        let idx = usize::try_from(&indices.scalar_at(pos)?)?;
-        let (chunk_idx, _idx_in_chunk) = chunked.find_chunk_idx(idx);
-
-        // Find the end of this chunk, and locate that position in the indices array.
-        let chunk_begin = usize::try_from(chunked.chunk_offsets()[chunk_idx])?;
-        let chunk_end = usize::try_from(chunked.chunk_offsets()[chunk_idx + 1])?;
-        let chunk_end_pos = search_sorted(indices, chunk_end, SearchSortedSide::Left)?.to_index();
-
-        // Now we can say the slice of indices belonging to this chunk is [pos, chunk_end_pos)
-        let chunk_indices = indices.slice(pos, chunk_end_pos)?;
-
-        // Adjust the indices so they're relative to the chunk
-        // Note. Indices might not have a dtype big enough to fit chunk_begin after cast,
-        // if it does cast the scalar otherwise upcast the indices.
-        let chunk_indices = if chunk_begin
-            < PType::try_from(chunk_indices.dtype())?
-                .max_value_as_u64()
-                .try_into()?
-        {
-            sub_scalar(
-                &chunk_indices,
-                Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
-            )?
-        } else {
-            // Note. this try_cast (memory copy) is unnecessary, could instead upcast in the subtract fn.
-            //  and avoid an extra
-            let u64_chunk_indices = cast(&chunk_indices, PType::U64.into())?;
-            sub_scalar(&u64_chunk_indices, chunk_begin.into())?
-        };
-
-        indices_by_chunk[chunk_idx] = Some(chunk_indices);
-
-        pos = chunk_end_pos;
-    }
-
-    // Now we can take the chunks
-    let chunks = indices_by_chunk
-        .into_iter()
-        .enumerate()
-        .filter_map(|(chunk_idx, indices)| indices.map(|i| (chunk_idx, i)))
-        .map(|(chunk_idx, chunk_indices)| take(chunked.chunk(chunk_idx)?, &chunk_indices))
-        .try_collect()?;
-
-    Ok(ChunkedArray::try_new(chunks, chunked.dtype().clone())?.into_array())
-}
 
 #[cfg(test)]
 mod test {
