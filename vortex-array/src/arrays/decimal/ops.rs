@@ -9,9 +9,9 @@ use crate::{Array, ArrayOperationsImpl, ArrayRef, match_each_decimal_value_type}
 
 impl ArrayOperationsImpl for DecimalArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(self.values_type, |$S| {
+        match_each_decimal_value_type!(self.values_type, |$D| {
             slice_typed(
-                self.buffer::<$S>(),
+                self.buffer::<$D>(),
                 start,
                 stop,
                 self.decimal_dtype(),
