@@ -10,6 +10,8 @@
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 
+// TODO(joe): enable multi-threaded writes, see `VortexWriteSink`.
+
 namespace duckdb {
 
 struct VortexWriteBindData : public TableFunctionData {
@@ -21,9 +23,7 @@ struct VortexWriteBindData : public TableFunctionData {
 };
 
 struct VortexWriteGlobalData : public GlobalFunctionData {
-	std::string file_name;
-	std::unique_ptr<VortexFileReader> file;
-	unique_ptr<VortexArray> array;
+	unique_ptr<ArrayStreamSink> sink;
 };
 
 struct VortexWriteLocalData : public LocalFunctionData {};
@@ -33,16 +33,12 @@ void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalF
 	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
 	auto bind = bind_data.Cast<VortexWriteBindData>();
 
-	auto chunk = DataChunk();
-	chunk.Initialize(Allocator::Get(context.client), bind.sql_types);
-
 	for (auto i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
 	}
-
-	auto new_array = vx_array_append_duckdb_chunk(
-	    global_state.array->array, reinterpret_cast<duckdb_data_chunk>(&input), bind.column_nullable.data());
-	global_state.array = make_uniq<VortexArray>(new_array);
+	// TODO(joe): go to a model of combining local chunked into arrays of a specific size
+	// before push each of these larger chunks into the global_state
+	global_state.sink->PushChunk(input);
 }
 
 std::vector<idx_t> TableNullability(ClientContext &context, const string &catalog_name, const string &schema,
@@ -92,7 +88,6 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	                                        const string &file_path) -> unique_ptr<GlobalFunctionData> {
 		auto &bind = bind_data.Cast<VortexWriteBindData>();
 		auto gstate = make_uniq<VortexWriteGlobalData>();
-		gstate->file_name = file_path;
 
 		auto column_names = std::vector<const char *>();
 		for (const auto &col_id : bind.column_names) {
@@ -104,12 +99,8 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 			column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
 		}
 
-		vx_error *error = nullptr;
-		auto array = vx_array_create_empty_from_duckdb_table(column_types.data(), bind.column_nullable.data(),
-		                                                     column_names.data(), column_names.size(), &error);
-		HandleError(error);
-
-		gstate->array = make_uniq<VortexArray>(array);
+		auto dtype = DType::FromDuckDBTable(column_types, bind.column_nullable, column_names);
+		gstate->sink = ArrayStreamSink::Create(file_path, std::move(dtype));
 		return std::move(gstate);
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,
@@ -119,9 +110,7 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	function.copy_to_sink = VortexWriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
 		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-		vx_error *error;
-		vx_file_write_array(global_state.file_name.c_str(), global_state.array->array, &error);
-		HandleError(error);
+		global_state.sink->Close();
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
 	                             bool supports_batch_index) -> CopyFunctionExecutionMode {

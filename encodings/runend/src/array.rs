@@ -1,19 +1,19 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{SearchSortedSide, search_sorted_usize, search_sorted_usize_many};
+use vortex_array::compute::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
+    ArrayVariants, ArrayVariantsImpl, Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
     try_from_array_ref,
 };
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::PValue;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 use crate::serde::RunEndMetadata;
@@ -84,21 +84,33 @@ impl RunEndArray {
 
     /// Convert the given logical index to an index into the `values` array
     pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        search_sorted_usize(self.ends(), index + self.offset(), SearchSortedSide::Right)
-            .map(|s| s.to_ends_index(self.ends().len()))
+        Ok(self
+            .ends()
+            .as_primitive_typed()
+            .vortex_expect("ends array must be primitive")
+            .search_sorted(
+                &Some(PValue::from(index + self.offset())),
+                SearchSortedSide::Right,
+            )
+            .to_ends_index(self.ends().len()))
     }
 
     /// Convert a batch of logical indices into an index for the values. Expects indices to be adjusted by offset unlike
     /// [Self::find_physical_index]
     ///
     /// See: [find_physical_index][Self::find_physical_index].
-    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
-        search_sorted_usize_many(self.ends(), indices, SearchSortedSide::Right).map(|results| {
-            results
-                .into_iter()
-                .map(|result| result.to_ends_index(self.ends().len()) as u64)
-                .collect()
-        })
+    pub fn find_physical_indices<I: IntoIterator<Item = usize>>(
+        &self,
+        indices: I,
+    ) -> impl Iterator<Item = usize> {
+        self.ends()
+            .as_primitive_typed()
+            .vortex_expect("ends array must be primitive")
+            .search_sorted_many(
+                indices.into_iter().map(|i| Some(PValue::from(i))),
+                SearchSortedSide::Right,
+            )
+            .map(|result| result.to_ends_index(self.ends().len()))
     }
 
     /// Run the array through run-end encoding.

@@ -9,9 +9,7 @@ use vortex_scalar::Scalar;
 use crate::array::Array;
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{
-    IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn,
-};
+use crate::compute::{IndexOrd, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 
@@ -28,41 +26,11 @@ impl SearchSortedFn<&PrimitiveArray> for PrimitiveEncoding {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
                     Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
                 }
-                Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
+                Validity::AllInvalid => Ok(SearchResult::NotFound(Array::len(array))),
                 Validity::Array(_) => {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
                     Ok(SearchSortedNullsFirst::try_new(array)?.search_sorted(&pvalue, side))
                 }
-            }
-        })
-    }
-}
-
-impl SearchSortedUsizeFn<&PrimitiveArray> for PrimitiveEncoding {
-    #[allow(clippy::cognitive_complexity)]
-    fn search_sorted_usize(
-        &self,
-        array: &PrimitiveArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        match_each_native_ptype!(array.ptype(), |$T| {
-            if let Some(pvalue) = num_traits::cast::<usize, $T>(value) {
-                match array.validity() {
-                    Validity::NonNullable | Validity::AllValid => {
-                        // null-free search
-                        Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
-                    }
-                    Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
-                    Validity::Array(_) => {
-                        // null-aware search
-                        Ok(SearchSortedNullsFirst::try_new(array)?.search_sorted(&pvalue, side))
-                    }
-                }
-            } else {
-                // provided u64 is too large to fit in the provided PType, value must be off
-                // the right end of the array.
-                Ok(SearchResult::NotFound(array.len()))
             }
         })
     }
@@ -86,7 +54,7 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitive<'_, T> {
         Some(unsafe { self.values.get_unchecked(idx) }.total_compare(*elem))
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.values.len()
     }
 }
@@ -114,8 +82,8 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedNullsFirst<'_, T> {
         self.values.index_cmp(idx, elem)
     }
 
-    fn len(&self) -> usize {
-        self.values.len()
+    fn index_len(&self) -> usize {
+        self.values.index_len()
     }
 }
 

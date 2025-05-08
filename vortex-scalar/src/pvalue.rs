@@ -334,6 +334,7 @@ impl_pvalue!(f32, F32);
 impl_pvalue!(f64, F64);
 
 impl From<usize> for PValue {
+    #[inline]
     fn from(value: usize) -> PValue {
         PValue::U64(value as u64)
     }

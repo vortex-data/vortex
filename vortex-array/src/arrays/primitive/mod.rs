@@ -6,7 +6,7 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
@@ -29,6 +29,7 @@ mod top_value;
 
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
+use vortex_scalar::PValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -224,11 +225,11 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let length = self.len();
-        let raw_slice = self.byte_buffer().as_slice();
-        debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
+        let raw_slice = self.byte_buffer().as_ptr();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
+        unsafe {
+            std::slice::from_raw_parts(raw_slice.cast(), self.byte_buffer().len() / size_of::<T>())
+        }
     }
 
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
@@ -287,7 +288,18 @@ impl ArrayVariantsImpl for PrimitiveArray {
     }
 }
 
-impl PrimitiveArrayTrait for PrimitiveArray {}
+impl PrimitiveArrayTrait for PrimitiveArray {
+    fn value(&self, idx: usize) -> Option<PValue> {
+        self.validity
+            .is_valid(idx)
+            .vortex_expect("validity check")
+            .then(|| {
+                match_each_native_ptype!(self.ptype(), |$T| {
+                    PValue::from(self.as_slice::<$T>()[idx])
+                })
+            })
+    }
+}
 
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {

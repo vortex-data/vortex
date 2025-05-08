@@ -3,12 +3,14 @@
 //! When callers only want to make assumptions about the DType, and not about any specific
 //! encoding, they can use these traits to write encoding-agnostic code.
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_scalar::PValue;
 
-use crate::compute::sum;
+use crate::compute::{IndexOrd, sum};
 use crate::{Array, ArrayRef};
 
 pub trait NullArrayTrait: Array {}
@@ -27,16 +29,29 @@ impl dyn BoolArrayTrait + '_ {
 }
 
 pub trait PrimitiveArrayTrait: Array {
-    /// The logical primitive type of the array.
-    ///
-    /// This is a type that can safely be converted into a `NativePType` for use in
-    /// `maybe_null_slice` or `into_maybe_null_slice`.
     fn ptype(&self) -> PType {
-        if let DType::Primitive(ptype, ..) = self.dtype() {
-            *ptype
-        } else {
-            vortex_panic!("array must have primitive data type");
-        }
+        let DType::Primitive(ptype, _) = self.dtype() else {
+            vortex_panic!("Expected Primitive DType")
+        };
+        *ptype
+    }
+
+    /// Return the primitive value at the given index.
+    fn value(&self, idx: usize) -> Option<PValue> {
+        self.scalar_at(idx)
+            .vortex_expect("scalar at index")
+            .as_primitive()
+            .pvalue()
+    }
+}
+
+impl IndexOrd<Option<PValue>> for dyn PrimitiveArrayTrait + '_ {
+    fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> Option<Ordering> {
+        self.value(idx).partial_cmp(elem)
+    }
+
+    fn index_len(&self) -> usize {
+        Array::len(self)
     }
 }
 

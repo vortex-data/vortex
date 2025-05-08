@@ -147,17 +147,17 @@ static void PopulateProjection(VortexScanGlobalState &global_state, const vector
 }
 
 /// Extracts schema information from a Vortex file's data type.
-static void ExtractVortexSchema(const vx_dtype *file_dtype, vector<LogicalType> &column_types,
+static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_types,
                                 vector<string> &column_names) {
-	uint32_t field_count = vx_dtype_field_count(file_dtype);
+	uint32_t field_count = vx_dtype_field_count(file_dtype.dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
 		char name_buffer[512];
 		int name_len = 0;
 
-		vx_dtype_field_name(file_dtype, idx, name_buffer, &name_len);
+		vx_dtype_field_name(file_dtype.dtype, idx, name_buffer, &name_len);
 		std::string field_name(name_buffer, name_len);
 
-		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype, idx);
+        vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype.dtype, idx);
 		auto duckdb_type = Try([&](auto err) { return vx_dtype_to_duckdb_logical_type(field_dtype, err); });
 
 		column_names.push_back(field_name);
@@ -193,9 +193,9 @@ static unique_ptr<VortexFileReader> OpenFile(const std::string &filename, vector
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
-	// This pointer is owned by the file.
-	const vx_dtype *file_dtype = vx_file_dtype(file->file);
-	if (vx_dtype_get(file_dtype) != DTYPE_STRUCT) {
+	// This Ptr is owned by the file
+	auto file_dtype = file->DType();
+	if (vx_dtype_get(file_dtype.dtype) != DTYPE_STRUCT) {
 		vx_file_reader_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}

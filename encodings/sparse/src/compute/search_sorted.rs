@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use vortex_array::Array;
-use vortex_array::compute::{SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn};
+use vortex_array::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -97,21 +97,6 @@ fn fill_position(array: &SparseArray, side: SearchSortedSide) -> VortexResult<us
             }
         }
     })
-}
-
-impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
-    fn search_sorted_usize(
-        &self,
-        array: &SparseArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        let Ok(target) = Scalar::from(value).cast(array.dtype()) else {
-            // If the downcast fails, then the target is too large for the dtype.
-            return Ok(SearchResult::NotFound(array.len()));
-        };
-        SearchSortedFn::search_sorted(self, array, &target, side)
-    }
 }
 
 #[cfg(test)]

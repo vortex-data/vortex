@@ -123,27 +123,6 @@ pub trait SearchSortedFn<A: Copy> {
     }
 }
 
-pub trait SearchSortedUsizeFn<A: Copy> {
-    fn search_sorted_usize(
-        &self,
-        array: A,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult>;
-
-    fn search_sorted_usize_many(
-        &self,
-        array: A,
-        values: &[usize],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        values
-            .iter()
-            .map(|&value| self.search_sorted_usize(array, value, side))
-            .try_collect()
-    }
-}
-
 impl<E: Encoding> SearchSortedFn<&dyn Array> for E
 where
     E: for<'a> SearchSortedFn<&'a E::Array>,
@@ -175,37 +154,6 @@ where
     }
 }
 
-impl<E: Encoding> SearchSortedUsizeFn<&dyn Array> for E
-where
-    E: for<'a> SearchSortedUsizeFn<&'a E::Array>,
-{
-    fn search_sorted_usize(
-        &self,
-        array: &dyn Array,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SearchSortedUsizeFn::search_sorted_usize(self, array_ref, value, side)
-    }
-
-    fn search_sorted_usize_many(
-        &self,
-        array: &dyn Array,
-        values: &[usize],
-        side: SearchSortedSide,
-    ) -> VortexResult<Vec<SearchResult>> {
-        let array_ref = array
-            .as_any()
-            .downcast_ref::<E::Array>()
-            .vortex_expect("Failed to downcast array");
-        SearchSortedUsizeFn::search_sorted_usize_many(self, array_ref, values, side)
-    }
-}
-
 pub fn search_sorted<T: Into<Scalar>>(
     array: &dyn Array,
     target: T,
@@ -227,35 +175,6 @@ pub fn search_sorted<T: Into<Scalar>>(
 
     // Fallback to a generic search_sorted using scalar_at
     Ok(SearchSorted::search_sorted(array, &scalar, side))
-}
-
-pub fn search_sorted_usize(
-    array: &dyn Array,
-    target: usize,
-    side: SearchSortedSide,
-) -> VortexResult<SearchResult> {
-    if let Some(f) = array.vtable().search_sorted_usize_fn() {
-        return f.search_sorted_usize(array, target, side);
-    }
-
-    // Otherwise, convert the target into a scalar to try the search_sorted_fn
-    let Ok(target) = Scalar::from(target).cast(array.dtype()) else {
-        return Ok(SearchResult::NotFound(array.len()));
-    };
-
-    // Try the non-usize search sorted
-    if let Some(f) = array.vtable().search_sorted_fn() {
-        return f.search_sorted(array, &target, side);
-    }
-
-    // Or fallback all the way to a generic search_sorted using scalar_at
-
-    // Try to downcast the usize to the array type, if the downcast fails, then we know the
-    // usize is too large and the value is greater than the highest value in the array.
-    let Ok(target) = target.cast(array.dtype()) else {
-        return Ok(SearchResult::NotFound(array.len()));
-    };
-    Ok(SearchSorted::search_sorted(array, &target, side))
 }
 
 /// Search for many elements in the array.
@@ -293,23 +212,6 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
         .try_collect()
 }
 
-/// Search for many `usize` values in a sorted array.
-pub fn search_sorted_usize_many(
-    array: &dyn Array,
-    targets: &[usize],
-    side: SearchSortedSide,
-) -> VortexResult<Vec<SearchResult>> {
-    if let Some(f) = array.vtable().search_sorted_usize_fn() {
-        return f.search_sorted_usize_many(array, targets, side);
-    }
-
-    // Call in loop and collect
-    targets
-        .iter()
-        .map(|&target| search_sorted_usize(array, target, side))
-        .try_collect()
-}
-
 #[allow(clippy::len_without_is_empty)]
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
@@ -333,10 +235,23 @@ pub trait IndexOrd<V> {
     }
 
     /// Get the length of the underlying ordered collection
-    fn len(&self) -> usize;
+    fn index_len(&self) -> usize;
 }
 
 pub trait SearchSorted<T> {
+    fn search_sorted_many<I: IntoIterator<Item = T>>(
+        &self,
+        values: I,
+        side: SearchSortedSide,
+    ) -> impl Iterator<Item = SearchResult>
+    where
+        Self: IndexOrd<T>,
+    {
+        values
+            .into_iter()
+            .map(move |value| self.search_sorted(&value, side))
+    }
+
     fn search_sorted(&self, value: &T, side: SearchSortedSide) -> SearchResult
     where
         Self: IndexOrd<T>,
@@ -388,11 +303,13 @@ where
         side_find: N,
         side: SearchSortedSide,
     ) -> SearchResult {
-        match search_sorted_side_idx(find, 0, self.len()) {
+        match search_sorted_side_idx(find, 0, self.index_len()) {
             SearchResult::Found(found) => {
                 let idx_search = match side {
                     SearchSortedSide::Left => search_sorted_side_idx(side_find, 0, found),
-                    SearchSortedSide::Right => search_sorted_side_idx(side_find, found, self.len()),
+                    SearchSortedSide::Right => {
+                        search_sorted_side_idx(side_find, found, self.index_len())
+                    }
                 };
                 match idx_search {
                     SearchResult::NotFound(i) => SearchResult::Found(i),
@@ -468,7 +385,7 @@ impl IndexOrd<Scalar> for dyn Array + '_ {
         scalar_a.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         Self::len(self)
     }
 }
@@ -479,7 +396,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
         unsafe { self.get_unchecked(idx) }.partial_cmp(elem)
     }
 
-    fn len(&self) -> usize {
+    fn index_len(&self) -> usize {
         self.len()
     }
 }

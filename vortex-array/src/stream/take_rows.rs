@@ -7,7 +7,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::compute::{SearchSortedSide, search_sorted_usize, sub_scalar, take};
+use crate::compute::{SearchSortedSide, search_sorted, sub_scalar, take};
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
@@ -72,9 +72,8 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
 
         while let Some(batch) = ready!(this.reader.as_mut().poll_next(cx)?) {
             let curr_offset = *this.row_offset;
-            let left =
-                search_sorted_usize(this.indices, curr_offset, SearchSortedSide::Left)?.to_index();
-            let right = search_sorted_usize(
+            let left = search_sorted(this.indices, curr_offset, SearchSortedSide::Left)?.to_index();
+            let right = search_sorted(
                 this.indices,
                 curr_offset + batch.len(),
                 SearchSortedSide::Left,
