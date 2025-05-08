@@ -60,7 +60,7 @@ impl IndexOrd<Option<PValue>> for dyn PrimitiveArrayTrait + '_ {
     }
 
     fn index_len(&self) -> usize {
-        Array::len(self)
+        self.len()
     }
 }
 
@@ -71,7 +71,7 @@ impl IndexOrd<PValue> for dyn PrimitiveArrayTrait + '_ {
     }
 
     fn index_len(&self) -> usize {
-        Array::len(self)
+        self.len()
     }
 }
 

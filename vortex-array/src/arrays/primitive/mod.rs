@@ -345,12 +345,30 @@ impl ArrayValidityImpl for PrimitiveArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::compute::conformance::mask::test_mask;
+    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
+    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
+    use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_scalar::PValue;
 
-    use crate::array::Array;
-    use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
-    use crate::validity::Validity;
+    #[apply(search_sorted_conformance)]
+    fn search_sorted_primitive(
+        #[case] array: ArrayRef,
+        #[case] value: i32,
+        #[case] side: SearchSortedSide,
+        #[case] expected: SearchResult,
+    ) {
+        let res = array
+            .as_primitive_typed()
+            .vortex_expect("primitive array")
+            .search_sorted(&Some(PValue::from(value)), side);
+        assert_eq!(res, expected);
+    }
 
     #[test]
     fn test_mask_primitive_array() {
