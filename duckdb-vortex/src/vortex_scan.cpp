@@ -18,11 +18,11 @@
 
 namespace duckdb {
 
-// This is a multiple of the 2048 duckdb vector size, it needs tuning
+// This is a multiple of the 2048 DuckDB vector size, it needs tuning
 // This has a few factor effecting it:
 //  1. A smaller value means for work for the vortex file reader.
 //  2. A larger value reduces the parallelism available to the scanner
-constexpr uint64_t ROW_SPLIT_COUNT = 2048 * 32;
+constexpr uint64_t PARTITION_SIZE = 2048 * 32;
 
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
@@ -246,13 +246,13 @@ static void CreateScanPartitions(ClientContext &context, const VortexBindData &b
 		auto file_reader = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind);
 
 		const uint64_t row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
-		const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / ROW_SPLIT_COUNT);
+		const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / PARTITION_SIZE);
 
 		for (uint64_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
 			global_state.scan_partitions.push_back(VortexScanPartition {
 			    .file_idx = file_idx,
-			    .start_row = partition_idx * ROW_SPLIT_COUNT,
-			    .end_row = (partition_idx + 1) * ROW_SPLIT_COUNT,
+			    .start_row = partition_idx * PARTITION_SIZE,
+			    .end_row = (partition_idx + 1) * PARTITION_SIZE,
 			});
 		}
 
