@@ -5,7 +5,6 @@ mod mask;
 mod min_max;
 mod take;
 
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

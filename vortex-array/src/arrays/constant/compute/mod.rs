@@ -7,7 +7,6 @@ mod invert;
 mod sum;
 mod take;
 
-
 #[cfg(test)]
 mod test {
     use vortex_dtype::half::f16;

@@ -8,7 +8,6 @@ mod min_max;
 pub(crate) mod take;
 mod take_from;
 
-
 #[cfg(test)]
 mod test {
     use vortex_array::Array;

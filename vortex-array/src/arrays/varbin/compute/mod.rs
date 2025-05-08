@@ -1,6 +1,5 @@
 pub use min_max::compute_min_max;
 
-
 mod cast;
 mod compare;
 mod filter;
