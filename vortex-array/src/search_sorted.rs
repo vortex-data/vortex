@@ -23,8 +23,6 @@ impl Display for SearchSortedSide {
 }
 
 /// Result of performing search_sorted on an Array
-///
-/// See [`SearchSortedFn`] documentation for interpretation of the results
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SearchResult {
     /// Result for a found element was found in the array and another one could be inserted at the given position
