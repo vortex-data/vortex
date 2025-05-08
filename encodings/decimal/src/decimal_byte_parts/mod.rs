@@ -44,7 +44,6 @@ impl DecimalBytePartsArray {
             )
         }
 
-        // For now only signed integer types are supported, this can be relaxed in the future.
         if !parts[0].dtype().is_signed_int() {
             vortex_bail!("decimal bytes parts, first part must be a signed array")
         }

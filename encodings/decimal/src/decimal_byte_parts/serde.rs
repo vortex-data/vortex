@@ -53,7 +53,7 @@ pub struct DecimalBytesPartsMetadata {
     child_count: u32,
 }
 
-const ENCODED_NAMES: [&str; 4] = ["parts-0", "parts-1", "parts-2", "parts-3"];
+const ENCODED_NAMES: [&str; 4] = ["part-0", "part-1", "part-2", "part-3"];
 
 impl ArrayVisitorImpl<ProstMetadata<DecimalBytesPartsMetadata>> for DecimalBytePartsArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
