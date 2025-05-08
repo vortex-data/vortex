@@ -4,11 +4,16 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
 use crate::vtable::VTable;
-use crate::{Array, ArrayContext, Canonical};
+use crate::{
+    Array, ArrayContext, Canonical, DeserializeMetadata, EmptyMetadata, SerializeMetadata,
+};
 
 /// VTable for implementing serialization and deserialization of arrays.
 pub trait SerdeVTable<V: VTable> {
-    type Metadata;
+    type Metadata: SerializeMetadata + DeserializeMetadata;
+
+    /// Returns the metadata for the given array.
+    fn metadata(array: &V::Array) -> Self::Metadata;
 
     /// Encodes a canonical array using this encoding.
     fn encode(
@@ -31,7 +36,7 @@ pub trait SerdeVTable<V: VTable> {
 }
 
 impl<V: VTable> SerdeVTable<V> for () {
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn encode(
         encoding: &V::Encoding,

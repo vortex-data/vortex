@@ -265,7 +265,7 @@ impl PyArray {
     #[getter]
     fn id(slf: &Bound<Self>) -> PyResult<String> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?
-            .encoding()
+            .encoding_id()
             .to_string())
     }
 

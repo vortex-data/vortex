@@ -16,4 +16,4 @@ impl FilterKernel for DateTimePartsVTable {
         .into_array())
     }
 }
-register_kernel!(FilterKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());

@@ -61,4 +61,4 @@ impl SumKernel for DecimalVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(DecimalEncoding).lift());
+register_kernel!(SumKernelAdapter(DecimalVTable).lift());

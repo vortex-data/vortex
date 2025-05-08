@@ -109,7 +109,7 @@ impl ComputeFnVTable for ToArrow {
 
         vortex_bail!(
             "Failed to convert array {} to Arrow {:?}",
-            array.encoding(),
+            array.encoding_id(),
             arrow_type
         );
     }

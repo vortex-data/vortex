@@ -26,7 +26,7 @@ impl TakeKernel for DecimalVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(DecimalEncoding).lift());
+register_kernel!(TakeKernelAdapter(DecimalVTable).lift());
 
 #[inline]
 fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(

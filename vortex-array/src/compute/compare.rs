@@ -14,6 +14,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::encoding::Encoding;
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
@@ -79,7 +80,7 @@ impl Operator {
 pub struct CompareKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CompareKernelRef);
 
-pub trait CompareKernel: Encoding {
+pub trait CompareKernel: VTable {
     fn compare(
         &self,
         lhs: &Self::Array,
@@ -89,21 +90,21 @@ pub trait CompareKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct CompareKernelAdapter<E: Encoding>(pub E);
+pub struct CompareKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + CompareKernel> CompareKernelAdapter<E> {
+impl<V: VTable + CompareKernel> CompareKernelAdapter<V> {
     pub const fn lift(&'static self) -> CompareKernelRef {
         CompareKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + CompareKernel> Kernel for CompareKernelAdapter<E> {
+impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = CompareArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.lhs.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(E::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
+        Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
 
@@ -175,8 +176,8 @@ impl ComputeFnVTable for Compare {
         if !(lhs.is_arrow() && (rhs.is_arrow() || right_is_constant)) {
             log::debug!(
                 "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-                rhs.encoding(),
-                lhs.encoding(),
+                rhs.encoding_id(),
+                lhs.encoding_id(),
                 operator.swap(),
             );
         }

@@ -17,7 +17,7 @@ impl FilterKernel for NullVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(NullEncoding).lift());
+register_kernel!(FilterKernelAdapter(NullVTable).lift());
 
 impl MaskKernel for NullVTable {
     fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
@@ -25,7 +25,7 @@ impl MaskKernel for NullVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(NullEncoding).lift());
+register_kernel!(MaskKernelAdapter(NullVTable).lift());
 
 impl TakeKernel for NullVTable {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -44,7 +44,7 @@ impl TakeKernel for NullVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(NullEncoding).lift());
+register_kernel!(TakeKernelAdapter(NullVTable).lift());
 
 impl MinMaxKernel for NullVTable {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
@@ -52,7 +52,7 @@ impl MinMaxKernel for NullVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(NullEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(NullVTable).lift());
 
 #[cfg(test)]
 mod test {

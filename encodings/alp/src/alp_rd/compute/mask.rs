@@ -19,7 +19,7 @@ impl MaskKernel for ALPRDVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(ALPRDEncoding).lift());
+register_kernel!(MaskKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod tests {

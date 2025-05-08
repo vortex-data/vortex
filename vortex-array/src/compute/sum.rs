@@ -9,6 +9,7 @@ use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProvider};
+use crate::vtable::VTable;
 
 /// Sum an array.
 ///
@@ -80,7 +81,7 @@ pub static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 pub struct SumKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(SumKernelRef);
 
-pub trait SumKernel: Encoding {
+pub trait SumKernel: VTable {
     /// # Preconditions
     ///
     /// * The array's DType is summable
@@ -89,21 +90,21 @@ pub trait SumKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct SumKernelAdapter<E: Encoding>(pub E);
+pub struct SumKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + SumKernel> SumKernelAdapter<E> {
+impl<V: VTable + SumKernel> SumKernelAdapter<V> {
     pub const fn lift(&'static self) -> SumKernelRef {
         SumKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + SumKernel> Kernel for SumKernelAdapter<E> {
+impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(Some(E::sum(&self.0, array)?.into()))
+        Ok(Some(V::sum(&self.0, array)?.into()))
     }
 }
 
@@ -214,12 +215,12 @@ pub fn sum_impl(
     }
 
     // Otherwise, canonicalize and try again.
-    log::debug!("No sum implementation found for {}", array.encoding());
+    log::debug!("No sum implementation found for {}", array.encoding_id());
     if array.is_canonical() {
         // Panic to avoid recursion, but it should never be hit.
         vortex_panic!(
             "No sum implementation found for canonical array: {}",
-            array.encoding()
+            array.encoding_id()
         );
     }
     sum(array.to_canonical()?.as_ref())

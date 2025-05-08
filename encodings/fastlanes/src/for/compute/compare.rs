@@ -29,7 +29,7 @@ impl CompareKernel for FoRVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(FoREncoding).lift());
+register_kernel!(CompareKernelAdapter(FoRVTable).lift());
 
 fn compare_constant<T>(
     lhs: &FoRArray,

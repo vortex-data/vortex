@@ -17,7 +17,7 @@ impl MaskKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(MaskKernelAdapter(VarBinViewVTable).lift());
 
 #[cfg(test)]
 mod tests {

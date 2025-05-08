@@ -53,4 +53,4 @@ fn sum_float(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexR
     Ok(v.map(|v| v * array_len))
 }
 
-register_kernel!(SumKernelAdapter(ConstantEncoding).lift());
+register_kernel!(SumKernelAdapter(ConstantVTable).lift());

@@ -19,7 +19,7 @@ impl FillNullKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {

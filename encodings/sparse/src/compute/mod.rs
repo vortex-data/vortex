@@ -25,7 +25,7 @@ impl FilterKernel for SparseVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(SparseEncoding).lift());
+register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {

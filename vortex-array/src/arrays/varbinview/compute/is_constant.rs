@@ -52,4 +52,4 @@ impl IsConstantKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(VarBinViewVTable).lift());

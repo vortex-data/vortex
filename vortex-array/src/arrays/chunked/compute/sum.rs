@@ -26,7 +26,7 @@ impl SumKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 
 fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
     chunks: &[ArrayRef],

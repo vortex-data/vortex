@@ -12,4 +12,4 @@ impl InvertKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(InvertKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(InvertKernelAdapter(ChunkedVTable).lift());

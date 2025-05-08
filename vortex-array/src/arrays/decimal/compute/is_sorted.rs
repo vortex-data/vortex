@@ -16,7 +16,7 @@ impl IsSortedKernel for DecimalVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(DecimalEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(DecimalVTable).lift());
 
 fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
     match_each_decimal_value_type!(array.values_type, |$S| {

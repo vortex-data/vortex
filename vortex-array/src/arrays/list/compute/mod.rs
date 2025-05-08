@@ -20,7 +20,7 @@ impl IsConstantKernel for ListVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ListEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
 
 impl MinMaxKernel for ListVTable {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
@@ -29,7 +29,7 @@ impl MinMaxKernel for ListVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ListEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(ListVTable).lift());
 
 // TODO(ngates): why do we report the wrong thing?
 impl IsSortedKernel for ListVTable {
@@ -42,7 +42,7 @@ impl IsSortedKernel for ListVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ListEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ListVTable).lift());
 
 #[cfg(test)]
 mod test {

@@ -1,10 +1,11 @@
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding, BoolVTable, ConstantArray};
+use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityChild;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -34,7 +35,7 @@ impl FillNullKernel for BoolVTable {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(BoolEncoding).lift());
+register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {

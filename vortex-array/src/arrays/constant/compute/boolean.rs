@@ -45,7 +45,7 @@ impl BooleanKernel for ConstantVTable {
     }
 }
 
-register_kernel!(BooleanKernelAdapter(ConstantEncoding).lift());
+register_kernel!(BooleanKernelAdapter(ConstantVTable).lift());
 
 fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l & r)

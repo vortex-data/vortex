@@ -15,4 +15,4 @@ impl InvertKernel for SparseVTable {
     }
 }
 
-register_kernel!(InvertKernelAdapter(SparseEncoding).lift());
+register_kernel!(InvertKernelAdapter(SparseVTable).lift());

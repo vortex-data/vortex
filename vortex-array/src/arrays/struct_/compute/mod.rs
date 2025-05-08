@@ -30,7 +30,7 @@ impl TakeKernel for StructVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(StructEncoding).lift());
+register_kernel!(TakeKernelAdapter(StructVTable).lift());
 
 impl FilterKernel for StructVTable {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -51,7 +51,7 @@ impl FilterKernel for StructVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(StructEncoding).lift());
+register_kernel!(FilterKernelAdapter(StructVTable).lift());
 
 impl MinMaxKernel for StructVTable {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
@@ -60,7 +60,7 @@ impl MinMaxKernel for StructVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(StructEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(StructVTable).lift());
 
 impl IsConstantKernel for StructVTable {
     fn is_constant(
@@ -86,7 +86,7 @@ impl IsConstantKernel for StructVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(StructEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {

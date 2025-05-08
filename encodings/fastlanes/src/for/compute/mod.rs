@@ -20,7 +20,7 @@ impl TakeKernel for FoRVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(FoREncoding).lift());
+register_kernel!(TakeKernelAdapter(FoRVTable).lift());
 
 impl FilterKernel for FoRVTable {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -32,4 +32,4 @@ impl FilterKernel for FoRVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(FoREncoding).lift());
+register_kernel!(FilterKernelAdapter(FoRVTable).lift());

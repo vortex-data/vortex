@@ -17,7 +17,7 @@ impl MaskKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(MaskKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {

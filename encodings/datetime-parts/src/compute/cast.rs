@@ -24,7 +24,7 @@ impl CastKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(CastKernelAdapter(DateTimePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {

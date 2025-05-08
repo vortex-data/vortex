@@ -31,7 +31,7 @@ impl BetweenKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(BetweenKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(BetweenKernelAdapter(PrimitiveVTable).lift());
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,

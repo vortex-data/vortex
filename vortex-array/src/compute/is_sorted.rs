@@ -9,6 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ConstantArray, NullArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat};
+use crate::vtable::VTable;
 use crate::{Array, ArrayExt, Encoding};
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
@@ -152,32 +153,32 @@ pub struct IsSortedKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsSortedKernelRef);
 
 #[derive(Debug)]
-pub struct IsSortedKernelAdapter<E: Encoding>(pub E);
+pub struct IsSortedKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + IsSortedKernel> IsSortedKernelAdapter<E> {
+impl<V: VTable + IsSortedKernel> IsSortedKernelAdapter<V> {
     pub const fn lift(&'static self) -> IsSortedKernelRef {
         IsSortedKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + IsSortedKernel> Kernel for IsSortedKernelAdapter<E> {
+impl<V: VTable + IsSortedKernel> Kernel for IsSortedKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let IsSortedArgs { array, strict } = IsSortedArgs::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
 
         let is_sorted = if strict {
-            E::is_strict_sorted(&self.0, array)?
+            V::is_strict_sorted(&self.0, array)?
         } else {
-            E::is_sorted(&self.0, array)?
+            V::is_sorted(&self.0, array)?
         };
 
         Ok(Some(Scalar::from(is_sorted).into()))
     }
 }
 
-pub trait IsSortedKernel: Encoding {
+pub trait IsSortedKernel: VTable {
     /// # Preconditions
     /// - The array's length is > 1.
     /// - The array is not encoded as `NullArray` or `ConstantArray`.
@@ -265,7 +266,10 @@ fn is_sorted_impl(
     }
 
     if !array.is_canonical() {
-        log::debug!("No is_sorted implementation found for {}", array.encoding());
+        log::debug!(
+            "No is_sorted implementation found for {}",
+            array.encoding_id()
+        );
 
         // Recurse to canonical implementation
         let array = array.to_canonical()?;
@@ -279,7 +283,7 @@ fn is_sorted_impl(
 
     vortex_bail!(
         "No is_sorted function for canonical array: {}",
-        array.encoding(),
+        array.encoding_id(),
     )
 }
 

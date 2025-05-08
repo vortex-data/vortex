@@ -23,4 +23,4 @@ impl CompareKernel for ConstantVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(ConstantEncoding).lift());
+register_kernel!(CompareKernelAdapter(ConstantVTable).lift());

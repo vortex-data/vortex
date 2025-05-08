@@ -40,7 +40,7 @@ impl TakeKernel for ALPRDVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPRDEncoding).lift());
+register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {

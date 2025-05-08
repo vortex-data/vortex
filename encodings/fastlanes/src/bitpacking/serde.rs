@@ -101,7 +101,7 @@ impl EncodingVTable for BitPackedEncoding {
                     vortex_err!(
                         "Expected {} encoded array but got {}",
                         self.id(),
-                        like.encoding()
+                        like.encoding_id()
                     )
                 })
             })

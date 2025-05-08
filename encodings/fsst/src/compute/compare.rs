@@ -29,7 +29,7 @@ impl CompareKernel for FSSTVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(FSSTEncoding).lift());
+register_kernel!(CompareKernelAdapter(FSSTVTable).lift());
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(

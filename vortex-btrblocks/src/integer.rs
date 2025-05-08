@@ -762,7 +762,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
         let expected = [189u8, 189, 189, 0, 0];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
@@ -780,7 +780,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
         let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);

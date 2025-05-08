@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::{Array, register_kernel};
 
@@ -30,4 +30,4 @@ impl SumKernel for BoolVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(BoolEncoding).lift());
+register_kernel!(SumKernelAdapter(BoolVTable).lift());

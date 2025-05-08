@@ -49,7 +49,7 @@ impl FilterKernel for DecimalVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(DecimalEncoding).lift());
+register_kernel!(FilterKernelAdapter(DecimalVTable).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],

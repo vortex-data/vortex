@@ -14,7 +14,7 @@ impl FilterKernel for ZigZagVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ZigZagEncoding).lift());
+register_kernel!(FilterKernelAdapter(ZigZagVTable).lift());
 
 impl TakeKernel for ZigZagVTable {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -23,7 +23,7 @@ impl TakeKernel for ZigZagVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ZigZagEncoding).lift());
+register_kernel!(TakeKernelAdapter(ZigZagVTable).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;

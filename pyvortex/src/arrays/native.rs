@@ -146,7 +146,7 @@ impl PyNativeArray {
 
         Err(PyTypeError::new_err(format!(
             "Unrecognized native array {}",
-            array.encoding()
+            array.encoding_id()
         )))
     }
 
@@ -187,7 +187,7 @@ impl PyNativeArray {
     /// Returns the encoding ID of this array.
     #[getter]
     fn id(&self) -> String {
-        self.0.encoding().to_string()
+        self.0.encoding_id().to_string()
     }
 
     /// Returns the number of bytes used by this array.

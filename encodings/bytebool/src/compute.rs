@@ -14,7 +14,7 @@ impl MaskKernel for ByteBoolVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(ByteBoolEncoding).lift());
+register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
 impl TakeKernel for ByteBoolVTable {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -62,7 +62,7 @@ impl TakeKernel for ByteBoolVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ByteBoolEncoding).lift());
+register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 
 #[cfg(test)]
 mod tests {

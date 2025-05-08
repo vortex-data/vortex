@@ -28,4 +28,4 @@ impl TakeKernel for ALPVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPEncoding).lift());
+register_kernel!(TakeKernelAdapter(ALPVTable).lift());

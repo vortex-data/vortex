@@ -17,4 +17,4 @@ impl FillNullKernel for RunEndVTable {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(RunEndEncoding).lift());
+register_kernel!(FillNullKernelAdapter(RunEndVTable).lift());

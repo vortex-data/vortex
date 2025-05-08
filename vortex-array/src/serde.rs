@@ -251,11 +251,11 @@ impl ArrayParts {
             len
         );
         assert_eq!(
-            decoded.encoding(),
+            decoded.encoding_id(),
             vtable.id(),
             "Array decoded from {} has incorrect encoding {}",
             vtable.id(),
-            decoded.encoding(),
+            decoded.encoding_id(),
         );
 
         // Populate statistics from the serialized array.

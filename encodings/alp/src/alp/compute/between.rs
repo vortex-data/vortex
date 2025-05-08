@@ -38,7 +38,7 @@ impl BetweenKernel for ALPVTable {
     }
 }
 
-register_kernel!(BetweenKernelAdapter(ALPEncoding).lift());
+register_kernel!(BetweenKernelAdapter(ALPVTable).lift());
 
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,

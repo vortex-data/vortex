@@ -16,4 +16,4 @@ impl MaskKernel for ListVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(ListEncoding).lift());
+register_kernel!(MaskKernelAdapter(ListVTable).lift());

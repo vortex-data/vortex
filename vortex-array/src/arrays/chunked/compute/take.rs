@@ -41,7 +41,7 @@ impl TakeKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod test {

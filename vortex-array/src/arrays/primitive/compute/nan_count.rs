@@ -15,7 +15,7 @@ impl NaNCountKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(NaNCountKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(NaNCountKernelAdapter(PrimitiveVTable).lift());
 
 #[inline]
 fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask) -> usize {

@@ -47,7 +47,7 @@ impl FillNullKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(FillNullKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {

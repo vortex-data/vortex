@@ -37,7 +37,7 @@ impl TakeKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(TakeKernelAdapter(VarBinViewVTable).lift());
 
 fn take_views<I: AsPrimitive<usize>>(
     views: &Buffer<BinaryView>,

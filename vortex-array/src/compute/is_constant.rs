@@ -9,6 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ConstantArray, NullArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
+use crate::vtable::VTable;
 use crate::{Array, ArrayExt, Encoding};
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
@@ -159,7 +160,7 @@ fn is_constant_impl(
 
     log::debug!(
         "No is_constant implementation found for {}",
-        array.encoding()
+        array.encoding_id()
     );
 
     if options.canonicalize && !array.is_canonical() {
@@ -175,7 +176,7 @@ fn is_constant_impl(
 pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsConstantKernelRef);
 
-pub trait IsConstantKernel: Encoding {
+pub trait IsConstantKernel: VTable {
     /// # Preconditions
     ///
     /// * All values are valid
@@ -187,21 +188,21 @@ pub trait IsConstantKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct IsConstantKernelAdapter<E: Encoding>(pub E);
+pub struct IsConstantKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + IsConstantKernel> IsConstantKernelAdapter<E> {
+impl<V: VTable + IsConstantKernel> IsConstantKernelAdapter<V> {
     pub const fn lift(&'static self) -> IsConstantKernelRef {
         IsConstantKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + IsConstantKernel> Kernel for IsConstantKernelAdapter<E> {
+impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = IsConstantArgs::try_from(args)?;
-        let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = args.array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        let is_constant = E::is_constant(&self.0, array, args.options)?;
+        let is_constant = V::is_constant(&self.0, array, args.options)?;
         Ok(Some(Scalar::from(is_constant).into()))
     }
 }

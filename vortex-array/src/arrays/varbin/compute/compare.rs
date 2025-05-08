@@ -97,7 +97,7 @@ impl CompareKernel for VarBinVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(VarBinEncoding).lift());
+register_kernel!(CompareKernelAdapter(VarBinVTable).lift());
 
 fn compare_offsets_to_empty<P: NativePType>(
     offsets: PrimitiveArray,

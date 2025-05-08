@@ -18,4 +18,4 @@ impl IsConstantKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(DateTimePartsVTable).lift());

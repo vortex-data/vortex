@@ -36,7 +36,7 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
 
     vortex_bail!(
         "cannot fsst_compress array with unsupported encoding {:?}",
-        strings.encoding()
+        strings.encoding_id()
     )
 }
 
@@ -57,7 +57,7 @@ pub fn fsst_train_compressor(array: &dyn Array) -> VortexResult<Compressor> {
     } else {
         vortex_bail!(
             "cannot fsst_compress array with unsupported encoding {:?}",
-            array.encoding()
+            array.encoding_id()
         )
     }
 }

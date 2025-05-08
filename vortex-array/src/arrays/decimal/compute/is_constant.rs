@@ -18,7 +18,7 @@ impl IsConstantKernel for DecimalVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DecimalEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(DecimalVTable).lift());
 
 #[cfg(test)]
 mod tests {

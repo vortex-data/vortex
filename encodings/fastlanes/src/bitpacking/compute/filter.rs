@@ -25,7 +25,7 @@ impl FilterKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(FilterKernelAdapter(BitPackedVTable).lift());
 
 /// Specialized filter kernel for primitive bit-packed arrays.
 ///

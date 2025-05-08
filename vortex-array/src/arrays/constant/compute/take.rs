@@ -44,7 +44,7 @@ impl TakeKernel for ConstantVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ConstantEncoding).lift());
+register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {

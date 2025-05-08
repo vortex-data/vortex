@@ -51,7 +51,7 @@ impl ToArrowKernel for VarBinVTable {
     }
 }
 
-register_kernel!(ToArrowKernelAdapter(VarBinEncoding).lift());
+register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
 
 fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
     let offsets = cast(

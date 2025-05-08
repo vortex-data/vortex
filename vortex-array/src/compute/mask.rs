@@ -11,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::encoding::Encoding;
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
 /// Replace values with null where the mask is true.
@@ -54,27 +55,27 @@ pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
 pub struct MaskKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MaskKernelRef);
 
-pub trait MaskKernel: Encoding {
+pub trait MaskKernel: VTable {
     /// Replace masked values with null in array.
     fn mask(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
-pub struct MaskKernelAdapter<E: Encoding>(pub E);
+pub struct MaskKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + MaskKernel> MaskKernelAdapter<E> {
+impl<V: VTable + MaskKernel> MaskKernelAdapter<V> {
     pub const fn lift(&'static self) -> MaskKernelRef {
         MaskKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + MaskKernel> Kernel for MaskKernelAdapter<E> {
+impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = MaskArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(Some(E::mask(&self.0, array, inputs.mask)?.into()))
+        Ok(Some(V::mask(&self.0, array, inputs.mask)?.into()))
     }
 }
 
@@ -121,7 +122,7 @@ impl ComputeFnVTable for MaskFn {
         }
 
         // Fallback: implement using Arrow kernels.
-        log::debug!("No mask implementation found for {}", array.encoding());
+        log::debug!("No mask implementation found for {}", array.encoding_id());
 
         let array_ref = array.to_array().into_arrow_preferred()?;
         let mask = BooleanArray::new(mask.to_boolean_buffer(), None);

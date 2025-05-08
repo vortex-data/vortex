@@ -53,7 +53,7 @@ impl SumKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(SumKernelAdapter(PrimitiveVTable).lift());
 
 fn sum_integer<T: NativePType + ToPrimitive, R: NativePType + CheckedAdd>(
     values: &[T],

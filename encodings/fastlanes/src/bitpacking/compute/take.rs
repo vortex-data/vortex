@@ -44,7 +44,7 @@ impl TakeKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(TakeKernelAdapter(BitPackedVTable).lift());
 
 fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,

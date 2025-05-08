@@ -20,4 +20,4 @@ impl FilterKernel for FSSTVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(FSSTEncoding).lift());
+register_kernel!(FilterKernelAdapter(FSSTVTable).lift());

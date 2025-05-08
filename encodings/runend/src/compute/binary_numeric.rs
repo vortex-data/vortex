@@ -31,7 +31,7 @@ impl NumericKernel for RunEndVTable {
     }
 }
 
-register_kernel!(NumericKernelAdapter(RunEndEncoding).lift());
+register_kernel!(NumericKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod tests {

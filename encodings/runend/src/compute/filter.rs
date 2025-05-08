@@ -50,7 +50,7 @@ impl FilterKernel for RunEndVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(RunEndEncoding).lift());
+register_kernel!(FilterKernelAdapter(RunEndVTable).lift());
 
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {

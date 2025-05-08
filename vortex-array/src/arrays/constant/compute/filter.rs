@@ -11,4 +11,4 @@ impl FilterKernel for ConstantVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ConstantEncoding).lift());
+register_kernel!(FilterKernelAdapter(ConstantVTable).lift());

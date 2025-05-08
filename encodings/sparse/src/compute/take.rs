@@ -28,7 +28,7 @@ impl TakeKernel for SparseVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(SparseEncoding).lift());
+register_kernel!(TakeKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {

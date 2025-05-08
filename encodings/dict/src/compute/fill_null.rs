@@ -39,4 +39,4 @@ impl FillNullKernel for DictVTable {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(DictEncoding).lift());
+register_kernel!(FillNullKernelAdapter(DictVTable).lift());

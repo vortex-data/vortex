@@ -51,7 +51,7 @@ impl TakeKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],

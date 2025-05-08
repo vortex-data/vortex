@@ -45,7 +45,7 @@ impl CompareKernel for DictVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(DictEncoding).lift());
+register_kernel!(CompareKernelAdapter(DictVTable).lift());
 
 fn dict_equal_to(
     values_compare: ArrayRef,

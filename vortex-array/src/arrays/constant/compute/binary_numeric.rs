@@ -30,4 +30,4 @@ impl NumericKernel for ConstantVTable {
     }
 }
 
-register_kernel!(NumericKernelAdapter(ConstantEncoding).lift());
+register_kernel!(NumericKernelAdapter(ConstantVTable).lift());

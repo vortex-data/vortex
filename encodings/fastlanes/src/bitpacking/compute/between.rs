@@ -26,4 +26,4 @@ impl BetweenKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(BetweenKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(BetweenKernelAdapter(BitPackedVTable).lift());

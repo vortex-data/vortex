@@ -22,7 +22,7 @@ impl TakeKernel for DictVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(DictEncoding).lift());
+register_kernel!(TakeKernelAdapter(DictVTable).lift());
 
 impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -31,7 +31,7 @@ impl FilterKernel for DictVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(DictEncoding).lift());
+register_kernel!(FilterKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod test {

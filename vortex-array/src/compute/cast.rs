@@ -57,14 +57,14 @@ impl ComputeFnVTable for Cast {
         // Otherwise, we fall back to the canonical implementations.
         log::debug!(
             "Falling back to canonical cast for encoding {} and dtype {} to {}",
-            array.encoding(),
+            array.encoding_id(),
             array.dtype(),
             dtype
         );
         if array.is_canonical() {
             vortex_bail!(
                 "No compute kernel to cast array {} to {}",
-                array.encoding(),
+                array.encoding_id(),
                 dtype
             );
         }

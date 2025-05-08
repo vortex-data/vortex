@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
@@ -23,7 +23,7 @@ impl IsConstantKernel for BoolVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BoolEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {

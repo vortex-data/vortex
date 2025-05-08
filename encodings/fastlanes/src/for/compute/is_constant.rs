@@ -12,4 +12,4 @@ impl IsConstantKernel for FoRVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(FoREncoding).lift());
+register_kernel!(IsConstantKernelAdapter(FoRVTable).lift());

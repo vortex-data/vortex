@@ -41,4 +41,4 @@ impl CastKernel for StructVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(StructEncoding).lift());
+register_kernel!(CastKernelAdapter(StructVTable).lift());

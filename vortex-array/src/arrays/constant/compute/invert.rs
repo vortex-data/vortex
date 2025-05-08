@@ -18,7 +18,7 @@ impl InvertKernel for ConstantVTable {
     }
 }
 
-register_kernel!(InvertKernelAdapter(ConstantEncoding).lift());
+register_kernel!(InvertKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {

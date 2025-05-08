@@ -16,7 +16,7 @@ impl CastKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(CastKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod test {

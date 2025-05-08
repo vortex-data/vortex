@@ -44,7 +44,7 @@ impl IsConstantKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {

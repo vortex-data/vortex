@@ -72,7 +72,7 @@ impl EncodingVTable for SparseEncoding {
                     vortex_err!(
                         "Expected {} encoded array but got {}",
                         self.id(),
-                        like.encoding()
+                        like.encoding_id()
                     )
                 })
             })

@@ -51,7 +51,7 @@ impl CastKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(CastKernelAdapter(PrimitiveVTable).lift());
 
 fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
     let mut buffer = BufferMut::with_capacity(array.len());

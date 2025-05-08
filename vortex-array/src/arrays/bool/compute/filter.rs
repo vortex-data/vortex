@@ -2,9 +2,10 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, bit_util};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityChild;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
@@ -34,7 +35,7 @@ impl FilterKernel for BoolVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(BoolEncoding).lift());
+register_kernel!(FilterKernelAdapter(BoolVTable).lift());
 
 /// Select indices from a boolean buffer.
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to

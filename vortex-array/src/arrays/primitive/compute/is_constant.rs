@@ -31,7 +31,7 @@ impl IsConstantKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(PrimitiveVTable).lift());
 
 // Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
 // Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.

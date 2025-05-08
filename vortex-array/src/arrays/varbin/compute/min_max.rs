@@ -14,7 +14,7 @@ impl MinMaxKernel for VarBinVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(VarBinEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 
 /// Compute the min and max of VarBin like array.
 pub fn compute_min_max<T: ArrayAccessor<[u8]>>(

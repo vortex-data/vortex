@@ -20,4 +20,4 @@ impl FilterKernel for ALPVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ALPEncoding).lift());
+register_kernel!(FilterKernelAdapter(ALPVTable).lift());

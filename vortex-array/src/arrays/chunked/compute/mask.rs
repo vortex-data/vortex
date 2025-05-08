@@ -30,7 +30,7 @@ impl MaskKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(MaskKernelAdapter(ChunkedVTable).lift());
 
 fn mask_indices(
     array: &ChunkedArray,

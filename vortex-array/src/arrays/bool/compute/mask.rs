@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
@@ -14,4 +14,4 @@ impl MaskKernel for BoolVTable {
     }
 }
 
-register_kernel!(MaskKernelAdapter(BoolEncoding).lift());
+register_kernel!(MaskKernelAdapter(BoolVTable).lift());

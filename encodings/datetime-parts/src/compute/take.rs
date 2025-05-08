@@ -16,4 +16,4 @@ impl TakeKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());

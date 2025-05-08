@@ -78,7 +78,7 @@ fn between_unpack<T: NativeDecimalType>(
     )))
 }
 
-register_kernel!(BetweenKernelAdapter(DecimalEncoding).lift());
+register_kernel!(BetweenKernelAdapter(DecimalVTable).lift());
 
 fn between_impl<T: NativeDecimalType>(
     arr: &DecimalArray,

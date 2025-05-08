@@ -18,4 +18,4 @@ impl MaskKernel for StructVTable {
         .map(|a| a.into_array())
     }
 }
-register_kernel!(MaskKernelAdapter(StructEncoding).lift());
+register_kernel!(MaskKernelAdapter(StructVTable).lift());

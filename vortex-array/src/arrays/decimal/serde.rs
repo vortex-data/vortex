@@ -197,6 +197,6 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
 
         let decoded = parts.decode(&ctx, dtype, 5).unwrap();
-        assert_eq!(decoded.encoding(), DecimalEncoding.id());
+        assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
     }
 }

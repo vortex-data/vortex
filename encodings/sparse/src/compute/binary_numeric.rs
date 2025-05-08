@@ -34,4 +34,4 @@ impl NumericKernel for SparseVTable {
     }
 }
 
-register_kernel!(NumericKernelAdapter(SparseEncoding).lift());
+register_kernel!(NumericKernelAdapter(SparseVTable).lift());

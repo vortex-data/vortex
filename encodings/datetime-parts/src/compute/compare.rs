@@ -56,7 +56,7 @@ impl CompareKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(CompareKernelAdapter(DateTimePartsVTable).lift());
 
 fn compare_eq(
     lhs: &DateTimePartsArray,

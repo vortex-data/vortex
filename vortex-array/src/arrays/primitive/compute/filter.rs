@@ -37,7 +37,7 @@ impl FilterKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(FilterKernelAdapter(PrimitiveVTable).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],

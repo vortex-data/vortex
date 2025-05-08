@@ -24,7 +24,7 @@ impl FilterKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(FilterKernelAdapter(ExtensionVTable).lift());
 
 impl SumKernel for ExtensionVTable {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
@@ -32,7 +32,7 @@ impl SumKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(SumKernelAdapter(ExtensionVTable).lift());
 
 impl TakeKernel for ExtensionVTable {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -43,7 +43,7 @@ impl TakeKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(TakeKernelAdapter(ExtensionVTable).lift());
 
 impl MinMaxKernel for ExtensionVTable {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
@@ -56,7 +56,7 @@ impl MinMaxKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(ExtensionVTable).lift());
 
 impl IsConstantKernel for ExtensionVTable {
     fn is_constant(
@@ -68,7 +68,7 @@ impl IsConstantKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(ExtensionVTable).lift());
 
 impl IsSortedKernel for ExtensionVTable {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
@@ -80,4 +80,4 @@ impl IsSortedKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ExtensionVTable).lift());

@@ -60,4 +60,4 @@ impl MinMaxKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(ChunkedVTable).lift());

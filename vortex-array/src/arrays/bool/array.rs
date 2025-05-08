@@ -5,13 +5,13 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
-use crate::array::{Array, ArrayCanonicalImpl};
+use crate::array::Array;
 use crate::arrays::bool;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{VTable, ValidityChild, ValidityVTableFromValidityChild};
-use crate::{ArrayRef, Canonical, Encoding, vtable};
+use crate::vtable::{CanonicalVTable, VTable, ValidityChild, ValidityVTableFromValidityChild};
+use crate::{ArrayRef, Canonical, Encoding, EncodingRef, vtable};
 
 vtable!(Bool);
 
@@ -30,12 +30,18 @@ impl VTable for BoolVTable {
     type Array = BoolArray;
     type Encoding = BoolEncoding;
 
+    type CanonicalVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityChild;
+    type VisitorVTable = Self;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
         ArcRef::new_ref("vortex.bool")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&BoolEncoding)
     }
 
     fn len(array: &Self::Array) -> usize {
@@ -173,15 +179,16 @@ impl ValidityChild for BoolArray {
     }
 }
 
-impl ArrayCanonicalImpl for BoolArray {
-    #[inline]
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self.clone()))
+impl CanonicalVTable<BoolVTable> for BoolVTable {
+    fn canonicalize(array: &<BoolVTable as VTable>::Array) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array.clone()))
     }
 
-    #[inline]
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self)
+    fn append_to_builder(
+        array: &<BoolVTable as VTable>::Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array)
     }
 }
 

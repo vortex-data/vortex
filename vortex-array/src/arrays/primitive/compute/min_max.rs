@@ -17,7 +17,7 @@ impl MinMaxKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(PrimitiveVTable).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>

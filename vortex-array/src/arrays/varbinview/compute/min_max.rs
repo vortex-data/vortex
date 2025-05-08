@@ -10,4 +10,4 @@ impl MinMaxKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(VarBinViewVTable).lift());

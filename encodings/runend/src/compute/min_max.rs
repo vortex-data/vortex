@@ -10,4 +10,4 @@ impl MinMaxKernel for RunEndVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(RunEndEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(RunEndVTable).lift());

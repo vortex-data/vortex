@@ -2,16 +2,15 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
 
 use arcref::ArcRef;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::serde::ArrayParts;
-use crate::vtable::VTable;
-use crate::vtable::serde::SerdeVTable;
-use crate::{Array, ArrayContext, ArrayRef, Canonical};
+use crate::vtable::{SerdeVTable, VTable};
+use crate::{Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -30,10 +29,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// The array parts must be valid for the given encoding.
     fn decode(
         &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
+        metadata: Option<&[u8]>,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
     ) -> VortexResult<ArrayRef>;
 
     /// Encode the canonical array into this encoding implementation.
@@ -65,18 +66,22 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
 
     fn decode(
         &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
         dtype: DType,
         len: usize,
+        metadata: Option<&[u8]>,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
     ) -> VortexResult<ArrayRef> {
-        assert!(
-            ctx.lookup_encoding(parts.encoding_id())
-                .is_some_and(|e| e.id() == self.id()),
-            "ArrayParts do not match the current encoding",
-        );
-        let array = <V::SerdeVTable as SerdeVTable<V>>::decode(&self.0, parts, ctx, dtype, len)?;
-        Ok(array.deref().to_array())
+        let metadata =
+            <<V::SerdeVTable as SerdeVTable<V>>::Metadata as DeserializeMetadata>::deserialize(
+                metadata,
+            )?;
+        let array = <V::SerdeVTable as SerdeVTable<V>>::decode(
+            &self.0, dtype, len, &metadata, buffers, children, ctx,
+        )?;
+        assert_eq!(array.len(), len, "Array length mismatch after decode");
+        Ok(array.to_array())
     }
 
     fn encode(

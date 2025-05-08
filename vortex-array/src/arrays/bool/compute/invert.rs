@@ -2,8 +2,9 @@ use std::ops::Not;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
+use crate::vtable::ValidityChild;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl InvertKernel for BoolVTable {
@@ -12,4 +13,4 @@ impl InvertKernel for BoolVTable {
     }
 }
 
-register_kernel!(InvertKernelAdapter(BoolEncoding).lift());
+register_kernel!(InvertKernelAdapter(BoolVTable).lift());

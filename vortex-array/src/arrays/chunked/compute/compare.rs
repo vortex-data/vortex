@@ -32,7 +32,7 @@ impl CompareKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(CompareKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {

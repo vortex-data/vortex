@@ -146,7 +146,7 @@ impl Kernel for ToArrowCanonical {
             }
             _ => vortex_bail!(
                 "Cannot convert canonical array {} with dtype {} to: {:?}",
-                array.encoding(),
+                array.encoding_id(),
                 array.dtype(),
                 &arrow_type
             ),

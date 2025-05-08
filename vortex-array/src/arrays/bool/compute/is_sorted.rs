@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::{Array, register_kernel};
 
@@ -43,4 +43,4 @@ impl IsSortedKernel for BoolVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(BoolEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(BoolVTable).lift());

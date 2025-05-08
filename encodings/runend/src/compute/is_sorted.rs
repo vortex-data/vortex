@@ -13,4 +13,4 @@ impl IsSortedKernel for RunEndVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(RunEndEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(RunEndVTable).lift());

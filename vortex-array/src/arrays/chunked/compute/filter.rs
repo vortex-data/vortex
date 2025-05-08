@@ -28,7 +28,7 @@ impl FilterKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(FilterKernelAdapter(ChunkedVTable).lift());
 
 /// The filter to apply to each chunk.
 ///

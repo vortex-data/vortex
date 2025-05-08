@@ -18,7 +18,7 @@ impl FilterKernel for VarBinVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(VarBinEncoding).lift());
+register_kernel!(FilterKernelAdapter(VarBinVTable).lift());
 
 fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
     match mask

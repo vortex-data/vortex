@@ -15,4 +15,4 @@ impl NaNCountKernel for ALPVTable {
     }
 }
 
-register_kernel!(NaNCountKernelAdapter(ALPEncoding).lift());
+register_kernel!(NaNCountKernelAdapter(ALPVTable).lift());

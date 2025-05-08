@@ -17,4 +17,4 @@ impl IsSortedKernel for DictVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(DictEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(DictVTable).lift());

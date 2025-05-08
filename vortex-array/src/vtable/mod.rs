@@ -1,22 +1,24 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
+mod canonical;
 mod serde;
 mod validity;
-mod variants;
+mod visitor;
 
 use std::fmt::Debug;
 use std::ops::Deref;
 
 use arcref::ArcRef;
+pub use canonical::*;
 pub use serde::*;
 pub use validity::*;
-pub use variants::*;
+pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::stats::StatsSetRef;
-use crate::{Array, ArrayRef, Encoding};
+use crate::{Array, ArrayRef, Encoding, EncodingRef};
 
 /// The encoding [`VTable`] encapsulates _all_ logic for both an Array and an Encoding in a
 /// single trait, giving users a single entry-point to implement their own arrays.
@@ -26,9 +28,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Deref<Target = dyn Array>;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
-    /// Specify the validity implementation for this encoding.
+    type CanonicalVTable: CanonicalVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
-
+    type VisitorVTable: VisitorVTable<Self>;
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     type SerdeVTable: SerdeVTable<Self> = ();
 
@@ -41,6 +43,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn id(encoding: &Self::Encoding) -> ArcRef<str>;
 
     // Array Functions
+
+    fn encoding(array: &Self::Array) -> EncodingRef;
 
     fn len(array: &Self::Array) -> usize;
 
@@ -64,7 +68,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
 #[macro_export]
 macro_rules! vtable {
-    ($V:tt) => {
+    ($V:ident) => {
         $crate::aliases::paste::paste! {
             #[derive(Debug)]
             pub struct [<$V VTable>];
@@ -72,7 +76,7 @@ macro_rules! vtable {
             impl AsRef<dyn $crate::Array> for [<$V Array>] {
                 fn as_ref(&self) -> &dyn $crate::Array {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<$V>) }
+                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
                 }
             }
 
@@ -81,14 +85,20 @@ macro_rules! vtable {
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<$V>) }
+                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
+                }
+            }
+
+            impl $crate::IntoArray for [<$V Array>] {
+                fn into_array(self) -> $crate::ArrayRef {
+                    std::sync::Arc::new(self)
                 }
             }
 
             impl AsRef<dyn Encoding> for [<$V Encoding>] {
                 fn as_ref(&self) -> &dyn Encoding {
                     // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<$V>) }
+                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
                 }
             }
 
@@ -97,7 +107,7 @@ macro_rules! vtable {
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<$V>) }
+                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
                 }
             }
         }

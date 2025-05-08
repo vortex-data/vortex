@@ -6,9 +6,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
+use crate::arrays::{BoolArray, BoolEncoding, BoolVTable, ConstantArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
 use crate::variants::PrimitiveArrayTrait;
+use crate::vtable::ValidityChild;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for BoolVTable {
@@ -29,11 +30,11 @@ impl TakeKernel for BoolVTable {
             take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<$I>())
         });
 
-        Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
+        Ok(BoolArray::new(buffer, array.validity().take(indices)?).to_array())
     }
 }
 
-register_kernel!(TakeKernelAdapter(BoolEncoding).lift());
+register_kernel!(TakeKernelAdapter(BoolVTable).lift());
 
 fn take_valid_indices<I: AsPrimitive<usize>>(
     bools: &BooleanBuffer,

@@ -15,4 +15,4 @@ impl IsSortedKernel for VarBinVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(VarBinEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(VarBinVTable).lift());

@@ -12,4 +12,4 @@ impl IsConstantKernel for DictVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DictEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(DictVTable).lift());

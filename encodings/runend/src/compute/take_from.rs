@@ -44,4 +44,4 @@ impl TakeFromKernel for RunEndVTable {
     }
 }
 
-register_kernel!(TakeFromKernelAdapter(RunEndEncoding).lift());
+register_kernel!(TakeFromKernelAdapter(RunEndVTable).lift());

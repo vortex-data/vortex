@@ -24,7 +24,7 @@ impl CastKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(CastKernelAdapter(VarBinViewVTable).lift());
 
 #[cfg(test)]
 mod tests {

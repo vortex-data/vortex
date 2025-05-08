@@ -16,4 +16,4 @@ impl InvertKernel for RunEndVTable {
     }
 }
 
-register_kernel!(InvertKernelAdapter(RunEndEncoding).lift());
+register_kernel!(InvertKernelAdapter(RunEndVTable).lift());

@@ -25,7 +25,7 @@ impl FilterKernel for ALPRDVTable {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ALPRDEncoding).lift());
+register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {

@@ -10,4 +10,4 @@ impl MinMaxKernel for DictVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(DictEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(DictVTable).lift());

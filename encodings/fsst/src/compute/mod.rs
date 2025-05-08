@@ -29,4 +29,4 @@ impl TakeKernel for FSSTVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(FSSTEncoding).lift());
+register_kernel!(TakeKernelAdapter(FSSTVTable).lift());

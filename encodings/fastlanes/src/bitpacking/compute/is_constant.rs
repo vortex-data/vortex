@@ -26,7 +26,7 @@ impl IsConstantKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(BitPackedVTable).lift());
 
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,

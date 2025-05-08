@@ -22,7 +22,7 @@ impl IsSortedKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(PrimitiveVTable).lift());
 
 #[derive(Copy, Clone)]
 struct ComparablePrimitive<T: NativePType>(T);

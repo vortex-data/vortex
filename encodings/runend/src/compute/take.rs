@@ -31,7 +31,7 @@ impl TakeKernel for RunEndVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(RunEndEncoding).lift());
+register_kernel!(TakeKernelAdapter(RunEndVTable).lift());
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(

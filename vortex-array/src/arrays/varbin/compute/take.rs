@@ -30,7 +30,7 @@ impl TakeKernel for VarBinVTable {
     }
 }
 
-register_kernel!(TakeKernelAdapter(VarBinEncoding).lift());
+register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
 fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,

@@ -28,4 +28,4 @@ impl LikeKernel for DictVTable {
     }
 }
 
-register_kernel!(LikeKernelAdapter(DictEncoding).lift());
+register_kernel!(LikeKernelAdapter(DictVTable).lift());

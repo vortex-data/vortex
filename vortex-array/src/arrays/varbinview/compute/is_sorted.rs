@@ -15,4 +15,4 @@ impl IsSortedKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(VarBinViewVTable).lift());

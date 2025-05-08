@@ -9,6 +9,7 @@ use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -146,12 +147,12 @@ fn take_impl(
 
     // Otherwise, canonicalize and try again.
     if !array.is_canonical() {
-        log::debug!("No take implementation found for {}", array.encoding());
+        log::debug!("No take implementation found for {}", array.encoding_id());
         let canonical = array.to_canonical()?;
         return take(canonical.as_ref(), indices);
     }
 
-    vortex_bail!("No take implementation found for {}", array.encoding());
+    vortex_bail!("No take implementation found for {}", array.encoding_id());
 }
 
 struct TakeArgs<'a> {
@@ -176,7 +177,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for TakeArgs<'a> {
     }
 }
 
-pub trait TakeKernel: Encoding {
+pub trait TakeKernel: VTable {
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
     ///
@@ -191,21 +192,21 @@ pub struct TakeKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(TakeKernelRef);
 
 #[derive(Debug)]
-pub struct TakeKernelAdapter<E: Encoding>(pub E);
+pub struct TakeKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + TakeKernel> TakeKernelAdapter<E> {
+impl<V: VTable + TakeKernel> TakeKernelAdapter<V> {
     pub const fn lift(&'static self) -> TakeKernelRef {
         TakeKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + TakeKernel> Kernel for TakeKernelAdapter<E> {
+impl<V: VTable + TakeKernel> Kernel for TakeKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = TakeArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(Some(E::take(&self.0, array, inputs.indices)?.into()))
+        Ok(Some(V::take(&self.0, array, inputs.indices)?.into()))
     }
 }
 
@@ -243,7 +244,7 @@ impl ComputeFnVTable for TakeFrom {
     }
 }
 
-pub trait TakeFromKernel: Encoding {
+pub trait TakeFromKernel: VTable {
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
     fn take_from(&self, indices: &Self::Array, array: &dyn Array)
@@ -254,20 +255,20 @@ pub struct TakeFromKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(TakeFromKernelRef);
 
 #[derive(Debug)]
-pub struct TakeFromKernelAdapter<E: Encoding>(pub E);
+pub struct TakeFromKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + TakeFromKernel> TakeFromKernelAdapter<E> {
+impl<V: VTable + TakeFromKernel> TakeFromKernelAdapter<V> {
     pub const fn lift(&'static self) -> TakeFromKernelRef {
         TakeFromKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + TakeFromKernel> Kernel for TakeFromKernelAdapter<E> {
+impl<V: VTable + TakeFromKernel> Kernel for TakeFromKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = TakeArgs::try_from(args)?;
-        let Some(indices) = inputs.indices.as_any().downcast_ref::<E::Array>() else {
+        let Some(indices) = inputs.indices.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(E::take_from(&self.0, indices, inputs.array)?.map(Output::from))
+        Ok(V::take_from(&self.0, indices, inputs.array)?.map(Output::from))
     }
 }

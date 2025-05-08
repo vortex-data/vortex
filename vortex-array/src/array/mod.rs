@@ -19,8 +19,9 @@ pub use statistics::*;
 pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -30,9 +31,13 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
-use crate::stats::StatsSetRef;
-use crate::vtable::VTable;
-use crate::{Canonical, Encoding, EncodingId};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
+use crate::variants::{
+    BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
+    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+};
+use crate::vtable::{CanonicalVTable, VTable};
+use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
 /// The base trait for all Vortex arrays.
 ///
@@ -51,11 +56,6 @@ pub trait Array:
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
 
-    /// Converts the array into an [`ArrayRef`].
-    fn into_array(self) -> ArrayRef
-    where
-        Self: Sized;
-
     /// Returns the length of the array.
     fn len(&self) -> usize;
 
@@ -68,10 +68,10 @@ pub trait Array:
     fn dtype(&self) -> &DType;
 
     /// Returns the encoding of the array.
-    fn encoding(&self) -> EncodingId;
+    fn encoding(&self) -> EncodingRef;
 
-    /// Returns the encoding VTable.
-    fn vtable(&self) -> VTableRef;
+    /// Returns the encoding ID of the array.
+    fn encoding_id(&self) -> EncodingId;
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
@@ -81,7 +81,7 @@ pub trait Array:
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
-        self.encoding() == encoding
+        self.encoding_id() == encoding
     }
 
     /// Returns whether this array is an arrow encoding.
@@ -180,10 +180,6 @@ impl Array for Arc<dyn Array> {
         self.clone()
     }
 
-    fn into_array(self) -> ArrayRef {
-        self
-    }
-
     fn len(&self) -> usize {
         self.as_ref().len()
     }
@@ -192,12 +188,12 @@ impl Array for Arc<dyn Array> {
         self.as_ref().dtype()
     }
 
-    fn encoding(&self) -> EncodingId {
+    fn encoding(&self) -> EncodingRef {
         self.as_ref().encoding()
     }
 
-    fn vtable(&self) -> VTableRef {
-        self.as_ref().vtable()
+    fn encoding_id(&self) -> EncodingId {
+        self.as_ref().encoding_id()
     }
 
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
@@ -318,7 +314,7 @@ impl Display for dyn Array {
         write!(
             f,
             "{}({}, len={})",
-            self.encoding(),
+            self.encoding_id(),
             self.dtype(),
             self.len()
         )
@@ -351,6 +347,7 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
+    impl Sealed for Arc<dyn Array> {}
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`]
@@ -361,3 +358,262 @@ mod private {
 /// the `vtable!` macro for more details.
 #[repr(transparent)]
 pub struct ArrayAdapter<V: VTable>(V::Array);
+
+impl<V: VTable> Debug for ArrayAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<V: VTable> Array for ArrayAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn to_array(&self) -> ArrayRef {
+        Arc::new(self.clone())
+    }
+
+    fn len(&self) -> usize {
+        V::len(&self.0)
+    }
+
+    fn dtype(&self) -> &DType {
+        V::dtype(&self.0)
+    }
+
+    fn encoding(&self) -> EncodingRef {
+        V::encoding(&self.0)
+    }
+
+    fn encoding_id(&self) -> EncodingId {
+        V::encoding(&self.0).id()
+    }
+
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        if start == 0 && stop == self.len() {
+            return Ok(self.to_array());
+        }
+
+        if start > self.len() {
+            vortex_bail!(OutOfBounds: start, 0, self.len());
+        }
+        if stop > self.len() {
+            vortex_bail!(OutOfBounds: stop, 0, self.len());
+        }
+        if start > stop {
+            vortex_bail!("start ({start}) must be <= stop ({stop})");
+        }
+
+        if start == stop {
+            return Ok(Canonical::empty(self.dtype()).into_array());
+        }
+
+        // We know that constant array don't need stats propagation, so we can avoid the overhead of
+        // computing derived stats and merging them in.
+        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
+        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
+        let derived_stats = (!self.is_constant()).then(|| {
+            let stats = self.statistics().to_owned();
+
+            // an array that is not constant can become constant after slicing
+            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
+            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
+
+            let mut stats = stats.keep_inexact_stats(&[
+                Stat::Max,
+                Stat::Min,
+                Stat::NullCount,
+                Stat::UncompressedSizeInBytes,
+            ]);
+
+            if is_constant == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsConstant, Precision::exact(true));
+            }
+            if is_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsSorted, Precision::exact(true));
+            }
+            if is_strict_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsStrictSorted, Precision::exact(true));
+            }
+
+            stats
+        });
+
+        let sliced = ArrayOperationsImpl::_slice(self, start, stop)?;
+
+        assert_eq!(
+            sliced.len(),
+            stop - start,
+            "Slice length mismatch {}",
+            self.encoding_id()
+        );
+        assert_eq!(
+            sliced.dtype(),
+            self.dtype(),
+            "Slice dtype mismatch {}",
+            self.encoding_id()
+        );
+
+        if let Some(derived_stats) = derived_stats {
+            let mut stats = sliced.statistics().to_owned();
+            stats.combine_sets(&derived_stats, self.dtype())?;
+            for (stat, val) in stats.into_iter() {
+                sliced.statistics().set(stat, val)
+            }
+        }
+
+        Ok(sliced)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        todo!()
+    }
+
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn valid_count(&self) -> VortexResult<usize> {
+        todo!()
+    }
+
+    fn invalid_count(&self) -> VortexResult<usize> {
+        todo!()
+    }
+
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        let canonical = <V::CanonicalVTable as CanonicalVTable>::canonicalize(&self.0)?;
+        assert_eq!(
+            self.len(),
+            canonical.as_ref().len(),
+            "Canonical length mismatch {}. Expected {} but encoded into {}.",
+            self.encoding_id(),
+            self.len(),
+            canonical.as_ref().len()
+        );
+        assert_eq!(
+            self.dtype(),
+            canonical.as_ref().dtype(),
+            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
+            self.encoding_id(),
+            self.dtype(),
+            canonical.as_ref().dtype()
+        );
+        canonical.as_ref().statistics().inherit(self.statistics());
+        Ok(canonical)
+    }
+
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        todo!()
+    }
+
+    fn statistics(&self) -> StatsSetRef<'_> {
+        todo!()
+    }
+
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        todo!()
+    }
+}
+
+impl<V: VTable> ArrayVariants for ArrayAdapter<V> {
+    fn as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
+        todo!()
+    }
+
+    fn as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
+        todo!()
+    }
+
+    fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        todo!()
+    }
+
+    fn as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
+        todo!()
+    }
+
+    fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
+        todo!()
+    }
+
+    fn as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
+        todo!()
+    }
+
+    fn as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
+        todo!()
+    }
+
+    fn as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
+        todo!()
+    }
+
+    fn as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
+        todo!()
+    }
+}
+
+impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
+    fn children(&self) -> Vec<ArrayRef> {
+        todo!()
+    }
+
+    fn nchildren(&self) -> usize {
+        todo!()
+    }
+
+    fn children_names(&self) -> Vec<String> {
+        todo!()
+    }
+
+    fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        todo!()
+    }
+
+    fn buffers(&self) -> Vec<ByteBuffer> {
+        todo!()
+    }
+
+    fn nbuffers(&self) -> usize {
+        todo!()
+    }
+
+    fn metadata(&self) -> Option<Vec<u8>> {
+        todo!()
+    }
+
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}

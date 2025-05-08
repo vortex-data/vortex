@@ -11,4 +11,4 @@ impl CastKernel for ConstantVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ConstantEncoding).lift());
+register_kernel!(CastKernelAdapter(ConstantVTable).lift());

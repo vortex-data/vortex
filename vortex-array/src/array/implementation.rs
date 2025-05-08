@@ -70,13 +70,6 @@ impl<A: ArrayImpl + 'static> Array for A {
         Arc::new(self.clone())
     }
 
-    fn into_array(self) -> ArrayRef
-    where
-        Self: Sized,
-    {
-        Arc::new(self)
-    }
-
     fn len(&self) -> usize {
         ArrayImpl::_len(self)
     }
@@ -85,90 +78,13 @@ impl<A: ArrayImpl + 'static> Array for A {
         ArrayImpl::_dtype(self)
     }
 
-    fn encoding(&self) -> EncodingId {
+    fn encoding_id(&self) -> EncodingId {
         self.vtable().id()
-    }
-
-    fn vtable(&self) -> VTableRef {
-        ArrayImpl::_vtable(self)
     }
 
     /// Perform a constant-time slice of the array.
     fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        if start == 0 && stop == self.len() {
-            return Ok(self.to_array());
-        }
-
-        if start > self.len() {
-            vortex_bail!(OutOfBounds: start, 0, self.len());
-        }
-        if stop > self.len() {
-            vortex_bail!(OutOfBounds: stop, 0, self.len());
-        }
-        if start > stop {
-            vortex_bail!("start ({start}) must be <= stop ({stop})");
-        }
-
-        if start == stop {
-            return Ok(Canonical::empty(self.dtype()).into_array());
-        }
-
-        // We know that constant array don't need stats propagation, so we can avoid the overhead of
-        // computing derived stats and merging them in.
-        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
-        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.is_constant()).then(|| {
-            let stats = self.statistics().to_owned();
-
-            // an array that is not constant can become constant after slicing
-            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
-            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
-            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
-
-            let mut stats = stats.keep_inexact_stats(&[
-                Stat::Max,
-                Stat::Min,
-                Stat::NullCount,
-                Stat::UncompressedSizeInBytes,
-            ]);
-
-            if is_constant == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsConstant, Precision::exact(true));
-            }
-            if is_sorted == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsSorted, Precision::exact(true));
-            }
-            if is_strict_sorted == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsStrictSorted, Precision::exact(true));
-            }
-
-            stats
-        });
-
-        let sliced = ArrayOperationsImpl::_slice(self, start, stop)?;
-
-        assert_eq!(
-            sliced.len(),
-            stop - start,
-            "Slice length mismatch {}",
-            self.encoding()
-        );
-        assert_eq!(
-            sliced.dtype(),
-            self.dtype(),
-            "Slice dtype mismatch {}",
-            self.encoding()
-        );
-
-        if let Some(derived_stats) = derived_stats {
-            let mut stats = sliced.statistics().to_owned();
-            stats.combine_sets(&derived_stats, self.dtype())?;
-            for (stat, val) in stats.into_iter() {
-                sliced.statistics().set(stat, val)
-            }
-        }
-
-        Ok(sliced)
+        todo!()
     }
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -258,7 +174,7 @@ impl<A: ArrayImpl + 'static> Array for A {
             self.len(),
             canonical.as_ref().len(),
             "Canonical length mismatch {}. Expected {} but encoded into {}.",
-            self.encoding(),
+            self.encoding_id(),
             self.len(),
             canonical.as_ref().len()
         );
@@ -266,7 +182,7 @@ impl<A: ArrayImpl + 'static> Array for A {
             self.dtype(),
             canonical.as_ref().dtype(),
             "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
-            self.encoding(),
+            self.encoding_id(),
             self.dtype(),
             canonical.as_ref().dtype()
         );
@@ -292,7 +208,7 @@ impl<A: ArrayImpl + 'static> Array for A {
             len + self.len(),
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
-            self.encoding(),
+            self.encoding_id(),
         );
         Ok(())
     }

@@ -52,7 +52,7 @@ fn test_fsst_array_ops() {
 
     // test slice
     let fsst_sliced = fsst_array.slice(1, 3).unwrap();
-    assert_eq!(fsst_sliced.encoding(), FSSTEncoding.id());
+    assert_eq!(fsst_sliced.encoding_id(), FSSTEncoding.id());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
         fsst_sliced,
@@ -68,7 +68,7 @@ fn test_fsst_array_ops() {
     // test take
     let indices = buffer![0, 2].into_array();
     let fsst_taken = take(&fsst_array, &indices).unwrap();
-    assert_eq!(fsst_taken.encoding(), FSSTEncoding.id());
+    assert_eq!(fsst_taken.encoding_id(), FSSTEncoding.id());
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(
         fsst_taken,
@@ -85,7 +85,7 @@ fn test_fsst_array_ops() {
     let mask = Mask::from_iter([false, true, true]);
 
     let fsst_filtered = filter(&fsst_array, &mask).unwrap();
-    assert_eq!(fsst_filtered.encoding(), FSSTEncoding.id());
+    assert_eq!(fsst_filtered.encoding_id(), FSSTEncoding.id());
     assert_eq!(fsst_filtered.len(), 2);
     assert_nth_scalar!(
         fsst_filtered,

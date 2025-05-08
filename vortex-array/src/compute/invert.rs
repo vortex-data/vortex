@@ -6,6 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_pa
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::encoding::Encoding;
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef, ToCanonical};
 
 /// Logically invert a boolean array, preserving its validity.
@@ -40,7 +41,7 @@ impl ComputeFnVTable for Invert {
         // Otherwise, we canonicalize into a boolean array and invert.
         log::debug!(
             "No invert implementation found for encoding {}",
-            array.encoding(),
+            array.encoding_id(),
         );
         if array.is_canonical() {
             vortex_panic!("Canonical bool array does not implement invert");
@@ -88,27 +89,27 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for InvertArgs<'a> {
 pub struct InvertKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(InvertKernelRef);
 
-pub trait InvertKernel: Encoding {
+pub trait InvertKernel: VTable {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
     fn invert(&self, array: &Self::Array) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
-pub struct InvertKernelAdapter<E: Encoding>(pub E);
+pub struct InvertKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + InvertKernel> InvertKernelAdapter<E> {
+impl<V: VTable + InvertKernel> InvertKernelAdapter<V> {
     pub const fn lift(&'static self) -> InvertKernelRef {
         InvertKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + InvertKernel> Kernel for InvertKernelAdapter<E> {
+impl<V: VTable + InvertKernel> Kernel for InvertKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = InvertArgs::try_from(args)?;
-        let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = args.array.as_any().downcast_ref::<V::Array>() else {
             return Ok(None);
         };
-        Ok(Some(E::invert(&self.0, array)?.into()))
+        Ok(Some(V::invert(&self.0, array)?.into()))
     }
 }
 

@@ -32,4 +32,4 @@ impl CompareKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(CompareKernelAdapter(ExtensionVTable).lift());

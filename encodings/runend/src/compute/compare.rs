@@ -37,7 +37,7 @@ impl CompareKernel for RunEndVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(RunEndEncoding).lift());
+register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {

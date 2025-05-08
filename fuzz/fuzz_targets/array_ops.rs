@@ -50,7 +50,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                     StructEncoding.id(),
                     ListEncoding.id(),
                 ])
-                .contains(&current_array.encoding())
+                .contains(&current_array.encoding_id())
                 {
                     sorted = BtrBlocksCompressor.compress(&sorted).vortex_unwrap();
                 }

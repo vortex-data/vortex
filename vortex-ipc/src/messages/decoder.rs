@@ -183,7 +183,7 @@ mod test {
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());
-        assert_eq!(expected.encoding(), actual.encoding());
+        assert_eq!(expected.encoding_id(), actual.encoding_id());
     }
 
     #[test]

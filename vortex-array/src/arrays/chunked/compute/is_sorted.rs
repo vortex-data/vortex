@@ -14,7 +14,7 @@ impl IsSortedKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ChunkedVTable).lift());
 
 fn is_sorted_impl(
     array: &ChunkedArray,

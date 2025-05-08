@@ -33,7 +33,7 @@ impl NumericKernel for DictVTable {
     }
 }
 
-register_kernel!(NumericKernelAdapter(DictEncoding).lift());
+register_kernel!(NumericKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
