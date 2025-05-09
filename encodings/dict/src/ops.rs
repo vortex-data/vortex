@@ -1,6 +1,6 @@
 use vortex_array::arrays::{ConstantArray, ConstantEncoding};
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef, ArrayStatistics};
+use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
