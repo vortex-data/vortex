@@ -11,4 +11,3 @@ mod ops;
 mod serde;
 #[cfg(feature = "test-harness")]
 pub mod test;
-mod variants;

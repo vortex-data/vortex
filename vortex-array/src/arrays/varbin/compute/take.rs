@@ -7,7 +7,6 @@ use crate::arrays::VarBinEncoding;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for VarBinEncoding {

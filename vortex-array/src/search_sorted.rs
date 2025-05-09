@@ -88,7 +88,6 @@ impl Display for SearchResult {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
     /// For example, if self\[idx\] > elem, return Some(Greater).

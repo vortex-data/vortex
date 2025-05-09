@@ -4,7 +4,6 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl BetweenKernel for PrimitiveEncoding {

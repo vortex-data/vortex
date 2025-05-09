@@ -25,7 +25,6 @@ mod canonical;
 mod compute;
 mod ops;
 mod serde;
-mod variants;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {

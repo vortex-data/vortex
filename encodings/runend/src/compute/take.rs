@@ -1,6 +1,6 @@
-use num_traits::AsPrimitive;
+use num_traits::{AsPrimitive, NumCast};
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
@@ -38,11 +38,28 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     array: &RunEndArray,
     indices: &[T],
 ) -> VortexResult<ArrayRef> {
-    let physical_indices = array
-        .find_physical_indices(indices.iter().map(|idx| idx.as_() + array.offset()))
-        .map(|idx| idx as u64)
-        .collect::<Buffer<u64>>()
-        .into_array();
+    let ends = array.ends().to_primitive()?;
+    let ends_len = ends.len();
+
+    let physical_indices = match_each_integer_ptype!(ends.ptype(), |$I| {
+        let end_slices = ends.as_slice::<$I>();
+        indices
+            .iter()
+            .map(|idx| idx.as_() + array.offset())
+            .map(|idx| {
+                match <$I as NumCast>::from(idx) {
+                    Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
+                    None => {
+                        // The idx is too large for $I, therefore it's out of bounds.
+                        SearchResult::NotFound(ends_len)
+                    }
+                }
+            })
+            .map(|result| result.to_ends_index(ends_len) as u64)
+            .collect::<Buffer<u64>>()
+            .into_array()
+    });
+
     take(array.values(), &physical_indices)
 }
 

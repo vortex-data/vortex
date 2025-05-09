@@ -1,11 +1,9 @@
 use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Encoding, ProstMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, ProstMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -176,17 +174,3 @@ impl ArrayValidityImpl for FSSTArray {
         self.codes().validity_mask()
     }
 }
-
-impl ArrayVariantsImpl for FSSTArray {
-    fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
-        Some(self)
-    }
-
-    fn _as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
-        Some(self)
-    }
-}
-
-impl Utf8ArrayTrait for FSSTArray {}
-
-impl BinaryArrayTrait for FSSTArray {}

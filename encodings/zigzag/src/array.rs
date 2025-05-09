@@ -1,10 +1,8 @@
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, ToCanonical,
-    try_from_array_ref,
+    ArrayValidityImpl, Canonical, EmptyMetadata, Encoding, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -46,6 +44,10 @@ impl ZigZagArray {
             encoded,
             stats_set: Default::default(),
         })
+    }
+
+    pub fn ptype(&self) -> PType {
+        self.dtype().to_ptype()
     }
 
     pub fn encoded(&self) -> &ArrayRef {
@@ -131,14 +133,6 @@ impl ArrayValidityImpl for ZigZagArray {
         self.encoded.validity_mask()
     }
 }
-
-impl ArrayVariantsImpl for ZigZagArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for ZigZagArray {}
 
 #[cfg(test)]
 mod test {

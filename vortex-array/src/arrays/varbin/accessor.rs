@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
 impl ArrayAccessor<[u8]> for VarBinArray {

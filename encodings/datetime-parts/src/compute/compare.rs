@@ -156,7 +156,6 @@ fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<Ar
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ArrayVariants;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
@@ -183,14 +182,14 @@ mod test {
             .compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 00:00:00 UTC
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 0);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
     #[test]
@@ -201,14 +200,14 @@ mod test {
             .compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 0);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
     #[test]
@@ -220,7 +219,7 @@ mod test {
             .compare(&lhs, &rhs, Operator::Lt)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
     #[test]
@@ -232,7 +231,7 @@ mod test {
             .compare(&lhs, &rhs, Operator::Gt)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
     #[test]
@@ -258,25 +257,25 @@ mod test {
             .compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 0);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Lt)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Lte)
             .unwrap()
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().unwrap().true_count().unwrap(), 1);
+        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         // `Operator::Gt` and `Operator::Gte` only cover the case of all lhs values
         // being larger. Therefore, these cases are not covered by unit tests.

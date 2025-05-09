@@ -3,12 +3,10 @@ use std::fmt::Debug;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::{BoolArrayTrait, DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariants, ArrayVariantsImpl, Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
-    try_from_array_ref,
+    Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical, try_from_array_ref,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -87,30 +85,11 @@ impl RunEndArray {
         Ok(self
             .ends()
             .as_primitive_typed()
-            .vortex_expect("ends array must be primitive")
             .search_sorted(
                 &PValue::from(index + self.offset()),
                 SearchSortedSide::Right,
             )
             .to_ends_index(self.ends().len()))
-    }
-
-    /// Convert a batch of logical indices into an index for the values. Expects indices to be adjusted by offset unlike
-    /// [Self::find_physical_index]
-    ///
-    /// See: [find_physical_index][Self::find_physical_index].
-    pub fn find_physical_indices<I: IntoIterator<Item = usize>>(
-        &self,
-        indices: I,
-    ) -> impl Iterator<Item = usize> {
-        self.ends()
-            .as_primitive_typed()
-            .vortex_expect("ends array must be primitive")
-            .search_sorted_many(
-                indices.into_iter().map(PValue::from),
-                SearchSortedSide::Right,
-            )
-            .map(|result| result.to_ends_index(self.ends().len()))
     }
 
     /// Run the array through run-end encoding.
@@ -172,26 +151,6 @@ impl ArrayImpl for RunEndArray {
         Self::try_new(ends, values)
     }
 }
-
-impl ArrayVariantsImpl for RunEndArray {
-    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
-    }
-
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-
-    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for RunEndArray {}
-
-impl BoolArrayTrait for RunEndArray {}
-
-impl DecimalArrayTrait for RunEndArray {}
 
 impl ArrayValidityImpl for RunEndArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {

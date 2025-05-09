@@ -2,7 +2,6 @@ use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::compress::downscale_integer_array;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexResult, vortex_bail};

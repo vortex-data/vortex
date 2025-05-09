@@ -13,7 +13,7 @@ use vortex::layout::{
 };
 use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::{Array, ArrayRef, ArrayVariants};
+use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::{ExprEvaluator, LayoutVTable};
 
@@ -130,9 +130,9 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let struct_array = array.as_struct_typed().vortex_expect("stats table");
+        let struct_array = array.to_struct().vortex_expect("stats table");
         // add 1 for the chunk column
-        let field_count = struct_array.nfields() + 1;
+        let field_count = struct_array.struct_dtype().nfields() + 1;
         let header = std::iter::once("chunk")
             .chain(struct_array.names().iter().map(|x| x.as_ref()))
             .map(Cell::from)
@@ -142,13 +142,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<ArrayRef> = (0..struct_array.nfields())
-            .map(|x| {
-                struct_array
-                    .maybe_null_field_by_idx(x)
-                    .vortex_expect("stats table field")
-            })
-            .collect();
+        let field_arrays: Vec<ArrayRef> = struct_array.fields().to_vec();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {

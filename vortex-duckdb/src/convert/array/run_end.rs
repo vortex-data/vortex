@@ -3,7 +3,6 @@ use duckdb::ffi::{idx_t, sel_t};
 use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;

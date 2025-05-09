@@ -1,5 +1,3 @@
-extern crate core;
-
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;

@@ -267,15 +267,15 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(VortexScanGlobalState &glob
 static bool GetNextArray(ClientContext &context, const VortexBindData &bind_data, VortexScanGlobalState &global_state,
                          VortexScanLocalState &local_state, DataChunk &output) {
 
-	auto partition_idx = global_state.next_partition.fetch_add(1);
+	if (local_state.stream == nullptr) {
+		auto partition_idx = global_state.next_partition.fetch_add(1);
 
-	// No more partitions to read.
-	if (partition_idx >= global_state.scan_partitions.size()) {
-		global_state.finished = true;
-		return false;
-	}
+		// No more partitions to read.
+		if (partition_idx >= global_state.scan_partitions.size()) {
+			global_state.finished = true;
+			return false;
+		}
 
-	if (local_state.array == nullptr) {
 		auto partition = global_state.scan_partitions[partition_idx];
 
 		std::shared_ptr<VortexLayoutReader> layout_reader = [&] {
@@ -295,7 +295,6 @@ static bool GetNextArray(ClientContext &context, const VortexBindData &bind_data
 	}
 
 	local_state.array = local_state.stream->NextArray();
-
 	// Reset row offset for the array.
 	local_state.current_row = 0;
 
@@ -313,16 +312,13 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<VortexScanGlobalState>();
 	auto &local_state = data.local_state->Cast<VortexScanLocalState>();
 
-	if (global_state.finished && local_state.stream == nullptr) {
-		// Return an empty data chunk if all partitions have been processed.
-		output.Reset();
-		output.SetCardinality(0);
-		return;
-	}
-
 	if (local_state.array == nullptr) {
 		while (!GetNextArray(context, bind_data, global_state, local_state, output)) {
-			return;
+			if (global_state.finished) {
+				output.Reset();
+				output.SetCardinality(0);
+				return;
+			}
 		}
 	}
 
