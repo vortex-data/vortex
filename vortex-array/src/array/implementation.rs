@@ -12,14 +12,14 @@ use crate::array::convert::IntoArray;
 use crate::array::operations::ArrayOperationsImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
-use crate::arrays::ConstantArray;
+use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::VTableRef;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor, Canonical, Encoding,
-    EncodingId, TryFromArrayRef,
+    EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -118,7 +118,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = ConstantArray::try_from_array(self.to_array()).is_err().then(|| {
+        let derived_stats = self.is_encoding(ConstantEncoding.id()).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing
