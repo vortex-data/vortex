@@ -20,8 +20,8 @@ use crate::decimal_byte_parts::serde::DecimalBytesPartsMetadata;
 
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
 /// These are stored as big endian.
-///  e.g. for a decimal i128 [ 64..127 | 0..64] child[0] = 64..127 and child[1] = 0..64
-/// The child[0] sorting the most significant decimal bits must be signed and is nullable iff the
+///  e.g. for a decimal i128 \[ 64..127 | 0..64\] child\[0\] = 64..127 and child\[1\] = 0..64
+/// The child\[0\] sorting the most significant decimal bits must be signed and is nullable iff the
 /// decimal is nullable.
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
