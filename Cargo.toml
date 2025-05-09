@@ -92,6 +92,7 @@ duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 fastlanes = "0.1.8"
+lazy_static = "1.5"
 flatbuffers = "25.2.10"
 flexbuffers = "25.2.10"
 flume = "0.11"

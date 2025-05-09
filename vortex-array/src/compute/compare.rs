@@ -1,11 +1,11 @@
 use core::fmt;
 use std::any::Any;
 use std::fmt::{Display, Formatter};
-use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
+use lazy_static::lazy_static;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -107,13 +107,23 @@ impl<E: Encoding + CompareKernel> Kernel for CompareKernelAdapter<E> {
     }
 }
 
-pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
-    for kernel in inventory::iter::<CompareKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
+// pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+//     let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
+//     for kernel in inventory::iter::<CompareKernelRef> {
+//         compute.register_kernel(kernel.0.clone());
+//     }
+//     compute
+// });
+
+lazy_static! {
+    pub static ref COMPARE_FN: ComputeFn = {
+        let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
+        for kernel in inventory::iter::<CompareKernelRef> {
+            compute.register_kernel(kernel.0.clone());
+        }
+        compute
+    };
+}
 
 struct Compare;
 

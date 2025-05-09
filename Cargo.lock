@@ -6060,6 +6060,7 @@ dependencies = [
  "humansize",
  "inventory",
  "itertools 0.14.0",
+ "lazy_static",
  "log",
  "num-traits",
  "num_enum 0.7.3",
