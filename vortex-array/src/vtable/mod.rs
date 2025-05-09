@@ -40,7 +40,7 @@ use crate::{Array, Encoding, EncodingRef, IntoArray};
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Deref<Target = dyn Array> + IntoArray;
+    type Array: 'static + Send + Sync + Clone + Deref<Target = dyn Array> + IntoArray;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;
@@ -92,7 +92,8 @@ macro_rules! vtable {
 
             impl $crate::IntoArray for [<$V Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    std::sync::Arc::new(self)
+                    // We can unsafe transmute ourselves to an ArrayAdapter.
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
                 }
             }
 

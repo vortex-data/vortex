@@ -10,12 +10,11 @@ use vortex_error::{
 };
 use vortex_scalar::Scalar;
 
-use crate::array::ArrayValidityImpl;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper};
-use crate::{Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingRef, vtable};
+use crate::{Array, ArrayRef, EncodingRef, vtable};
 
 mod accessor;
 pub mod builder;

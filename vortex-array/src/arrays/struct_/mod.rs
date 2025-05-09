@@ -7,17 +7,13 @@ use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{
-    Array, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, EncodingRef,
-    IntoArray, vtable,
-};
+use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod serde;

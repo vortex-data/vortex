@@ -134,7 +134,7 @@ impl ArrayVTable<BoolVTable> for BoolVTable {
     }
 
     fn stats(array: &BoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
@@ -144,7 +144,7 @@ impl CanonicalVTable<BoolVTable> for BoolVTable {
     }
 
     fn append_to_builder(array: &BoolArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(array)
+        builder.extend_from_array(array.as_ref())
     }
 }
 

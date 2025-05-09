@@ -12,7 +12,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayContext, ArrayRef, Canonical, EmptyMetadata, EncodingRef, IntoArray, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical, EmptyMetadata,
+    EncodingRef, IntoArray, vtable,
 };
 
 mod compute;
@@ -94,6 +95,10 @@ impl SerdeVTable<NullVTable> for NullVTable {
 }
 
 impl VisitorVTable<NullVTable> for NullVTable {
+    fn visit_buffers(array: &NullArray, visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &NullArray, visitor: &mut dyn ArrayChildVisitor) {}
+
     fn with_children(array: &NullArray, _children: &[ArrayRef]) -> VortexResult<NullArray> {
         Ok(array.clone())
     }

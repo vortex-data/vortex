@@ -8,9 +8,7 @@ use crate::arrays::BoolVTable;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VTable, ValidityHelper, VisitorVTable};
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Encoding, ProstMetadata,
-};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -34,7 +32,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
         _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &BoolMetadata,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,

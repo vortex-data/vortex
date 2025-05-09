@@ -8,7 +8,9 @@ use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata, ToCanonical};
+use crate::{
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata, ToCanonical,
+};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;
@@ -61,10 +63,12 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
 }
 
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
+    fn visit_buffers(array: &ChunkedArray, visitor: &mut dyn ArrayBufferVisitor) {}
+
     fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
         let chunk_offsets =
             PrimitiveArray::new(array.chunk_offsets().clone(), Validity::NonNullable);
-        visitor.visit_child("chunk_offsets", &chunk_offsets);
+        visitor.visit_child("chunk_offsets", chunk_offsets.as_ref());
 
         for (idx, chunk) in array.chunks().iter().enumerate() {
             visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk);

@@ -8,7 +8,7 @@ use crate::arrays::{DecimalEncoding, NativeDecimalType};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayContext, ProstMetadata};
+use crate::{ArrayContext, ProstMetadata};
 
 /// Type of the decimal values.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
         _encoding: &DecimalEncoding,
         dtype: DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &DecimalMetadata,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,

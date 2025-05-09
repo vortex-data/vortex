@@ -7,7 +7,9 @@ use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::{ArrayVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayRef, EncodingRef, IntoArray, vtable};
+use crate::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingRef, IntoArray, vtable,
+};
 
 mod canonical;
 mod compute;
@@ -123,6 +125,8 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
             .freeze();
         visitor.visit_buffer(&buffer);
     }
+
+    fn visit_children(array: &ConstantArray, visitor: &mut dyn ArrayChildVisitor) {}
 
     fn with_children(array: &ConstantArray, _children: &[ArrayRef]) -> VortexResult<ConstantArray> {
         Ok(array.clone())

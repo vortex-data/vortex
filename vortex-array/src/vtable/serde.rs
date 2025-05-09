@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -12,7 +14,7 @@ use crate::{ArrayContext, DeserializeMetadata, EmptyMetadata, SerializeMetadata}
 ///  * Serialization to disk or over IPC.
 ///  * Import/export over FFI.
 pub trait SerdeVTable<V: VTable> {
-    type Metadata: SerializeMetadata + DeserializeMetadata;
+    type Metadata: Debug + SerializeMetadata + DeserializeMetadata;
 
     /// Returns the metadata for the given array.
     ///

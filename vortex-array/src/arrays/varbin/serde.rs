@@ -29,7 +29,7 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
         _encoding: &VarBinEncoding,
         dtype: DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &VarBinMetadata,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
