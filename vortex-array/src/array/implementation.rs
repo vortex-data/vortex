@@ -117,7 +117,7 @@ impl<A: ArrayImpl + 'static> Array for A {
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = self.is_encoding(ConstantEncoding.id()).then(|| {
+        let derived_stats = (!self.is_encoding(ConstantEncoding.id())).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing
