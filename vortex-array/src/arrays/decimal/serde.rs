@@ -4,13 +4,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::i256;
 
 use super::{DecimalArray, DecimalVTable};
-use crate::arrays::NativeDecimalType;
+use crate::arrays::{DecimalEncoding, NativeDecimalType};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{
-    Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
-};
+use crate::{Array, ArrayContext, ProstMetadata};
 
 /// Type of the decimal values.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
@@ -35,47 +33,33 @@ pub struct DecimalMetadata {
 impl SerdeVTable<DecimalVTable> for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
 
-    fn metadata(array: &DecimalVTable::Array) -> Option<Self::Metadata> {
-        todo!()
+    fn metadata(array: &DecimalArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(DecimalMetadata {
+            values_type: array.values_type() as i32,
+        }))
     }
 
     fn decode(
-        encoding: &DecimalVTable::Encoding,
+        _encoding: &DecimalEncoding,
         dtype: DType,
         len: usize,
         metadata: &Self::Metadata,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
-    ) -> VortexResult<DecimalVTable::Array> {
-        todo!()
-    }
-}
-
-impl EncodingVTable for DecimalEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+    ) -> VortexResult<DecimalArray> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = parts.buffer(0)?;
+        let buffer = buffers[0].clone();
 
-        let validity = if parts.nchildren() == 0 {
+        let validity = if children.len() == 0 {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 1 {
+            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
         let decimal_dtype = match &dtype {
@@ -83,7 +67,6 @@ impl EncodingVTable for DecimalEncoding {
             _ => vortex_bail!("Expected Decimal dtype, got {:?}", dtype),
         };
 
-        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(parts.metadata())?;
         match metadata.values_type() {
             DecimalValueType::I8 => {
                 check_and_build_decimal::<i8>(len, buffer, decimal_dtype, validity)
@@ -105,14 +88,6 @@ impl EncodingVTable for DecimalEncoding {
             }
         }
     }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(input.clone().into_decimal()?.into_array()))
-    }
 }
 
 fn check_and_build_decimal<T: NativeDecimalType>(
@@ -120,7 +95,7 @@ fn check_and_build_decimal<T: NativeDecimalType>(
     buffer: ByteBuffer,
     decimal_dtype: DecimalDType,
     validity: Validity,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<DecimalArray> {
     // Assuming 16-byte alignment for decimal values
     if !buffer.is_aligned(Alignment::of::<T>()) {
         vortex_bail!("Buffer is not aligned to 16-byte boundary");
@@ -135,7 +110,7 @@ fn check_and_build_decimal<T: NativeDecimalType>(
         );
     }
 
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+    Ok(DecimalArray::new(buffer, decimal_dtype, validity))
 }
 
 #[macro_export]

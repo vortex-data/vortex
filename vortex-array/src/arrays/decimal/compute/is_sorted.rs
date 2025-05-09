@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::{Array, match_each_decimal_value_type, register_kernel};
 

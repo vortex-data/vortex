@@ -3,29 +3,30 @@ use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{DecimalArray, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::validity::Validity;
-use crate::{Array, ArrayOperationsImpl, ArrayRef, match_each_decimal_value_type};
+use crate::vtable::OperationsVTable;
+use crate::{Array, ArrayRef, IntoArray, match_each_decimal_value_type};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(self.values_type, |$S| {
+    fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        match_each_decimal_value_type!(array.values_type, |$S| {
             slice_typed(
-                self.buffer::<$S>(),
+                array.buffer::<$S>(),
                 start,
                 stop,
-                self.decimal_dtype(),
-                self.validity.clone(),
+                array.decimal_dtype(),
+                array.validity.clone(),
             )
         })
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let scalar = match_each_decimal_value_type!(self.values_type(), |($D, $CTor)| {
+    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
+        let scalar = match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
            Scalar::decimal(
-                $CTor(self.buffer::<$D>()[index]),
-                self.decimal_dtype(),
-                self.dtype().nullability(),
+                $CTor(array.buffer::<$D>()[index]),
+                array.decimal_dtype(),
+                array.dtype().nullability(),
             )
         });
         Ok(scalar)

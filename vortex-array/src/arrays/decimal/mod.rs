@@ -6,19 +6,20 @@ use arcref::ArcRef;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_mask::Mask;
 use vortex_scalar::i256;
 
-use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::decimal::serde::DecimalMetadata;
 pub use crate::arrays::decimal::serde::DecimalValueType;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTable;
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+    VisitorVTable,
+};
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayVisitorImpl, Canonical, Encoding, EncodingRef, ProstMetadata, try_from_array_ref, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical,
+    EncodingRef, ProstMetadata, vtable,
 };
 
 vtable!(Decimal);
@@ -30,10 +31,10 @@ impl VTable for DecimalVTable {
     type ArrayVTable = Self;
     type DecodeVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = ();
-    type EncodeVTable = Self;
+    type EncodeVTable = ();
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
@@ -170,28 +171,9 @@ impl DecimalArray {
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<DecimalMetadata>> for DecimalArray {
-    fn _metadata(&self) -> ProstMetadata<DecimalMetadata> {
-        ProstMetadata(DecimalMetadata {
-            values_type: self.values_type as i32,
-        })
-    }
-
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&self.values);
-    }
-
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len())
-    }
-}
-
-impl ArrayImpl for DecimalArray {
-    type Encoding = DecimalEncoding;
-
-    #[inline]
-    fn _len(&self) -> usize {
-        let divisor = match self.values_type {
+impl ArrayVTable<DecimalVTable> for DecimalVTable {
+    fn len(array: &DecimalArray) -> usize {
+        let divisor = match array.values_type {
             DecimalValueType::I8 => 1,
             DecimalValueType::I16 => 2,
             DecimalValueType::I32 => 4,
@@ -199,62 +181,56 @@ impl ArrayImpl for DecimalArray {
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
         };
-        self.values.len() / divisor
+        array.values.len() / divisor
     }
 
-    #[inline]
-    fn _dtype(&self) -> &DType {
-        &self.dtype
+    fn dtype(array: &DecimalArray) -> &DType {
+        &array.dtype
     }
 
-    #[inline]
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&DecimalEncoding)
+    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+}
+
+impl VisitorVTable<DecimalVTable> for DecimalVTable {
+    fn visit_buffers(array: &DecimalArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&array.values);
     }
 
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
+    fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(array.validity(), array.len())
+    }
+
+    fn with_children(array: &DecimalArray, _children: &[ArrayRef]) -> VortexResult<DecimalArray> {
+        // FIXME(ngates): ported this logic from old code, but it needs to handle replacing
+        //  any validity child.
         // No non-validity child arrays to replace.
-        Ok(self.clone())
+        Ok(array.clone())
     }
 }
 
-impl ArrayStatisticsImpl for DecimalArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
+impl ArrayVisitorImpl<ProstMetadata<DecimalMetadata>> for DecimalArray {
+    fn _metadata(&self) -> ProstMetadata<DecimalMetadata> {
+        ProstMetadata(DecimalMetadata {
+            values_type: self.values_type as i32,
+        })
     }
 }
 
-impl ArrayCanonicalImpl for DecimalArray {
-    #[inline]
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(self.clone()))
+impl CanonicalVTable<DecimalVTable> for DecimalVTable {
+    fn canonicalize(array: &DecimalArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Decimal(array.clone()))
     }
 
-    #[inline]
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self)
+    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.extend_from_array(array)
     }
 }
 
-impl ArrayValidityImpl for DecimalArray {
-    #[inline]
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    #[inline]
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    #[inline]
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    #[inline]
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
+impl ValidityHelper for DecimalArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 

@@ -3,7 +3,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType, PrimitiveArray};
+use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 

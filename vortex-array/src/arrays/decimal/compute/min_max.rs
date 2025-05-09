@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
 
-use crate::arrays::{DecimalArray, DecimalEncoding, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::{Array, match_each_decimal_value_type, register_kernel};
 
