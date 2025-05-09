@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -17,10 +17,7 @@ use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{
-    Array, ArrayRef, ArrayStatisticsImpl, ArrayVisitor, Canonical, Encoding,
-    EncodingId,
-};
+use crate::{Array, ArrayRef, ArrayStatisticsImpl, ArrayVisitor, Canonical, Encoding, EncodingId};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
