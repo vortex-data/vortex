@@ -22,7 +22,7 @@ impl VTable for ExtensionVTable {
     type Encoding = ExtensionEncoding;
 
     type ArrayVTable = Self;
-    type DecodeVTable = Self;
+    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;

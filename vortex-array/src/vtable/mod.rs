@@ -44,7 +44,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;
-    type DecodeVTable: CanonicalVTable<Self>;
+    type CanonicalVTable: CanonicalVTable<Self>;
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;

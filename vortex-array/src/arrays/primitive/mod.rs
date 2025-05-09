@@ -9,16 +9,11 @@ use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_mask::Mask;
 
-use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingRef, IntoArray, try_from_array_ref, vtable,
-};
+use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod native_value;
@@ -30,7 +25,9 @@ mod top_value;
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
 
-use crate::vtable::VTable;
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+};
 
 vtable!(Primitive);
 
@@ -39,9 +36,9 @@ impl VTable for PrimitiveVTable {
     type Encoding = PrimitiveEncoding;
 
     type ArrayVTable = Self;
-    type DecodeVTable = Self;
+    type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = ();
     type EncodeVTable = ();
@@ -270,38 +267,23 @@ impl PrimitiveArray {
     }
 }
 
-impl ArrayImpl for PrimitiveArray {
-    type Encoding = PrimitiveEncoding;
-
-    fn _len(&self) -> usize {
-        self.byte_buffer().len() / self.ptype().byte_width()
+impl ArrayVTable<PrimitiveVTable> for PrimitiveVTable {
+    fn len(array: &PrimitiveArray) -> usize {
+        array.byte_buffer().len() / array.ptype().byte_width()
     }
 
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&PrimitiveEncoding)
+    fn dtype(array: &PrimitiveArray) -> &DType {
+        &array.dtype
     }
 
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Ok(Self::from_byte_buffer(
-            self.byte_buffer().clone(),
-            self.ptype(),
-            validity,
-        ))
+    fn stats(array: &PrimitiveArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
     }
 }
 
-impl ArrayStatisticsImpl for PrimitiveArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
+impl ValidityHelper for PrimitiveArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
@@ -324,31 +306,16 @@ impl<T: NativePType> IntoArray for BufferMut<T> {
     }
 }
 
-impl ArrayCanonicalImpl for PrimitiveArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(self.clone()))
+impl CanonicalVTable<PrimitiveVTable> for PrimitiveVTable {
+    fn canonicalize(array: &PrimitiveArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(array.clone()))
     }
 
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self)
-    }
-}
-
-impl ArrayValidityImpl for PrimitiveArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
+    fn append_to_builder(
+        array: &PrimitiveArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array)
     }
 }
 

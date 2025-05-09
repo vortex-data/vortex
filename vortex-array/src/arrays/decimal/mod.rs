@@ -29,7 +29,7 @@ impl VTable for DecimalVTable {
     type Encoding = DecimalEncoding;
 
     type ArrayVTable = Self;
-    type DecodeVTable = Self;
+    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;

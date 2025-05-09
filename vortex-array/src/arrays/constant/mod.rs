@@ -31,7 +31,7 @@ impl VTable for ConstantVTable {
     type Encoding = ConstantEncoding;
 
     type ArrayVTable = Self;
-    type DecodeVTable = Self;
+    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;

@@ -9,7 +9,7 @@ use vortex_dtype::{
 };
 use vortex_error::VortexResult;
 
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};

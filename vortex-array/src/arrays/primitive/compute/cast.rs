@@ -2,11 +2,11 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {

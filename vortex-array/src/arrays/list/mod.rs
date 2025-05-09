@@ -29,7 +29,7 @@ impl VTable for ListVTable {
     type Encoding = ListEncoding;
 
     type ArrayVTable = Self;
-    type DecodeVTable = Self;
+    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
