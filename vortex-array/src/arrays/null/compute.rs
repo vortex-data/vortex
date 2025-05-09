@@ -8,7 +8,6 @@ use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl FilterKernel for NullEncoding {

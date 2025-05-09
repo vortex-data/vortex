@@ -6,7 +6,6 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
 impl MinMaxKernel for PrimitiveEncoding {

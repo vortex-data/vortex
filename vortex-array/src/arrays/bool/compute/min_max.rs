@@ -15,6 +15,9 @@ impl MinMaxKernel for BoolEncoding {
             Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => array.boolean_buffer().bitand(v.boolean_buffer()),
         };
+
+        // TODO(ngates): we should be able to bail out earlier as soon as we have one true and
+        //  one false value.
         let mut slices = x.set_slices();
         // If there are no slices, then all values are false
         // if there is a single slice that covers the entire array, then all values are true

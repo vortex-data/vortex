@@ -7,11 +7,10 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
@@ -147,6 +146,10 @@ impl BitPackedArray {
             validity,
             stats_set: Default::default(),
         })
+    }
+
+    pub fn ptype(&self) -> PType {
+        self.dtype.to_ptype()
     }
 
     /// Underlying bit packed values as byte array
@@ -318,14 +321,6 @@ impl ArrayValidityImpl for BitPackedArray {
         self.validity.to_mask(self.len())
     }
 }
-
-impl ArrayVariantsImpl for BitPackedArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {

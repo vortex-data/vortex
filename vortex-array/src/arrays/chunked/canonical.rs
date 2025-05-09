@@ -63,10 +63,12 @@ fn swizzle_struct_chunks(
         let field_chunks = chunks
             .iter()
             .map(|c| {
-                c.as_struct_typed()
+                c.to_struct()
                     .vortex_expect("Chunk was not a StructArray")
-                    .maybe_null_field_by_idx(field_idx)
-                    .vortex_expect("Invalid chunked array")
+                    .fields()
+                    .get(field_idx)
+                    .vortex_expect("Invalid field index")
+                    .to_array()
             })
             .collect::<Vec<_>>();
         let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
@@ -134,7 +136,6 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
     use crate::validity::Validity;
-    use crate::variants::StructArrayTrait;
 
     #[test]
     pub fn pack_nested_structs() {
@@ -157,16 +158,8 @@ mod tests {
         .unwrap()
         .into_array();
         let canonical_struct = chunked.to_struct().unwrap();
-        let canonical_varbin = canonical_struct
-            .maybe_null_field_by_idx(0)
-            .unwrap()
-            .to_varbinview()
-            .unwrap();
-        let original_varbin = struct_array
-            .maybe_null_field_by_idx(0)
-            .unwrap()
-            .to_varbinview()
-            .unwrap();
+        let canonical_varbin = canonical_struct.fields()[0].to_varbinview().unwrap();
+        let original_varbin = struct_array.fields()[0].to_varbinview().unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();

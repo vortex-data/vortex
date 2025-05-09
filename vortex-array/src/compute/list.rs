@@ -12,7 +12,6 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
 use crate::compute::{Operator, compare, invert};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 
 /// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list

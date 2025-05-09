@@ -27,7 +27,6 @@ mod accessor;
 mod compute;
 mod ops;
 mod serde;
-mod variants;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]

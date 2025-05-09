@@ -1,6 +1,5 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,

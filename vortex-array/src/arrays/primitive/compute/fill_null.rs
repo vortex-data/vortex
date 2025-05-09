@@ -9,7 +9,6 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl FillNullKernel for PrimitiveEncoding {

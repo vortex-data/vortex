@@ -134,7 +134,8 @@ impl PruningPredicate {
     pub fn evaluate(&self, metadata: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let known_stats = HashSet::from_iter(
             metadata
-                .as_struct_typed()
+                .dtype()
+                .as_struct()
                 .vortex_expect("metadata must be struct array")
                 .names()
                 .iter()

@@ -5,12 +5,11 @@ use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use super::serde::BoolMetadata;
-use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
+use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::bool;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding, ProstMetadata};
 
@@ -203,14 +202,6 @@ impl ArrayValidityImpl for BoolArray {
         self.validity.to_mask(self.len())
     }
 }
-
-impl ArrayVariantsImpl for BoolArray {
-    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
-    }
-}
-
-impl BoolArrayTrait for BoolArray {}
 
 pub trait BooleanBufferExt {
     /// Slice any full bytes from the buffer, leaving the offset < 8.

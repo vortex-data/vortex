@@ -9,7 +9,6 @@ use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl FilterKernel for VarBinEncoding {

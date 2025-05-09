@@ -8,7 +8,6 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{ToArrowFn, cast};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
 impl ToArrowFn<&ListArray> for ListEncoding {

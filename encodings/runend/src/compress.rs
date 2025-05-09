@@ -3,7 +3,6 @@ use itertools::Itertools;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype};

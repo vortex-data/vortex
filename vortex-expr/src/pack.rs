@@ -17,7 +17,7 @@ use crate::{ExprRef, VortexExpr};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;
@@ -28,10 +28,11 @@ use crate::{ExprRef, VortexExpr};
 /// ).unwrap();
 /// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
 /// let x_copy = packed
-///     .as_struct_typed()
+///     .to_struct()
 ///     .unwrap()
-///     .maybe_null_field_by_name("x copy")
-///     .unwrap();
+///     .field_by_name("x copy")
+///     .unwrap()
+///     .clone();
 /// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
 /// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
 /// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
@@ -177,7 +178,7 @@ mod tests {
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
+    use vortex_error::{VortexResult, vortex_bail};
 
     use crate::{Pack, VortexExpr, col};
 
@@ -196,16 +197,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("expected a struct"))?
-            .maybe_null_field_by_name(field)?;
-
+        let mut array = array.to_struct()?.field_by_name(field)?.clone();
         for field in field_path {
-            array = array
-                .as_struct_typed()
-                .ok_or_else(|| vortex_err!("expected a struct"))?
-                .maybe_null_field_by_name(field)?;
+            array = array.to_struct()?.field_by_name(field)?.clone();
         }
         Ok(array.to_primitive().unwrap())
     }
@@ -217,7 +211,10 @@ mod tests {
         let test_array = test_array().into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert!(actual_array.as_struct_typed().unwrap().nfields() == 0);
+        assert_eq!(
+            actual_array.to_struct().unwrap().struct_dtype().nfields(),
+            0
+        );
     }
 
     #[test]
@@ -228,12 +225,9 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap();
+        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
-        assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
-            &expected_names
-        );
+        assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
             primitive_field(&actual_array, &["one"])
@@ -271,12 +265,9 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap();
+        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
-        assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
-            &expected_names
-        );
+        assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
             primitive_field(&actual_array, &["one"])

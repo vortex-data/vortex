@@ -1,5 +1,4 @@
 use vortex_array::serde::ArrayParts;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical, EmptyMetadata,

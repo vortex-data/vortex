@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
@@ -100,12 +100,11 @@ impl VortexExpr for GetItem {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child = self.child.evaluate(batch)?;
-        child
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
-            // TODO(joe): apply struct validity
-            .maybe_null_field_by_name(self.field())
+        self.child
+            .evaluate(batch)?
+            .to_struct()?
+            .field_by_name(self.field())
+            .cloned()
     }
 
     fn children(&self) -> Vec<&ExprRef> {

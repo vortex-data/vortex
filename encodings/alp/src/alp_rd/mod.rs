@@ -3,13 +3,11 @@
 pub use array::*;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 
 mod array;
 mod compute;
 mod ops;
 mod serde;
-mod variants;
 
 use std::ops::{Shl, Shr};
 

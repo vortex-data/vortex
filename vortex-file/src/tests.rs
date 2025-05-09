@@ -13,12 +13,11 @@ use vortex_array::arrays::{
 };
 use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
 use vortex_array::validity::Validity;
-use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
+use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructDType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
@@ -238,11 +237,7 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(0)
-        .unwrap()
+    let actual = array.to_struct().unwrap().fields()[0]
         .to_varbinview()
         .unwrap()
         .with_iterator(|x| {
@@ -273,11 +268,7 @@ async fn test_read_projection() {
         )
     );
 
-    let primitive_array = array
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(0)
-        .unwrap()
+    let primitive_array = array.to_struct().unwrap().fields()[0]
         .to_primitive()
         .unwrap();
     let actual = primitive_array.as_slice::<u32>();
@@ -323,16 +314,13 @@ async fn unequal_batches() {
         item_count += array.len();
 
         let numbers = array
-            .as_struct_typed()
+            .to_struct()
             .unwrap()
-            .maybe_null_field_by_name("numbers");
-
-        if let Ok(numbers) = numbers {
-            let numbers = numbers.to_primitive().unwrap();
-            assert_eq!(numbers.ptype(), PType::U32);
-        } else {
-            vortex_panic!("Expected column doesn't exist")
-        }
+            .field_by_name("numbers")
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+        assert_eq!(numbers.ptype(), PType::U32);
     }
     assert_eq!(item_count, 10);
 }
@@ -423,11 +411,7 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(0)
-        .unwrap();
+    let names = result[0].to_struct().unwrap().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -439,11 +423,7 @@ async fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(1)
-        .unwrap();
+    let ages = result[0].to_struct().unwrap().fields()[1].clone();
     assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
@@ -489,11 +469,7 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(0)
-        .unwrap();
+    let names = result[0].to_struct().unwrap().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -505,11 +481,7 @@ async fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(1)
-        .unwrap();
+    let ages = result[0].to_struct().unwrap().fields()[1].clone();
     assert_eq!(
         ages.to_primitive()
             .unwrap()
@@ -558,11 +530,7 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(0)
-        .unwrap();
+    let names = result[0].to_struct().unwrap().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -573,11 +541,7 @@ async fn filter_and() {
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0]
-        .as_struct_typed()
-        .unwrap()
-        .maybe_null_field_by_idx(1)
-        .unwrap();
+    let ages = result[0].to_struct().unwrap().fields()[1].clone();
     assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25, 31]);
 }
 
@@ -634,11 +598,7 @@ async fn test_with_indices_simple() {
         .unwrap()
         .to_struct()
         .unwrap();
-    let actual_kept_numbers_array = actual_kept_array
-        .maybe_null_field_by_idx(0)
-        .unwrap()
-        .to_primitive()
-        .unwrap();
+    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive().unwrap();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -660,11 +620,7 @@ async fn test_with_indices_simple() {
         .unwrap()
         .to_struct()
         .unwrap();
-    let actual_numbers_array = actual_array
-        .maybe_null_field_by_idx(0)
-        .unwrap()
-        .to_primitive()
-        .unwrap();
+    let actual_numbers_array = actual_array.fields()[0].to_primitive().unwrap();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_numbers, actual_numbers);
@@ -710,9 +666,7 @@ async fn test_with_indices_on_two_columns() {
         .to_struct()
         .unwrap();
 
-    let strings_actual = array
-        .maybe_null_field_by_idx(0)
-        .unwrap()
+    let strings_actual = array.fields()[0]
         .to_varbinview()
         .unwrap()
         .with_iterator(|x| {
@@ -728,11 +682,7 @@ async fn test_with_indices_on_two_columns() {
             .collect::<Vec<_>>()
     );
 
-    let numbers_actual_array = array
-        .maybe_null_field_by_idx(1)
-        .unwrap()
-        .to_primitive()
-        .unwrap();
+    let numbers_actual_array = array.fields()[1].to_primitive().unwrap();
     let numbers_actual = numbers_actual_array.as_slice::<u32>();
     assert_eq!(
         numbers_actual,
@@ -798,11 +748,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .to_struct()
         .unwrap();
 
-    let actual_kept_numbers_array = actual_kept_array
-        .maybe_null_field_by_idx(0)
-        .unwrap()
-        .to_primitive()
-        .unwrap();
+    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive().unwrap();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -827,11 +773,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .to_struct()
         .unwrap();
 
-    let actual_numbers_array = actual_array
-        .maybe_null_field_by_idx(0)
-        .unwrap()
-        .to_primitive()
-        .unwrap();
+    let actual_numbers_array = actual_array.fields()[0].to_primitive().unwrap();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(
@@ -893,7 +835,7 @@ async fn filter_string_chunked() {
         .unwrap();
 
     assert_eq!(actual_array.len(), 1);
-    let names = actual_array.maybe_null_field_by_idx(0).unwrap();
+    let names = &actual_array.fields()[0];
     assert_eq!(
         names
             .to_varbinview()
@@ -905,7 +847,7 @@ async fn filter_string_chunked() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = actual_array.maybe_null_field_by_idx(1).unwrap();
+    let ages = &actual_array.fields()[1];
     assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
@@ -988,7 +930,7 @@ async fn test_pruning_with_or() {
         .unwrap();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = actual_array.maybe_null_field_by_idx(0).unwrap();
+    let letters = &actual_array.fields()[0];
     assert_eq!(
         letters
             .to_varbinview()
@@ -1010,7 +952,7 @@ async fn test_pruning_with_or() {
             Some("P".to_string())
         ]
     );
-    let numbers = actual_array.maybe_null_field_by_idx(1).unwrap();
+    let numbers = &actual_array.fields()[1];
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {

@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
-use crate::variants::PrimitiveArrayTrait;
 
 cfg_if::cfg_if! {
     if #[cfg(target_feature = "avx2")] {

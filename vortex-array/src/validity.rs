@@ -10,9 +10,9 @@ use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray};
-use crate::compute::{fill_null, filter, take};
+use crate::compute::{fill_null, filter, sum, take};
 use crate::patches::Patches;
-use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Validity information for an array
 #[derive(Clone, Debug)]
@@ -44,10 +44,10 @@ impl Validity {
                         length
                     )
                 }
-                let true_count = a
-                    .as_bool_typed()
-                    .vortex_expect("Validity array must be boolean")
-                    .true_count()?;
+                let true_count = sum(a)?
+                    .as_primitive()
+                    .as_::<usize>()?
+                    .ok_or_else(|| vortex_err!("Failed to compute true count"))?;
                 Ok(length - true_count)
             }
         }

@@ -3,18 +3,17 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::StructArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
+    Encoding,
 };
 
 mod compute;
@@ -43,6 +42,28 @@ impl StructArray {
 
     pub fn fields(&self) -> &[ArrayRef] {
         &self.fields
+    }
+
+    pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
+        let name = name.as_ref();
+        self.field_by_name_opt(name).ok_or_else(|| {
+            vortex_err!(
+                "Field {name} not found in struct array with names {:?}",
+                self.names()
+            )
+        })
+    }
+
+    pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
+        let name = name.as_ref();
+        self.names()
+            .iter()
+            .position(|field_name| field_name.as_ref() == name)
+            .map(|idx| &self.fields[idx])
+    }
+
+    pub fn names(&self) -> &FieldNames {
+        self.struct_dtype().names()
     }
 
     pub fn struct_dtype(&self) -> &Arc<StructDType> {
@@ -155,10 +176,7 @@ impl StructArray {
                 .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
-            children.push(
-                self.maybe_null_field_by_idx(idx)
-                    .vortex_expect("never out of bounds"),
-            );
+            children.push(self.fields()[idx].clone());
         }
 
         StructArray::try_new(
@@ -202,22 +220,6 @@ impl ArrayImpl for StructArray {
 impl ArrayStatisticsImpl for StructArray {
     fn _stats_ref(&self) -> StatsSetRef<'_> {
         self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayVariantsImpl for StructArray {
-    fn _as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
-        Some(self)
-    }
-}
-
-impl StructArrayTrait for StructArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
-        Ok(self.fields[idx].clone())
-    }
-
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {
-        self.project(projection).map(|a| a.into_array())
     }
 }
 
@@ -284,7 +286,6 @@ mod test {
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::validity::Validity;
-    use crate::variants::StructArrayTrait;
 
     #[test]
     fn test_project() {
@@ -313,7 +314,7 @@ mod test {
 
         assert_eq!(struct_b.len(), 5);
 
-        let bools = struct_b.maybe_null_field_by_idx(0).unwrap();
+        let bools = &struct_b.fields[0];
         assert_eq!(
             bools
                 .as_::<BoolArray>()
@@ -323,7 +324,7 @@ mod test {
             vec![true, true, true, false, false]
         );
 
-        let prims = struct_b.maybe_null_field_by_idx(1).unwrap();
+        let prims = &struct_b.fields[1];
         assert_eq!(
             prims.as_::<PrimitiveArray>().as_slice::<i64>(),
             [0i64, 1, 2, 3, 4]

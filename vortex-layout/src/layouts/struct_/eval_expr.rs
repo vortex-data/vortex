@@ -345,9 +345,9 @@ mod tests {
 
         assert_eq!(
             result
-                .as_struct_typed()
+                .to_struct()
                 .unwrap()
-                .maybe_null_field_by_name("a")
+                .field_by_name("a")
                 .unwrap()
                 .to_primitive()
                 .unwrap()
@@ -357,9 +357,9 @@ mod tests {
 
         assert_eq!(
             result
-                .as_struct_typed()
+                .to_struct()
                 .unwrap()
-                .maybe_null_field_by_name("b")
+                .field_by_name("b")
                 .unwrap()
                 .to_primitive()
                 .unwrap()
