@@ -7,7 +7,6 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
-use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};

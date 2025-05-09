@@ -1,21 +1,24 @@
-use vortex_buffer::ByteBufferMut;
+use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::ConstantEncoding;
-use crate::arrays::ConstantArray;
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::serde::ArrayParts;
+use crate::vtable::SerdeVTable;
 use crate::{
-    Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
+    Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    EncodingId,
 };
 
-impl EncodingVTable for ConstantEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.constant")
+impl SerdeVTable<ConstantVTable> for ConstantVTable {
+    type Metadata = EmptyMetadata;
+
+    fn metadata(_array: &ConstantVTable::Array) -> Self::Metadata {
+        EmptyMetadata
     }
 
-    fn decode(
+    fn decode2(
         &self,
         parts: &ArrayParts,
         _ctx: &ArrayContext,
@@ -30,7 +33,7 @@ impl EncodingVTable for ConstantEncoding {
         Ok(ConstantArray::new(scalar, len).into_array())
     }
 
-    fn encode(
+    fn encode2(
         &self,
         input: &crate::Canonical,
         _like: Option<&dyn Array>,
@@ -44,6 +47,26 @@ impl EncodingVTable for ConstantEncoding {
         } else {
             Ok(None)
         }
+    }
+
+    fn encode(
+        encoding: &ConstantVTable::Encoding,
+        canonical: Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<ConstantVTable::Array> {
+        todo!()
+    }
+
+    fn decode(
+        encoding: &ConstantVTable::Encoding,
+        dtype: DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<ConstantVTable::Array> {
+        todo!()
     }
 }
 

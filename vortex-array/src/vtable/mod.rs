@@ -20,10 +20,21 @@ use vortex_scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::{Array, ArrayRef, Encoding, EncodingRef};
 
-/// The encoding [`VTable`] encapsulates _all_ logic for both an Array and an Encoding in a
-/// single trait, giving users a single entry-point to implement their own arrays.
+/// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
+/// The logic is split across several "VTable" traits to enable easier code organization than
+/// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`], we derive implementations for the [`Array`] and [`Encoding`] traits.
+/// Some of these vtables are optional, such as the [`SerdeVTable`], which is only required if
+/// the encoding supports serialization.
+///
+/// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`Encoding`]
+/// traits via the [`crate::ArrayAdapter`] and [`crate::EncodingAdapter`] types respectively.
+///
+/// The functions defined in these vtable traits will typically document their pre- and
+/// post-conditions. The pre-conditions are validated inside the [`Array`] and [`Encoding`]
+/// implementations so do not need to be checked in the vtable implementations (for example, index
+/// out of bounds). Post-conditions are validated after invocation of the vtable function and will
+/// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Deref<Target = dyn Array>;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
@@ -31,6 +42,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type CanonicalVTable: CanonicalVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
+
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     type SerdeVTable: SerdeVTable<Self> = ();
 

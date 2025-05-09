@@ -1,18 +1,19 @@
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::ArrayValidityImpl;
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
-};
+use crate::vtable::{VTable, ValidityVTable};
+use crate::{Array, ArrayRef, Encoding, EncodingRef, vtable};
 
 mod canonical;
 mod compute;
 mod serde;
 mod variants;
+
+vtable!(Constant);
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
@@ -23,9 +24,46 @@ pub struct ConstantArray {
 
 #[derive(Debug)]
 pub struct ConstantEncoding;
-impl Encoding for ConstantEncoding {
+
+impl VTable for ConstantVTable {
     type Array = ConstantArray;
-    type Metadata = EmptyMetadata;
+    type Encoding = ConstantEncoding;
+    type CanonicalVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.constant")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&ConstantEncoding)
+    }
+
+    fn len(array: &Self::Array) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &Self::Array) -> &DType {
+        array.scalar.dtype()
+    }
+
+    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+
+    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array> {
+        Ok(ConstantArray::new(array.scalar.clone(), stop - start))
+    }
+
+    fn scalar_at(array: &Self::Array, _index: usize) -> VortexResult<Scalar> {
+        Ok(array.scalar.clone())
+    }
+
+    fn with_children(array: &Self::Array, _children: &[ArrayRef]) -> VortexResult<Self::Array> {
+        Ok(array.clone())
+    }
 }
 
 impl ConstantArray {
@@ -48,59 +86,23 @@ impl ConstantArray {
     }
 }
 
-impl ArrayImpl for ConstantArray {
-    type Encoding = ConstantEncoding;
-
-    fn _len(&self) -> usize {
-        self.len
+impl ValidityVTable<ConstantVTable> for ConstantVTable {
+    fn is_valid(array: &<ConstantVTable as VTable>::Array, _index: usize) -> VortexResult<bool> {
+        Ok(!array.scalar().is_null())
     }
 
-    fn _dtype(&self) -> &DType {
-        self.scalar.dtype()
+    fn all_valid(array: &<ConstantVTable as VTable>::Array) -> VortexResult<bool> {
+        Ok(!array.scalar().is_null())
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&ConstantEncoding)
+    fn all_invalid(array: &<ConstantVTable as VTable>::Array) -> VortexResult<bool> {
+        Ok(array.scalar().is_null())
     }
 
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
-        Ok(self.clone())
-    }
-}
-
-impl ArrayOperationsImpl for ConstantArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(self.scalar().clone(), stop - start).into_array())
-    }
-
-    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar().clone())
-    }
-}
-
-impl ArrayValidityImpl for ConstantArray {
-    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
-        Ok(!self.scalar().is_null())
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        Ok(!self.scalar().is_null())
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        Ok(self.scalar().is_null())
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        Ok(match self.scalar().is_null() {
-            true => Mask::AllFalse(self.len()),
-            false => Mask::AllTrue(self.len()),
+    fn validity_mask(array: &<ConstantVTable as VTable>::Array) -> VortexResult<Mask> {
+        Ok(match array.scalar().is_null() {
+            true => Mask::AllFalse(array.len()),
+            false => Mask::AllTrue(array.len()),
         })
-    }
-}
-
-impl ArrayStatisticsImpl for ConstantArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
     }
 }
