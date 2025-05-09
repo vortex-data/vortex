@@ -3,6 +3,7 @@ mod serde;
 
 use std::sync::Arc;
 
+use arcref::ArcRef;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
@@ -17,10 +18,35 @@ use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
+use crate::vtable::VTable;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
+    ArrayValidityImpl, Canonical, Encoding, EncodingRef, ProstMetadata, TryFromArrayRef, vtable,
 };
+
+vtable!(List);
+
+impl VTable for ListVTable {
+    type Array = ListArray;
+    type Encoding = ListEncoding;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.list")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&ListEncoding)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
@@ -33,10 +59,6 @@ pub struct ListArray {
 
 #[derive(Debug)]
 pub struct ListEncoding;
-impl Encoding for ListEncoding {
-    type Array = ListArray;
-    type Metadata = ProstMetadata<ListMetadata>;
-}
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 

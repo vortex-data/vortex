@@ -24,13 +24,13 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::VTable;
+use crate::vtable::{OperationsVTable, VTable};
 use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
 /// The base trait for all Vortex arrays.
@@ -411,7 +411,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.is_constant()).then(|| {
+        let derived_stats = (!self.is::<ConstantEncoding>()).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing
@@ -439,7 +439,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             stats
         });
 
-        let sliced = ArrayOperationsImpl::_slice(self, start, stop)?;
+        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop)?;
 
         assert_eq!(
             sliced.len(),

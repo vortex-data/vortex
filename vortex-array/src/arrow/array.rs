@@ -9,25 +9,39 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::stats::StatsSetRef;
+use crate::vtable::VTable;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, EncodingRef, vtable,
 };
 
-/// A Vortex array that wraps an in-memory Arrow array.
-#[derive(Debug)]
-pub struct ArrowArrayEncoding;
+vtable!(Arrow);
 
-impl Encoding for ArrowArrayEncoding {
+impl VTable for ArrowVTable {
     type Array = ArrowArray;
-    type Metadata = EmptyMetadata;
-}
+    type Encoding = ArrowEncoding;
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
 
-impl EncodingVTable for ArrowArrayEncoding {
-    fn id(&self) -> EncodingId {
-        todo!()
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.arrow")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&ArrowEncoding)
     }
 }
+
+/// A Vortex array that wraps an in-memory Arrow array.
+// TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
+#[derive(Debug)]
+pub struct ArrowEncoding;
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {
@@ -105,7 +119,7 @@ impl ArrayVisitorImpl<EmptyMetadata> for ArrowArray {
 }
 
 impl ArrayImpl for ArrowArray {
-    type Encoding = ArrowArrayEncoding;
+    type Encoding = ArrowEncoding;
 
     fn _len(&self) -> usize {
         self.inner.len()
@@ -116,7 +130,7 @@ impl ArrayImpl for ArrowArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        ArcRef::new_ref(&ArrowArrayEncoding)
+        ArcRef::new_ref(&ArrowEncoding)
     }
 
     fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {

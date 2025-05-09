@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -10,13 +11,38 @@ use vortex_scalar::Scalar;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
+use crate::vtable::VTable;
 use crate::{
     Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    Encoding, EncodingRef, vtable,
 };
 
 mod compute;
 mod serde;
+
+vtable!(Struct);
+
+impl VTable for StructVTable {
+    type Array = StructArray;
+    type Encoding = StructEncoding;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.struct")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&StructEncoding)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct StructArray {
@@ -29,10 +55,6 @@ pub struct StructArray {
 
 #[derive(Debug)]
 pub struct StructEncoding;
-impl Encoding for StructEncoding {
-    type Array = StructArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl StructArray {
     pub fn validity(&self) -> &Validity {

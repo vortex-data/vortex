@@ -6,7 +6,6 @@ use super::StructEncoding;
 use crate::arrays::StructArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
 };

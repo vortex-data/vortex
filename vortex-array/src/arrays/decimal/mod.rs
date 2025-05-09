@@ -2,6 +2,7 @@ mod compute;
 mod ops;
 mod serde;
 
+use arcref::ArcRef;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
@@ -10,24 +11,42 @@ use vortex_scalar::i256;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::decimal::serde::DecimalMetadata;
+pub use crate::arrays::decimal::serde::DecimalValueType;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-
+use crate::vtable::VTable;
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+    ArrayVisitorImpl, Canonical, Encoding, EncodingRef, ProstMetadata, try_from_array_ref, vtable,
 };
+
+vtable!(Decimal);
+
+impl VTable for DecimalVTable {
+    type Array = DecimalArray;
+    type Encoding = DecimalEncoding;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.decimal")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&DecimalEncoding)
+    }
+}
 
 #[derive(Debug)]
 pub struct DecimalEncoding;
-
-pub use crate::arrays::decimal::serde::DecimalValueType;
-
-impl Encoding for DecimalEncoding {
-    type Array = DecimalArray;
-    type Metadata = ProstMetadata<DecimalMetadata>;
-}
 
 /// Type of decimal scalar values.
 pub trait NativeDecimalType: Copy + Eq + Ord {
@@ -81,8 +100,6 @@ pub struct DecimalArray {
     validity: Validity,
     stats_set: ArrayStats,
 }
-
-try_from_array_ref!(DecimalArray);
 
 impl DecimalArray {
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking

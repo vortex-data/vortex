@@ -18,20 +18,24 @@ mod compute;
 vtable!(Null);
 
 impl VTable for NullVTable {
-    type Array = Self;
-    type Encoding = Self;
+    type Array = NullArray;
+    type Encoding = NullEncoding;
+
     type ArrayVTable = Self;
     type DecodeVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
 
-    fn id(encoding: &Self::Encoding) -> ArcRef<str> {
-        todo!()
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.null")
     }
 
-    fn encoding(array: &Self::Array) -> EncodingRef {
-        todo!()
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&NullEncoding)
     }
 }
 
@@ -43,10 +47,6 @@ pub struct NullArray {
 
 #[derive(Debug)]
 pub struct NullEncoding;
-impl Encoding for NullEncoding {
-    type Array = NullArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl EncodingVTable for NullEncoding {
     fn id(&self) -> EncodingId {

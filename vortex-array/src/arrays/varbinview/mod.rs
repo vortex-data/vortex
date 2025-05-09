@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
+use arcref::ArcRef;
 use arrow_array::GenericByteViewArray;
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
@@ -17,9 +18,10 @@ use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
+use crate::vtable::VTable;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
-    TryFromArrayRef, try_from_array_ref,
+    EncodingRef, TryFromArrayRef, try_from_array_ref, vtable,
 };
 
 mod accessor;
@@ -257,6 +259,29 @@ impl Debug for BinaryView {
             s.field("ref", &"r".to_string());
         }
         s.finish()
+    }
+}
+
+vtable!(VarBinView);
+
+impl VTable for VarBinViewVTable {
+    type Array = VarBinViewArray;
+    type Encoding = VarBinViewEncoding;
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
+
+    fn id(encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.varbinview")
+    }
+
+    fn encoding(array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&array._vtable())
     }
 }
 

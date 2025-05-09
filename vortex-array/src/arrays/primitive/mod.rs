@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 use std::iter;
 
+use arcref::ArcRef;
+
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -13,10 +15,9 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding, IntoArray,
-    try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingRef, IntoArray, try_from_array_ref, vtable,
 };
 
 mod compute;
@@ -29,6 +30,32 @@ mod top_value;
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
 
+use crate::vtable::VTable;
+
+vtable!(Primitive);
+
+impl VTable for PrimitiveVTable {
+    type Array = PrimitiveArray;
+    type Encoding = PrimitiveEncoding;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.primitive")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&PrimitiveEncoding)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     dtype: DType,
@@ -37,15 +64,8 @@ pub struct PrimitiveArray {
     stats_set: ArrayStats,
 }
 
-try_from_array_ref!(PrimitiveArray);
-
 #[derive(Debug)]
 pub struct PrimitiveEncoding;
-
-impl Encoding for PrimitiveEncoding {
-    type Array = PrimitiveArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {

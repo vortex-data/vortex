@@ -7,6 +7,7 @@ use super::{DecimalArray, DecimalVTable};
 use crate::arrays::NativeDecimalType;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
+use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
 };
@@ -29,6 +30,26 @@ pub enum DecimalValueType {
 pub struct DecimalMetadata {
     #[prost(enumeration = "DecimalValueType", tag = "1")]
     pub(super) values_type: i32,
+}
+
+impl SerdeVTable<DecimalVTable> for DecimalVTable {
+    type Metadata = ProstMetadata<DecimalMetadata>;
+
+    fn metadata(array: &DecimalVTable::Array) -> Option<Self::Metadata> {
+        todo!()
+    }
+
+    fn decode(
+        encoding: &DecimalVTable::Encoding,
+        dtype: DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<DecimalVTable::Array> {
+        todo!()
+    }
 }
 
 impl EncodingVTable for DecimalEncoding {

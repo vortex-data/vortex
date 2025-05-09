@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use arcref::ArcRef;
 pub use compute::compute_min_max;
 use num_traits::PrimInt;
 use vortex_buffer::ByteBuffer;
@@ -15,8 +16,10 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
+use crate::vtable::VTable;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, ProstMetadata, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingRef, ProstMetadata,
+    try_from_array_ref, vtable,
 };
 
 mod accessor;
@@ -25,6 +28,29 @@ mod canonical;
 mod compute;
 mod ops;
 mod serde;
+
+vtable!(VarBin);
+
+impl VTable for VarBinVTable {
+    type Array = VarBinArray;
+    type Encoding = VarBinEncoding;
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
+    type SerdeVTable = ();
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.varbin")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&VarBinEncoding)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
@@ -35,14 +61,8 @@ pub struct VarBinArray {
     stats_set: ArrayStats,
 }
 
-try_from_array_ref!(VarBinArray);
-
 #[derive(Debug)]
 pub struct VarBinEncoding;
-impl Encoding for VarBinEncoding {
-    type Array = VarBinArray;
-    type Metadata = ProstMetadata<VarBinMetadata>;
-}
 
 impl VarBinArray {
     pub fn try_new(

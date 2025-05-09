@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -7,13 +8,38 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
+use crate::vtable::VTable;
 use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
-    Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding,
+    EncodingRef, vtable,
 };
 
 mod compute;
 mod serde;
+
+vtable!(Extension);
+
+impl VTable for ExtensionVTable {
+    type Array = ExtensionArray;
+    type Encoding = ExtensionEncoding;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+        ArcRef::new_ref("vortex.extension")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        ArcRef::new_ref(&ExtensionEncoding)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
@@ -24,10 +50,6 @@ pub struct ExtensionArray {
 
 #[derive(Debug)]
 pub struct ExtensionEncoding;
-impl Encoding for ExtensionEncoding {
-    type Array = ExtensionArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
