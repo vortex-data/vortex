@@ -13,7 +13,7 @@ use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
+
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
     ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
