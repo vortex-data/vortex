@@ -9,7 +9,7 @@ use vortex_array::arrays::{
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::stats::{Precision, Stat};
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fsst::{FSSTArray, FSSTEncoding};
