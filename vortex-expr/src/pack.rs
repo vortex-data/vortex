@@ -31,7 +31,8 @@ use crate::{ExprRef, VortexExpr};
 ///     .to_struct()
 ///     .unwrap()
 ///     .field_by_name("x copy")
-///     .unwrap();
+///     .unwrap()
+///     .clone();
 /// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
 /// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
 /// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
