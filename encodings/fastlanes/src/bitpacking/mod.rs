@@ -53,6 +53,8 @@ impl BitPackedArray {
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
     ///
+    /// None of the values present in patches can be present in the encoded array.
+    ///
     /// # Errors
     ///
     /// This method returns errors if any of the metadata is inconsistent, for example the packed
@@ -69,7 +71,7 @@ impl BitPackedArray {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub unsafe fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
