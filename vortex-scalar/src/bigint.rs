@@ -27,7 +27,7 @@ impl i256 {
     }
 
     /// Create an integer value from its representation as a byte array in little-endian.
-    pub fn from_le_bytes(bytes: [u8; 32]) -> Self {
+    pub const fn from_le_bytes(bytes: [u8; 32]) -> Self {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
@@ -50,6 +50,10 @@ impl i256 {
 
     pub fn wrapping_pow(&self, exp: u32) -> Self {
         Self(self.0.wrapping_pow(exp))
+    }
+
+    pub fn wrapping_add(&self, other: Self) -> Self {
+        Self(self.0.wrapping_add(other.0))
     }
 }
 

@@ -8,6 +8,15 @@ const MAX_SCALE: i8 = 76;
 /// Maximum precision for a Decimal128 type from Arrow
 pub const DECIMAL128_MAX_PRECISION: u8 = 38;
 
+/// Maximum precision for a Decimal256 type from Arrow
+pub const DECIMAL256_MAX_PRECISION: u8 = 76;
+
+/// Maximum sacle for a Decimal128 type from Arrow
+pub const DECIMAL128_MAX_SCALE: i8 = 38;
+
+/// Maximum sacle for a Decimal256 type from Arrow
+pub const DECIMAL256_MAX_SCALE: i8 = 76;
+
 /// Parameters that define the precision and scale of a decimal type.
 ///
 /// Decimal types allow real numbers with a similar precision and scale to be represented exactly.

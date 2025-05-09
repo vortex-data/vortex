@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 
-use crate::{DType, DecimalDType, FieldName, FieldNames, Nullability, PType, StructDType};
+use crate::{
+    DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE, DType, DecimalDType, FieldName, FieldNames,
+    Nullability, PType, StructDType,
+};
 
 impl<'a> Arbitrary<'a> for DType {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -72,8 +75,8 @@ impl<'a> Arbitrary<'a> for DecimalDType {
     )]
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         // Get a random integer for the scale
-        let precision = u8::try_from(u.int_in_range(1..=38)?).expect("u8 overflow");
-        let scale = u.int_in_range(-38..=(precision as i8))?;
+        let precision = u.int_in_range(1..=DECIMAL256_MAX_PRECISION)?;
+        let scale = u.int_in_range(-DECIMAL256_MAX_SCALE..=(precision as i8))?;
         Ok(Self::new(precision, scale))
     }
 }
