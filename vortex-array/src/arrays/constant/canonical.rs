@@ -146,7 +146,7 @@ fn canonical_byte_view(
 
             // Clone our constant view `len` times.
             // TODO(aduffy): switch this out for a ConstantArray once we
-            //   add u128 PType, see https://github.com/spiraldb/vortex/issues/1110
+            //   add u128 PType, see https://github.com/vortex-data/vortex/issues/1110
             let mut views = BufferMut::with_capacity_aligned(len, align_of::<u128>().into());
             for _ in 0..len {
                 views.push(view);
