@@ -1,6 +1,7 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
+mod compute;
 mod decode;
 mod encode;
 mod operations;
@@ -13,6 +14,7 @@ use std::ops::Deref;
 
 use arcref::ArcRef;
 pub use array::*;
+pub use compute::*;
 pub use decode::*;
 pub use encode::*;
 pub use operations::*;
@@ -47,6 +49,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
 
+    /// Optionally enable implementing dynamic compute dispatch for this encoding.
+    type ComputeVTable: ComputeVTable<Self> = ();
     /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
     /// compression.
     type EncodeVTable: EncodeVTable<Self> = ();

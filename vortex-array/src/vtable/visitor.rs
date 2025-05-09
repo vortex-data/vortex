@@ -6,7 +6,7 @@ use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef};
 
 pub trait VisitorVTable<V: VTable> {
     /// Visit the buffers of the array.
-    fn visit_buffers(array: &V::Array, _visitor: &mut dyn ArrayBufferVisitor);
+    fn visit_buffers(_array: &V::Array, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     /// Count the number of buffers in the array.
     fn nbuffers(array: &V::Array) -> usize {
@@ -24,7 +24,7 @@ pub trait VisitorVTable<V: VTable> {
     }
 
     /// Visit the children of the array.
-    fn visit_children(array: &V::Array, _visitor: &mut dyn ArrayChildVisitor);
+    fn visit_children(_array: &V::Array, _visitor: &mut dyn ArrayChildVisitor) {}
 
     /// Count the number of children in the array.
     fn nchildren(array: &V::Array) -> usize {
