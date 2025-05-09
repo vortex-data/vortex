@@ -1,16 +1,15 @@
 mod cast;
+mod filter;
 mod mask;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::arrays::StructEncoding;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
-    is_constant_opts, take,
+    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
+    MinMaxResult, TakeKernel, TakeKernelAdapter, is_constant_opts, take,
 };
 use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
 
@@ -31,27 +30,6 @@ impl TakeKernel for StructEncoding {
 }
 
 register_kernel!(TakeKernelAdapter(StructEncoding).lift());
-
-impl FilterKernel for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().filter(mask)?;
-
-        let fields: Vec<ArrayRef> = array
-            .fields()
-            .iter()
-            .map(|field| filter(field, mask))
-            .try_collect()?;
-        let length = fields
-            .first()
-            .map(|a| a.len())
-            .unwrap_or_else(|| mask.true_count());
-
-        StructArray::try_new_with_dtype(fields, array.struct_dtype().clone(), length, validity)
-            .map(|a| a.into_array())
-    }
-}
-
-register_kernel!(FilterKernelAdapter(StructEncoding).lift());
 
 impl MinMaxKernel for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
