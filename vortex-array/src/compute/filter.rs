@@ -62,23 +62,6 @@ pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 
 struct Filter;
 
-fn invoke_impl(
-    array: &dyn Array,
-    args: &InvocationArgs,
-    kernels: &[ArcRef<dyn Kernel>],
-) -> VortexResult<Option<Output>> {
-    for kernel in kernels {
-        if let Some(output) = kernel.invoke(args)? {
-            return Ok(Some(output));
-        }
-    }
-    if let Some(output) = array.invoke(&FILTER_FN, args)? {
-        return Ok(Some(output));
-    }
-
-    Ok(None)
-}
-
 impl ComputeFnVTable for Filter {
     fn invoke(
         &self,
@@ -99,7 +82,12 @@ impl ComputeFnVTable for Filter {
             return Ok(array.to_array().into());
         }
 
-        if let Some(output) = invoke_impl(array, args, kernels)? {
+        for kernel in kernels {
+            if let Some(output) = kernel.invoke(args)? {
+                return Ok(output);
+            }
+        }
+        if let Some(output) = array.invoke(&FILTER_FN, args)? {
             return Ok(output);
         }
 
@@ -113,24 +101,15 @@ impl ComputeFnVTable for Filter {
 
         log::debug!("No filter implementation found for {}", array.encoding(),);
 
-        let canonical = array.to_canonical()?.into_array();
-        let Some(output) = invoke_impl(
-            &canonical,
-            &InvocationArgs {
-                inputs: &[canonical.as_ref().into(), mask.into()],
-                options: &(),
-            },
-            kernels,
-        )?
-        else {
-            vortex_bail!(
-                "No filter implementation found for either array {} or canonical array {}",
-                array.encoding(),
-                canonical.encoding()
-            )
+        if !array.is_canonical() {
+            let canonical = array.to_canonical()?.into_array();
+            return filter(&canonical, mask).map(Into::into);
         };
 
-        Ok(output)
+        vortex_bail!(
+            "No filter implementation found for array {}",
+            array.encoding()
+        )
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
